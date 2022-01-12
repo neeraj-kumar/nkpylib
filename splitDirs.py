@@ -55,4 +55,3 @@ if __name__ == "__main__":
         sys.exit()
     files = filter(listdir('.'), sys.argv[3])
     splitIntoDirs(sys.argv[1], int(sys.argv[2]), files)
-        

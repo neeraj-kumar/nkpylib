@@ -1,8 +1,10 @@
-"""Simple utility to convert json file to csv
+#!/usr/bin/env python
+"""A script for downloading lots of urls fast, written by Neeraj Kumar.
+This is just a wrapper around threadutils.dlmany()
 
 Licensed under the 3-clause BSD License:
 
-Copyright (c) 2011-2014, Neeraj Kumar (neerajkumar.org)
+Copyright (c) 2010, Neeraj Kumar (neerajkumar.org)
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -28,19 +30,39 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-import csv, json, sys
-from utils import CSVUnicodeWriter, utf
-from collections import Counter
+import os, sys, time
+from nkpylib.threadutils import dlmany
 
+
+#def dlmany(urls, fnames, nprocs=10, callback=None, validfunc=os.path.exists, checkexists=0, timeout=None):
 if __name__ == '__main__':
-    data = json.load(open(sys.argv[1]))
-    output = CSVUnicodeWriter(open(sys.argv[2], 'wb'))
-    keys = Counter()
-    for row in data:
-        keys.update(row.keys())
-    keys = [k for k,v in keys.most_common() if not k.startswith('http')]
-    print keys
-    output.writerow(keys) # header row
-    for row in data:
-        cur = [utf(row.get(k, '')) for k in keys]
-        output.writerow(cur)
+    nthreads = 15
+    if len(sys.argv) < 2:
+        print 'Usage: python %s <output dir> [<nthreads>=%d] < <list of urls>' % (sys.argv[0], nthreads)
+        sys.exit()
+    outdir = sys.argv[1]
+    try:
+        nthreads = int(sys.argv[2])
+    except Exception: pass
+    urls = []
+    fnames = []
+    for l in sys.stdin:
+        url = l.rstrip('\n')
+        if '\t' in url:
+            url, path = url.split('\t')
+            path = os.path.join(outdir, path) #TODO here!
+            print url, path
+            urls.append(url)
+            fnames.append(path)
+
+    print 'Getting ready to download %d urls to outdir %s using %d threads' % (len(urls), outdir, nthreads)
+    #sys.exit()
+
+    def callback(i, u, f):
+        print '  Downloaded %s %s %s' % (i, u, f)
+        sys.stdout.flush()
+
+    t1 = time.time()
+    dlmany(urls, fnames, nprocs=nthreads, callback=callback, checkexists=1)
+    print time.time() - t1
+
