@@ -31,6 +31,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os, sys
 
+import numpy as np
+
 def floydwarshall(g, v):
     """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths.
     The input graph g should be something indexable by (i,j) to get distance between nodes i and j.
@@ -43,3 +45,37 @@ def floydwarshall(g, v):
             for j in xrange(v):
                 g[i,j] = min(g[i,j], g[i,k] + g[k,j])
     return g
+
+def bipartite_matching(a, b, score_func, symmetric=False):
+    """Does bipartite matching between lists `a` and `b` using `score_func`.
+
+    This computes scores between all elements in a and b using `score_func(x, y)`, and then goes
+    through the score matrix in descending order of score, yielding `(score, a_i, b_j)` tuples.
+    These are filtered such that no duplicate i or j are returned.
+
+    If `symmetric` is True, then assumes `a` and `b` refer to the same set of objects, and order
+    doesn't matter.
+    """
+    # first compute scores
+    na, nb = len(a), len(b)
+    scores = np.zeros((na, nb))
+    for i, x in enumerate(a):
+        for j, y in enumerate(b):
+            scores[i,j] = score_func(x, y)
+    inds = np.unravel_index(np.argsort(scores, axis=None), scores.shape)
+    inds = np.array([x[::-1] for x in inds])
+    i_left = set(range(na))
+    j_left = set(range(nb))
+    if symmetric:
+        assert na == nb
+        j_left = i_left
+    for i, j in inds.T:
+        if symmetric and i == j:
+            continue
+        if i not in i_left:
+            continue
+        if j not in j_left:
+            continue
+        yield (scores[i, j], a[i], b[j])
+        i_left.remove(i)
+        j_left.remove(j)
