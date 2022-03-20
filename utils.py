@@ -356,7 +356,7 @@ def autoRestarter(exceptions, timeout=1.0):
             while 1:
                 try:
                     return f(*args, **kw)
-                except exceptions, e:
+                except exceptions as e:
                     log('Restarting function %s in %0.2f secs due to %s: %s' % (f, timeout, type(e), e))
                     time.sleep(timeout)
         return ret
@@ -376,8 +376,8 @@ def queueize(inq, outq, func, endfunc=None):
             outq.put(func(*args))
             #print >>sys.stderr, '    At bottom of queueize loop'
             sys.stderr.flush()
-        except Exception, e:
-            print >>sys.stderr, ' ** Hit an exception of type %s: %s' % (type(e), e)
+        except Exception as e:
+            sys.stderr.write(' ** Hit an exception of type %s: %s\n' % (type(e), e))
     #print >>sys.stderr, 'Finished queueize, this is a problem!'
     #sys.stderr.flush()
 
@@ -566,7 +566,7 @@ def makesecs(t):
     fmt = '%Y-%m-%d %H:%M:%S'
     try:
         st = time.strptime(els[0], fmt)
-    except ValueError, e:
+    except ValueError as e:
         #logger.info('Time %s (els %s) did not match fmt %s' % (t, els[0], fmt))
         return None
     #ret = time.mktime(st) # localtime
@@ -928,7 +928,8 @@ class MemUsage(object):
         # index if integral
         try:
             return self.data[key]
-        except (IndexError, TypeError): pass
+        except (IndexError, TypeError):
+            pass
         # otherwise name
         for d in reversed(self.data):
             if d['name'] == key:
@@ -951,15 +952,15 @@ def log(s, f=sys.stderr, funcindent=-1):
     if isinstance(s, unicode):
         s = s.encode('utf-8', 'ignore')
     while s[0] == '\n':
-        print >>f
+        f.write('\n')
         s = s[1:]
     if funcindent >= 0:
         from inspect import stack
         s = '  ' * max(len(stack())-funcindent, 0) + s
     if '\r' in s:
-        print >>f, s,
+        f.write(s)
     else:
-        print >>f, s
+        f.write(s+'\n')
     f.flush()
 
 def makeProgress(out=sys.stderr, length=None):
@@ -982,10 +983,10 @@ def makeProgress(out=sys.stderr, length=None):
         """Prints a message with progress"""
         # first print blanks for each character in the previous
         blanks = ' ' * (last[0]+5)
-        print >> out, '\r%s' % (blanks),
+        out.write('\r%s' % (blanks))
         # now print the message
         # TODO deal with i/total somehow
-        print >> out, '\r%s' % (msg),
+        out.write('\r%s' % (msg))
         out.flush()
         # now save the length
         last[0] = len(msg)
@@ -1038,7 +1039,7 @@ def spark(vals, wrap=0, scale=None, f=sys.stdout):
         args.extend(map(str, g))
         if isinstance(f, StringIO):
             sout, serr = Popen(args, stdout=PIPE).communicate()
-            print >>f, sout
+            f.write(sout+'\n')
         else:
             Popen(args, stdout=f).communicate()
 
@@ -1135,7 +1136,7 @@ def argsort(seq, key=None, cmp=None, reverse=False):
     """
     if not seq: return ()
     ukey = key
-    iseq = sorted([(v, i) for i, v in enumerate(seq)], key=lambda (v,i): ukey(v), cmp=cmp, reverse=reverse)
+    iseq = sorted([(v, i) for i, v in enumerate(seq)], key=lambda v, i: ukey(v), cmp=cmp, reverse=reverse)
     vals, idxs = zip(*iseq)
     return idxs
 
@@ -1932,11 +1933,11 @@ def filternnresults(dists, k=None, r=None, sort=1):
             if 0: # for checking only
                 # map the original distances using these indices
                 check = origdists[inds]
-                print 'c', len(check), check
+                print('c', len(check), check)
                 # check that the original distances map to the same list of sorted distances
                 for idx, i in enumerate(inds):
                     if idx % 1000 == 0:
-                        print i, origdists[i], dists[idx]
+                        print(i, origdists[i], dists[idx])
                     if idx > 20000: break
         else:
             # we're sorting, but not filtering by distance
@@ -2618,7 +2619,7 @@ def convertBasePath(objs, anchor, base):
     #print "Basename was %s and the first object originally had path %s" % (base, objs[0].path)
     for obj in objs:
         obj.path = replaceTill(obj.path, anchor, base)
-    print >>sys.stderr, "Converted base paths to '%s'" % (base)
+    sys.stderr.write("Converted base paths to '%s'\n" % (base))
     return oldpaths
 
 def getKWArgsFromArgs(args=None):
@@ -2631,7 +2632,8 @@ def getKWArgsFromArgs(args=None):
         k, v = a.split('=', 1)
         try:
             kw[k] = eval(v)
-        except (NameError, SyntaxError): kw[k] = v
+        except (NameError, SyntaxError):
+            kw[k] = v
     return kw
 
 def numformat(num, fmt='%d'):
@@ -2802,7 +2804,7 @@ def strsim(a, b, weights={'difflib':1.0, 'longest_ratio':5.0, 'matching_ratio':6
     ret /= total
     DEBUG = 0
     if DEBUG:
-        print >>sys.stderr, a, b, '\n\t', r0, r1, r2, r3, ret
+        print(a, b, '\n\t', r0, r1, r2, r3, ret, file=sys.stderr)
     return ret
 
 def matrixprint(m, width=None, fillchar=' ', sep=' ', rowsep='\n', fmt='%0.2f'):
@@ -2955,7 +2957,7 @@ def dlFileIfNeeded(f, repfunc=lambda f:replaceTill(f, '/db/', 'http://leaf.cs.co
         fname, headers = urllib.urlretrieve(url, f)
         assert fname == f
         return f
-    except IOError, e:
+    except IOError as e:
         #print "Error: %s, %s, %s" % (url, f, e)
         return None
 
@@ -2972,9 +2974,9 @@ def downloadfile(url, outdir='.', outf=sys.stderr, delay=1):
         if not os.path.exists(outpath):
             # check for temp file existence, so multiple threads don't all try to download at once
             temp = outpath + '_dl_temp_%d' % (int(time.time())//100) # the temp file is accurate to the 100s of secs
-            print >>outf, 'Trying to download path %s to %s via temp name %s' % (url, outpath, os.path.basename(temp))
+            print('Trying to download path %s to %s via temp name %s' % (url, outpath, os.path.basename(temp)), file=outf)
             while os.path.exists(temp) and not os.path.exists(outpath):
-                print >>outf, '  Detected temp file %s, just sleeping for %s' % (temp, delay)
+                print('  Detected temp file %s, just sleeping for %s' % (temp, delay), file=outf)
                 time.sleep(delay)
                 temp = outpath + '_dl_temp_%d' % (int(time.time())//100) # the temp file is accurate to the 100s of secs
             # another check for outpath existence
@@ -2991,7 +2993,7 @@ def downloadfile(url, outdir='.', outf=sys.stderr, delay=1):
                     os.rename(temp, outpath)
                 except Exception: pass
                 s = os.stat(outpath).st_size
-                print >>outf, 'Downloaded %s to %s in %0.3fs (%s bytes, %0.1f bytes/sec)' % (url, outpath, elapsed, s, s/elapsed)
+                print('Downloaded %s to %s in %0.3fs (%s bytes, %0.1f bytes/sec)' % (url, outpath, elapsed, s, s/elapsed), file=outf)
                 try:
                     os.remove(outtemp)
                 except Exception: pass
@@ -3045,7 +3047,8 @@ def specialize(v):
         # maybe it's a float...
         try:
             v = float(v)
-        except (ValueError,TypeError): pass
+        except (ValueError,TypeError):
+            pass
     return v
 
 def specializeDict(d):
@@ -3256,10 +3259,10 @@ def writeLinesOfVals(linevals, fields, fname, dlm=' ', **kw):
     else:
         outf = open(fname, 'w')
     if dlm != ',':
-        print >>outf, '#' + dlm,
-    print >>outf, dlm.join(fields)
+        outf.write('#' + dlm)
+    print(dlm.join(fields), file=outf)
     for vals in linevals:
-        print >>outf, dlm.join(vals)
+        print(dlm.join(vals), file=outf)
 
 def writeListOfVals(faces, fields, fname, **kw):
     """Prints data in 'faces' (assumed to be lists) using the fields given"""
@@ -3507,29 +3510,29 @@ def httpresponse(url):
 
 def _memtest():
     """Tests the various mem utils"""
-    print procmem()
-    print totalmem()
+    print(procmem())
+    print(totalmem())
     m = MemUsage()
-    print 'Created m'
-    print m.usage()
-    print m.delta()
+    print('Created m')
+    print(m.usage())
+    print(m.delta())
     a = range(1000000)
     m.add('after a')
-    print m.usage()
-    print m.delta()
+    print(m.usage())
+    print(m.delta())
     b = range(2000000)
     m.add('after b')
-    print m.usage()
-    print m.delta()
+    print(m.usage())
+    print(m.delta())
     del b
     m.add('after del')
-    print m.usage()
-    print m.delta()
-    print m.usage('start')
-    print m.delta('after b')
+    print(m.usage())
+    print(m.delta())
+    print(m.usage('start'))
+    print(m.delta('after b'))
     for i in m:
-        print i
-    print m['after a']
+        print(i)
+    print(m['after a'])
 
 def getConsoleSize():
     """Returns the (width, height) of the current console window.
@@ -3655,11 +3658,11 @@ def genericWorkerLoop(funcgetter='eval', globals=None, locals=None):
             #print >>sys.stderr, 'Got: |%s| |%s| |%s|' % (func, args, kw)
             ret = func(*args, **kw)
             out = '%s\t%s' % (lineid, json.dumps(ret))
-        except Exception, e:
-            print >>sys.stderr, 'Ran into error of type %s: %s' % (type(e), e)
+        except Exception as e:
+            print('Ran into error of type %s: %s' % (type(e), e), file=sys.stderr)
             traceback.print_exc()
         try:
-            print out
+            print(out)
             sys.stdout.flush()
         except IOError: pass
     try:
@@ -3696,7 +3699,7 @@ def directmain(taskfuncs):
     """A main() function that is just a simple wrapper around direct function calls."""
     tasks = dict([(f.__name__, f) for f in taskfuncs])
     if len(sys.argv) < 2:
-        print 'Usage: python %s <%s> [<args>...]' % (sys.argv[0], '|'.join(tasks))
+        print('Usage: python %s <%s> [<args>...]' % (sys.argv[0], '|'.join(tasks)))
         sys.exit()
     task = sys.argv[1]
     assert task in tasks
@@ -3710,7 +3713,7 @@ def testurl2fname():
         hostdir = host2dirname(url, collapse=1, delport=1)
         basedir = os.path.join('Angie Rocks!@()#$%^&*~~.33.jpg', hostdir)
         dir = url2fname(url, basedir=basedir, maxlen=128)
-        print dir
+        print(dir)
 
 if __name__ == '__main__':
     import doctest
