@@ -79,3 +79,19 @@ def bipartite_matching(a, b, score_func, symmetric=False):
         yield (scores[i, j], a[i], b[j])
         i_left.remove(i)
         j_left.remove(j)
+
+def bipartite_matching_wrapper(a, b, score_func, symmetric=False):
+    """A wrapper to `bipartite_matching()` that returns `(matches, unmatched_in_a, unmatched_in_b)`
+
+    The list of `matches` contains tuples of `(score, a_element, b_element)`. The two unmatched
+    lists are elements from each of the respective input lists.
+    """
+    found_a, found_b = set(), set()
+    matches = []
+    for score, i, j in bipartite_matching(a, b, score_func, symmetric=symmetric):
+        matches.append((score, i, j))
+        found_a.add(i)
+        found_b.add(j)
+    unmatched_in_a = set(a) - found_a
+    unmatched_in_b = set(b) - found_b
+    return matches, unmatched_in_a, unmatched_in_b
