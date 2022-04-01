@@ -3,7 +3,7 @@
 
 Licensed under the 3-clause BSD License:
 
-Copyright (c) 2014, Neeraj Kumar (neerajkumar.org)
+Copyright (c) 2014-2022, Neeraj Kumar (neerajkumar.org)
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -32,11 +32,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import logging
 import os
 import sys
-
 from collections import Counter, defaultdict
-from queue import Queue, Empty
+from queue import Empty, Queue
 
 import numpy as np
+
 
 def floydwarshall(g, v):
     """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths.
@@ -49,8 +49,9 @@ def floydwarshall(g, v):
     for k in xrange(v):
         for i in xrange(v):
             for j in xrange(v):
-                g[i,j] = min(g[i,j], g[i,k] + g[k,j])
+                g[i, j] = min(g[i, j], g[i, k] + g[k, j])
     return g
+
 
 def dijkstras_shortest_path(graph, src):
     """An implementation of Dijkstra's shortest path algorithm.
@@ -93,6 +94,7 @@ def dijkstras_shortest_path(graph, src):
         todo.remove(cur)
     return previous_nodes, shortest_path
 
+
 def bipartite_matching(a, b, score_func, symmetric=False):
     """Does bipartite matching between lists `a` and `b` using `score_func`.
 
@@ -108,7 +110,7 @@ def bipartite_matching(a, b, score_func, symmetric=False):
     scores = np.zeros((na, nb))
     for i, x in enumerate(a):
         for j, y in enumerate(b):
-            scores[i,j] = score_func(x, y)
+            scores[i, j] = score_func(x, y)
     inds = np.unravel_index(np.argsort(scores, axis=None), scores.shape)
     inds = np.array([x[::-1] for x in inds])
     i_left = set(range(na))
@@ -127,6 +129,7 @@ def bipartite_matching(a, b, score_func, symmetric=False):
         i_left.remove(i)
         j_left.remove(j)
 
+
 def bipartite_matching_wrapper(a, b, score_func, symmetric=False):
     """A wrapper to `bipartite_matching()` that returns `(matches, unmatched_in_a, unmatched_in_b)`
 
@@ -143,11 +146,14 @@ def bipartite_matching_wrapper(a, b, score_func, symmetric=False):
     unmatched_in_b = set(b) - found_b
     return matches, unmatched_in_a, unmatched_in_b
 
+
 class PathNotFoundError(Exception):
     pass
 
+
 class Router:
     """A routing class to find paths matching certain criteria in graphs"""
+
     def __init__(self, nn_func, nn_pred=None):
         self._nn_func = nn_func
         self._nn_pred = nn_pred
@@ -159,10 +165,11 @@ class Router:
 
         If no path is found, then raises `PathNotFoundError`.
         """
-        logging.info(f'Trying to find a path from {a} to {b}')
+        logging.info(f"Trying to find a path from {a} to {b}")
         q = Queue()
         dists = {}
         done = set()
+
         def add(el):
             """util function to add `el` and expand its neighbors, returning if we found `b`"""
             done.add(el)
@@ -182,7 +189,9 @@ class Router:
         while not found:
             try:
                 found = add(q.get(block=False))
-                logging.debug(f'On iter {i}, {len(done)} done, {len(dists)} dists, {q.qsize()} in q, found {found}')
+                logging.debug(
+                    f"On iter {i}, {len(done)} done, {len(dists)} dists, {q.qsize()} in q, found {found}"
+                )
             except Empty:
                 break
             i += 1
