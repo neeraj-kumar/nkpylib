@@ -29,7 +29,12 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-import os, sys
+import logging
+import os
+import sys
+
+from collections import Counter, defaultdict
+from queue import Queue, Empty
 
 import numpy as np
 
@@ -38,6 +43,7 @@ def floydwarshall(g, v):
     The input graph g should be something indexable by (i,j) to get distance between nodes i and j.
     This should be pre-filled with the costs between known nodes, 0 for the diagonal, and infinity elsewhere.
     v is the number of vertices.
+
     Modifies the given g directly and returns it.
     """
     for k in xrange(v):
@@ -45,6 +51,47 @@ def floydwarshall(g, v):
             for j in xrange(v):
                 g[i,j] = min(g[i,j], g[i,k] + g[k,j])
     return g
+
+def dijkstras_shortest_path(graph, src):
+    """An implementation of Dijkstra's shortest path algorithm.
+
+    This starts at `src` and either computes all shortest paths from there.
+
+    The `graph` should be a dict-like object with distances from a to b as `graph[a,b]`
+
+    Returns `(previous_nodes, shortest_path)` where the former is a dict from node to previous node,
+    and the latter is a dict from node to shortest path length from src
+    """
+    # initialization
+    todo = set()
+    neighbors_by_node = defaultdict(set)
+    for a, b in graph.keys():
+        neighbors_by_node[a].add(b)
+        neighbors_by_node[b].add(a)
+        todo.add(a)
+        todo.add(b)
+    shortest_path = {}
+    for node in todo:
+        shortest_path[node] = sys.maxsize
+    assert src in todo
+    shortest_path[src] = 0
+    previous_nodes = {}
+    while todo:
+        # pick node with min distance so far
+        cur = None
+        for node in todo:
+            if cur is None:
+                cur = node
+            elif shortest_path[node] < shortest_path[cur]:
+                cur = node
+        # get neighbors from cur and evaluate distances
+        for neighbor in neighbors_by_node[cur]:
+            dist = shortest_path[cur] + graph[cur, neighbor]
+            if dist < shortest_path[neighbor]:
+                shortest_path[neighbor] = dist
+                previous_nodes[neighbor] = cur
+        todo.remove(cur)
+    return previous_nodes, shortest_path
 
 def bipartite_matching(a, b, score_func, symmetric=False):
     """Does bipartite matching between lists `a` and `b` using `score_func`.
@@ -95,3 +142,57 @@ def bipartite_matching_wrapper(a, b, score_func, symmetric=False):
     unmatched_in_a = set(a) - found_a
     unmatched_in_b = set(b) - found_b
     return matches, unmatched_in_a, unmatched_in_b
+
+class PathNotFoundError(Exception):
+    pass
+
+class Router:
+    """A routing class to find paths matching certain criteria in graphs"""
+    def __init__(self, nn_func, nn_pred=None):
+        self._nn_func = nn_func
+        self._nn_pred = nn_pred
+
+    def find_path(self, a, b):
+        """Finds a path from `a` to `b` matching our criteria.
+
+        Returns `(path, cost)`, where the path is a list of node ids, and cost is total cost.
+
+        If no path is found, then raises `PathNotFoundError`.
+        """
+        logging.info(f'Trying to find a path from {a} to {b}')
+        q = Queue()
+        dists = {}
+        done = set()
+        def add(el):
+            """util function to add `el` and expand its neighbors, returning if we found `b`"""
+            done.add(el)
+            for key, dist in self._nn_func(el):
+                if self._nn_pred and not self._nn_pred(key, dist):
+                    continue
+                dists[el, key] = dists[key, el] = dist
+                if key == b:
+                    return True
+                if key not in done:
+                    q.put(key)
+            return False
+
+        # add the initial neighbors from a
+        found = add(a)
+        i = 0
+        while not found:
+            try:
+                found = add(q.get(block=False))
+                logging.debug(f'On iter {i}, {len(done)} done, {len(dists)} dists, {q.qsize()} in q, found {found}')
+            except Empty:
+                break
+            i += 1
+        # at this point, we either found a path, or are otherwise done
+        if not found:
+            raise PathNotFoundError()
+        # get the actual path and cost
+        prev, costs = dijkstras_shortest_path(dists, a)
+        path = [b]
+        while path[-1] != a:
+            path.append(prev[path[-1]])
+        path = path[::-1]
+        return path, costs[b]
