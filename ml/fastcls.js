@@ -81,19 +81,19 @@ function sane_sort(a, b, key){
     return 0;
 }
 
-
-
-// generic image renderer
-function image_renderer(props){
-    let {id, path, hover=null, hoverHandler=null, clickHandler=null, example_type='', source=''} = props;
+// generic item renderer
+function item_renderer(props){
+    let {item, hover=null, hoverHandler=null, clickHandler=null, example_type='', source=''} = props;
+    const {id} = item;
+    //console.log('trying to render item', item, id);
+    let path = item.paths[0];
     path = path.replace('/images/', '/thumbs/');
     const onDragStart = (ev) => {
         const data = JSON.stringify(Object.assign({}, ev.currentTarget.dataset));
         ev.dataTransfer.setData(DRAG_FMT, data);
         console.log('drag start', ev.currentTarget, data, ev.dataTransfer.getData(DRAG_FMT));
     }
-    const opts = {className:'image-div', 'data-id': id, 'data-source': source, key: id, draggable: true, onDragStart};
-    let inner = [];
+    const opts = {className:'item-div', 'data-id': id, 'data-source': source, key: id, draggable: true, onDragStart};
     if (clickHandler){
         opts.style = {position: 'relative'};
         switch (example_type) {
@@ -111,7 +111,7 @@ function image_renderer(props){
             opts.onMouseOut = () => hoverHandler(null);
         }
     }
-    return T('div', opts, T('img', {src:`static/${path}`}), inner);
+    return T('div', opts, T('img', {src:`static/${path}`}));
 }
 
 
@@ -130,12 +130,12 @@ class Collection extends React.Component {
         }
     }
 
-    // returns image objects from ids
-    id2image = (id) => {
-        return {id, path: this.props.images[id]};
+    // returns item objects from ids
+    id2item = (id) => {
+        return {id, ...this.props.items[id]};
     }
 
-    // classifies our images based on pos & neg in `obj`
+    // classifies our items based on pos & neg in `obj`
     classify = (obj) => {
         const {pos, neg} = obj;
         console.log('classifying with ', pos, neg);
@@ -214,11 +214,11 @@ class Collection extends React.Component {
                             onDrop: (ev) => this.onDrop(ev, key),
                             style: {backgroundColor: bg},
                         },
-                    lst.map(this.id2image).map(im => image_renderer({
+                    lst.map(this.id2item).map(item => item_renderer({
+                        item,
                         clickHandler,
                         example_type: key,
                         source: `${this.state.uuid}/${key}`,
-                        ...im
                     })));
         };
         const pos = (show_plus) ? make_div('pos', 'lightblue', this.state.pos) : null;
@@ -232,11 +232,11 @@ class Collection extends React.Component {
     }
 }
 
-class AllImages extends React.Component {
+class AllItems extends React.Component {
     constructor(props) {
         super(props);
         const {page_size=100} = this.props;
-        const ids = Object.keys(this.props.images)
+        const ids = Object.keys(this.props.items)
         this.state = {
             page_size,
             page_num: 0,
@@ -264,9 +264,9 @@ class AllImages extends React.Component {
         this.setState({page_num});
     }
 
-    // returns image objects from ids
-    id2image = (id) => {
-        return {id, path: this.props.images[id]};
+    // returns item objects from ids
+    id2item = (id) => {
+        return {id, ...this.props.items[id]};
     }
 
     // filters our items
@@ -275,10 +275,19 @@ class AllImages extends React.Component {
         if (filter_text == this.state.filter_text){
             return;
         }
-        let ids = Object.keys(this.props.images);
-        // filter keys
-        ids = ids.filter(id => id.match(filter_text));
-        //TODO filter values
+        let ids = Object.keys(this.props.items).filter(id => {
+            // check id
+            if (id.match(filter_text)) return true;
+            // check item attr values
+            const item = this.props.items[id];
+            for (const [key, value] in Object.entries(item)) {
+                try {
+                    if (value.match(filter_text)) return true;
+                } catch (e) {} // ignore errors
+            }
+            // at this point, nothing matched, so return false
+            return false;
+        });
         this.setState({
             filter_text,
             page_num: 0,
@@ -287,10 +296,9 @@ class AllImages extends React.Component {
         });
     }
 
-    render(){
-        //console.log('rendering all-images', Object.keys(this.props.images).length, this.state);
-        const {images, clickHandler} = this.props;
-        const {page_num, page_size, hover, last_page} = this.state;
+    render_nav(){
+        const {items} = this.props;
+        const {page_num, page_size, last_page} = this.state;
         let {ids} = this.state
         //console.log(page_num, page_size, page_num*page_size, (page_num+1)*page_size);
         const idx0 = page_num*page_size;
@@ -320,14 +328,21 @@ class AllImages extends React.Component {
               T('input', {type: 'text', size: 40, value: this.state.filter_text, onChange: this.filter}),
             ),
         );
+        return [nav, ids];
+    }
+
+    render(){
+        const {clickHandler} = this.props;
+        const {hover} = this.state;
+        const [nav, ids] = this.render_nav();
         return T('div', {},
                  nav,
                  T('div', {className: 'all-div'},
-                     ids.map(this.id2image).map(im => image_renderer({
+                     ids.map(this.id2item).map(item => item_renderer({
+                            item,
                             hover,
                             clickHandler,
                             hoverHandler: this.hoverHandler,
-                            ...im,
                         }))),
                  nav,
         );
@@ -344,7 +359,7 @@ class Main extends React.Component {
 
     // returns a list of ids based on our props
     ids(){
-        return Object.keys(this.props.images);
+        return Object.keys(this.props.items);
     }
 
     // adds a new collection
@@ -362,14 +377,14 @@ class Main extends React.Component {
     }
 
     render(){
-        console.log('rendering main', Object.keys(this.props.images).length, this.state);
-        const {images} = this.props;
+        const {items} = this.props;
+        console.log('rendering main', Object.keys(items).length, this.state, this.props.cfg);
         const {collections} = this.state;
         return T('div', {className: 'main'},
-                   collections.map(c => T(Collection, {images, ...c})),
+                   collections.map(c => T(Collection, {items, ...c})),
                    T('button', {onClick: this.add_collection}, 'Add collection'),
                    T('h3', {}, "All items"),
-                   T(AllImages, {images}));
+                   T(AllItems, {items}));
     }
 
     // after first mount, add a collection

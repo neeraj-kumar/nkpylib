@@ -51,13 +51,17 @@ def show_times(times: List[float]) -> None:
 def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s) -> Tuple[List[str], np.ndarray, Dict[str, List[str]]]:
     """Reads multiple `feature_paths` and joins them together.
 
-    Returns `(keys, features, key_to_paths)`, where:
+    Returns `(keys, features, key_to_item)`, where:
         * `keys` is a list of keys
         * `features` is a 2-d numpy array, where each row corresponds to a `key`
-        * `key_to_paths` contains the extracted original path for each key, for each feature path
+        * `key_to_item` is a dict from key to an item dict. This dict contains:
+          * `paths`: the extracted original path for each key, for each feature path
+          * any other attributes in the input data files:
+            * for gensim inputs, we use the `get_vecattr()` interface to get attributes
+            * for npz files, we look for any other arrays of the same length as `features` in the input, and use those
 
     The extension is used to determine what format to read:
-        `.wv`: Assumed to be in gensim's KeyedVector format
+        `.wv` or `.kv`: Assumed to be in gensim's KeyedVector format
         `.npz`: Assumed to be an npz file, with 'paths' and 'features' fields.
 
     All features are concatenated together, and only those keys where all inputs gave a vector are
@@ -66,35 +70,51 @@ def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s) -
     The paths (i.e., keys in .wv files, or the 'path' fields in .npz files) are converted to keys
     using the given `key_func`. These should be unique per path!
     """
-    key_to_item = defaultdict(list)
-    key_to_paths = defaultdict(list)
+    key_to_row = defaultdict(list)
+    key_to_item = defaultdict(dict)
     for n, feature_path in enumerate(feature_paths):
         logging.info('Reading features from file %d/%d: %s', n+1, len(feature_paths), feature_path)
-        def add_row(path, row):
-            """Adds the given feature `row` for `path`"""
+        def add_row(path, row, attrs):
+            """Adds the given feature `row` for `path`, with optional `attrs`"""
             key = key_func(path)
             # if we already have one set of features, then this key must already be in there
-            if n > 0 and key not in key_to_item:
+            if n > 0 and key not in key_to_row:
                 return
-            key_to_item[key].append(row)
-            key_to_paths[key].append(path)
-
+            key_to_row[key].append(row)
+            item = key_to_item[key]
+            if 'paths' not in item:
+                item['paths'] = []
+            item['paths'].append(path)
+            for attr, value in attrs.items():
+                item[attr] = value
         if feature_path.endswith('.wv') or feature_path.endswith('.kv'):
             wv = KeyedVectors.load(feature_path, mmap='r')
-            logging.info('  Read %d wv, %s', len(wv), wv.index_to_key[:10])
+            attr_fields = sorted(wv.expandos)
+            logging.info('  Read %d wv, attrs: %s, %s', len(wv), sorted(wv.expandos), wv.index_to_key[:10])
             for path in wv.index_to_key:
-                add_row(path, wv[path])
+                attrs = {field: wv.get_vecattr(path, field) for field in attr_fields}
+                add_row(path, wv[path], attrs)
         elif feature_path.endswith('.npz'):
             data = np.load(feature_path)
             paths = [str(path) for path in data["paths"]]
             features = data["features"]
-            for path, row in zip(paths, features):
-                add_row(path, row)
+            attrs_by_field = {}
+            for field in data:
+                if field in ('paths', 'features'):
+                    continue
+                try:
+                    if len(data[field]) == len(features):
+                        attrs_by_field[field] = data[field]
+                except Exception: # field that doesn't have len()
+                    pass
+            for idx, (path, row) in enumerate(zip(paths, features)):
+                attrs = {field: attrs_by_field[field][idx] for field in attrs_by_field}
+                add_row(path, row, attrs)
         else:
             raise NotImplementedError('Do not know how to deal with this filetype: %s' % (feature_path))
     # merge all features together
     features = []
-    for key, lst in key_to_item.items():
+    for key, lst in key_to_row.items():
         if len(lst) == len(feature_paths):
             features.append((key, np.hstack(lst)))
     if not features:
@@ -103,7 +123,10 @@ def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s) -
     keys, features = zip(*features)
     features = np.vstack(features)
     logging.info('Got %d keys and features of shape %s', len(keys), features.shape)
-    return keys, features, dict(key_to_paths)
+    key_to_item = dict(key_to_item)
+    for key, item in key_to_item.items():
+        key_to_item[key] = dict(item)
+    return keys, features, key_to_item
 
 
 class FastClassifier:
@@ -136,9 +159,8 @@ class FastClassifier:
         def key_func(path):
             return eval(key_func_str)
 
-        self.keys, features, key_to_paths = read_and_join_features(feature_paths, key_func=key_func)
-        self.paths = [key_to_paths[key][0] for key in self.keys]
-        self.path_by_key = {key: path for key, path in zip(self.keys, self.paths)}
+        self.keys, features, self.key_to_item = read_and_join_features(feature_paths, key_func=key_func)
+        self.paths = [self.key_to_item[key]['paths'][0] for key in self.keys]
         if sqrt_normalize:
             logging.info("Applying SQRT norm")
             features = np.sqrt(features)
@@ -311,9 +333,9 @@ class BaseHandler(RequestHandler):
 
 class MainHandler(BaseHandler):
     def get(self):
-        path_by_key = self.application.fcls.path_by_key
+        key_to_item = self.application.fcls.key_to_item
         cfg = self.application.cfg
-        data = dict(images=path_by_key)
+        data = dict(items=key_to_item, cfg=cfg)
         kwargs = dict(data=json.dumps(data, indent=2),
                       static_base_name=cfg['static_base_name'],
                       css_section='',
