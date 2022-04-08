@@ -1,0 +1,17 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="static/%(static_base_name)s.css" />
+        %(css_section)s
+    </head>
+    <body>
+        <div id="main"></div>
+    </body>
+    <script type="text/javascript">
+        data = %(data)s;
+    </script>
+    <script src="https://unpkg.com/react@17/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/immer@9.0/dist/immer.umd.production.min.js" crossorigin></script>
+    <script type="text/javascript" src="static/%(static_base_name)s.js"></script>
+    %(js_section)s
+</html>
