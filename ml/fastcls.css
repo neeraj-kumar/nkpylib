@@ -79,3 +79,20 @@ h3 {
 .collection.dragover {
     background-color: orange!important;
 }
+
+.controls {
+    text-align: center;
+    margin: 1em 0;
+    display: flex;
+    justify-content: space-between;
+}
+
+.controls * {
+    margin: 0 5px;
+}
+
+.nav span {
+    border: 1px solid gray;
+    padding: 2px 5px;
+}
+

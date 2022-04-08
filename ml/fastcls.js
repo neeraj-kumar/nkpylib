@@ -39,6 +39,48 @@ function guid() {
     return s4() + s4() + '-' + s4() + '-' + s4() + '-' + s4() + '-' + s4() + s4() + s4();
 }
 
+// return true if object is an array
+function is_array(obj){
+    return Array.isArray(obj);
+}
+
+
+/* Does a 'sane' comparison of 2 values, returning -1, 0, or 1.
+ *
+ * You almost always want this when sorting an array (as the 3rd argument), because the default uses
+ * string comparison (!)
+ *
+ * You can optionally pass in a `key`, which is one of:
+ * - undefined/null: compare `a` and `b` directly
+ * - string: key in object
+ * - int: index in array
+ * - function: applied to a and b to get values
+ *
+ * This also compares arrays sanely, by first comparing lengths, then each element.
+ *
+ */
+function sane_sort(a, b, key){
+    if (key !== undefined && key !== null){
+        //console.log('trying to sort', a, b, key);
+        a = (key instanceof Function) ? key(a) : a[key];
+        b = (key instanceof Function) ? key(b) : b[key];
+    }
+    if (is_array(a) && is_array(b)){
+        const length_diff = a.length - b.length;
+        if (length_diff !== 0){
+            return length_diff;
+        }
+        for (let i = 0; i < a.length; i++){
+            if (a[i] < b[i]) return -1;
+            if (b[i] < a[i]) return 1;
+        }
+        return 0;
+    }
+    if (a < b) return -1;
+    if (b < a) return 1;
+    return 0;
+}
+
 
 
 // generic image renderer
@@ -193,25 +235,33 @@ class Collection extends React.Component {
 class AllImages extends React.Component {
     constructor(props) {
         super(props);
-        const {pageSize=100} = this.props;
-        this.state = {start: 0, end: pageSize, hover: null};
+        const {page_size=100} = this.props;
+        const ids = Object.keys(this.props.images)
+        this.state = {
+            page_size,
+            page_num: 0,
+            last_page: Math.ceil(ids.length / page_size) - 1,
+            hover: null,
+            ids,
+            filter_text: '',
+        };
     }
 
     hoverHandler = (id) => {
         this.setState({hover: id});
     }
 
-    incr = (amount) => {
-        let {start, end} = this.state;
-        start += amount;
-        end += amount;
-        if (start < 0){
-            start = 0;
+    // increments our page number, or set it directly
+    incr = (n_pages, is_relative) => {
+        let {page_num, page_size, ids, last_page} = this.state;
+        if (is_relative){
+            page_num += n_pages;
+        } else {
+            page_num = n_pages;
         }
-        if (end >= this.props.images.length){
-            end = this.props.images.length - 1;
-        }
-        this.setState({start, end});
+        page_num = Math.max(Math.min(page_num, last_page), 0);
+        //console.log('incr', page_num, page_size, n_pages, last_page);
+        this.setState({page_num});
     }
 
     // returns image objects from ids
@@ -219,30 +269,67 @@ class AllImages extends React.Component {
         return {id, path: this.props.images[id]};
     }
 
-    // returns a list of ids based on our props
-    // Note that we sort this pseudo-randomly
-    ids(){
-        // props.images is a map from id to path
-        const {images} = this.props;
-        let ids = Object.keys(images);
-        ids = shuffle(ids, 4);
-        return ids;
+    // filters our items
+    filter = (ev) => {
+        const filter_text = ev.target.value;
+        if (filter_text == this.state.filter_text){
+            return;
+        }
+        let ids = Object.keys(this.props.images);
+        // filter keys
+        ids = ids.filter(id => id.match(filter_text));
+        //TODO filter values
+        this.setState({
+            filter_text,
+            page_num: 0,
+            ids,
+            last_page: Math.ceil(ids.length / this.state.page_size) - 1,
+        });
     }
 
     render(){
         //console.log('rendering all-images', Object.keys(this.props.images).length, this.state);
-        const {images, clickHandler, pageSize=50} = this.props;
-        const {start, end, hover} = this.state;
-        let ids = this.ids().slice(start, end);
-        return T('div', {className: 'all-div'},
-                 ids.map(this.id2image).map(im => image_renderer({
-                        hover,
-                        clickHandler,
-                        hoverHandler: this.hoverHandler,
-                        ...im,
-                    })),
-                 T('button', {onClick: () => this.incr(-pageSize)}, 'Prev'),
-                 T('button', {onClick: () => this.incr(pageSize)}, 'Next'),
+        const {images, clickHandler} = this.props;
+        const {page_num, page_size, hover, last_page} = this.state;
+        let {ids} = this.state
+        //console.log(page_num, page_size, page_num*page_size, (page_num+1)*page_size);
+        const idx0 = page_num*page_size;
+        const idx1 = (page_num+1)*page_size;
+        ids = ids.slice(idx0, idx1);
+        let pages = [...Array(10).keys()].map(i => i+page_num-5).filter(p => (p >= 0 && p<= last_page));
+        pages.push(0, last_page);
+        pages = [...new Set(pages)];
+        pages.sort(sane_sort);
+        const nav = T('div', {className: 'controls'},
+            T('span', {}, `Items ${idx0+1} - ${idx1}`),
+            T('div', {className: 'nav'},
+              T('label', {}, 'Page nav: '),
+              T('button', {onClick: () => this.incr(-1, true)}, 'Prev'),
+              pages.map(p => {
+                  if (p == page_num){
+                      return T('span', {key: p}, p+1);
+                  } else {
+                      return T('button', {key: p, onClick: () => this.incr(p, false)}, p+1);
+                  }
+              }),
+              T('button', {onClick: () => this.incr(1, true)}, 'Next'),
+            ),
+            T('div', {className: 'buttons'},
+              T('button', {onClick: () => this.setState({ids: shuffle(this.state.ids)})}, 'Shuffle items'),
+              T('label', {}, 'Filter by regexp:'),
+              T('input', {type: 'text', size: 40, value: this.state.filter_text, onChange: this.filter}),
+            ),
+        );
+        return T('div', {},
+                 nav,
+                 T('div', {className: 'all-div'},
+                     ids.map(this.id2image).map(im => image_renderer({
+                            hover,
+                            clickHandler,
+                            hoverHandler: this.hoverHandler,
+                            ...im,
+                        }))),
+                 nav,
         );
     }
 }
