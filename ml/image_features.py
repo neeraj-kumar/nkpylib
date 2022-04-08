@@ -114,17 +114,18 @@ class ImageNetFeatureExtractor(nn.Module):
     2. avgpool - adaptive avg pooling of output size 7x7 (and 512 feature layers)
     3. classifier - 2 fully connected layers with relu and dropout (out dims=4096),
                     followed by final classification (1000 dims)
-
     """
 
-    def __init__(self, out_layers=["fc6"], model_name="vgg16", projection_length=None):
+    def __init__(self, out_layers=["fc6"], model_name="vgg16", projection_length=None, projection_type='sparse'):
         """Initialize this extractor with given list of `out_layers`.
 
         You must pass in a `model_name` (one of ['vgg16'] for now).
 
-        You can optionally pass in a `projection_length`. If given, we construct a random matrix
-        from original output size (after concatenating all output layers) to given length. This is
-        used to project the output to this length. This is most useful for dimensionality reduction.
+        You can optionally pass in a `projection_length`. If given, the final output (after
+        concatenating all output layers) will be projected down to given length.  This is most
+        useful for dimensionality reduction. You can choose the `projection_type`:
+            'sparse' [default]: Uses sklearn's `SparseRandomProjection`. Uses a fair amount of memory if the input features are very high dimensionality.
+            'index': Randomly picks indices from the input to pass through. Minimal memory requirements.
         """
         super(ImageNetFeatureExtractor, self).__init__()
         self.out_layers = out_layers
@@ -137,12 +138,9 @@ class ImageNetFeatureExtractor(nn.Module):
         # where we'll store our outputs (rewritten in every forward pass)
         self.features_by_layer = defaultdict(list)
         # initialize projection
-        if projection_length is not None:
-            self.projection = SparseRandomProjection(
-                n_components=projection_length, density=1 / 3.0, dense_output=True, random_state=0
-            )
-        else:
-            self.projection = None
+        self.projection_length = projection_length
+        self.projection_type = projection_type
+        self.projection = None
 
     def layer_by_name(self, name):
         """Returns the layer from our model for the given layer `name`"""
@@ -183,12 +181,23 @@ class ImageNetFeatureExtractor(nn.Module):
         assert len(ret.shape) == 2
         n, n_dims = ret.shape
         assert len(x) == n
-        if self.projection:
+        if self.projection_length is not None:
+            # initialize projection
+            if self.projection is None:
+                if self.projection_type == 'sparse':
+                    self.projection = SparseRandomProjection(
+                        n_components=projection_length, density=1 / 3.0, dense_output=True, random_state=0
+                    )
+                    self.projection.fit(ret)
+                elif self.projection_type == 'index':
+                    rng = np.random.default_rng(0)
+                    self.projection = rng.choice(n_dims, size=self.projection_length, replace=False)
+                else:
+                    raise NotImplementedError(f"Do not know how to deal with projection type {self.projection_type}")
             try:
                 ret = self.projection.transform(ret)
-            except NotFittedError:
-                ret = self.projection.fit_transform(ret)
-            # print(ret, ret.shape)
+            except AttributeError:
+                ret = ret[:, self.projection]
         return out
 
 
@@ -309,6 +318,7 @@ if __name__ == "__main__":
         default=0,
         help="either the random projection output size for imagenet-based features, or one side of the square output of HED",
     )
+    parser.add_argument('-p', '--projection_type', choices=['sparse','index'], help='How to do the projection')
     parser.add_argument(
         "-s", "--skip_existing", action="store_true", help="if set, then skip existing paths"
     )
@@ -336,6 +346,7 @@ if __name__ == "__main__":
         kwargs = dict(out_layers=args.layers.split(","), model_name=args.model_name)
         if args.output_size:
             kwargs["projection_length"] = args.output_size
+            kwargs["projection_type"] = args.projection_type
         model = ImageNetFeatureExtractor(**kwargs)
     # get list of done paths if we want to skip them
     if args.skip_existing:
