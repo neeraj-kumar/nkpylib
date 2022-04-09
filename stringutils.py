@@ -261,6 +261,7 @@ def shortenurl(url, maxwidth=50):
 
 def strsim(a, b, weights={'difflib':1.0, 'longest_ratio':5.0, 'matching_ratio':6.0, 'exact':5.0}):
     """Returns the similarity between two strings as a float from 0-1 (higher=similar).
+
     Computes a few different measures and combines them, for optimal matching.
     The methods are linearly weighted using the dictionary 'weights'. It contains:
         'difflib': The ratio given by difflib's SequenceMatcher.ratio()
@@ -273,32 +274,29 @@ def strsim(a, b, weights={'difflib':1.0, 'longest_ratio':5.0, 'matching_ratio':6
     minlen = float(min(len(a), len(b)))
     maxlen = float(max(len(a), len(b)))
     sm = SequenceMatcher(None, a, b)
+    scores = {}
     # compute the ratio given by difflib
-    r0 = sm.ratio()
+    scores['difflib'] = sm.ratio()
     # compute the ratio of the longest match over the minlen
     lm = sm.find_longest_match(0, len(a), 0, len(b))
-    r1 = lm[2] / minlen
+    scores['longest_ratio'] = lm[2] / minlen
     # compute ratio of sum of all matching block lengths over the minlen
     totmatch = sum(m[2] for m in sm.get_matching_blocks())
-    r2 = totmatch / minlen
+    scores['matching_ratio'] = totmatch / minlen
     # add a score if we have an exact substring match
     if a.startswith(b) or b.startswith(a) or a.endswith(b) or b.endswith(a):
         r3 = 1.0
     elif a in b or b in a:
-        r3 = minlen/maxlen
+        n = max(a.count(b), b.count(a))
+        r3 = (minlen/maxlen) ** (1.0/n)
     else:
         r3 = 0.0
+    scores['exact'] = r3
     # add weighted combinations of the different vars
-    vars = {'difflib': r0, 'longest_ratio': r1, 'matching_ratio': r2, 'exact': r3}
-    total = 0.0
-    ret = 0.0
-    for k, w in weights.items():
-        ret += vars[k] * w
-        total += w
-    ret /= total
+    ret = sum(score * weights[name] for name, score in scores.items()) / sum(weights.values())
     DEBUG = 0
     if DEBUG:
-        print(a, b, '\n\t', r0, r1, r2, r3, ret, file=sys.stderr)
+        print(f'|{a}| |{b}|: {scores}, {weights}')
     return ret
 
 def matrixprint(m, width=None, fillchar=' ', sep=' ', rowsep='\n', fmt='%0.2f'):
