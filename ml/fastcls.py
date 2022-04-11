@@ -33,6 +33,7 @@ import tornado.ioloop
 import tornado.web
 
 from gensim.models import KeyedVectors
+from numpy.random import default_rng
 #from sklearn.utils.testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import SGDClassifier  # type: ignore
@@ -182,25 +183,17 @@ class FastClassifier:
         self.n_models = n_models
         self.n_top = n_top
         self.n_negatives = n_negatives
+        self.rng = default_rng(0)
 
     def __len__(self):
         """Returns number of items in our dataset"""
         return len(self.keys)
 
     #@ignore_warnings(category=ConvergenceWarning)
-    def train_single_model(self, pos_keys, neg_keys, neg_weights=None):
+    def train_single_model_impl(self, pos_features, neg_features, neg_weights):
         """Trains a single model and returns a single column array with the coefficients + intercept."""
         # make various lookups
         times = [time.time()]
-        f_by_key = self.features_by_key
-        # construct training data (skipping bad keys)
-        pos_features = [f_by_key[key] for key in pos_keys if key in f_by_key]
-        if neg_weights is None:
-            neg_weights = [1] * len(neg_keys)
-        neg = [(f_by_key[key], weight) for key, weight in zip(neg_keys, neg_weights) if key in f_by_key]
-        if len(neg) == 0:
-            return None
-        neg_features, neg_weights = zip(*neg)
         train_features = np.vstack((pos_features, neg_features))
         labels = np.array([1] * len(pos_features) + [-1] * len(neg_features))
         weights = np.array(([1] * len(pos_features)) + list(neg_weights))
@@ -233,6 +226,20 @@ class FastClassifier:
         ret[-1, 0] = model.intercept_
         return ret
 
+    def train_single_model(self, pos_keys, neg_keys, neg_weights=None):
+        # make various lookups
+        times = [time.time()]
+        f_by_key = self.features_by_key
+        # construct training data (skipping bad keys)
+        pos_features = [f_by_key[key] for key in pos_keys if key in f_by_key]
+        if neg_weights is None:
+            neg_weights = [1] * len(neg_keys)
+        neg = [(f_by_key[key], weight) for key, weight in zip(neg_keys, neg_weights) if key in f_by_key]
+        if len(neg) == 0:
+            return None
+        neg_features, neg_weights = zip(*neg)
+        return self.train_single_model_impl(pos_features, neg_features, neg_weights)
+
     def classify_many(self, models):
         """Classifies all images of using given `models`.
 
@@ -261,15 +268,51 @@ class FastClassifier:
         )
         return scores
 
-    def train_and_classify_many(
+    def classify_many_rel(self, models):
+        """Classifies all pairs of items of using given `models`.
+
+        Since our classifiers are linear, we can do the following:
+
+            outputs = max((features1 - features2) . model)
+            outputs = max((features1 . model) - (features2 . model))
+
+        The models should be an np array of coefficients and intercept per column.
+        Returns a Counter mapping from pairs of keys to score.
+        """
+        times = [time.time()]
+        out = np.dot(self.features, models)
+        times.append(time.time())
+        # iterate over each column (model) to find top matches and aggregate into scores
+        keys = self.keys
+        scores = Counter()
+        n_close = int(np.sqrt(self.n_top))
+        for col in out.T:
+            ordered = sorted([proj, i] for i, proj in enumerate(col))
+            for (proj_i, i), (proj_j, j) in zip(ordered[:n_close], ordered[-n_close:]):
+                key = (keys[i], keys[j])
+                scores[key] += proj_i - proj_j
+        times.append(time.time())
+        logging.info(
+            "Classified models of shape %s and got %d results in %0.3fs",
+            models.shape,
+            len(scores),
+            times[-1] - times[0],
+        )
+        return scores
+
+    def train_and_classify_many_plus_minus(
         self,
         pos_keys: List[str],
         neg_keys: List[str] = [],
-        save_classifier: bool = False,
-    ) -> Tuple[Counter, Optional[str]]:
+    ) -> Tuple[Counter, np.ndarray]:
         """Trains several models and classifies all items in this dataset.
 
-        Returns `(scores, cls_id)`
+        This does a "plus-minus" style of training: positives and negatives are added with their
+        respective labels, additional "background" negatives are added, and then several classifiers
+        are trained and evaluated.
+
+        Returns `(scores, models)`. `scores` is a counter from key to score, and `models` is a numpy
+        array of the models trained.
         """
         logging.info("Training %d exemplar classifiers", self.n_models)
         times = [time.time()]
@@ -287,21 +330,78 @@ class FastClassifier:
             models.append(cls)
         times.append(time.time())
         models = np.hstack(models)
+        times.append(time.time())
+        scores = self.classify_many(models)
+        times.append(time.time())
+        show_times(times)
+        return (scores, models)
+
+    def train_and_classify_many_rel(
+        self,
+        pos_keys: List[str],
+        neg_keys: List[str] = [],
+    ) -> Tuple[Counter, np.ndarray]:
+        """Trains several models and classifies all items in this dataset.
+
+        This does a "relative" style of training: positives and negatives are added with their
+        respective labels, additional "background" negatives are added, and then several classifiers
+        are trained and evaluated.
+
+        Returns `(scores, models)`. `scores` is a counter from key to score, and `models` is a numpy
+        array of the models trained.
+        """
+        logging.info("Training %d rel exemplar classifiers", self.n_models)
+        times = [time.time()]
+        models = []
+        f_by_key = self.features_by_key
+        neg_options = sorted(set(f_by_key) - set(pos_keys) - set(neg_keys))
+        # aggregate results from different models
+        for i in range(self.n_models):
+            pos_features = np.array([f_by_key[neg_keys[0]] - f_by_key[pos_keys[0]]])
+            n_neg = min(len(neg_options)//2, self.n_negatives)
+            neg_pairs = self.rng.choice(neg_options, (n_neg, 2), replace=False)
+            neg_features = np.array([f_by_key[n1]-f_by_key[n2] for n1, n2 in neg_pairs[:]])
+            neg_weights = np.ones(len(neg_features)) / len(neg_features)
+            logging.info('Got pos %s, neg pairs %s, features %s: %s, %s', pos_features, neg_pairs, neg_features.shape, neg_features, neg_weights)
+            assert pos_features.shape[1] == neg_features.shape[1]
+            assert len(neg_features) == len(neg_weights)
+            cls = self.train_single_model_impl(pos_features, neg_features, neg_weights)
+            models.append(cls)
+        times.append(time.time())
+        models = np.hstack(models)
+        times.append(time.time())
+        scores = self.classify_many_rel(models)
+        times.append(time.time())
+        show_times(times)
+        return (scores, models)
+
+    def train_and_classify_many(
+        self,
+        type: str,
+        pos_keys: List[str],
+        neg_keys: List[str] = [],
+        save_classifier: bool = False,
+    ) -> Tuple[Counter, Optional[str]]:
+        """Trains several models and classifies all items in this dataset.
+
+        Returns `(scores, cls_id)`
+        """
+        if type == 'plus-minus':
+            scores, models = self.train_and_classify_many_plus_minus(pos_keys, neg_keys)
+        elif type == 'rel':
+            scores, models = self.train_and_classify_many_rel(pos_keys, neg_keys)
         if save_classifier:
             subdir = "images"
             cls_id = save_raw_classifiers(models, subdir=subdir)
         else:
             cls_id = None
-        times.append(time.time())
-        scores = self.classify_many(models)
-        times.append(time.time())
-        show_times(times)
         return scores, cls_id
 
 
 class MyStaticHandler(StaticFileHandler):
-    """A simple subclass to allow for static dirs that are not in our dir"""
+    """A simple subclass to allow for some additional functionality"""
     def validate_absolute_path(self, root: str, absolute_path: str) -> Optional[str]:
+        """This is the same as in the base implementation, but without the check for being in our dir"""
         # The trailing slash also needs to be temporarily added back
         # the requested path so a request to root/ will match.
         if os.path.isdir(absolute_path) and self.default_filename is not None:
@@ -372,13 +472,16 @@ class ClassifyHandler(BaseHandler):
     def get(self):
         pos = self.get_argument('pos', '').split(',')
         neg = self.get_argument('neg', '').split(',')
-        ret = dict(pos=pos, neg=neg)
-        if pos:
-            scores, _ = self.application.fcls.train_and_classify_many(pos, neg)
+        c_type = self.get_argument('type', 'plus-minus')
+        ret = dict(pos=pos, neg=neg, type=c_type)
+        try:
+            scores, _ = self.application.fcls.train_and_classify_many(c_type, pos, neg)
             ret.update(status='ok', cls=scores.most_common())
-        else:
-            ret['status'] = 'error'
+        except Exception as e:
+            raise
+            ret.update(status=f'error: {type(e)}: {e}')
         return self.return_jsonp(**ret)
+
 
 class Application(tornado.web.Application):
     """Custom application, so we can define our own settings"""

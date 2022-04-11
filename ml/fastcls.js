@@ -2,7 +2,7 @@
 
 const T = React.createElement;
 
-const MAX_CLS = 10;
+const MAX_CLS = 50;
 
 const DRAG_FMT = 'data/drag';
 
@@ -85,8 +85,13 @@ function sane_sort(a, b, key){
 function item_renderer(props){
     let {item, hover=null, hoverHandler=null, clickHandler=null, example_type='', source=''} = props;
     const {id} = item;
-    //console.log('trying to render item', item, id);
-    let path = item.paths[0];
+    if (source.includes('cls')){
+        //console.log('trying to render item', item, id);
+    }
+    let path = '';
+    try {
+        path = item.paths[0];
+    } catch (err) {}
     path = path.replace('/images/', '/thumbs/');
     const onDragStart = (ev) => {
         const data = JSON.stringify(Object.assign({}, ev.currentTarget.dataset));
@@ -126,7 +131,7 @@ class Collection extends React.Component {
     // after prop/state changes
     componentDidUpdate(prevProps, prevState, snapshot){
         if (prevState.pos != this.state.pos || prevState.neg != this.state.neg){
-            this.classify(this.state);
+            this.classify(Object.assign({}, this.state, this.props));
         }
     }
 
@@ -137,13 +142,13 @@ class Collection extends React.Component {
 
     // classifies our items based on pos & neg in `obj`
     classify = (obj) => {
-        const {pos, neg} = obj;
-        console.log('classifying with ', pos, neg);
+        const {pos, neg, type} = obj;
+        console.log('classifying with ', pos, neg, type);
         if (pos.length == 0){
             this.setState({cls: []});
             return;
         }
-        let url = 'classify?';
+        let url = `classify?type=${type}&`;
         if (pos.length > 0){
             url += 'pos=' + pos.join(',');
         }
@@ -155,19 +160,42 @@ class Collection extends React.Component {
             .then(ret => ret.json())
             .then(obj => {
                 console.log('got back cls', obj);
-                if (!obj.cls){
+                if (!obj.cls || !is_array(obj.cls)){
                     this.setState({cls: []});
                 } else {
                     let {cls} = obj;
-                    // map to ids
-                    cls = cls.map(([id, score]) => id);
-                    // filter out pos and neg
-                    cls = cls.filter(id => (pos.indexOf(id) < 0 && neg.indexOf(id) < 0));
+                    let max_num = MAX_CLS;
+                    switch(this.props.type) {
+                        case 'plus-minus':
+                            // map to ids
+                            cls = cls.map(([id, score]) => id);
+                            // filter out pos and neg
+                            cls = cls.filter(id => (pos.indexOf(id) < 0 && neg.indexOf(id) < 0));
+                            break;
+                        case 'rel':
+                            console.log('in rel');
+                            // assemble pairs into a single list
+                            const ret = [];
+                            cls.forEach(item => {
+                                const [[a, b], score] = item;
+                                //console.log('evaluating ', a, b, score, ret);
+                                // skip if we've seen either item in the pair before
+                                if (ret.includes(a) || ret.includes(b)) return;
+                                ret.push(a, b, 'spacer');
+                            });
+                            max_num = MAX_CLS * 3;
+                            cls = ret;
+                            break;
+                    }
                     // limit number
-                    cls = cls.slice(0, MAX_CLS);
+                    cls = cls.slice(0, max_num);
                     this.setState({cls});
                 }
-            });
+            })
+            .catch((err) => {
+                console.log('got error when converting resp to json', err);
+                this.setState({cls: []});
+            })
     }
 
     // needed to make things droppable, but we don't actually need to do anything
@@ -203,13 +231,12 @@ class Collection extends React.Component {
     }
 
     render(){
-        const {title, desc, show_plus, show_minus, clickHandler=null} = this.props;
+        const {title, desc, type, clickHandler=null} = this.props;
         const {drag_over} = this.state;
-        const user_cls = (show_plus && show_minus) ? 'user' : '';
         const make_div = (key, bg, lst) => {
             return T('div', {
                             key,
-                            className: `collection ${key} ${user_cls} ${(drag_over == key) ? 'dragover' : ''}`,
+                            className: `collection ${key} collection-${type} user ${(drag_over == key) ? 'dragover' : ''}`,
                             onDragOver: (ev) => this.onDragOver(ev, key),
                             onDrop: (ev) => this.onDrop(ev, key),
                             style: {backgroundColor: bg},
@@ -221,11 +248,14 @@ class Collection extends React.Component {
                         source: `${this.state.uuid}/${key}`,
                     })));
         };
-        const pos = (show_plus) ? make_div('pos', 'lightblue', this.state.pos) : null;
+        let pos, neg = null;
+        if (type == 'plus-minus' || type == 'rel'){
+            pos = make_div('pos', 'lightblue', this.state.pos);
+            neg = make_div('neg', 'lightpink', this.state.neg);
+        }
         const cls = make_div('cls', 'white', this.state.cls);
-        const neg = (show_minus) ? make_div('neg', 'lightpink', this.state.neg) : null;
         return T('div', {className: `collection-div`, key: title},
-                 T('h3', {}, title),
+                 T('h3', {}, `${title} (${type})`),
                  T('div', {}, desc),
                  T('div', {className:`collection-container`}, pos, cls, neg),
         );
@@ -323,7 +353,7 @@ class AllItems extends React.Component {
               T('button', {onClick: () => this.incr(1, true)}, 'Next'),
             ),
             T('div', {className: 'buttons'},
-              T('button', {onClick: () => this.setState({ids: shuffle(this.state.ids)})}, 'Shuffle items'),
+              T('button', {onClick: () => this.setState({ids: shuffle(this.state.ids, (new Date()).getTime())})}, 'Shuffle items'),
               T('label', {}, 'Filter by regexp:'),
               T('input', {type: 'text', size: 40, value: this.state.filter_text, onChange: this.filter}),
             ),
@@ -363,14 +393,15 @@ class Main extends React.Component {
     }
 
     // adds a new collection
-    add_collection = () => {
+    add_collection = (type='plus-minus') => {
         const {collections} = this.state;
         this.setState({collections: immer.produce(collections, draft => {
             draft.push({
                 title: `Collection ${collections.length+1}`,
                 desc: '',
-                show_plus: true,
-                show_minus: true,
+                type,
+                //type: 'plus-minus',
+                //type: 'rel',
             });
             return draft;
         })});
@@ -382,7 +413,8 @@ class Main extends React.Component {
         const {collections} = this.state;
         return T('div', {className: 'main'},
                    collections.map(c => T(Collection, {items, ...c})),
-                   T('button', {onClick: this.add_collection}, 'Add collection'),
+                   T('button', {onClick: () => this.add_collection('plus-minus')}, 'Add +/- collection'),
+                   T('button', {onClick: () => this.add_collection('rel')}, 'Add rel collection'),
                    T('h3', {}, "All items"),
                    T(AllItems, {items}));
     }
