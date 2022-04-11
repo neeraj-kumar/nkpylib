@@ -299,6 +299,24 @@ class FastClassifier:
         return scores, cls_id
 
 
+class MyStaticHandler(StaticFileHandler):
+    """A simple subclass to allow for static dirs that are not in our dir"""
+    def validate_absolute_path(self, root: str, absolute_path: str) -> Optional[str]:
+        # The trailing slash also needs to be temporarily added back
+        # the requested path so a request to root/ will match.
+        if os.path.isdir(absolute_path) and self.default_filename is not None:
+            # need to look at the request.path here for when path is empty
+            # but there is some prefix to the path that was already
+            # trimmed by the routing
+            if not self.request.path.endswith("/"):
+                self.redirect(self.request.path + "/", permanent=True)
+                return None
+            absolute_path = os.path.join(absolute_path, self.default_filename)
+        if not os.path.exists(absolute_path):
+            raise HTTPError(404)
+        if not os.path.isfile(absolute_path):
+            raise HTTPError(403, "%s is not a file", self.path)
+        return absolute_path
 
 
 class BaseHandler(RequestHandler):
@@ -368,7 +386,7 @@ class Application(tornado.web.Application):
         handlers = [
             (r'/', MainHandler),
             (r'/classify', ClassifyHandler),
-            (r'/static/(.*)', StaticFileHandler, {'path': "static"}),
+            (r'/static/(.*)', MyStaticHandler, {'path': "static"}),
         ]
         settings = dict(
             xsrf_cookies = False,
