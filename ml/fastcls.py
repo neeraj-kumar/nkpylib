@@ -25,8 +25,9 @@ import time
 
 from argparse import ArgumentParser
 from collections import defaultdict, Counter
+from os.path import exists
 from random import sample
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple
 
 import numpy as np  # type: ignore
 import tornado.ioloop
@@ -35,10 +36,11 @@ import tornado.web
 from gensim.models import KeyedVectors
 from numpy.random import default_rng
 #from sklearn.utils.testing import ignore_warnings
+from PIL import Image
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import SGDClassifier  # type: ignore
 from sklearn.preprocessing import normalize  # type: ignore
-from tornado.web import RequestHandler, StaticFileHandler
+from tornado.web import RequestHandler, StaticFileHandler, HTTPError
 
 def show_times(times: List[float]) -> None:
     """Shows times in a pretty-printed way"""
@@ -49,7 +51,7 @@ def show_times(times: List[float]) -> None:
     )
 
 
-def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s) -> Tuple[List[str], np.ndarray, Dict[str, List[str]]]:
+def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s.strip().replace('\\n', '')) -> Tuple[List[str], np.ndarray, Dict[str, List[str]]]:
     """Reads multiple `feature_paths` and joins them together.
 
     Returns `(keys, features, key_to_item)`, where:
@@ -87,6 +89,8 @@ def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s) -
                 item['paths'] = []
             item['paths'].append(path)
             for attr, value in attrs.items():
+                if attr == 'id':
+                    attr = '_id'
                 item[attr] = value
         if feature_path.endswith('.wv') or feature_path.endswith('.kv'):
             wv = KeyedVectors.load(feature_path, mmap='r')
@@ -238,6 +242,7 @@ class FastClassifier:
         if len(neg) == 0:
             return None
         neg_features, neg_weights = zip(*neg)
+        logging.info('Got pos %s, neg %s, %s', pos_features, neg_features, neg_weights)
         return self.train_single_model_impl(pos_features, neg_features, neg_weights)
 
     def classify_many(self, models):
@@ -326,6 +331,7 @@ class FastClassifier:
             neg_weights = [1.0] * len(neg_keys) + [0.2] * len(more_neg_keys)
             all_neg = neg_keys + more_neg_keys
             logging.debug("Got %d neg weights, %d neg", len(neg_weights), len(all_neg))
+            logging.info('got keys pos %s, neg %s + %s', pos_keys, neg_keys, more_neg_keys)
             cls = self.train_single_model(pos_keys, all_neg, neg_weights=neg_weights)
             models.append(cls)
         times.append(time.time())
@@ -416,8 +422,31 @@ class MyStaticHandler(StaticFileHandler):
             raise HTTPError(404)
         if not os.path.isfile(absolute_path):
             raise HTTPError(403, "%s is not a file", self.path)
+        thumb = self.get_argument('thumb', '')
+        if thumb == '1':
+            absolute_path += '?thumb'
         return absolute_path
 
+    def _stat(self) -> os.stat_result:
+        """We override this to do the thumbnailing as necessary"""
+        if self.absolute_path.endswith('?thumb'):
+            # convert to thumb path
+            dirname, basename = os.path.split(self.absolute_path)
+            thumb_path = os.path.join(dirname, '.'+basename[:-6])
+            orig_path = self.absolute_path[:-6]
+            if not exists(thumb_path):
+                logging.info('trying to thumbnail %s', orig_path)
+                im = Image.open(orig_path)
+                im.thumbnail((200, 200))
+                im.save(thumb_path)
+            self.absolute_path = thumb_path
+        return super()._stat()
+
+    @classmethod
+    def get_content(cls, abspath: str, start: Optional[int] = None, end: Optional[int] = None) -> Generator[bytes, None, None]:
+        """We check for thumb in params and return accordingly"""
+        logging.info('in get_content, with %s, %s, %s', abspath, start, end)
+        return super().get_content(abspath, start, end)
 
 class BaseHandler(RequestHandler):
     """Convenience functions for tornado requests"""
@@ -448,13 +477,60 @@ class BaseHandler(RequestHandler):
         """Returns the given arg `name` and decodes it using json"""
         return json.loads(self.get_argument(name, default))
 
+class MyJSONEncoder(json.JSONEncoder):
+    """Does on-the-fly translation of numpy types, etc"""
+    def default(self, o):
+        if 'int' in o.__class__.__name__:
+            return int(o)
+        if 'float' in o.__class__.__name__:
+            return float(o)
+        if 'double' in o.__class__.__name__:
+            return float(o)
+        if 'bool' in o.__class__.__name__:
+            return bool(o)
+        return json.JSONEncoder.default(self, o)
+
+
 
 class MainHandler(BaseHandler):
     def get(self):
         key_to_item = self.application.fcls.key_to_item
         cfg = self.application.cfg
-        data = dict(items=key_to_item, cfg=cfg)
-        kwargs = dict(data=json.dumps(data, indent=2),
+        t0 = time.time()
+        #items = {key: dict(**item) for i, (key, item) in enumerate(key_to_item.items()) if i % 100 == 0}
+        items = {key: dict(**item) for i, (key, item) in enumerate(key_to_item.items())}
+        t1 = time.time()
+        # also add other item fields from our config
+        item_fields = self.application.cfg.get('item_fields', [])
+        def make_func(s):
+            def ret(key, paths, **kwargs):
+                try:
+                    return eval(s)
+                except Exception as e:
+                    logging.error(f'Got error of type {type(e)} with key {key}, paths {paths}, kw {kwargs}: {e}')
+            return ret
+
+        t2 = time.time()
+        field_funcs = {field: make_func(func_str) for field, func_str in item_fields}
+        t3 = time.time()
+        logging.info('Got %d field funcs: %s', len(field_funcs), field_funcs)
+        for key, item in items.items():
+            for field, _ in item_fields:
+                item[field] = field_funcs[field](key=key, **item)
+            for field, value in item.items():
+                name = value.__class__.__name__
+                if 'int' in name:
+                    item[field] = int(value)
+                if 'float' in name or 'double' in name:
+                    item[field] = float(value)
+                if 'bool' in name:
+                    item[field] = bool(value)
+        t4 = time.time()
+        data = dict(items=items, cfg=cfg)
+        data = json.dumps(data, indent=2)#, cls=MyJSONEncoder)
+        t5 = time.time()
+        logging.info('time diffs %s+%s+%s+%s+%s=%s', t1-t0, t2-t1, t3-t2, t4-t3, t5-t4, t5-t0)
+        kwargs = dict(data=data,
                       static_base_name=cfg['static_base_name'],
                       css_section='',
                       js_section='')
@@ -469,13 +545,12 @@ class MainHandler(BaseHandler):
             self.write(f.read() % kwargs)
 
 class ClassifyHandler(BaseHandler):
-    def get(self):
-        pos = self.get_argument('pos', '').split(',')
-        neg = self.get_argument('neg', '').split(',')
-        c_type = self.get_argument('type', 'plus-minus')
-        ret = dict(pos=pos, neg=neg, type=c_type)
+    def post(self):
+        args = json.loads(self.request.body)
+        logging.info('got args %s', args)
+        ret = args
         try:
-            scores, _ = self.application.fcls.train_and_classify_many(c_type, pos, neg)
+            scores, _ = self.application.fcls.train_and_classify_many(args['type'], args['pos'], args['neg'])
             ret.update(status='ok', cls=scores.most_common())
         except Exception as e:
             raise

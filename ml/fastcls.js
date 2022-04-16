@@ -86,13 +86,8 @@ function item_renderer(props){
     let {item, hover=null, hoverHandler=null, clickHandler=null, example_type='', source=''} = props;
     const {id} = item;
     if (source.includes('cls')){
-        //console.log('trying to render item', item, id);
+        console.log('trying to render item', item, id);
     }
-    let path = '';
-    try {
-        path = item.paths[0];
-    } catch (err) {}
-    path = path.replace('/images/', '/thumbs/');
     const onDragStart = (ev) => {
         const data = JSON.stringify(Object.assign({}, ev.currentTarget.dataset));
         ev.dataTransfer.setData(DRAG_FMT, data);
@@ -116,7 +111,23 @@ function item_renderer(props){
             opts.onMouseOut = () => hoverHandler(null);
         }
     }
-    return T('div', opts, T('img', {src:`static/${path}`}));
+    // figure out what to render based on what fields we have
+    let {link='', image_url='', thumb_url='', desc=''} = item;
+    let inner = '';
+    const make_url = (url) => url.startsWith('http') ? url : 'static/'+url;
+    // if we have an image or thumb url, then we want an image
+    if (image_url || thumb_url){
+        inner = T('img', {src: make_url(thumb_url || image_url)});
+    }
+    // if we have a link of any sort, we want to wrap the inner in a link
+    if (link || image_url || thumb_url){
+        inner = T('a', {target: '_blank', href: make_url(link || image_url || thumb_url)}, inner);
+    }
+    let bottom = null;
+    if (desc){
+        bottom = T('div', {className: 'item-desc'}, desc);
+    }
+    return T('div', opts, inner, bottom);
 }
 
 
@@ -137,7 +148,10 @@ class Collection extends React.Component {
 
     // returns item objects from ids
     id2item = (id) => {
-        return {id, ...this.props.items[id]};
+        //let item = this.props.items[id] || this.props.items[id+'\n'] || this.props.items[id.sub('\n', '')];
+        let item = this.props.items[id];// || this.props.items[id+'\n'] || this.props.items[id.sub('\n', '')];
+        console.log('for id ', id, item);
+        return {id, ...item};
     }
 
     // classifies our items based on pos & neg in `obj`
@@ -148,18 +162,13 @@ class Collection extends React.Component {
             this.setState({cls: []});
             return;
         }
-        let url = `classify?type=${type}&`;
-        if (pos.length > 0){
-            url += 'pos=' + pos.join(',');
-        }
-        if (neg.length > 0){
-            url += '&neg=' + neg.join(',');
-        }
+        const data = {pos, neg, type};
+        let url = `classify`;
         console.log('Classifying', obj, url);
-        fetch(url)
+        fetch(url, {method: 'post', body: JSON.stringify(data)})
             .then(ret => ret.json())
             .then(obj => {
-                console.log('got back cls', obj);
+                console.log('got back cls', obj, Object.keys(this.props.items));
                 if (!obj.cls || !is_array(obj.cls)){
                     this.setState({cls: []});
                 } else {
@@ -409,14 +418,16 @@ class Main extends React.Component {
 
     render(){
         const {items} = this.props;
-        console.log('rendering main', Object.keys(items).length, this.state, this.props.cfg);
+        console.log('rendering main', Object.keys(items).length, this.state, this.props.cfg, new Date());
         const {collections} = this.state;
-        return T('div', {className: 'main'},
+        const ret = T('div', {className: 'main'},
                    collections.map(c => T(Collection, {items, ...c})),
                    T('button', {onClick: () => this.add_collection('plus-minus')}, 'Add +/- collection'),
                    T('button', {onClick: () => this.add_collection('rel')}, 'Add rel collection'),
                    T('h3', {}, "All items"),
                    T(AllItems, {items}));
+        console.log('done with main', new Date());
+        return ret;
     }
 
     // after first mount, add a collection

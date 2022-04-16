@@ -51,6 +51,8 @@ h3 {
 
 .item-div {
     margin: 2px;
+    padding: 2px;
+    border: 1px solid lightgray;
 }
 
 .item-div img {
