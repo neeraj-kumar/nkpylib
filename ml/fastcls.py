@@ -20,11 +20,11 @@ There are a few main things in this module:
 
 import json
 import logging
+import multiprocessing as mp
 import os
 import time
-
 from argparse import ArgumentParser
-from collections import defaultdict, Counter
+from collections import Counter, defaultdict
 from os.path import exists
 from random import sample
 from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple
@@ -32,15 +32,16 @@ from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple
 import numpy as np  # type: ignore
 import tornado.ioloop
 import tornado.web
-
-from gensim.models import KeyedVectors
+from gensim.models import KeyedVectors  # type: ignore
 from numpy.random import default_rng
-#from sklearn.utils.testing import ignore_warnings
-from PIL import Image
-from sklearn.exceptions import ConvergenceWarning
+
+# from sklearn.utils.testing import ignore_warnings
+from PIL import Image  # type: ignore
+from sklearn.exceptions import ConvergenceWarning  # type: ignore
 from sklearn.linear_model import SGDClassifier  # type: ignore
 from sklearn.preprocessing import normalize  # type: ignore
-from tornado.web import RequestHandler, StaticFileHandler, HTTPError
+from tornado.web import HTTPError, RequestHandler, StaticFileHandler
+
 
 def show_times(times: List[float]) -> None:
     """Shows times in a pretty-printed way"""
@@ -51,17 +52,20 @@ def show_times(times: List[float]) -> None:
     )
 
 
-def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s.strip().replace('\\n', '')) -> Tuple[List[str], np.ndarray, Dict[str, List[str]]]:
+def read_and_join_features(
+    feature_paths: Sequence[str], key_func=lambda s: s.strip().replace("\\n", ""), max_features=-1,
+) -> Tuple[List[str], np.ndarray, Dict[str, List[str]]]:
     """Reads multiple `feature_paths` and joins them together.
 
     Returns `(keys, features, key_to_item)`, where:
-        * `keys` is a list of keys
-        * `features` is a 2-d numpy array, where each row corresponds to a `key`
-        * `key_to_item` is a dict from key to an item dict. This dict contains:
-          * `paths`: the extracted original path for each key, for each feature path
-          * any other attributes in the input data files:
-            * for gensim inputs, we use the `get_vecattr()` interface to get attributes
-            * for npz files, we look for any other arrays of the same length as `features` in the input, and use those
+    - `keys` is a list of keys
+    - `features` is a 2-d numpy array, where each row corresponds to a `key`
+    - `key_to_item` is a dict from key to an item dict. This dict contains:
+      - `paths`: the extracted original path for each key, for each feature path
+      - any other attributes in the input data files:
+        - for gensim inputs, we use the `get_vecattr()` interface to get attributes
+        - for npz files, we look for any other arrays of the same length as `features` in the input,
+          and use those
 
     The extension is used to determine what format to read:
         `.wv` or `.kv`: Assumed to be in gensim's KeyedVector format
@@ -72,11 +76,16 @@ def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s.st
 
     The paths (i.e., keys in .wv files, or the 'path' fields in .npz files) are converted to keys
     using the given `key_func`. These should be unique per path!
+
+    If max_features > 0, then we limit to that many features
     """
     key_to_row = defaultdict(list)
     key_to_item = defaultdict(dict)
     for n, feature_path in enumerate(feature_paths):
-        logging.info('Reading features from file %d/%d: %s', n+1, len(feature_paths), feature_path)
+        logging.info(
+            "Reading features from file %d/%d: %s", n + 1, len(feature_paths), feature_path
+        )
+
         def add_row(path, row, attrs):
             """Adds the given feature `row` for `path`, with optional `attrs`"""
             key = key_func(path)
@@ -85,49 +94,58 @@ def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s.st
                 return
             key_to_row[key].append(row)
             item = key_to_item[key]
-            if 'paths' not in item:
-                item['paths'] = []
-            item['paths'].append(path)
+            if "paths" not in item:
+                item["paths"] = []
+            item["paths"].append(path)
             for attr, value in attrs.items():
-                if attr == 'id':
-                    attr = '_id'
+                if attr == "id":
+                    attr = "_id"
                 item[attr] = value
-        if feature_path.endswith('.wv') or feature_path.endswith('.kv'):
-            wv = KeyedVectors.load(feature_path, mmap='r')
+
+        if feature_path.endswith(".wv") or feature_path.endswith(".kv"):
+            wv = KeyedVectors.load(feature_path, mmap="r")
             attr_fields = sorted(wv.expandos)
-            logging.info('  Read %d wv, attrs: %s, %s', len(wv), sorted(wv.expandos), wv.index_to_key[:10])
+            logging.info(
+                "  Read %d wv, attrs: %s, %s", len(wv), sorted(wv.expandos), wv.index_to_key[:10]
+            )
             for path in wv.index_to_key:
                 attrs = {field: wv.get_vecattr(path, field) for field in attr_fields}
                 add_row(path, wv[path], attrs)
-        elif feature_path.endswith('.npz'):
+                if max_features > 0 and len(key_to_row) >= max_features:
+                    break
+        elif feature_path.endswith(".npz"):
             data = np.load(feature_path)
             paths = [str(path) for path in data["paths"]]
             features = data["features"]
             attrs_by_field = {}
             for field in data:
-                if field in ('paths', 'features'):
+                if field in ("paths", "features"):
                     continue
                 try:
                     if len(data[field]) == len(features):
                         attrs_by_field[field] = data[field]
-                except Exception: # field that doesn't have len()
+                except Exception:  # field that doesn't have len()
                     pass
             for idx, (path, row) in enumerate(zip(paths, features)):
                 attrs = {field: attrs_by_field[field][idx] for field in attrs_by_field}
                 add_row(path, row, attrs)
+                if max_features > 0 and len(key_to_row) >= max_features:
+                    break
         else:
-            raise NotImplementedError('Do not know how to deal with this filetype: %s' % (feature_path))
+            raise NotImplementedError(
+                "Do not know how to deal with this filetype: %s" % (feature_path)
+            )
     # merge all features together
     features = []
     for key, lst in key_to_row.items():
         if len(lst) == len(feature_paths):
             features.append((key, np.hstack(lst)))
     if not features:
-        logging.warning('No valid features found!')
+        logging.warning("No valid features found!")
         return None
     keys, features = zip(*features)
     features = np.vstack(features)
-    logging.info('Got %d keys and features of shape %s', len(keys), features.shape)
+    logging.info("Got %d keys and features of shape %s", len(keys), features.shape)
     key_to_item = dict(key_to_item)
     for key, item in key_to_item.items():
         key_to_item[key] = dict(item)
@@ -137,15 +155,17 @@ def read_and_join_features(feature_paths: Sequence[str], key_func=lambda s: s.st
 class FastClassifier:
     """Wrapper class for a fast classifier that uses pre-computed features"""
 
-    def __init__(self,
-                 feature_paths: List[str],
-                 sqrt_normalize=False,
-                 l2_normalize=False,
-                 n_models=4,
-                 n_top=500,
-                 n_negatives=50,
-                 key_func_str=None,
-                 ):
+    def __init__(
+        self,
+        feature_paths: List[str],
+        sqrt_normalize=False,
+        l2_normalize=False,
+        n_models=4,
+        n_top=500,
+        n_negatives=50,
+        key_func_str=None,
+        max_features=-1,
+    ):
         """Loads the data and preprocesses it.
 
         Reads all `feature_paths` and concatenates features from each.
@@ -160,12 +180,15 @@ class FastClassifier:
         """
         t0 = time.time()
         if not key_func_str:
-            key_func_str = 'path'
+            key_func_str = "path"
+
         def key_func(path):
             return eval(key_func_str)
 
-        self.keys, features, self.key_to_item = read_and_join_features(feature_paths, key_func=key_func)
-        self.paths = [self.key_to_item[key]['paths'][0] for key in self.keys]
+        self.keys, features, self.key_to_item = read_and_join_features(
+            feature_paths, key_func=key_func, max_features=max_features,
+        )
+        self.paths = [self.key_to_item[key]["paths"][0] for key in self.keys]
         if sqrt_normalize:
             logging.info("Applying SQRT norm")
             features = np.sqrt(features)
@@ -182,8 +205,12 @@ class FastClassifier:
             features,
             self.features,
         )
-        logging.info("Loaded fast classifier from %d feature paths with %d keys in %0.2fs",
-                len(feature_paths), len(self.keys), time.time() - t0)
+        logging.info(
+            "Loaded fast classifier from %d feature paths with %d keys in %0.2fs",
+            len(feature_paths),
+            len(self.keys),
+            time.time() - t0,
+        )
         self.n_models = n_models
         self.n_top = n_top
         self.n_negatives = n_negatives
@@ -193,7 +220,7 @@ class FastClassifier:
         """Returns number of items in our dataset"""
         return len(self.keys)
 
-    #@ignore_warnings(category=ConvergenceWarning)
+    # @ignore_warnings(category=ConvergenceWarning)
     def train_single_model_impl(self, pos_features, neg_features, neg_weights):
         """Trains a single model and returns a single column array with the coefficients + intercept."""
         # make various lookups
@@ -238,11 +265,13 @@ class FastClassifier:
         pos_features = [f_by_key[key] for key in pos_keys if key in f_by_key]
         if neg_weights is None:
             neg_weights = [1] * len(neg_keys)
-        neg = [(f_by_key[key], weight) for key, weight in zip(neg_keys, neg_weights) if key in f_by_key]
+        neg = [
+            (f_by_key[key], weight) for key, weight in zip(neg_keys, neg_weights) if key in f_by_key
+        ]
         if len(neg) == 0:
             return None
         neg_features, neg_weights = zip(*neg)
-        logging.info('Got pos %s, neg %s, %s', pos_features, neg_features, neg_weights)
+        logging.info("Got pos %s, neg %s, %s", pos_features, neg_features, neg_weights)
         return self.train_single_model_impl(pos_features, neg_features, neg_weights)
 
     def classify_many(self, models):
@@ -258,7 +287,7 @@ class FastClassifier:
         keys = self.keys
         scores = Counter()
         for col in out.T:
-            for i in col.argsort()[::-1][:self.n_top]:
+            for i in col.argsort()[::-1][: self.n_top]:
                 if col[i] > 0:
                     if i < len(
                         keys
@@ -331,7 +360,7 @@ class FastClassifier:
             neg_weights = [1.0] * len(neg_keys) + [0.2] * len(more_neg_keys)
             all_neg = neg_keys + more_neg_keys
             logging.debug("Got %d neg weights, %d neg", len(neg_weights), len(all_neg))
-            logging.info('got keys pos %s, neg %s + %s', pos_keys, neg_keys, more_neg_keys)
+            logging.info("got keys pos %s, neg %s + %s", pos_keys, neg_keys, more_neg_keys)
             cls = self.train_single_model(pos_keys, all_neg, neg_weights=neg_weights)
             models.append(cls)
         times.append(time.time())
@@ -364,11 +393,18 @@ class FastClassifier:
         # aggregate results from different models
         for i in range(self.n_models):
             pos_features = np.array([f_by_key[neg_keys[0]] - f_by_key[pos_keys[0]]])
-            n_neg = min(len(neg_options)//2, self.n_negatives)
+            n_neg = min(len(neg_options) // 2, self.n_negatives)
             neg_pairs = self.rng.choice(neg_options, (n_neg, 2), replace=False)
-            neg_features = np.array([f_by_key[n1]-f_by_key[n2] for n1, n2 in neg_pairs[:]])
+            neg_features = np.array([f_by_key[n1] - f_by_key[n2] for n1, n2 in neg_pairs[:]])
             neg_weights = np.ones(len(neg_features)) / len(neg_features)
-            logging.info('Got pos %s, neg pairs %s, features %s: %s, %s', pos_features, neg_pairs, neg_features.shape, neg_features, neg_weights)
+            logging.info(
+                "Got pos %s, neg pairs %s, features %s: %s, %s",
+                pos_features,
+                neg_pairs,
+                neg_features.shape,
+                neg_features,
+                neg_weights,
+            )
             assert pos_features.shape[1] == neg_features.shape[1]
             assert len(neg_features) == len(neg_weights)
             cls = self.train_single_model_impl(pos_features, neg_features, neg_weights)
@@ -392,9 +428,9 @@ class FastClassifier:
 
         Returns `(scores, cls_id)`
         """
-        if type == 'plus-minus':
+        if type == "plus-minus":
             scores, models = self.train_and_classify_many_plus_minus(pos_keys, neg_keys)
-        elif type == 'rel':
+        elif type == "rel":
             scores, models = self.train_and_classify_many_rel(pos_keys, neg_keys)
         if save_classifier:
             subdir = "images"
@@ -406,6 +442,7 @@ class FastClassifier:
 
 class MyStaticHandler(StaticFileHandler):
     """A simple subclass to allow for some additional functionality"""
+
     def validate_absolute_path(self, root: str, absolute_path: str) -> Optional[str]:
         """This is the same as in the base implementation, but without the check for being in our dir"""
         # The trailing slash also needs to be temporarily added back
@@ -422,20 +459,20 @@ class MyStaticHandler(StaticFileHandler):
             raise HTTPError(404)
         if not os.path.isfile(absolute_path):
             raise HTTPError(403, "%s is not a file", self.path)
-        thumb = self.get_argument('thumb', '')
-        if thumb == '1':
-            absolute_path += '?thumb'
+        thumb = self.get_argument("thumb", "")
+        if thumb == "1":
+            absolute_path += "?thumb"
         return absolute_path
 
     def _stat(self) -> os.stat_result:
         """We override this to do the thumbnailing as necessary"""
-        if self.absolute_path.endswith('?thumb'):
+        if self.absolute_path.endswith("?thumb"):
             # convert to thumb path
             dirname, basename = os.path.split(self.absolute_path)
-            thumb_path = os.path.join(dirname, '.'+basename[:-6])
+            thumb_path = os.path.join(dirname, "." + basename[:-6])
             orig_path = self.absolute_path[:-6]
             if not exists(thumb_path):
-                logging.info('trying to thumbnail %s', orig_path)
+                logging.info("trying to thumbnail %s", orig_path)
                 im = Image.open(orig_path)
                 im.thumbnail((200, 200))
                 im.save(thumb_path)
@@ -443,17 +480,21 @@ class MyStaticHandler(StaticFileHandler):
         return super()._stat()
 
     @classmethod
-    def get_content(cls, abspath: str, start: Optional[int] = None, end: Optional[int] = None) -> Generator[bytes, None, None]:
+    def get_content(
+        cls, abspath: str, start: Optional[int] = None, end: Optional[int] = None
+    ) -> Generator[bytes, None, None]:
         """We check for thumb in params and return accordingly"""
-        logging.info('in get_content, with %s, %s, %s', abspath, start, end)
+        logging.info("in get_content, with %s, %s, %s", abspath, start, end)
         return super().get_content(abspath, start, end)
+
 
 class BaseHandler(RequestHandler):
     """Convenience functions for tornado requests"""
+
     def set_default_headers(self):
-        self.set_header('Access-Control-Allow-Origin', '*')
-        self.set_header('Access-Control-Allow-Headers', 'x-requested-with, content-type')
-        self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with, content-type")
+        self.set_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 
     def options(self):
         self.set_default_headers()
@@ -465,124 +506,149 @@ class BaseHandler(RequestHandler):
         This function also sets the content-type explicitly to 'application/json'
         """
         ret = json.dumps(kw, sort_keys=True)
-        callback = self.get_argument('callback', '')
-        content_type = 'application/json'
+        callback = self.get_argument("callback", "")
+        content_type = "application/json"
         if callback:
             ret = "{}({});".format(callback, ret)
-            content_type = 'application/javascript'
-        self.set_header('Content-Type', content_type)
-        self.write(ret+'\n')
+            content_type = "application/javascript"
+        self.set_header("Content-Type", content_type)
+        self.write(ret + "\n")
 
-    def get_json_arg(self, name, default='null'):
+    def get_json_arg(self, name, default="null"):
         """Returns the given arg `name` and decodes it using json"""
         return json.loads(self.get_argument(name, default))
 
+
 class MyJSONEncoder(json.JSONEncoder):
     """Does on-the-fly translation of numpy types, etc"""
+
     def default(self, o):
-        if 'int' in o.__class__.__name__:
+        if "int" in o.__class__.__name__:
             return int(o)
-        if 'float' in o.__class__.__name__:
+        if "float" in o.__class__.__name__:
             return float(o)
-        if 'double' in o.__class__.__name__:
+        if "double" in o.__class__.__name__:
             return float(o)
-        if 'bool' in o.__class__.__name__:
+        if "bool" in o.__class__.__name__:
             return bool(o)
         return json.JSONEncoder.default(self, o)
 
 
-
 class MainHandler(BaseHandler):
     def get(self):
-        key_to_item = self.application.fcls.key_to_item
         cfg = self.application.cfg
-        t0 = time.time()
-        #items = {key: dict(**item) for i, (key, item) in enumerate(key_to_item.items()) if i % 100 == 0}
-        items = {key: dict(**item) for i, (key, item) in enumerate(key_to_item.items())}
-        t1 = time.time()
-        # also add other item fields from our config
-        item_fields = self.application.cfg.get('item_fields', [])
-        def make_func(s):
-            def ret(key, paths, **kwargs):
-                try:
-                    return eval(s)
-                except Exception as e:
-                    logging.error(f'Got error of type {type(e)} with key {key}, paths {paths}, kw {kwargs}: {e}')
-            return ret
-
-        t2 = time.time()
-        field_funcs = {field: make_func(func_str) for field, func_str in item_fields}
-        t3 = time.time()
-        logging.info('Got %d field funcs: %s', len(field_funcs), field_funcs)
-        for key, item in items.items():
-            for field, _ in item_fields:
-                item[field] = field_funcs[field](key=key, **item)
-            for field, value in item.items():
-                name = value.__class__.__name__
-                if 'int' in name:
-                    item[field] = int(value)
-                if 'float' in name or 'double' in name:
-                    item[field] = float(value)
-                if 'bool' in name:
-                    item[field] = bool(value)
-        t4 = time.time()
-        data = dict(items=items, cfg=cfg)
-        data = json.dumps(data, indent=2)#, cls=MyJSONEncoder)
-        t5 = time.time()
-        logging.info('time diffs %s+%s+%s+%s+%s=%s', t1-t0, t2-t1, t3-t2, t4-t3, t5-t4, t5-t0)
-        kwargs = dict(data=data,
-                      static_base_name=cfg['static_base_name'],
-                      css_section='',
-                      js_section='')
+        itemstr_by_key = self.application.itemstr_by_key
+        items_str = ','.join(f'{json.dumps(key)}:{value}' for key, value in itemstr_by_key.items())
+        data_str = f'{{"cfg":{json.dumps(cfg)},"items":{{{items_str}}}}}'
+        kwargs = dict(
+            data=data_str, static_base_name=cfg["static_base_name"], css_section="", js_section=""
+        )
         relopen = lambda filename: open(os.path.join(os.path.dirname(__file__), filename))
-        if cfg['use_default_js']:
+        if cfg["use_default_js"]:
             with relopen("fastcls.js") as f:
-                kwargs['js_section'] = '<script>%s</script>' % (f.read())
-        if cfg['use_default_css']:
+                kwargs["js_section"] = "<script>%s</script>" % (f.read())
+        if cfg["use_default_css"]:
             with relopen("fastcls.css") as f:
-                kwargs['css_section'] = '<style>%s</style>' % (f.read())
+                kwargs["css_section"] = "<style>%s</style>" % (f.read())
         with relopen("fastcls_index.html") as f:
             self.write(f.read() % kwargs)
+
 
 class ClassifyHandler(BaseHandler):
     def post(self):
         args = json.loads(self.request.body)
-        logging.info('got args %s', args)
+        logging.info("got args %s", args)
         ret = args
         try:
-            scores, _ = self.application.fcls.train_and_classify_many(args['type'], args['pos'], args['neg'])
-            ret.update(status='ok', cls=scores.most_common())
+            scores, _ = self.application.fcls.train_and_classify_many(
+                args["type"], args["pos"], args["neg"]
+            )
+            ret.update(status="ok", cls=scores.most_common())
         except Exception as e:
             raise
-            ret.update(status=f'error: {type(e)}: {e}')
+            ret.update(status=f"error: {type(e)}: {e}")
         return self.return_jsonp(**ret)
 
 
 class Application(tornado.web.Application):
     """Custom application, so we can define our own settings"""
-    def __init__(self, config_path):
+
+    def __init__(self, config_path, **kw):
         handlers = [
-            (r'/', MainHandler),
-            (r'/classify', ClassifyHandler),
-            (r'/static/(.*)', MyStaticHandler, {'path': "static"}),
+            (r"/", MainHandler),
+            (r"/classify", ClassifyHandler),
+            (r"/static/(.*)", MyStaticHandler, {"path": "static"}),
         ]
         settings = dict(
-            xsrf_cookies = False,
-            debug = True,
+            xsrf_cookies=False,
+            debug=True,
         )
         with open(config_path) as f:
             self.cfg = json.load(f)
-        self.fcls = FastClassifier(**self.cfg['classifier_config'])
+        t0 = time.time()
+        self.fcls = FastClassifier(**self.cfg["classifier_config"], **kw)
+        t1 = time.time()
+        # make field funcs
+        self.item_fields = self.cfg.get('item_fields', [])
+        self.field_funcs = {field: self.make_func(func_str) for field, func_str in self.item_fields}
+        t2 = time.time()
+        # load items
+        self.itemstr_by_key = {}
+        items = self.fcls.key_to_item.items()
+        #TODO note that right now, the multiprocessing version is way slower
+        if 0:
+            with mp.Pool(os.cpu_count()) as pool:
+                for key, itemstr in pool.map(self.load_item, items, chunksize=10000):
+                    self.itemstr_by_key[key] = itemstr
+        else:
+            self.itemstr_by_key = dict(self.load_item((key, item)) for key, item in items)
+        t3 = time.time()
+        logging.info("main time diffs %s+%s+%s=%s", t1 - t0, t2 - t1, t3-t2, t3 - t0)
         tornado.web.Application.__init__(self, handlers, **settings)
 
+    @staticmethod
+    def make_func(s):
+        def ret(key, paths, **kwargs):
+            try:
+                return eval(s)
+            except Exception as e:
+                logging.error(
+                    f"Got error of type {type(e)} with key {key}, paths {paths}, kw {kwargs}: {e}"
+                )
 
-if __name__ == '__main__':
-    LOG_FORMAT = '%(asctime)s.%(msecs)03d\t%(filename)s:%(lineno)s\t%(funcName)s\t%(message)s'
-    logging.basicConfig(format=LOG_FORMAT, datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+        return ret
+
+    def load_item(self, item_with_key):
+        key, item = item_with_key
+        # add our custom fields
+        for field, _ in self.item_fields:
+            item[field] = self.field_funcs[field](key=key, **item)
+        # cast items to the right type
+        for field, value in item.items():
+            name = value.__class__.__name__
+            if "int" in name:
+                item[field] = int(value)
+            if "float" in name or "double" in name:
+                item[field] = float(value)
+            if "bool" in name:
+                item[field] = bool(value)
+        item_str = json.dumps(item, indent=2)
+        return (key, item_str)
+
+if __name__ == "__main__":
+    LOG_FORMAT = "%(asctime)s.%(msecs)03d\t%(filename)s:%(lineno)s\t%(funcName)s\t%(message)s"
+    logging.basicConfig(format=LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
     parser = ArgumentParser(description="Server for fast interactive classification")
-    parser.add_argument('config_path', help='Path to config file (json)')
-    parser.add_argument('-p', '--port', type=int, default=8000, help='What port to run the server on [8000]')
+    parser.add_argument("config_path", help="Path to config file (json)")
+    parser.add_argument(
+        "-p", "--port", type=int, default=8000, help="What port to run the server on [8000]"
+    )
+    parser.add_argument(
+        "-f", "--max_features", type=int, default=-1, help="If >0, limit to that many input features"
+    )
     args = parser.parse_args()
-    Application(args.config_path).listen(args.port)
-    logging.info('Ready to start serving fast classification on port %d', args.port)
+    kw = vars(args)
+    port = kw.pop('port')
+    Application(**kw).listen(port)
+    logging.info("Ready to start serving fast classification on port %d", port)
     tornado.ioloop.IOLoop.instance().start()

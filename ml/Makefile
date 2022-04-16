@@ -15,7 +15,7 @@ help:
 	} \
 	{ lastLine = $$0 }' $(MAKEFILE_LIST)
 
-BASE_PY_FILES=ml.py autotrie.py parse.py test.py translate.py
+BASE_PY_FILES=fastcls.py image_features.py
 PY_FILES=$(BASE_PY_FILES)
 
 ## runs various code cleanup/checking: black, autoimport, mypy and pylint

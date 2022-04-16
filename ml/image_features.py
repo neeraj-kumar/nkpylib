@@ -116,7 +116,13 @@ class ImageNetFeatureExtractor(nn.Module):
                     followed by final classification (1000 dims)
     """
 
-    def __init__(self, out_layers=["fc6"], model_name="vgg16", projection_length=None, projection_type='sparse'):
+    def __init__(
+        self,
+        out_layers=["fc6"],
+        model_name="vgg16",
+        projection_length=None,
+        projection_type="sparse",
+    ):
         """Initialize this extractor with given list of `out_layers`.
 
         You must pass in a `model_name` (one of ['vgg16'] for now).
@@ -184,16 +190,21 @@ class ImageNetFeatureExtractor(nn.Module):
         if self.projection_length is not None:
             # initialize projection
             if self.projection is None:
-                if self.projection_type == 'sparse':
+                if self.projection_type == "sparse":
                     self.projection = SparseRandomProjection(
-                        n_components=projection_length, density=1 / 3.0, dense_output=True, random_state=0
+                        n_components=projection_length,
+                        density=1 / 3.0,
+                        dense_output=True,
+                        random_state=0,
                     )
                     self.projection.fit(ret)
-                elif self.projection_type == 'index':
+                elif self.projection_type == "index":
                     rng = np.random.default_rng(0)
                     self.projection = rng.choice(n_dims, size=self.projection_length, replace=False)
                 else:
-                    raise NotImplementedError(f"Do not know how to deal with projection type {self.projection_type}")
+                    raise NotImplementedError(
+                        f"Do not know how to deal with projection type {self.projection_type}"
+                    )
             try:
                 ret = self.projection.transform(ret)
             except AttributeError:
@@ -318,7 +329,9 @@ if __name__ == "__main__":
         default=0,
         help="either the random projection output size for imagenet-based features, or one side of the square output of HED",
     )
-    parser.add_argument('-p', '--projection_type', choices=['sparse','index'], help='How to do the projection')
+    parser.add_argument(
+        "-p", "--projection_type", choices=["sparse", "index"], help="How to do the projection"
+    )
     parser.add_argument(
         "-s", "--skip_existing", action="store_true", help="if set, then skip existing paths"
     )
