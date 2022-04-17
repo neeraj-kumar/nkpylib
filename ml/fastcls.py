@@ -22,6 +22,7 @@ import json
 import logging
 import multiprocessing as mp
 import os
+import re
 import time
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
@@ -53,7 +54,9 @@ def show_times(times: List[float]) -> None:
 
 
 def read_and_join_features(
-    feature_paths: Sequence[str], key_func=lambda s: s.strip().replace("\\n", ""), max_features=-1,
+    feature_paths: Sequence[str],
+    key_func=lambda s: s.strip().replace("\\n", ""),
+    max_features=-1,
 ) -> Tuple[List[str], np.ndarray, Dict[str, List[str]]]:
     """Reads multiple `feature_paths` and joins them together.
 
@@ -165,6 +168,7 @@ class FastClassifier:
         n_negatives=50,
         key_func_str=None,
         max_features=-1,
+        filter_regexps=None,
     ):
         """Loads the data and preprocesses it.
 
@@ -185,17 +189,56 @@ class FastClassifier:
         def key_func(path):
             return eval(key_func_str)
 
-        self.keys, features, self.key_to_item = read_and_join_features(
-            feature_paths, key_func=key_func, max_features=max_features,
+        keys, features, key_to_item = read_and_join_features(
+            feature_paths,
+            key_func=key_func,
+            max_features=max_features,
         )
-        self.paths = [self.key_to_item[key]["paths"][0] for key in self.keys]
+        # apply filter regexps
+        if filter_regexps:
+            logging.info(
+                "Initially had %d keys, %s features, %d items",
+                len(keys),
+                features.shape,
+                len(key_to_item),
+            )
+            to_keep = set()
+            # check each item key and each item's values for each filter regexp
+            for key, item in key_to_item.items():
+                for regexp in filter_regexps:
+                    regexp = re.compile(regexp)
+                    if regexp.search(key):
+                        break
+                    matched_field = False
+                    for field, value in item.items():
+                        if regexp.search(str(value)):
+                            logging.debug(f"matched {key} {regexp} {field}={value}")
+                            matched_field = True
+                            break
+                    if matched_field:
+                        break
+                else:  # none of the regexps matched, so keep it
+                    to_keep.add(key)
+            # now do the filtering
+            key_to_item = {key: item for key, item in key_to_item.items() if key in to_keep}
+            keys, features = zip(
+                *[(key, vec) for key, vec in zip(keys, features) if key in to_keep]
+            )
+            features = np.array(features)
+        logging.info(
+            "Left with %d keys, %s features, %d items",
+            len(keys),
+            features.shape,
+            len(key_to_item),
+        )
+        self.paths = [key_to_item[key]["paths"][0] for key in keys]
         if sqrt_normalize:
             logging.info("Applying SQRT norm")
             features = np.sqrt(features)
         if l2_normalize:
             logging.info("Applying L2 normalization")
             features = normalize(features, norm="l2", axis=1)
-        self.features_by_key = {key: feature for key, feature in zip(self.keys, features)}
+        self.features_by_key = {key: feature for key, feature in zip(keys, features)}
         # in our full list of features, we add padding dimension for fast dot products
         self.features = np.hstack([features, np.ones((len(self.keys), 1))])
         logging.debug(
@@ -208,9 +251,11 @@ class FastClassifier:
         logging.info(
             "Loaded fast classifier from %d feature paths with %d keys in %0.2fs",
             len(feature_paths),
-            len(self.keys),
+            len(keys),
             time.time() - t0,
         )
+        # now save other key variables
+        self.keys, self.key_to_item = keys, key_to_item
         self.n_models = n_models
         self.n_top = n_top
         self.n_negatives = n_negatives
@@ -539,7 +584,10 @@ class MainHandler(BaseHandler):
         cfg = self.application.cfg
         data = dict(cfg=cfg)
         kwargs = dict(
-            data=json.dumps(data), static_base_name=cfg["static_base_name"], css_section="", js_section=""
+            data=json.dumps(data),
+            static_base_name=cfg["static_base_name"],
+            css_section="",
+            js_section="",
         )
         relopen = lambda filename: open(os.path.join(os.path.dirname(__file__), filename))
         if cfg["use_default_js"]:
@@ -555,8 +603,9 @@ class MainHandler(BaseHandler):
 class ItemsHandler(BaseHandler):
     def get(self):
         itemstr_by_key = self.application.itemstr_by_key
-        items_str = ','.join(f'{json.dumps(key)}:{value}' for key, value in itemstr_by_key.items())
-        self.write(f'{{ {items_str} }}')
+        items_str = ",".join(f"{json.dumps(key)}:{value}" for key, value in itemstr_by_key.items())
+        self.write(f"{{ {items_str} }}")
+
 
 class ClassifyHandler(BaseHandler):
     def post(self):
@@ -594,13 +643,13 @@ class Application(tornado.web.Application):
         self.fcls = FastClassifier(**self.cfg["classifier_config"], **kw)
         t1 = time.time()
         # make field funcs
-        self.item_fields = self.cfg.get('item_fields', [])
+        self.item_fields = self.cfg.get("item_fields", [])
         self.field_funcs = {field: self.make_func(func_str) for field, func_str in self.item_fields}
         t2 = time.time()
         # load items
         self.itemstr_by_key = {}
         items = self.fcls.key_to_item.items()
-        #TODO note that right now, the multiprocessing version is way slower
+        # TODO note that right now, the multiprocessing version is way slower
         if 0:
             with mp.Pool(os.cpu_count()) as pool:
                 for key, itemstr in pool.map(self.load_item, items, chunksize=10000):
@@ -608,7 +657,7 @@ class Application(tornado.web.Application):
         else:
             self.itemstr_by_key = dict(self.load_item((key, item)) for key, item in items)
         t3 = time.time()
-        logging.info("main time diffs %s+%s+%s=%s", t1 - t0, t2 - t1, t3-t2, t3 - t0)
+        logging.info("main time diffs %s+%s+%s=%s", t1 - t0, t2 - t1, t3 - t2, t3 - t0)
         tornado.web.Application.__init__(self, handlers, **settings)
 
     @staticmethod
@@ -640,6 +689,7 @@ class Application(tornado.web.Application):
         item_str = json.dumps(item, indent=2)
         return (key, item_str)
 
+
 if __name__ == "__main__":
     LOG_FORMAT = "%(asctime)s.%(msecs)03d\t%(filename)s:%(lineno)s\t%(funcName)s\t%(message)s"
     logging.basicConfig(format=LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -649,11 +699,15 @@ if __name__ == "__main__":
         "-p", "--port", type=int, default=8000, help="What port to run the server on [8000]"
     )
     parser.add_argument(
-        "-f", "--max_features", type=int, default=-1, help="If >0, limit to that many input features"
+        "-f",
+        "--max_features",
+        type=int,
+        default=-1,
+        help="If >0, limit to that many input features",
     )
     args = parser.parse_args()
     kw = vars(args)
-    port = kw.pop('port')
+    port = kw.pop("port")
     Application(**kw).listen(port)
     logging.info("Ready to start serving fast classification on port %d", port)
     tornado.ioloop.IOLoop.instance().start()

@@ -2,9 +2,18 @@
 
 const T = React.createElement;
 
-const MAX_CLS = 50;
+let MAX_CLS = 50;
 
 const DRAG_FMT = 'data/drag';
+
+let CFG = null;
+
+function set_config(cfg){
+    CFG = Object.assign({}, cfg);
+    if (CFG.max_cls){
+        MAX_CLS = CFG.max_cls;
+    }
+}
 
 function shuffle(array, seed) {                // <-- ADDED ARGUMENT
   var m = array.length, t, i;
@@ -81,11 +90,64 @@ function sane_sort(a, b, key){
     return 0;
 }
 
+// creates the search index from given dict of `items`
+function createSearchIndex(items){
+    const builder = new lunr.Builder();
+    let fields = null;
+    if (CFG.search_fields){
+        fields = CFG.search_fields.slice();
+    } else {
+        for (const [id, item] of Object.entries(items)) {
+            const cur = Object.keys(item);
+            if (fields === null){
+                fields = cur;
+            } else {
+                fields = fields.filter(f => cur.includes(f));
+            }
+        }
+    }
+    console.log('Got search fields', fields);
+    fields.forEach(field => builder.field(field));
+    for (const [id, item] of Object.entries(items)) {
+        item.id = id;
+        builder.add(item);
+    }
+    return builder.build();
+}
+
+
+// Runs a text search given a set of input ids and `search_index`, returning subset of ids
+function text_search(q, ids, search_index){
+    if (!search_index){
+        console.log('Warning, no search index, searching manually');
+        ids = ids.filter(id => id.match(q));
+    } else {
+        const results = search_index.query((query) => {
+            const {LEADING, TRAILING} = lunr.Query.wildcard;
+            q.split(/(\s+)/).forEach(s => {
+                if (s){
+                    query = query.term(s, {wildcard: LEADING|TRAILING});
+                }
+            });
+            return query;
+        });
+        ids = results.map(r => r.ref);
+    }
+    return ids;
+}
+
+//TODO fill this in
+function get_filter_buttons(items){
+    const options = [];
+
+}
+
+
 // generic item renderer
 function item_renderer(props){
     let {item, hover=null, hoverHandler=null, clickHandler=null, example_type='', source=''} = props;
     const {id} = item;
-    if (source.includes('cls')){
+    if (0 && source.includes('cls')){
         console.log('trying to render item', item, id);
     }
     const onDragStart = (ev) => {
@@ -136,7 +198,16 @@ class Collection extends React.Component {
     constructor(props) {
         super(props);
         console.log('initializing collection with', this.props);
-        this.state = {uuid: guid(), pos: [], neg: [], cls: [], drag_over: null};
+        this.state = {
+            uuid: guid(),
+            pos: [],
+            neg: [],
+            cls: [],
+            filter_cls: [],
+            drag_over: null,
+            filter_text: '',
+            search_index: null,
+        };
     }
 
     // after prop/state changes
@@ -149,7 +220,7 @@ class Collection extends React.Component {
     // returns item objects from ids
     id2item = (id) => {
         let item = this.props.items[id];
-        console.log('for id ', id, item);
+        //console.log('for id ', id, item);
         return {id, ...item};
     }
 
@@ -197,7 +268,15 @@ class Collection extends React.Component {
                     }
                     // limit number
                     cls = cls.slice(0, max_num);
-                    this.setState({cls});
+                    // build search index
+                    const items = {};
+                    cls.forEach(id => {
+                        items[id] = this.id2item(id);
+                    });
+                    const search_index = createSearchIndex(items);
+                    // rerun existing search (if any)
+                    const filter_cls = text_search(this.state.filter_text, cls, search_index);
+                    this.setState({cls, filter_cls, search_index});
                 }
             })
             .catch((err) => {
@@ -238,6 +317,21 @@ class Collection extends React.Component {
         this.setState(newState);
     }
 
+    // filters our items
+    filter = (ev) => {
+        const filter_text = ev.target.value;
+        if (filter_text == this.state.filter_text){
+            return;
+        }
+        const filter_cls = text_search(filter_text, this.state.cls, this.state.search_index);
+        console.log('for cls query, got results', filter_text, filter_cls);
+        this.setState({
+            filter_text,
+            filter_cls,
+        });
+    }
+
+
     render(){
         const {title, desc, type, clickHandler=null} = this.props;
         const {drag_over} = this.state;
@@ -261,11 +355,19 @@ class Collection extends React.Component {
             pos = make_div('pos', 'lightblue', this.state.pos);
             neg = make_div('neg', 'lightpink', this.state.neg);
         }
-        const cls = make_div('cls', 'white', this.state.cls);
+        const cls = make_div('cls', 'white', this.state.filter_cls);
         return T('div', {className: `collection-div`, key: title},
                  T('h3', {}, `${title} (${type})`),
                  T('div', {}, desc),
-                 T('div', {className:`collection-container`}, pos, cls, neg),
+                 T('div', {className:`collection-container`},
+                   pos,
+                   T('div', {style: {overflowX: 'auto', textAlign: 'center'}},
+                     T('div', {className: 'cls-controls'},
+                         T('label', {}, 'Filter:'),
+                         T('input', {type: 'text', size: 40, value: this.state.filter_text, onChange: this.filter}),
+                     ),
+                     cls),
+                   neg),
         );
     }
 }
@@ -327,38 +429,8 @@ class AllItems extends React.Component {
         if (filter_text == this.state.filter_text){
             return;
         }
-        const {search_index} = this.props;
-        let {ids} = this.state;
-        if (!search_index){
-            console.log('Warning, no search index, searching manually');
-            // use the search index
-            ids = Object.keys(this.props.items).filter(id => {
-                // check id
-                if (id.match(filter_text)) return true;
-                // check item attr values
-                const item = this.props.items[id];
-                for (const [key, value] in Object.entries(item)) {
-                    try {
-                        if (value.match(filter_text)) return true;
-                    } catch (e) {} // ignore errors
-                }
-                // at this point, nothing matched, so return false
-                return false;
-            });
-        } else {
-            //const results = search_index.search(filter_text);
-            const results = search_index.query((query) => {
-                const {LEADING, TRAILING} = lunr.Query.wildcard;
-                filter_text.split(/(\s+)/).forEach(s => {
-                    if (s){
-                        query = query.term(s, {wildcard: LEADING|TRAILING});
-                    }
-                });
-                return query;
-            });
-            console.log('for query, got results', filter_text, results);
-            ids = results.map(r => r.ref);
-        }
+        const ids = text_search(filter_text, this.state.ids, this.props.search_index);
+        console.log('for query, got results', filter_text, ids);
         this.setState({
             filter_text,
             page_num: 0,
@@ -395,7 +467,7 @@ class AllItems extends React.Component {
             ),
             T('div', {className: 'buttons'},
               T('button', {onClick: () => this.setState({ids: shuffle(this.state.ids, (new Date()).getTime())})}, 'Shuffle items'),
-              T('label', {}, 'Filter by regexp:'),
+              T('label', {}, 'Filter:'),
               T('input', {type: 'text', size: 40, value: this.state.filter_text, onChange: this.filter}),
             ),
         );
@@ -424,6 +496,7 @@ class AllItems extends React.Component {
 class Main extends React.Component {
     constructor(props) {
         super(props);
+        set_config(props.cfg);
         // helper to randomly choose from array
         const choice = (arr) => arr[Math.floor(Math.random() * arr.length)];
         this.state = {items: [], collections: [], search_index: null};
@@ -449,33 +522,10 @@ class Main extends React.Component {
         })});
     }
 
-    // creates the search index
-    createSearchIndex = (items) => {
-        const builder = new lunr.Builder();
-        let fields = null;
-        for (const [key, item] of Object.entries(items)) {
-            item.key = key;
-            const cur = Object.keys(item);
-            if (fields === null){
-                fields = cur;
-            } else {
-                fields = fields.filter(f => cur.includes(f));
-            }
-        }
-        console.log('Got search fields', fields);
-        builder.ref('key');
-        fields.forEach(field => builder.field(field));
-        for (const [key, item] of Object.entries(items)) {
-            builder.add(item);
-        }
-        this.setState({search_index: builder.build()});
-    }
-
     // loads data
     load_data(){
         fetch('items').then(resp => resp.json()).then(items => {
-            this.createSearchIndex(items);
-            this.setState({items});
+            this.setState({items, search_index: createSearchIndex(items)});
         });
     }
 
