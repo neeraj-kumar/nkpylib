@@ -148,8 +148,7 @@ class Collection extends React.Component {
 
     // returns item objects from ids
     id2item = (id) => {
-        //let item = this.props.items[id] || this.props.items[id+'\n'] || this.props.items[id.sub('\n', '')];
-        let item = this.props.items[id];// || this.props.items[id+'\n'] || this.props.items[id.sub('\n', '')];
+        let item = this.props.items[id];
         console.log('for id ', id, item);
         return {id, ...item};
     }
@@ -274,16 +273,30 @@ class Collection extends React.Component {
 class AllItems extends React.Component {
     constructor(props) {
         super(props);
-        const {page_size=100} = this.props;
-        const ids = Object.keys(this.props.items)
-        this.state = {
+        this.state = this.set_params(props);
+    }
+
+    shouldComponentUpdate(nextProps, nextState){
+        if (nextProps != this.props){
+            this.setState(this.set_params(nextProps));
+        }
+        return true;
+    }
+
+    // sets various pagination-related params based on given `props`
+    set_params = (props) => {
+        const {page_size=100} = props;
+        const ids = Object.keys(props.items)
+        const ret = {
             page_size,
             page_num: 0,
-            last_page: Math.ceil(ids.length / page_size) - 1,
+            last_page: Math.max(0, Math.ceil(ids.length / page_size) - 1),
             hover: null,
             ids,
             filter_text: '',
         };
+        console.log('setting params', ret);
+        return ret;
     }
 
     hoverHandler = (id) => {
@@ -314,19 +327,38 @@ class AllItems extends React.Component {
         if (filter_text == this.state.filter_text){
             return;
         }
-        let ids = Object.keys(this.props.items).filter(id => {
-            // check id
-            if (id.match(filter_text)) return true;
-            // check item attr values
-            const item = this.props.items[id];
-            for (const [key, value] in Object.entries(item)) {
-                try {
-                    if (value.match(filter_text)) return true;
-                } catch (e) {} // ignore errors
-            }
-            // at this point, nothing matched, so return false
-            return false;
-        });
+        const {search_index} = this.props;
+        let {ids} = this.state;
+        if (!search_index){
+            console.log('Warning, no search index, searching manually');
+            // use the search index
+            ids = Object.keys(this.props.items).filter(id => {
+                // check id
+                if (id.match(filter_text)) return true;
+                // check item attr values
+                const item = this.props.items[id];
+                for (const [key, value] in Object.entries(item)) {
+                    try {
+                        if (value.match(filter_text)) return true;
+                    } catch (e) {} // ignore errors
+                }
+                // at this point, nothing matched, so return false
+                return false;
+            });
+        } else {
+            //const results = search_index.search(filter_text);
+            const results = search_index.query((query) => {
+                const {LEADING, TRAILING} = lunr.Query.wildcard;
+                filter_text.split(/(\s+)/).forEach(s => {
+                    if (s){
+                        query = query.term(s, {wildcard: LEADING|TRAILING});
+                    }
+                });
+                return query;
+            });
+            console.log('for query, got results', filter_text, results);
+            ids = results.map(r => r.ref);
+        }
         this.setState({
             filter_text,
             page_num: 0,
@@ -374,6 +406,7 @@ class AllItems extends React.Component {
         const {clickHandler} = this.props;
         const {hover} = this.state;
         const [nav, ids] = this.render_nav();
+        //console.log('rendering all images', ids)
         return T('div', {},
                  nav,
                  T('div', {className: 'all-div'},
@@ -393,12 +426,12 @@ class Main extends React.Component {
         super(props);
         // helper to randomly choose from array
         const choice = (arr) => arr[Math.floor(Math.random() * arr.length)];
-        this.state = {collections: []};
+        this.state = {items: [], collections: [], search_index: null};
     }
 
     // returns a list of ids based on our props
     ids(){
-        return Object.keys(this.props.items);
+        return Object.keys(this.state.items);
     }
 
     // adds a new collection
@@ -416,8 +449,38 @@ class Main extends React.Component {
         })});
     }
 
+    // creates the search index
+    createSearchIndex = (items) => {
+        const builder = new lunr.Builder();
+        let fields = null;
+        for (const [key, item] of Object.entries(items)) {
+            item.key = key;
+            const cur = Object.keys(item);
+            if (fields === null){
+                fields = cur;
+            } else {
+                fields = fields.filter(f => cur.includes(f));
+            }
+        }
+        console.log('Got search fields', fields);
+        builder.ref('key');
+        fields.forEach(field => builder.field(field));
+        for (const [key, item] of Object.entries(items)) {
+            builder.add(item);
+        }
+        this.setState({search_index: builder.build()});
+    }
+
+    // loads data
+    load_data(){
+        fetch('items').then(resp => resp.json()).then(items => {
+            this.createSearchIndex(items);
+            this.setState({items});
+        });
+    }
+
     render(){
-        const {items} = this.props;
+        const {items, search_index} = this.state;
         console.log('rendering main', Object.keys(items).length, this.state, this.props.cfg, new Date());
         const {collections} = this.state;
         const ret = T('div', {className: 'main'},
@@ -425,13 +488,14 @@ class Main extends React.Component {
                    T('button', {onClick: () => this.add_collection('plus-minus')}, 'Add +/- collection'),
                    T('button', {onClick: () => this.add_collection('rel')}, 'Add rel collection'),
                    T('h3', {}, "All items"),
-                   T(AllItems, {items}));
+                   T(AllItems, {items, search_index}));
         console.log('done with main', new Date());
         return ret;
     }
 
-    // after first mount, add a collection
+    // after first mount, load data add a collection
     componentDidMount(){
+        this.load_data();
         this.add_collection();
     }
 

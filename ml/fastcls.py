@@ -271,7 +271,7 @@ class FastClassifier:
         if len(neg) == 0:
             return None
         neg_features, neg_weights = zip(*neg)
-        logging.info("Got pos %s, neg %s, %s", pos_features, neg_features, neg_weights)
+        logging.debug("Got pos %s, neg %s, %s", pos_features, neg_features, neg_weights)
         return self.train_single_model_impl(pos_features, neg_features, neg_weights)
 
     def classify_many(self, models):
@@ -537,11 +537,9 @@ class MyJSONEncoder(json.JSONEncoder):
 class MainHandler(BaseHandler):
     def get(self):
         cfg = self.application.cfg
-        itemstr_by_key = self.application.itemstr_by_key
-        items_str = ','.join(f'{json.dumps(key)}:{value}' for key, value in itemstr_by_key.items())
-        data_str = f'{{"cfg":{json.dumps(cfg)},"items":{{{items_str}}}}}'
+        data = dict(cfg=cfg)
         kwargs = dict(
-            data=data_str, static_base_name=cfg["static_base_name"], css_section="", js_section=""
+            data=json.dumps(data), static_base_name=cfg["static_base_name"], css_section="", js_section=""
         )
         relopen = lambda filename: open(os.path.join(os.path.dirname(__file__), filename))
         if cfg["use_default_js"]:
@@ -553,6 +551,12 @@ class MainHandler(BaseHandler):
         with relopen("fastcls_index.html") as f:
             self.write(f.read() % kwargs)
 
+
+class ItemsHandler(BaseHandler):
+    def get(self):
+        itemstr_by_key = self.application.itemstr_by_key
+        items_str = ','.join(f'{json.dumps(key)}:{value}' for key, value in itemstr_by_key.items())
+        self.write(f'{{ {items_str} }}')
 
 class ClassifyHandler(BaseHandler):
     def post(self):
@@ -576,6 +580,7 @@ class Application(tornado.web.Application):
     def __init__(self, config_path, **kw):
         handlers = [
             (r"/", MainHandler),
+            (r"/items", ItemsHandler),
             (r"/classify", ClassifyHandler),
             (r"/static/(.*)", MyStaticHandler, {"path": "static"}),
         ]
