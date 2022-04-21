@@ -240,7 +240,7 @@ class FastClassifier:
             features = normalize(features, norm="l2", axis=1)
         self.features_by_key = {key: feature for key, feature in zip(keys, features)}
         # in our full list of features, we add padding dimension for fast dot products
-        self.features = np.hstack([features, np.ones((len(self.keys), 1))])
+        self.features = np.hstack([features, np.ones((len(keys), 1))])
         logging.debug(
             "Pre: %s, post: %s, %s, %s",
             features.shape,

@@ -90,6 +90,31 @@ function sane_sort(a, b, key){
     return 0;
 }
 
+// creates the filters ux
+function make_filters_ux(){
+    const ret = [];
+    ret.push(T('label', {}, 'Filter:'));
+    console.log('in make filters ux', this.state);
+    Object.entries(this.state.filter_btns).forEach(([field, value]) => {
+        console.log('mapping with ', field, value);
+          ret.push(T('select', {
+                    key: field,
+                    value,
+                    onChange: (ev) => this.filter_ids(null, field, ev.target.value),
+                },
+              T('option', {value: ''}, `<${field}>`),
+              CFG.filter_options[field].map(name => T('option', {key: name, value: name}, name)),
+          ));
+    });
+    ret.push(T('input', {
+        type: 'text',
+        size: 40,
+        value: this.state.filter_text,
+        onChange: (ev) => this.filter_ids(ev.target.value)
+    }));
+    return ret;
+}
+
 // creates the search index from given dict of `items`
 function createSearchIndex(items){
     const builder = new lunr.Builder();
@@ -131,16 +156,50 @@ function text_search(q, ids, search_index){
             });
             return query;
         });
-        ids = results.map(r => r.ref);
+        const valid_ids = {};
+        results.forEach(r => valid_ids[r.ref] = 1);
+        ids = ids.filter(id => valid_ids[id]);
     }
     return ids;
 }
 
-//TODO fill this in
-function get_filter_buttons(items){
-    const options = [];
 
+function filter_items(state, items, search_index, filter_text=null, filter_btn_key=null, filter_btn_value=null){
+    console.log('in filter items with ', state, filter_text, filter_btn_key, filter_btn_value);
+    if (filter_text == null){
+        filter_text = state.filter_text;
+    }
+    let filter_btns = state.filter_btns;
+    if (filter_btn_key != null){
+        // duplicate this so that we update our state accordingly
+        filter_btns = Object.assign({}, filter_btns);
+        filter_btns[filter_btn_key] = filter_btn_value;
+    }
+    let ids = Object.keys(items)
+    // apply filter buttons
+    ids = ids.filter(id => {
+        let keep = true;
+        for (const [key, value] of Object.entries(filter_btns)) {
+            if (value === '') continue;
+            const item = items[id];
+            if (item[key] !== value){
+                keep = false;
+                break;
+            }
+        }
+        return keep;
+    });
+    // apply text filter
+    ids = text_search(filter_text, ids, search_index);
+    const ret = {
+        filter_text,
+        filter_btns,
+        ids,
+    };
+    console.log('return filter items', ret);
+    return ret;
 }
+
 
 
 // generic item renderer
@@ -198,6 +257,7 @@ class Collection extends React.Component {
     constructor(props) {
         super(props);
         console.log('initializing collection with', this.props);
+        this.make_filters_ux = make_filters_ux.bind(this);
         this.state = {
             uuid: guid(),
             pos: [],
@@ -206,6 +266,7 @@ class Collection extends React.Component {
             filter_cls: [],
             drag_over: null,
             filter_text: '',
+            filter_btns: Object.assign({}, CFG.filter_btns),
             search_index: null,
         };
     }
@@ -275,8 +336,10 @@ class Collection extends React.Component {
                     });
                     const search_index = createSearchIndex(items);
                     // rerun existing search (if any)
-                    const filter_cls = text_search(this.state.filter_text, cls, search_index);
-                    this.setState({cls, filter_cls, search_index});
+                    this.state.cls = cls;
+                    this.state.search_index = search_index;
+                    this.filter_ids();
+                    //this.setState({cls, filter_cls, search_index});
                 }
             })
             .catch((err) => {
@@ -318,19 +381,16 @@ class Collection extends React.Component {
     }
 
     // filters our items
-    filter = (ev) => {
-        const filter_text = ev.target.value;
-        if (filter_text == this.state.filter_text){
-            return;
-        }
-        const filter_cls = text_search(filter_text, this.state.cls, this.state.search_index);
-        console.log('for cls query, got results', filter_text, filter_cls);
+    filter_ids = (filter_text=null, filter_btn_key=null, filter_btn_value=null) => {
+        const items = {};
+        this.state.cls.forEach(id => {items[id] = this.id2item(id)});
+        const ret = filter_items(this.state, items, this.state.search_index, filter_text, filter_btn_key, filter_btn_value);
         this.setState({
-            filter_text,
-            filter_cls,
+            filter_text: ret.filter_text,
+            filter_btns: ret.filter_btns,
+            filter_cls: ret.ids,
         });
     }
-
 
     render(){
         const {title, desc, type, clickHandler=null} = this.props;
@@ -362,10 +422,7 @@ class Collection extends React.Component {
                  T('div', {className:`collection-container`},
                    pos,
                    T('div', {style: {overflowX: 'auto', textAlign: 'center'}},
-                     T('div', {className: 'cls-controls'},
-                         T('label', {}, 'Filter:'),
-                         T('input', {type: 'text', size: 40, value: this.state.filter_text, onChange: this.filter}),
-                     ),
+                     T('div', {className: 'cls-controls'}, this.make_filters_ux()),
                      cls),
                    neg),
         );
@@ -375,6 +432,7 @@ class Collection extends React.Component {
 class AllItems extends React.Component {
     constructor(props) {
         super(props);
+        this.make_filters_ux = make_filters_ux.bind(this);
         this.state = this.set_params(props);
     }
 
@@ -396,8 +454,9 @@ class AllItems extends React.Component {
             hover: null,
             ids,
             filter_text: '',
+            filter_btns: Object.assign({}, CFG.filter_btns),
         };
-        console.log('setting params', ret);
+        console.log('setting params', ret, CFG);
         return ret;
     }
 
@@ -424,19 +483,11 @@ class AllItems extends React.Component {
     }
 
     // filters our items
-    filter = (ev) => {
-        const filter_text = ev.target.value;
-        if (filter_text == this.state.filter_text){
-            return;
-        }
-        const ids = text_search(filter_text, this.state.ids, this.props.search_index);
-        console.log('for query, got results', filter_text, ids);
-        this.setState({
-            filter_text,
-            page_num: 0,
-            ids,
-            last_page: Math.ceil(ids.length / this.state.page_size) - 1,
-        });
+    filter_ids = (filter_text=null, filter_btn_key=null, filter_btn_value=null) => {
+        const ret = filter_items(this.state, this.props.items, this.props.search_index, filter_text, filter_btn_key, filter_btn_value);
+        ret.page_num = 0;
+        ret.last_page = Math.ceil(ret.ids.length / this.state.page_size) - 1;
+        this.setState(ret);
     }
 
     render_nav(){
@@ -467,8 +518,7 @@ class AllItems extends React.Component {
             ),
             T('div', {className: 'buttons'},
               T('button', {onClick: () => this.setState({ids: shuffle(this.state.ids, (new Date()).getTime())})}, 'Shuffle items'),
-              T('label', {}, 'Filter:'),
-              T('input', {type: 'text', size: 40, value: this.state.filter_text, onChange: this.filter}),
+              this.make_filters_ux(),
             ),
         );
         return [nav, ids];
@@ -525,6 +575,29 @@ class Main extends React.Component {
     // loads data
     load_data(){
         fetch('items').then(resp => resp.json()).then(items => {
+            // update filter buttons and options based on this data
+            const filter_buttons = CFG.filter_buttons || [];
+            CFG.filter_options = {};
+            CFG.filter_btns = {};
+            filter_buttons.forEach(field => {
+                CFG.filter_btns[field] = '';
+                CFG.filter_options[field] = new Set();
+            });
+            // make a list of all filter options for each filter button field
+            for (const [id, item] of Object.entries(items)) {
+                filter_buttons.forEach(field => {
+                    const value = item[field];
+                    if (!(field in CFG.filter_options)){
+                        CFG.filter_options[field] = new Set();
+                    }
+                    CFG.filter_options[field].add(value);
+                });
+            }
+            // convert each filter option set to an array
+            for (const [field, opts] of Object.entries(CFG.filter_options)) {
+                CFG.filter_options[field] = Array.from(opts);
+            }
+            // set our state
             this.setState({items, search_index: createSearchIndex(items)});
         });
     }
@@ -546,7 +619,6 @@ class Main extends React.Component {
     // after first mount, load data add a collection
     componentDidMount(){
         this.load_data();
-        this.add_collection();
     }
 
 }
