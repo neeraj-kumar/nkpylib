@@ -33,8 +33,10 @@ from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple
 import numpy as np  # type: ignore
 import tornado.ioloop
 import tornado.web
+from tqdm import tqdm  # type: ignore
 from gensim.models import KeyedVectors  # type: ignore
 from numpy.random import default_rng
+from scipy.spatial.distance import cdist, euclidean
 
 # from sklearn.utils.testing import ignore_warnings
 from PIL import Image  # type: ignore
@@ -347,7 +349,7 @@ class FastClassifier:
         )
         return scores
 
-    def classify_many_rel(self, models):
+    def old_classify_many_rel(self, models):
         """Classifies all pairs of items of using given `models`.
 
         Since our classifiers are linear, we can do the following:
@@ -377,6 +379,33 @@ class FastClassifier:
             len(scores),
             times[-1] - times[0],
         )
+        return scores
+
+    def classify_many_rel(self, models):
+        """Classifies all pairs of items of using given `models`.
+
+        In this case, we assume that `models` is just a direction, and we add that direction to
+        every item, look for the closest matching items, and order by distance to the matches.
+
+        The models should be an np array of coefficients and intercept per column.
+        Returns a Counter mapping from pairs of keys to score.
+        """
+        keys = self.keys
+        scores = Counter()
+        dir = models
+        target = self.features + dir
+        logging.debug('got dir %s: %s, %s -> %s', dir.shape, dir, self.features, target)
+        for i, key in tqdm(enumerate(self.keys)):
+            row = cdist([target[i]], self.features)
+            assert len(row) == 1
+            row = row[0]
+            idx = np.argmin(row)
+            match = self.keys[idx]
+            if key == match:
+                continue
+            min_dist = row[idx]
+            scores[(key, match)] = 1.0 if min_dist == 0 else 1.0/min_dist
+            logging.debug('For key %s: %s, %s', key, match, min_dist)
         return scores
 
     def train_and_classify_many_plus_minus(
@@ -416,7 +445,7 @@ class FastClassifier:
         show_times(times)
         return (scores, models)
 
-    def train_and_classify_many_rel(
+    def old_train_and_classify_many_rel(
         self,
         pos_keys: List[str],
         neg_keys: List[str] = [],
@@ -460,6 +489,28 @@ class FastClassifier:
         scores = self.classify_many_rel(models)
         times.append(time.time())
         show_times(times)
+        return (scores, models)
+
+    def train_and_classify_many_rel(
+        self,
+        pos_keys: List[str],
+        neg_keys: List[str] = [],
+    ) -> Tuple[Counter, np.ndarray]:
+        """Trains several models and classifies all items in this dataset.
+
+        This does a "relative" style of "training", actually it's not even training, it's just
+        getting the direction.
+
+        Returns `(scores, models)`. `scores` is a counter from key to score, and `models` is a numpy
+        array of the models trained.
+        """
+        logging.info("Direction based training rel exemplar classifiers")
+        f_by_key = self.features_by_key
+        dir = f_by_key[neg_keys[0]] - f_by_key[pos_keys[0]]
+        dir = np.append(dir, [0.0])
+        logging.debug('got items, %s - %s = %s', f_by_key[neg_keys[0]], f_by_key[pos_keys[0]], dir)
+        models = np.hstack([dir])
+        scores = self.classify_many_rel(models)
         return (scores, models)
 
     def train_and_classify_many(

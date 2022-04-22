@@ -90,6 +90,15 @@ function sane_sort(a, b, key){
     return 0;
 }
 
+// Simple debouncer
+function debounce(func, timeout = 1000){
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { func.apply(this, args); }, timeout);
+  };
+}
+
 // creates the filters ux
 function make_filters_ux(){
     const ret = [];
@@ -329,17 +338,20 @@ class Collection extends React.Component {
                     }
                     // limit number
                     cls = cls.slice(0, max_num);
-                    // build search index
-                    const items = {};
-                    cls.forEach(id => {
-                        items[id] = this.id2item(id);
-                    });
-                    const search_index = createSearchIndex(items);
-                    // rerun existing search (if any)
-                    this.state.cls = cls;
-                    this.state.search_index = search_index;
-                    this.filter_ids();
-                    //this.setState({cls, filter_cls, search_index});
+                    if (this.props.type === 'plus-minus'){
+                        // build search index
+                        const items = {};
+                        cls.forEach(id => {
+                            items[id] = this.id2item(id);
+                        });
+                        const search_index = createSearchIndex(items);
+                        // rerun existing search (if any)
+                        this.state.cls = cls;
+                        this.state.search_index = search_index;
+                        this.filter_ids();
+                    } else {
+                        this.setState({cls: cls, filter_cls: cls, search_index: null});
+                    }
                 }
             })
             .catch((err) => {
@@ -416,28 +428,36 @@ class Collection extends React.Component {
             neg = make_div('neg', 'lightpink', this.state.neg);
         }
         const cls = make_div('cls', 'white', this.state.filter_cls);
+        const results = T('div', {style: {overflowX: 'auto', textAlign: 'center'}},
+                     T('div', {className: 'cls-controls'}, this.make_filters_ux()),
+                     cls);
+        const els = [];
+        switch(type) {
+            case 'plus-minus':
+                els.push(pos, results, neg);
+                break;
+            case 'rel':
+                els.push(pos, neg, results);
+                break;
+        }
         return T('div', {className: `collection-div`, key: title},
                  T('h3', {}, `${title} (${type})`),
                  T('div', {}, desc),
-                 T('div', {className:`collection-container`},
-                   pos,
-                   T('div', {style: {overflowX: 'auto', textAlign: 'center'}},
-                     T('div', {className: 'cls-controls'}, this.make_filters_ux()),
-                     cls),
-                   neg),
-        );
+                 T('div', {className:`collection-container`}, els));
     }
 }
 
 class AllItems extends React.Component {
     constructor(props) {
         super(props);
+        console.log('calling all items constructor');
         this.make_filters_ux = make_filters_ux.bind(this);
         this.state = this.set_params(props);
     }
 
     shouldComponentUpdate(nextProps, nextState){
-        if (nextProps != this.props){
+        if (nextProps.search_index !== this.props.search_index || nextProps.items !== this.props.items){
+            console.log('there was a change', this.props, nextProps, this.props.items === nextProps.items, this.props.search_index === nextProps.search_index);
             this.setState(this.set_params(nextProps));
         }
         return true;
