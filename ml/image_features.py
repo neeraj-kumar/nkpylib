@@ -21,7 +21,10 @@ from typing import Any, List, NamedTuple, Optional, Sequence, Set, Tuple, Union
 import numpy as np  # type: ignore
 import psutil  # type: ignore
 import torch
-import torchHED.hed  # type: ignore
+try:
+    import torchHED.hed  # type: ignore
+except Exception:
+    pass
 import torchvision.transforms as T  # type: ignore
 from gensim.models import KeyedVectors  # type: ignore
 from PIL import Image  # type: ignore
