@@ -2,21 +2,23 @@
 
 Currently I use pyexiv2, with a monkey patch to deal with some errors in their code"""
 
-import pyexiv2
+#import pyexiv2
+pyexiv2 = None
 
 COMMENT_TAG = 'Exif.Photo.UserComment'
 
 
-# fix for older versions of pyexiv2
-try:
-    pyexiv2.UndefinedToString_ = pyexiv2.UndefinedToString
-    def fix(s):
-        try:
-            return pyexiv2.UndefinedToString_(s)
-        except Exception: return s
+if pyexiv2:
+    # fix for older versions of pyexiv2
+    try:
+        pyexiv2.UndefinedToString_ = pyexiv2.UndefinedToString
+        def fix(s):
+            try:
+                return pyexiv2.UndefinedToString_(s)
+            except Exception: return s
 
-    pyexiv2.UndefinedToString = fix
-except AttributeError: pass
+        pyexiv2.UndefinedToString = fix
+    except AttributeError: pass
 
 def getAllEXIF(fname, asdict=0):
     """Returns the full exif tags of the given fname.
@@ -190,10 +192,10 @@ def exifTagsMain():
         try:
             d = getDict(fname)
             s = '|'.join('%s@%s' % (k, d[k]) for k in sorted(d))
-            print '%s\t%s' % (fname, s)
+            print('%s\t%s' % (fname, s))
             sys.stdout.flush()
-        except Exception, e:
-            print >>sys.stderr, 'Error with fname %s: %s' % (fname, e)
+        except Exception as e:
+            print('Error with fname %s: %s' % (fname, e))
     sys.exit()
 
 if __name__ == '__main__':
@@ -202,7 +204,7 @@ if __name__ == '__main__':
     from datetime import datetime
     for fname in sys.argv[1:]:
         t = getTimestamp(fname)
-        print t, datetime.fromtimestamp(t)
+        print(t, datetime.fromtimestamp(t))
         d = getDict(fname)
         d['aaahello'] = 591
         outfname = 'testexifout.jpg'

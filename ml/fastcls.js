@@ -242,12 +242,14 @@ function item_renderer(props){
         }
     }
     // figure out what to render based on what fields we have
-    let {link='', image_url='', thumb_url='', desc=''} = item;
+    let {link='', image_url='', thumb_url='', desc='', name=''} = item;
     let inner = '';
     const make_url = (url) => url.startsWith('http') ? url : 'static/'+url;
     // if we have an image or thumb url, then we want an image
     if (image_url || thumb_url){
         inner = T('img', {src: make_url(thumb_url || image_url)});
+    } else if (name) {
+        inner = T('span', {}, name);
     }
     // if we have a link of any sort, we want to wrap the inner in a link
     if (link || image_url || thumb_url){

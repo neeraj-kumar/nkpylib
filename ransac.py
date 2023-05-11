@@ -209,7 +209,7 @@ def testRansacNiters():
         vals = []
         for perc in [.15, .2, .3, .4, .5, .7]:
             vals.append(r.estimateNiters(n, perc, stddevs=0))
-        print 'N %s: %s' % (n, vals)
+        print('N %s: %s' % (n, vals))
 
 if __name__ == "__main__":
     testRansacNiters()

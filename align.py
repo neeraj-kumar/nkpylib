@@ -237,12 +237,12 @@ def getHomography(indict, outdict, outsize=None):
     ah = np.dot(inputs, ret)
     ah /= ah[:, -1:]
     if 0:
-        print h, len(h)
-        print 'ret\n', ret, ret.shape
-        print 'normed ah\n', ah, ah.shape
-        print 'outputs\n', outputs
-        print 'inputs\n', inputs
-        print 'diff %\n', 100.0*(outputs-ah)/outputs
+        print(h, len(h))
+        print('ret\n', ret, ret.shape)
+        print('normed ah\n', ah, ah.shape)
+        print('outputs\n', outputs)
+        print('inputs\n', inputs)
+        print('diff %\n', 100.0*(outputs-ah)/outputs)
     return ret, ah
 
 def applyTransform(im, transform, outsize):
@@ -311,7 +311,7 @@ def saveImage(im, path, tags=None):
         if tags:
             kw['format'] = 'JPEG'
         im.save(path, **kw)
-    except IOError, ex:
+    except IOError as ex:
         raise Exception("Can't save to path %s.  %s" % (path, ex.strerror))
     if tags:
         setDict(path, tags)
@@ -467,7 +467,7 @@ class Aligner(object):
             # add some keys to outparams
             outparams['AFFINE'] = printmat(transform)
             outparams['%s_TIMESTAMP' % self.aligntype.upper()] = str(time.time())
-        except KeyError, e:
+        except KeyError as e:
             #raise e
             # unknown or no transformation -- do no transformation
             # but apply drawfids if necessary
@@ -506,20 +506,20 @@ def simplemain():
     """A simple main"""
     from nkpylib.utils import specializeDict, str2kvdict
     if len(sys.argv) < 6:
-        print 'Usage: python %s <aligner name> <input image name> <output image name> <fiducials> <outparams>' % (sys.argv[0])
+        print('Usage: python %s <aligner name> <input image name> <output image name> <fiducials> <outparams>' % (sys.argv[0]))
         sys.exit()
     name, infname, outfname, fiducials, outparams = sys.argv[1:6]
     a = Aligner(name=name)
     im = Image.open(infname)
     fiducials = parseFiducials(fiducials)
     outparams = str2kvdict(outparams, sep='@', dlm='::')
-    print 'INFILE:', infname
-    print 'FIDUCIALS:', fiducials
-    print 'OUTPARAMS:', outparams
+    print('INFILE:', infname)
+    print('FIDUCIALS:', fiducials)
+    print('OUTPARAMS:', outparams)
     aligned, params = a.align(im, fiducials=fiducials, outparams=outparams)
-    print 'PARAMS:', params
+    print('PARAMS:', params)
     saveImage(aligned, outfname, params)
-    print 'OUTFILE:', outfname
+    print('OUTFILE:', outfname)
     sys.exit()
 
 def processLine(line):
@@ -636,7 +636,7 @@ def processLine(line):
         # generate the output string
         ret = outparams['outfmt'] % (fmtdict)
         return ret
-    except Exception, e:
+    except Exception as e:
         raise
         # add the error values to the fmtdict
         fmtdict['errortype'] = type(e).__name__
@@ -652,7 +652,7 @@ def mainloop():
     """An infinite main loop for running alignment"""
     global ALIGN_CONFIG_FNAME
     if len(sys.argv) < 1:
-        print "Usage: python %s [<aligners file>=%s]" % (sys.argv[0], ALIGN_CONFIG_FNAME)
+        print("Usage: python %s [<aligners file>=%s]" % (sys.argv[0], ALIGN_CONFIG_FNAME))
         sys.exit()
     try:
         ALIGN_CONFIG_FNAME = sys.argv[1]
@@ -662,7 +662,7 @@ def mainloop():
 
     def do(line):
         try:
-            print processLine(line)
+            print(processLine(line))
             sys.stdout.flush()
         except IOError:
             pass
@@ -717,7 +717,7 @@ def testhomography(args):
     import select
     np.set_printoptions(precision=7, linewidth=150, suppress=1)
     if len(args) < 2:
-        print TEST_USAGE
+        print(TEST_USAGE)
         sys.exit()
     # read inputs and parse
     transtype = args.pop(0)
@@ -726,7 +726,7 @@ def testhomography(args):
     in2 = args.pop(0)
     fids1, fids2 = parseInputs(in1), parseInputs(in2)
     h, ah = transfunc(fids1, fids2)
-    print h
+    print(h)
     # any remaining arguments are for outputs
     if args:
         outname = args.pop(0)
@@ -800,12 +800,12 @@ def debug():
     [250, 347.60889],
     [250, 361.46271]]
 
-    print len(a), len(b)
+    print(len(a), len(b))
 
     np.set_printoptions(precision=7, linewidth=150, suppress=1)
     x, ax = getAffineTransform(b, a)
-    print x
-    print ax
+    print(x)
+    print(ax)
     out = applyTransform(Image.open('cat.png'), x, (225,250))
     out.save('cat-out.png')
 
