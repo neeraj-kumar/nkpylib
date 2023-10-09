@@ -1,6 +1,47 @@
 #!/usr/bin/env python
 """Simple task/dependency management system, written by Neeraj Kumar.
 
+You define tasks (as subclasses of `Task`) and their dependencies, and then use a `TaskRunner` to
+run them. The `TaskRunner` will run the tasks in parallel, as long as their dependencies are
+satisfied.
+
+Tasks of a particular type are uniquely identified by a `key` (unique only within that class), which
+is any hashable value you want. The only required function is `_run()`, which you must override.
+Note that this function takes no inputs, so you must specify all inputs via the constructor. Tasks
+support saving/loading cached results, to make things more efficient. In particular, when a task is
+run, we first call `is_done()`, which by default checks if the output of `self._load()` is None or
+not. If it is non-None, then we use that as the output value of this task and don't run it again.
+Else, we run it using `self._run()`, save the results using `self._save(results)`, and return the
+results.
+
+Any kwargs you pass to the constructor are saved in a `kwargs` instance var. For convenience, you
+can access these via simple dict-style access, i.e., `self['field']` is equivalent to
+`self.kwargs['field']`.
+
+For tasks, you can define the following class variables:
+- `RUN_STYLE`: whether this should run in the main thread (default) or in a separate process.
+- `INPUTS`: a dictionary of input names to tuples of `(task class, muxing type)`.
+  These inputs will be passed to the task's constructor as keyword arguments.
+- `DEPENDENCIES`: a list of task classes that this task depends on.
+- `LOG_LEVEL`: the logging level to use for this task.
+
+Muxing types determine how outputs from one task (t1) are mapped to inputs in the next task (t2):
+- `Muxing.ONE_TO_ONE`: t1's output is set as the input variable in t2.
+- `Muxing.N_TO_ONE`: t1's output is treated as a sequence, where each item is mapped to a separate
+  t2 instance using the t1 output as the key.
+
+Similarly, your tasks can themselves look for other class variables in their subclasses to simplify
+implementations. For example, let's say you have a bunch of extraction tasks that run some custom
+extraction code, but then have common code to save/load these from files, based on a fieldname. Then
+you can require each subclass to define `EXTRACT_FIELD`, and then the common code (in the base
+class) can use that to save/load the extracted data appropriately.
+
+Once you've defined all your tasks, you can run them using a `TaskRunner`. This takes a single task
+instance as the initial task to run. You can optionally specify the number of tasks to run in
+parallel (in separate processes). Then you simply call `run()` on the `TaskRunner` instance to kick
+it off.
+
+
 Licensed under the 3-clause BSD License:
 
 Copyright (c) 2021, Neeraj Kumar (http://neerajkumar.org)
@@ -39,7 +80,7 @@ from concurrent.futures import ProcessPoolExecutor
 from enum import auto, Enum
 from pprint import pformat
 from subprocess import check_output
-from typing import Dict, List, Tuple, Type
+from typing import Dict, List, Tuple, Type, Optional
 
 
 def abstract_class_attributes(*names):
@@ -126,6 +167,7 @@ class Status(Enum):
 class Task:
     """Generic task definition"""
 
+    RUNNER: Optional['TaskRunner'] = None
     RUN_STYLE = RunStyle.MAIN
     INPUTS = {}  # type: Dict[str, Tuple[Type[Task], Muxing]]
     DEPENDENCIES = []  # type: List[Type[Task]]
@@ -144,13 +186,13 @@ class Task:
         return f"{self.__class__.__name__}({self.key}: {self.status.name})"
         # return f"{self.__class__.__name__}({self.key}: {self.status.name}: {self.kwargs})"
 
-    def __getitem__(self, key):
-        """Returns the kwarg for the given `key`"""
-        return self.kwargs[key]
+    def __getitem__(self, field):
+        """Returns the kwarg for the given `field`"""
+        return self.kwargs[field]
 
-    def __setitem__(self, key, value):
-        """Sets the kwargs for the given `key` to `value`"""
-        self.kwargs[key] = value
+    def __setitem__(self, field, value):
+        """Sets the kwargs for the given `field` to `value`"""
+        self.kwargs[field] = value
 
     def is_done(self):
         """Checks if this task is done already.
@@ -213,16 +255,23 @@ def get_all_concrete_subclasses(cls):
 class TaskRunner:
     """A runner for tasks"""
 
-    def __init__(self, starting_task, n_procs=10):
+    def __init__(self, starting_task, n_procs=10, **kwargs):
         """Initializes this task runner with given `starting_task`.
+
+        You can optionally pass any `kwargs` which are accessible dict-style. This runner is also
+        available to all tasks as `task.RUNNER`
 
         This first generates the graph and topologically sorts it.
         """
+        self.kwargs = kwargs
         # build up a graph of tasks to then sort
         self.graph = {}
         self.children_by_task = defaultdict(list)
         self.run_loop_done = False
         for task_cls in get_all_concrete_subclasses(Task):
+            # point tasks to this runner
+            task_cls.RUNNER = self
+            # build graph
             self.graph[task_cls] = set(task_cls.DEPENDENCIES)
             if task_cls.INPUTS:
                 for key, (input_cls, muxing) in task_cls.INPUTS.items():
@@ -239,6 +288,14 @@ class TaskRunner:
         self.pool = ProcessPoolExecutor(n_procs)
         self.futures_thread = threading.Thread(target=self.process_futures)
         self.futures_thread.start()
+
+    def __getitem__(self, field):
+        """Returns the kwarg for the given `field`"""
+        return self.kwargs[field]
+
+    def __setitem__(self, field, value):
+        """Sets the kwargs for the given `field` to `value`"""
+        self.kwargs[field] = value
 
     def process_futures(self, delay=1):
         logging.info("In process futures")

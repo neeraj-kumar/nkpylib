@@ -1,5 +1,17 @@
 """Caching-related python utilities, written by Neeraj Kumar.
 
+An easy way to use this in your code is to create a partial function like this:
+
+from functools import partial
+fbcache = partial(APICache, cachedir='db/freebase/cache/%(fn)s/', mindelay=0.2, nthreads=5, serializer='json')
+
+Then you can apply it as a decorator to any function:
+
+@fbcache
+def myfunc():
+    ...
+
+
 Licensed under the 3-clause BSD License:
 
 Copyright (c) 2013-4, Neeraj Kumar (neerajkumar.org)
@@ -150,7 +162,7 @@ class APICache(object):
         cachename = self.cachefunc(*args, **kw)
         ret = os.path.join(self.cachedir, cachename)+'.'+self.serializer
         return ret
-    
+
     def archivepath(self, cachefname):
         """Returns the archival path for a given cache filename.
         Appends the last modified timestamp for it.
@@ -184,7 +196,7 @@ class APICache(object):
         Returns the file size of the cache file."""
         try:
             os.makedirs(os.path.dirname(cachepath))
-        except OSError:
+        except Exception:
             pass
         tmpfname = cachepath+'.tmp-%d' % (int(time.time()*1000))
         f = open(tmpfname, 'wb')
@@ -257,17 +269,3 @@ class APICache(object):
             ret = self.__call__(*args, **kw)
             self.outq.put((t, ret))
 
-
-"""
-An easy way to use this in your code is to create a partial function like this:
-
-from functools import partial
-fbcache = partial(APICache, cachedir='db/freebase/cache/%(fn)s/', mindelay=0.2, nthreads=5, serializer='json')
-
-Then you can apply it as a decorator to any function:
-
-@fbcache
-def myfunc():
-    ...
-
-"""
