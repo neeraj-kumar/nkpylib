@@ -42,12 +42,21 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os, sys, time
 import urllib
-import cPickle as pickle
+import pickle
 try:
     import simplejson as json
 except Exception:
     import json
-from utils import utf
+#from utils import utf
+
+def utf(s):
+    """Converts the given string to utf-8, if it isn't already."""
+    if isinstance(s, unicode):
+        return s
+    try:
+        return s.decode('utf-8', 'ignore')
+    except Exception:
+        return s
 
 class CustomURLopener(urllib.FancyURLopener):
     """Custom url opener that defines a new user-agent.
@@ -187,7 +196,7 @@ class APICache(object):
                         os.rename(cachepath, self.archivepath(cachepath))
                     raise IOError
             return loadfunc(open(cachepath))
-        except Exception, e:
+        except Exception as e:
             #print >>sys.stderr, 'Could not load cache file %s: %s' % (cachepath, e)
             raise IOError('Could not load cache file %s: %s' % (cachepath, e))
 
@@ -208,7 +217,7 @@ class APICache(object):
             os.rename(tmpfname, cachepath)
             size = os.stat(cachepath).st_size
         except Exception:
-            print 'Savecache rename failed from %s to %s' % (tmpfname, cachepath)
+            print('Savecache rename failed from %s to %s' % (tmpfname, cachepath))
             raise
         return size
 
