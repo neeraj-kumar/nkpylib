@@ -1,5 +1,7 @@
 """Various string utils"""
 
+from __future__ import annotations
+
 import codecs
 import csv
 import fcntl
@@ -15,12 +17,14 @@ import sys
 import tempfile
 import time
 
+from datetime import date, datetime
 from difflib import SequenceMatcher
 from io import StringIO
 from pprint import pprint
 from random import choice, randint
 from shutil import copy2
 from subprocess import call, PIPE
+from typing import Any, NamedTuple, Union
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import url2pathname, urlretrieve
 
@@ -34,6 +38,117 @@ IMAGE_EXTENSIONS = {
                     'ppm': 'ppm',
                     'pgm': 'pgm',
                    }
+
+class Token(NamedTuple):
+    """The smallest piece of a filename"""
+    start: int # from original filename
+    end: int # from original filename
+    text: str # original text
+    clean: str # cleaned up text
+    value: Any # parsed value (could be different datatypes)
+
+
+class Segment(NamedTuple):
+    """Represents a segment of a filename"""
+    start: int # from original filename
+    end: int # from original filename
+    tokens: list[str] # list of tokens
+
+    @property
+    def clean(self):
+        """Returns the clean version of this segment"""
+        return ''.join(t.clean for t in self.tokens)
+
+
+class FilenameParser:
+    """Parses a filename into segments, which are further divided into tokens.
+
+    """
+    matching_regexps = [
+        re.compile(r'\((.*?)\)'),
+        re.compile(r'\[(.*?)\]'),
+        re.compile(r'\{(.*?)\}'),
+        re.compile(r'<(.*?)>'),
+    ]
+
+    def __init__(self, strip_spaces=True, strip_paired=True) -> None:
+        """Creates a new parser.
+
+        strip_spaces: If true, strips spaces from each token
+        strip_paired: If true, strips paired punctuation (e.g., (), [], {}) from each token
+        """
+        self.strip_spaces = strip_spaces
+        self.strip_paired = strip_paired
+
+    def parse(self, filename) -> list[Segment]:
+        """Parses the given filename using our options"""
+        seg_breaks = [False for c in filename] # break is before the given char
+        # parse matching pairs of punctuation: (), [], {}, <>
+        for regexp in self.matching_regexps:
+            for m in regexp.finditer(filename):
+                seg_breaks[m.start()] = seg_breaks[m.end()] = True
+        # break into segments
+        segs = []
+        start = 0
+        end = 0
+        for i, c in enumerate(filename):
+            if seg_breaks[i]:
+                segs.append(self.make_segment(start, end, filename))
+                start = end
+            end += 1
+        if start < end:
+            segs.append(self.make_segment(start, end, filename))
+        return segs
+
+    def make_segment(self, start, end, filename) -> Segment:
+        """Makes a segment from the given start/end"""
+        text = filename[start:end]
+        tokens = self.tokenize(text, offset=start)
+        return Segment(start=start, end=end, tokens=tokens)
+
+    def tokenize(self, text, offset=0) -> list[Token]:
+        """Tokenizes the given `text`"""
+        # first clean the text
+        clean = text
+        if self.strip_spaces:
+            clean = clean.strip()
+        if self.strip_paired:
+            clean = clean.strip('()[]{}<>')
+        # now extract values
+        value = clean
+        # numbers
+        try:
+            value = int(clean)
+        except ValueError:
+            try:
+                value = float(clean)
+            except ValueError:
+                pass
+        # dates
+        dt_formats = [
+            '%Y-%m-%d',
+            '%d-%m-%Y',
+            '%m-%d-%Y',
+        ]
+        found = False
+        for dt_fmt in dt_formats:
+            for delim in '- ._':
+                fmt = dt_fmt.replace('-', delim)
+                try:
+                    value = datetime.strptime(clean, fmt)
+                    found = True
+                    break
+                except ValueError as e:
+                    pass
+            if found:
+                break
+        if isinstance(value, datetime):
+            value = value.date()
+        return [Token(start=0+offset,
+                      end=len(text)+offset,
+                      text=text,
+                      clean=clean,
+                      value=value)]
 
 def getListAsStr(lst, sep=',', fmt='%s'):
     """Returns a list of values as a string using the given separator and formatter"""
@@ -895,4 +1010,13 @@ class FileLock(object):
         """Release a lock at the end of the 'with' statement"""
         self.release()
 
-
+if __name__ == "__main__":
+    parser = FilenameParser()
+    examples = [
+        'test filename (2013) on date [2013-01-01].mp4',
+    ]
+    for e in examples:
+        print(e)
+        segs = parser.parse(e)
+        pprint((segs, [s.clean for s in segs]))
+        print()
