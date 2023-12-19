@@ -57,8 +57,10 @@ class Segment(NamedTuple):
     @property
     def clean(self):
         """Returns the clean version of this segment"""
-        return ''.join(t.clean for t in self.tokens)
+        return ' '.join(t.clean for t in self.tokens)
 
+    def __repr__(self):
+        return str([t.value for t in self.tokens])
 
 class FilenameParser:
     """Parses a filename into segments, which are further divided into tokens.
@@ -71,20 +73,27 @@ class FilenameParser:
         re.compile(r'<(.*?)>'),
     ]
 
-    def __init__(self, strip_spaces=True, strip_paired=True) -> None:
+    def __init__(self,
+                 strip_spaces=True,
+                 strip_paired=True,
+                 token_strs=('.', '-'),
+                 seg_strs=(',', ' - ', '_', ':')) -> None:
         """Creates a new parser.
 
         strip_spaces: If true, strips spaces from each token
         strip_paired: If true, strips paired punctuation (e.g., (), [], {}) from each token
+        seg_strs: used to divide into segments
         """
         self.strip_spaces = strip_spaces
         self.strip_paired = strip_paired
+        self.token_strs = token_strs
+        self.seg_strs = seg_strs
 
     def parse(self, filename) -> list[Segment]:
         """Parses the given filename using our options"""
-        seg_breaks = [False for c in filename] # break is before the given char
-        # parse matching pairs of punctuation: (), [], {}, <>
-        for regexp in self.matching_regexps:
+        seg_breaks = [False for c in filename] + [False] # break is before the given char
+        # parse matching pairs of punctuation: (), [], {}, <> and seg strs
+        for regexp in self.matching_regexps + [re.compile(s) for s in self.seg_strs]:
             for m in regexp.finditer(filename):
                 seg_breaks[m.start()] = seg_breaks[m.end()] = True
         # break into segments
@@ -93,62 +102,114 @@ class FilenameParser:
         end = 0
         for i, c in enumerate(filename):
             if seg_breaks[i]:
-                segs.append(self.make_segment(start, end, filename))
+                segs.extend(self.make_segments(start, end, filename))
                 start = end
             end += 1
         if start < end:
-            segs.append(self.make_segment(start, end, filename))
+            segs.extend(self.make_segments(start, end, filename))
         return segs
 
-    def make_segment(self, start, end, filename) -> Segment:
-        """Makes a segment from the given start/end"""
+    def make_segments(self, start, end, filename) -> list[Segment]:
+        """Makes segments from the given start/end"""
         text = filename[start:end]
         tokens = self.tokenize(text, offset=start)
-        return Segment(start=start, end=end, tokens=tokens)
+        # find dates
+        match = self.find_date(tokens)
+        ret = []
+        if match is not None:
+            # if we found a date, then split this segment
+            token, idx, length = match
+            # split into three segments (before, date, after)
+            ret.append(Segment(start=start, end=token.start, tokens=tokens[:idx]))
+            ret.append(Segment(start=token.start, end=token.end, tokens=[token]))
+            ret.append(Segment(start=token.end, end=end, tokens=tokens[idx+length:]))
+        else:
+            # otherwise, just return this segment
+            ret.append(Segment(start=start, end=end, tokens=tokens))
+        return [s for s in ret if s.tokens]
 
     def tokenize(self, text, offset=0) -> list[Token]:
         """Tokenizes the given `text`"""
-        # first clean the text
-        clean = text
-        if self.strip_spaces:
-            clean = clean.strip()
-        if self.strip_paired:
-            clean = clean.strip('()[]{}<>')
-        # now extract values
-        value = clean
-        # numbers
-        try:
-            value = int(clean)
-        except ValueError:
+        ret = []
+        # convert each token_strs into a regexp
+        token_regexps = [re.compile(re.escape(s)) for s in self.token_strs]
+        whitespace_regexp = re.compile(r'\s+')
+        # take the union of all these regexps
+        joint_regexp = re.compile('|'.join(r.pattern for r in token_regexps + [whitespace_regexp]))
+        # invert this regexp
+        invert_regexp = re.compile('[^' + joint_regexp.pattern + ']+')
+        for m in invert_regexp.finditer(text):
+            # clean the text
+            clean = m.group()
+            if self.strip_spaces:
+                clean = clean.strip()
+            if self.strip_paired:
+                clean = clean.strip('()[]{}<>')
+            # now extract values
+            value = clean
+            # numbers
             try:
-                value = float(clean)
+                value = int(clean)
             except ValueError:
-                pass
-        # dates
+                try:
+                    value = float(clean)
+                except ValueError:
+                    pass
+            ret.append(Token(start=offset+m.start(), end=offset+m.end(), text=m.group(), clean=clean, value=value))
+        return ret
+
+    def merge_tokens(self, tokens, **kw) -> Token:
+        """Merges the given `tokens` together into a single token.
+
+        By default, the output token will have `text`, `clean` and `value` as the concatenation of
+        the respective tokens, but you can override this by passing in `kw`.
+        """
+        kw.setdefault('text', ''.join(t.text for t in tokens))
+        kw.setdefault('clean', ''.join(t.clean for t in tokens))
+        kw.setdefault('value', kw['clean'])
+        return Token(start=tokens[0].start, end=tokens[-1].end, **kw)
+
+    def replace_tokens(self, old_tokens, idx, num, new_tokens) -> list[Token]:
+        """Replaces `num` tokens in `old_tokens` starting at `idx` with `new_tokens`"""
+        return old_tokens[:idx] + new_tokens + old_tokens[idx+num:]
+
+    def find_date(self, tokens) -> Optional[tuple[Token, int, int]]:
+        """Looks for the first date from tokens, returning (token, start_idx, length)
+
+        For now, we look for 3 tokens in a row that could be a date, and if so, we return it.
+        """
         dt_formats = [
+            # numeric, 4-digit years
             '%Y-%m-%d',
             '%d-%m-%Y',
             '%m-%d-%Y',
+            # 2-digit years
+            '%y-%m-%d',
+            '%d-%m-%y',
+            '%m-%d-%y',
+            # textual months, month first
+            '%b-%d-%Y',
+            '%b-%d-%y',
+            '%B-%d-%Y',
+            '%B-%d-%y',
+            # textual months, day first
+            '%d-%b-%Y',
+            '%d-%b-%y',
+            '%d-%B-%Y',
+            '%d-%B-%y',
         ]
-        found = False
-        for dt_fmt in dt_formats:
-            for delim in '- ._':
-                fmt = dt_fmt.replace('-', delim)
+        triples = zip(tokens, tokens[1:], tokens[2:])
+        found = None
+        for idx, (t1, t2, t3) in enumerate(triples):
+            s = f'{t1.clean.title()}-{t2.clean.title()}-{t3.clean.title()}'
+            for fmt in dt_formats:
                 try:
-                    value = datetime.strptime(clean, fmt)
-                    found = True
-                    break
+                    value = datetime.strptime(s, fmt).date()
+                    new_token = self.merge_tokens(tokens[idx:idx+3], text=s, clean=s, value=value)
+                    return new_token, idx, 3
                 except ValueError as e:
                     pass
-            if found:
-                break
-        if isinstance(value, datetime):
-            value = value.date()
-        return [Token(start=0+offset,
-                      end=len(text)+offset,
-                      text=text,
-                      clean=clean,
-                      value=value)]
+        return None
 
 def getListAsStr(lst, sep=',', fmt='%s'):
     """Returns a list of values as a string using the given separator and formatter"""
