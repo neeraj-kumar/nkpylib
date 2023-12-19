@@ -40,14 +40,14 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-import os, sys, time
-import urllib
+import json
+import os
 import pickle
-try:
-    import simplejson as json
-except Exception:
-    import json
-#from utils import utf
+import sys
+import time
+import urllib
+
+from queue import Queue
 
 def utf(s):
     """Converts the given string to utf-8, if it isn't already."""
@@ -57,15 +57,6 @@ def utf(s):
         return s.decode('utf-8', 'ignore')
     except Exception:
         return s
-
-class CustomURLopener(urllib.FancyURLopener):
-    """Custom url opener that defines a new user-agent.
-    Needed so that sites don't block us as a crawler."""
-    version = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.7; rv:19.0) Gecko/20100101 Firefox/19.0"
-
-    def prompt_user_passwd(host, realm):
-        """Custom user-password func for downloading, to make sure that we don't block"""
-        return ('', '')
 
 def spawnWorkers(num, target, name=None, args=(), kwargs={}, daemon=1, interval=0):
     """Spawns the given number of workers, by default daemon, and returns a list of them.
@@ -143,7 +134,6 @@ class APICache(object):
             defaultkwargs - Default kwargs to add to every API request. This is useful for API keys, etc.
                             (These are not included in the default cachefunc filenames.)
         """
-        from Queue import Queue
         # save params
         self.apifunc = apifunc
         if not cachefunc:
@@ -182,7 +172,7 @@ class APICache(object):
         ret = '%s-%f%s' % (base, modtime, ext)
         return ret
 
-    def loadcache(self, cachepath):
+    def load_cache(self, cachepath):
         """Loads the cache from the given cachepath.
         If not found, raises IOError."""
         loadfunc = json.load if self.serializer == 'json' else pickle.load
@@ -200,7 +190,7 @@ class APICache(object):
             #print >>sys.stderr, 'Could not load cache file %s: %s' % (cachepath, e)
             raise IOError('Could not load cache file %s: %s' % (cachepath, e))
 
-    def savecache(self, obj, cachepath):
+    def save_cache(self, obj, cachepath):
         """Saves the given obj to the given cachepath.
         Returns the file size of the cache file."""
         try:
@@ -208,16 +198,17 @@ class APICache(object):
         except Exception:
             pass
         tmpfname = cachepath+'.tmp-%d' % (int(time.time()*1000))
-        f = open(tmpfname, 'wb')
         if self.serializer == 'json':
-            json.dump(obj, f, indent=2, sort_keys=1)
+            with open(tmpfname, 'w') as f:
+                json.dump(obj, f, indent=2, sort_keys=1)
         elif self.serializer == 'pickle':
-            pickle.dump(obj, f, -1)
+            with open(tmpfname, 'wb') as f:
+                pickle.dump(obj, f, -1)
         try:
             os.rename(tmpfname, cachepath)
             size = os.stat(cachepath).st_size
         except Exception:
-            print('Savecache rename failed from %s to %s' % (tmpfname, cachepath))
+            print('save_cache rename failed from %s to %s' % (tmpfname, cachepath))
             raise
         return size
 
@@ -226,16 +217,16 @@ class APICache(object):
         cachepath = self.cachepath(*args, **kw)
         try:
             # try returning from cache first
-            return self.loadcache(cachepath)
+            return self.load_cache(cachepath)
         except IOError:
             # not found, so run api query
             self._sleep()
             self.lastcall = time.time()
             ret = self.apifunc(*args, **kw)
-            self.savecache(ret, cachepath)
+            self.save_cache(ret, cachepath)
             return ret
 
-    def callmany(self, allargs):
+    def call_many(self, allargs):
         """Calls the api function many times.
         Put tuples of (*args, **kw) into allargs.
         Yields results in the same order as inputs, as we compute them.
