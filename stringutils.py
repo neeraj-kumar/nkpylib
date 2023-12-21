@@ -1,5 +1,8 @@
 """Various string utils"""
 
+#TODO camel case
+#TODO remove matches
+
 from __future__ import annotations
 
 import codecs
@@ -50,9 +53,22 @@ class Token(NamedTuple):
 
 class Segment(NamedTuple):
     """Represents a segment of a filename"""
-    start: int # from original filename
-    end: int # from original filename
     tokens: list[str] # list of tokens
+
+    @property
+    def start(self):
+        """Returns the start of this segment"""
+        return self.tokens[0].start
+
+    @property
+    def end(self):
+        """Returns the end of this segment"""
+        return self.tokens[-1].end
+
+    @property
+    def text(self):
+        """Returns the text version of this segment"""
+        return ' '.join(t.text for t in self.tokens)
 
     @property
     def clean(self):
@@ -61,6 +77,7 @@ class Segment(NamedTuple):
 
     def __repr__(self):
         return str([t.value for t in self.tokens])
+
 
 class FilenameParser:
     """Parses a filename into segments, which are further divided into tokens.
@@ -77,7 +94,8 @@ class FilenameParser:
                  strip_spaces=True,
                  strip_paired=True,
                  token_strs=('.', '-'),
-                 seg_strs=(',', ' - ', '_', ':')) -> None:
+                 seg_strs=(',', ' - ', '_', ':', '/'),
+                 post_parse_func=None) -> None:
         """Creates a new parser.
 
         strip_spaces: If true, strips spaces from each token
@@ -88,6 +106,7 @@ class FilenameParser:
         self.strip_paired = strip_paired
         self.token_strs = token_strs
         self.seg_strs = seg_strs
+        self.post_parse_func = post_parse_func
 
     def parse(self, filename) -> list[Segment]:
         """Parses the given filename using our options"""
@@ -107,6 +126,8 @@ class FilenameParser:
             end += 1
         if start < end:
             segs.extend(self.make_segments(start, end, filename))
+        if self.post_parse_func:
+            segs = self.post_parse_func(segs)
         return segs
 
     def make_segments(self, start, end, filename) -> list[Segment]:
@@ -120,12 +141,12 @@ class FilenameParser:
             # if we found a date, then split this segment
             token, idx, length = match
             # split into three segments (before, date, after)
-            ret.append(Segment(start=start, end=token.start, tokens=tokens[:idx]))
-            ret.append(Segment(start=token.start, end=token.end, tokens=[token]))
-            ret.append(Segment(start=token.end, end=end, tokens=tokens[idx+length:]))
+            ret.append(Segment(tokens=tokens[:idx]))
+            ret.append(Segment(tokens=[token]))
+            ret.append(Segment(tokens=tokens[idx+length:]))
         else:
             # otherwise, just return this segment
-            ret.append(Segment(start=start, end=end, tokens=tokens))
+            ret.append(Segment(tokens=tokens))
         return [s for s in ret if s.tokens]
 
     def tokenize(self, text, offset=0) -> list[Token]:
@@ -167,7 +188,9 @@ class FilenameParser:
         kw.setdefault('text', ''.join(t.text for t in tokens))
         kw.setdefault('clean', ''.join(t.clean for t in tokens))
         kw.setdefault('value', kw['clean'])
-        return Token(start=tokens[0].start, end=tokens[-1].end, **kw)
+        kw.setdefault('start', tokens[0].start)
+        kw.setdefault('end', tokens[-1].end)
+        return Token(**kw)
 
     def replace_tokens(self, old_tokens, idx, num, new_tokens) -> list[Token]:
         """Replaces `num` tokens in `old_tokens` starting at `idx` with `new_tokens`"""
@@ -210,6 +233,61 @@ class FilenameParser:
                 except ValueError as e:
                     pass
         return None
+
+    def remove_text(self, text: str, segments: list[Segment]) -> list[Segment]:
+        """Removes the given `text` from the given `segments`, returning a new list of segments.
+
+        First this operates on individual tokens:
+            - Checks `text`, `text.lower()`, `clean`, `clean.lower()` for equality, and if so,
+              removes that token entirely.
+            - Checks for partial matches in `text` and `clean`, and if found, then splits those
+              tokens into two tokens, one before and one after the match.
+        Next, it tries to match multiple tokens, by first tokenizing the text and then matching.
+            - In this case, it tries to match tokens exactly (with any of the options), rather than
+              partial matches
+        """
+        ret = []
+        for seg in segments:
+            # first try to match individual tokens
+            new_tokens = []
+            for token in seg.tokens:
+                options = [token.text, token.text.lower(), token.clean, token.clean.lower()]
+                if text in options: # exact match, skip
+                    continue
+                for option in options:
+                    if text in option: # partial match
+                        # split this token into two tokens
+                        idx = token.text.index(text)
+                        if idx > 0:
+                            new_tokens.append(self.merge_tokens([token], text=token.text[:idx], clean=token.clean[:idx], end=token.start+idx))
+                        if idx+len(text) < len(token.text):
+                            new_tokens.append(self.merge_tokens([token], text=token.text[idx+len(text):], clean=token.clean[idx+len(text):], start=token.start+idx+len(text)))
+                        break
+                else: # no match, keep this token
+                    new_tokens.append(token)
+            # now try to match multiple tokens
+            text_tokens = tuple([t.text for t in self.tokenize(text)])
+            n = len(text_tokens)
+            new_tokens2 = []
+            i = 0
+            while i < (len(new_tokens) - n + 1):
+                options = [[t.text, t.text.lower(), t.clean, t.clean.lower()] for t in new_tokens[i:i+n]]
+                if len(options) > 1:
+                    options = list(zip(*options))
+                #print(f'  checking {options} against {text_tokens}')
+                if any(text_tokens == option for option in options):
+                    # skip this match
+                    i += n
+                    continue
+                # else add this token
+                new_tokens2.append(new_tokens[i])
+                i += 1
+            # add the last tokens
+            new_tokens2.extend(new_tokens[i:])
+            if new_tokens2:
+                ret.append(Segment(tokens=new_tokens2))
+        return ret
+
 
 def getListAsStr(lst, sep=',', fmt='%s'):
     """Returns a list of values as a string using the given separator and formatter"""
