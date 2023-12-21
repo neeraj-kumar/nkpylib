@@ -47,6 +47,7 @@ import sys
 import time
 import urllib
 
+from hashlib import md5
 from queue import Queue
 
 def utf(s):
@@ -113,6 +114,11 @@ def defaultcachefunc(*args, **kw):
     if kw:
         ret += '@'+dict2str(kw)
     return ret
+
+def hashed_cache_func(*args, **kw):
+    """Generates a hashed cache filename"""
+    return md5(defaultcachefunc(*args, **kw).encode('utf-8')).hexdigest()
+
 
 class APICache(object):
     """A wrapper for an API that handles caching, rate-limiting, and multi-threading."""
