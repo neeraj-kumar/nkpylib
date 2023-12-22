@@ -1,8 +1,5 @@
 """Various string utils"""
 
-#TODO camel case
-#TODO remove matches
-
 from __future__ import annotations
 
 import codecs
@@ -94,6 +91,7 @@ class FilenameParser:
                  strip_spaces=True,
                  strip_paired=True,
                  token_strs=('.', '-'),
+                 tokenize_camel_case=True,
                  seg_strs=(',', ' - ', '_', ':', '/'),
                  post_parse_func=None) -> None:
         """Creates a new parser.
@@ -105,6 +103,7 @@ class FilenameParser:
         self.strip_spaces = strip_spaces
         self.strip_paired = strip_paired
         self.token_strs = token_strs
+        self.tokenize_camel_case = tokenize_camel_case
         self.seg_strs = seg_strs
         self.post_parse_func = post_parse_func
 
@@ -166,6 +165,11 @@ class FilenameParser:
                 clean = clean.strip()
             if self.strip_paired:
                 clean = clean.strip('()[]{}<>')
+            # tokenize camel case if wanted
+            if self.tokenize_camel_case:
+                # check if this entire text really is camelcase
+                if clean.lower() != clean and clean.upper() != clean and ' ' not in clean:
+                    clean = re.sub('([a-z])([A-Z])', r'\1 \2', clean)
             # now extract values
             value = clean
             # numbers
