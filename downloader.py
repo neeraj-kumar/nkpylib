@@ -63,8 +63,8 @@ class File(db.Entity):
     filename = Required(str)
     # default empty dir
     dir = Required(str)
-    size = Required(int, default=0)
-    cur_size = Required(int, default=0)
+    size = Required(int, default=0, size=64)
+    cur_size = Required(int, default=0, size=64)
     # default added ts to now
     added_ts = Required(float, default=lambda: time.time())
     update_ts = Required(float, default=0)
