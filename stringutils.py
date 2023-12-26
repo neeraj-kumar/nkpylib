@@ -88,23 +88,30 @@ class FilenameParser:
     ]
 
     def __init__(self,
+                 seg_strs=(',', ' - ', '_', ':', '/'),
+                 token_strs=('.', '-'),
                  strip_spaces=True,
                  strip_paired=True,
-                 token_strs=('.', '-'),
+                 remove_tokens=(),
                  tokenize_camel_case=True,
-                 seg_strs=(',', ' - ', '_', ':', '/'),
                  post_parse_func=None) -> None:
         """Creates a new parser.
 
+        seg_strs: used to divide into segments
+        token_strs: used to tokenize the string, in addition to spaces
         strip_spaces: If true, strips spaces from each token
         strip_paired: If true, strips paired punctuation (e.g., (), [], {}) from each token
-        seg_strs: used to divide into segments
+        remove_tokens: If given, removes these tokens entirely, after stripping spaces/paired
+        tokenize_camel_case: If true, tokenizes camel case (e.g., "HelloWorld" -> "Hello World")
+        post_parse_func: If given, then this function is called after parsing, and should return
+                         a new list of segments. This can be used to remove segments, etc.
         """
+        self.seg_strs = seg_strs
+        self.token_strs = token_strs
         self.strip_spaces = strip_spaces
         self.strip_paired = strip_paired
-        self.token_strs = token_strs
+        self.remove_tokens = remove_tokens
         self.tokenize_camel_case = tokenize_camel_case
-        self.seg_strs = seg_strs
         self.post_parse_func = post_parse_func
 
     def parse(self, filename) -> list[Segment]:
@@ -165,6 +172,10 @@ class FilenameParser:
                 clean = clean.strip()
             if self.strip_paired:
                 clean = clean.strip('()[]{}<>')
+            # remove tokens if wanted
+            if self.remove_tokens:
+                if clean in self.remove_tokens or clean.lower() in self.remove_tokens:
+                    continue
             # tokenize camel case if wanted
             if self.tokenize_camel_case:
                 # check if this entire text really is camelcase
