@@ -122,7 +122,7 @@ def hashed_cache_func(*args, **kw):
 
 class APICache(object):
     """A wrapper for an API that handles caching, rate-limiting, and multi-threading."""
-    def __init__(self, apifunc, cachefunc=None, cachedir='cache/', mindelay=0.5, nthreads=4, expiration=0, expirepolicy='overwrite', serializer='pickle', defaultkwargs=None):
+    def __init__(self, apifunc, cachefunc=None, cachedir='cache/', mindelay=0.5, nthreads=1, expiration=0, expirepolicy='overwrite', serializer='json', defaultkwargs=None):
         """Creates a new cache for the given apifunc.
         Params:
             cachefunc - Converts apifunc requests (*args, **kwargs) into a filename (MINUS extension!)
