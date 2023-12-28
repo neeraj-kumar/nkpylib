@@ -43,6 +43,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import json
 import os
 import pickle
+import random
 import sys
 import time
 import urllib
@@ -122,7 +123,17 @@ def hashed_cache_func(*args, **kw):
 
 class APICache(object):
     """A wrapper for an API that handles caching, rate-limiting, and multi-threading."""
-    def __init__(self, apifunc, cachefunc=None, cachedir='cache/', mindelay=0.5, nthreads=1, expiration=0, expirepolicy='overwrite', serializer='json', defaultkwargs=None):
+    def __init__(self,
+                 apifunc,
+                 cachefunc=None,
+                 cachedir='cache/',
+                 mindelay=0.5,
+                 delay_variance=0.1,
+                 nthreads=1,
+                 expiration=0,
+                 expiration_policy='overwrite',
+                 serializer='json',
+                 defaultkwargs=None):
         """Creates a new cache for the given apifunc.
         Params:
             cachefunc - Converts apifunc requests (*args, **kwargs) into a filename (MINUS extension!)
@@ -131,9 +142,10 @@ class APICache(object):
                        This can include format specifiers, because it is rendered using an object containing:
                            fn: function name
             mindelay - Minimum delay (in secs) between multiple requests to the API. Set to 0 to disable.
+            delay_variance - The variance in the delay (as a multiple of the delay) between multiple requests to the API.
             nthreads - Number of simultaneous threads to use.
             expiration - If > 0, then expires cache after given number of seconds.
-            expirepolicy - What to do when a cached page expires.
+            expiration_policy - What to do when a cached page expires.
                             If 'overwrite' (default), then just overwrite new version.
                             If 'archive', then appends modification timestamp to fname.
             serializer - One of 'pickle' or 'json' -- the file format to save the cache in.
@@ -146,8 +158,11 @@ class APICache(object):
             cachefunc = defaultcachefunc
         self.cachefunc = cachefunc
         self.cachedir = cachedir % dict(fn=apifunc.__name__)
-        self.mindelay, self.nthreads, self.serializer = mindelay, nthreads, serializer
-        self.expiration, self.expirepolicy = expiration, expirepolicy
+        self.mindelay = mindelay
+        self.delay_variance = delay_variance
+        self.nthreads = nthreads
+        self.serializer = serializer
+        self.expiration, self.expiration_policy = expiration, expiration_policy
         self.defaultkwargs = defaultkwargs
         # instance vars
         self.lastcall = 0
@@ -157,10 +172,12 @@ class APICache(object):
 
     def _sleep(self):
         """Sleeps until we're ready to make a call again"""
+        cur_delay = self.mindelay * (1 + self.delay_variance * (random.random()-0.5))
         while 1:
-            diff = (time.time()-self.lastcall) - self.mindelay
-            if diff >= 0: return
-            time.sleep(max(-diff/2.0, 0.01))
+            diff = cur_delay - (time.time()-self.lastcall)
+            if diff <= 0:
+                return
+            time.sleep(max(diff, 0.01))
 
     def cachepath(self, *args, **kw):
         """Returns the path for the cached filename"""
@@ -188,7 +205,7 @@ class APICache(object):
                 elapsed = time.time() - os.stat(cachepath).st_mtime
                 #print >>sys.stderr, '%s exp, %s elapsed' % (self.expiration, elapsed)
                 if elapsed > self.expiration:
-                    if self.expirepolicy == 'archive':
+                    if self.expiration_policy == 'archive':
                         os.rename(cachepath, self.archivepath(cachepath))
                     raise IOError
             return loadfunc(open(cachepath))
