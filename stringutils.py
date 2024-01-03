@@ -568,6 +568,13 @@ def strsim(a, b, weights={'difflib':1.0, 'longest_ratio':5.0, 'matching_ratio':6
         print(f'|{a}| |{b}|: {scores}, {weights}')
     return ret
 
+def generate_random_sentences(n, dict_path='/usr/share/dict/words'):
+    """Generates `n` random sentences"""
+    with open(dict_path) as f:
+        words = f.read().splitlines()
+    for _ in range(n):
+        yield ' '.join(random.choices(words, k=random.randint(5, 10)))
+
 def matrixprint(m, width=None, fillchar=' ', sep=' ', rowsep='\n', fmt='%0.2f'):
     """Returns a string representation of a matrix of strings using the given separator.
     Each string is center()-ed using the given width and fillchar.
