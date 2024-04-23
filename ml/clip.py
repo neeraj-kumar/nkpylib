@@ -6,7 +6,7 @@ import os
 import time
 
 from argparse import ArgumentParser
-from typing import Any, Callable, Sequence, Union
+from typing import Any, Callable, Sequence, Type, Union
 
 import numpy as np
 import requests
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 EmbeddingT = Union[np.ndarray, torch.Tensor, Sequence[float]]
 TextEmbedderT = Callable[[str], EmbeddingT]
-ImageEmbedderT = Callable[[Union[str, Image]], EmbeddingT]
+ImageEmbedderT = Callable[[Union[str, Image.Image]], EmbeddingT]
 
 @functools.cache
 def load_clip(model_name: str='openai/clip-vit-large-patch14') -> tuple[TextEmbedderT, ImageEmbedderT]:
@@ -34,7 +34,7 @@ def load_clip(model_name: str='openai/clip-vit-large-patch14') -> tuple[TextEmbe
     model = CLIPModel.from_pretrained(model_name)
     processor = CLIPProcessor.from_pretrained(model_name)
 
-    def get_image_features(image_or_path: Union[str, Image]) -> EmbeddingT:
+    def get_image_features(image_or_path: Union[str, Image.Image]) -> EmbeddingT:
         if isinstance(image_or_path, str):
             if image_or_path.startswith('http'):
                 image = Image.open(requests.get(image_or_path, stream=True).raw)

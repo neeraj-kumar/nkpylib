@@ -272,7 +272,10 @@ class FilenameParser:
                 for option in options:
                     if text in option: # partial match
                         # split this token into two tokens
-                        idx = token.text.index(text)
+                        try:
+                            idx = token.text.index(text)
+                        except ValueError:
+                            continue
                         if idx > 0:
                             new_tokens.append(self.merge_tokens([token], text=token.text[:idx], clean=token.clean[:idx], end=token.start+idx))
                         if idx+len(text) < len(token.text):
