@@ -26,4 +26,6 @@ lint:
 	#pylint $(PY_FILES)
 	mypy $(BASE_PY_FILES)
 
-
+## tests out the file watcher
+watcher:
+	python3 file_watcher.py ~/dp/Recipes/ ./
