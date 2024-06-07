@@ -92,17 +92,18 @@ from argparse import ArgumentParser
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto
-from hashlib import sha256
+from hashlib import sha256, md5
 from typing import Optional, Iterable
 
-class DiffType(Enum):
-    ADD = auto()
-    DELETE = auto()
-    MOVE = auto()
-    COPY = auto()
+class DiffType(str, Enum):
+    ADD = 'ADD'
+    DELETE = 'DELETE'
+    MOVE = 'MOVE'
+    COPY = 'COPY'
 
 
-class Diff(dataclass):
+@dataclass
+class Diff:
     """Represents a single diff between two tree listings.
 
     Has a `type` and two keys, `a` and `b`. If `a` is None, then this is an ADD. If `b` is None,
@@ -112,13 +113,34 @@ class Diff(dataclass):
     a: Optional[str] # None for ADD
     b: Optional[str] # None for DELETE
 
+    @classmethod
+    def group_diffs(cls, diffs: Iterable[Diff]) -> list[list[Diff]]:
+        """Groups sequential diffs of the same type together.
+
+        Returns a list of lists of diffs.
+        """
+        ret = []
+        cur = []
+        for d in diffs:
+            if not cur:
+                cur.append(d)
+            else:
+                if d.type == cur[-1].type:
+                    cur.append(d)
+                else:
+                    ret.append(cur)
+                    cur = []
+                    cur.append(d)
+        if cur:
+            ret.append(cur)
+        return ret
 
 @functools.cache
-def hash_path(path: str) -> str:
+def hash_path(path: str, hash_constructor=sha256) -> str:
     """Returns the sha256 hash of a file."""
     with open(path, 'rb') as f:
         # read it in chunks to avoid memory issues
-        h = sha256()
+        h = hash_constructor()
         while chunk := f.read(4096):
             h.update(chunk)
     return h.hexdigest()
@@ -130,12 +152,14 @@ class Tree(ABC):
     At base, this contains:
     - a list of `keys` (which are just strings).
     - a dict of `hash_by_key` (computed lazily as needed).
-    - a hash function (defaults to `hash_path`).
 
     """
     def __init__(self, keys: list[str]):
         self.keys = keys[:]
         self.hash_by_key = {}
+
+    def __len__(self):
+        return len(self.keys)
 
     @abstractmethod
     def hash_function(self, keys: Iterable[str]) -> Iterable[str]:
@@ -169,10 +193,12 @@ class Tree(ABC):
             self_keys -= common
             other_keys -= common
         # hash remaining keys
-        self_hashes = self.hash(sorted(self_keys))
+        self_keys = sorted(self_keys)
+        other_keys = sorted(other_keys)
+        self_hashes = self.hash(self_keys)
         # we can't handle duplicates in the original for now
         assert len(set(self_hashes)) == len(self_hashes), "Duplicate hashes in original"
-        other_hashes = other.hash(sorted(other_keys))
+        other_hashes = other.hash(other_keys)
         before_by_hash = {h: k for h, k in zip(self_hashes, self_keys)}
         after_by_hash = {h: defaultdict(list) for h in other_hashes}
         for key, hash in zip(other_keys, other_hashes):
@@ -198,6 +224,43 @@ class Tree(ABC):
         for hash, key in before_by_hash.items():
             if hash not in after_by_hash:
                 diffs.append(Diff(DiffType.DELETE, key, None))
+        return diffs
+
+
+    def execute_diffs(self, diffs, other):
+        """Executes a list of a diffs.
+
+        Assuming you have `diffs` from comparing `self` (before) to `other` (after), this method
+        "executes" the diffs on `self`. This first groups sequential list of diffs of the same type
+        together using `group_diffs()`. It then calls the various `execute_XXX` functions (which
+        must be subclassed).
+        """
+        grouped = Diff.group_diffs(diffs)
+        function_by_type = {
+                DiffType.ADD: self.execute_add,
+                DiffType.DELETE: self.execute_delete,
+                DiffType.MOVE: self.execute_move,
+                DiffType.COPY: self.execute_copy,
+        }
+        for group in grouped:
+            func = function_by_type[group[0].type]
+            func(group, other)
+
+    def execute_add(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes ADD operations from given `diffs` going from `self` to `other`"""
+        raise NotImplementedError("execute ADD not implemented")
+
+    def execute_delete(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes DELETE operations from given `diffs` going from `self` to `other`"""
+        raise NotImplementedError("execute DELETE not implemented")
+
+    def execute_move(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes MOVE operations from given `diffs` going from `self` to `other`"""
+        raise NotImplementedError("execute MOVE not implemented")
+
+    def execute_copy(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes COPY operations from given `diffs` going from `self` to `other`"""
+        raise NotImplementedError("execute COPY not implemented")
 
 
 class FileTree(Tree):
@@ -205,21 +268,39 @@ class FileTree(Tree):
 
     This sets a `root` directory that the keys are relative to.
     """
-    def __init__(self, root: str, keys: list[str], read_dir: bool = True):
+    def __init__(self,
+                 root: str,
+                 keys: Optional[list[str]],
+                 hash_constructor: callable = sha256,
+                 read_dir: bool = False,
+                 filter_func: Optional[callable] = None):
+        """Initializes this file tree at given `root`.
+
+        If you give a list of keys, then initializes with those keys.
+        If you set `read_dir` to True, then gets the file listing from the directory, recursively.
+        If you set `filter_func`, then only includes keys for which `filter_func(key)` is True.
+        """
+        if keys is None:
+            keys = []
         super().__init__(keys)
         self.root = root
+        self.filter_func = filter_func
+        self.hash_constructor = hash_constructor
         if read_dir:
             self.keys = self.get_file_listing(root)
 
-    def hash_function(self, key: str) -> str:
-        return hash_path(os.path.join(self.root, key))
+    def hash_function(self, keys: Iterable[str]) -> Iterable[str]:
+        """Hashes given paths using our hash function"""
+        return [hash_path(os.path.join(self.root, key), hash_constructor=self.hash_constructor) for key in keys]
 
     def get_file_listing(self, dir: str) -> list[str]:
         """Returns a list of all files (no dirs) in a directory, recursively."""
         ret = []
         for root, dirs, files in os.walk(dir):
             for file in files:
-                ret.append(os.path.join(root, file))
+                path = os.path.join(root, file)
+                if self.filter_func is None or self.filter_func(path):
+                    ret.append(os.path.relpath(path, self.root))
         ret.sort()
         return ret
 
