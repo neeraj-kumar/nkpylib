@@ -89,7 +89,7 @@ import os
 
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto
 from hashlib import sha256, md5
@@ -178,11 +178,14 @@ class Tree(ABC):
         return [self.hash_by_key[key] for key in keys]
 
 
-    def compare(self, other: Tree, assume_keys_constant=False) -> list[Diff]:
+    def compare(self, other: Tree, assume_keys_constant=False, skip_dupe_hashes=False) -> list[Diff]:
         """Compares this tree (before) with `other` (after) and returns an ordered list of diffs.
 
         If `assume_keys_constant` is True, then files with the same keys are assumed to be the same
         (without checking hashes).
+
+        If `skip_dupe_hashes` is True, then skips source files with the same hash. Otherwise, raises
+        a ValueError.
         """
         diffs = []
         self_keys = set(self.keys)
@@ -196,9 +199,25 @@ class Tree(ABC):
         self_keys = sorted(self_keys)
         other_keys = sorted(other_keys)
         self_hashes = self.hash(self_keys)
-        # we can't handle duplicates in the original for now
-        assert len(set(self_hashes)) == len(self_hashes), "Duplicate hashes in original"
         other_hashes = other.hash(other_keys)
+        # we can't handle duplicates in the original for now
+        if len(set(self_hashes)) != len(self_hashes):
+            # Duplicate hashes in original
+            by_hash = defaultdict(list)
+            for key, hash in zip(self_keys, self_hashes):
+                by_hash[hash].append(key)
+            for hash, keys in by_hash.items():
+                if len(keys) > 1:
+                    print(f"Duplicate hash in original: {hash}: {keys}")
+            if skip_dupe_hashes:
+                # remove all duplicates with this hash from our list of updates
+                self_keys = [key for key, hash in zip(self_keys, self_hashes) if len(by_hash[hash]) == 1]
+                self_hashes = [hash for key, hash in zip(self_keys, self_hashes) if len(by_hash[hash]) == 1]
+                # also remove from the "other" lists
+                other_keys = [key for key, hash in zip(other_keys, other_hashes) if not len(by_hash[hash]) > 1]
+                other_hashes = [hash for key, hash in zip(other_keys, other_hashes) if not len(by_hash[hash]) > 1]
+            else:
+                raise ValueError()
         before_by_hash = {h: k for h, k in zip(self_hashes, self_keys)}
         after_by_hash = {h: defaultdict(list) for h in other_hashes}
         for key, hash in zip(other_keys, other_hashes):
