@@ -85,6 +85,7 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 import os
 
 from abc import ABC, abstractmethod
@@ -93,7 +94,13 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto
 from hashlib import sha256, md5
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Any, Callable
+
+from tqdm import tqdm
+
+from .airtable import airtable_all_rows, airtable_api_call
+
+logger = logging.getLogger(__name__)
 
 class DiffType(str, Enum):
     ADD = 'ADD'
@@ -134,6 +141,23 @@ class Diff:
         if cur:
             ret.append(cur)
         return ret
+
+def incr_iter(it: Iterable[Any], func: Callable[list[Any], Any], incr: int) -> Iterable[Any]:
+    """A generic function to run a batched function over individual items.
+
+    Items generated from `it` are passed to `func` in batches of `incr`.
+    The function is called one more time at the end if there are any leftover items.
+
+    We yield the results of each call to `func`.
+    """
+    to_do = []
+    for item in it:
+        to_do.append(item)
+        if len(to_do) >= incr:
+            yield func(to_do)
+            to_do = []
+    if to_do:
+        yield func(to_do)
 
 @functools.cache
 def hash_path(path: str, hash_constructor=sha256) -> str:
@@ -176,7 +200,6 @@ class Tree(ABC):
             hashes = self.hash_function(todo)
             self.hash_by_key.update(zip(todo, hashes))
         return [self.hash_by_key[key] for key in keys]
-
 
     def compare(self, other: Tree, assume_keys_constant=False, skip_dupe_hashes=False) -> list[Diff]:
         """Compares this tree (before) with `other` (after) and returns an ordered list of diffs.
@@ -245,7 +268,6 @@ class Tree(ABC):
                 diffs.append(Diff(DiffType.DELETE, key, None))
         return diffs
 
-
     def execute_diffs(self, diffs, other):
         """Executes a list of a diffs.
 
@@ -275,11 +297,14 @@ class Tree(ABC):
 
     def execute_move(self, diffs: list[Diff], other: Tree) -> None:
         """Executes MOVE operations from given `diffs` going from `self` to `other`"""
-        raise NotImplementedError("execute MOVE not implemented")
+        # by default we do a copy followed by a delete
+        self.execute_copy(diffs, other)
+        self.execute_delete(diffs, other)
 
     def execute_copy(self, diffs: list[Diff], other: Tree) -> None:
         """Executes COPY operations from given `diffs` going from `self` to `other`"""
-        raise NotImplementedError("execute COPY not implemented")
+        # by default we just do an add
+        self.execute_add(diffs, other)
 
 
 class FileTree(Tree):
@@ -289,7 +314,7 @@ class FileTree(Tree):
     """
     def __init__(self,
                  root: str,
-                 keys: Optional[list[str]],
+                 keys: Optional[list[str]]=None,
                  hash_constructor: callable = sha256,
                  read_dir: bool = False,
                  filter_func: Optional[callable] = None):
@@ -323,6 +348,202 @@ class FileTree(Tree):
         ret.sort()
         return ret
 
+
+class ChromaTree(Tree):
+    def __init__(self, col, hash_key: str, add_func: Optional[Callable]=None, incr: int=10, debug: bool=False):
+        """Initialize this chroma tree with the given chroma collection.
+
+        It assumes the keys are the ids from the collection.
+
+        It requires the collection to have hashes in the metadata for items (possibly not all filled
+        out), stored under name `hash_key`.
+
+        The `add_func` is called when we detect a new key in the "other" tree we compare this
+        against. It is called with `key` and `root` parameters, both filled from "other". It should
+        contain:
+        - embedding: the embedding to use for this item
+        - document: the document to use for this item
+        - any other metadata you want to store
+
+        The `incr` is the number of items updated/added at a time.
+        If you set `debug` to True, then no changes will be made.
+        """
+        self.col = col
+        self.hash_key = hash_key
+        self.add_func = add_func
+        self.incr = incr
+        self.debug = debug
+        keys = col.get(include=[])['ids']
+        super().__init__(keys)
+
+    def hash_function(self, keys: Iterable[str]) -> Iterable[str]:
+        """Returns the hash values for the given `keys`"""
+        keys = list(keys)
+        resp = self.col.get(ids=keys, include=['metadatas'])
+        ids, mds = resp['ids'], resp['metadatas']
+        # order them based on the keys
+        mds = {id: md for id, md in zip(ids, mds)}
+        ret = [mds[key].get(self.hash_key, '') for key in keys]
+        #print(f'For keys {keys[-5:]} got hashes {ret[-5:]}')
+        return ret
+
+    def execute_add(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes ADD operations from given `diffs` going from `self` to `other`.
+
+        This adds the given keys to chroma, including all relevant metadata.
+        """
+        assert self.add_func is not None
+        to_add = dict(ids=[], embeddings=[], metadatas=[], documents=[])
+        for d in tqdm(diffs):
+            try:
+                md = self.add_func(key=d.b, root=other.root)
+            except Exception:
+                continue
+            to_add['ids'].append(d.b)
+            to_add['embeddings'].append(md.pop('embedding'))
+            to_add['documents'].append(md.pop('document'))
+            to_add['metadatas'].append(md)
+            if len(to_add['ids']) >= self.incr:
+                if self.debug:
+                    x = dict(**to_add)
+                    x.pop('embeddings')
+                    logger.info(f'Adding {len(x["ids"])}: {json.dumps(x, indent=2)}')
+                else:
+                    self.col.add(**to_add)
+                to_add = dict(ids=[], embeddings=[], metadatas=[], documents=[])
+        if to_add['ids']:
+            if self.debug:
+                x = dict(**to_add)
+                x.pop('embeddings')
+                logger.info(f'Adding {len(x["ids"])}: {json.dumps(x, indent=2)}')
+            else:
+                self.col.add(**to_add)
+
+    def execute_delete(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes DELETE operations from given `diffs` going from `self` to `other`
+
+        This does a straightforward chroma delete.
+        """
+        logger.info(f'Deleting {len(diffs)} ids: {[d.a for d in diffs]}')
+        if not self.debug:
+            self.col.delete(ids=[d.a for d in diffs])
+
+    def execute_move(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes MOVE operations from given `diffs` going from `self` to `other`
+
+        Since chroma doesn't allow us to update ids, we have to do a copy followed by a delete.
+        """
+        self.execute_copy(diffs, other)
+        self.execute_delete(diffs, other)
+
+    def execute_copy(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes COPY operations from given `diffs` going from `self` to `other`
+
+        Because some of the metadata keys are derived from the path (i.e., id), we just implement
+        this as doing an ADD, which will re-extract.
+        """
+        return self.execute_add(diffs, other)
+
+
+class AirtableTree(Tree):
+    def __init__(self,
+                 table_name: str,
+                 key_field: str,
+                 hash_field: str,
+                 base_id: str='',
+                 api_key: str='',
+                 debug: bool=False):
+        """Initialize this airtable tree with the given table and base id.
+
+        If you don't specify a base or api key, we read them from environment variables
+        `AIRTABLE_BASE_ID` or `AIRTABLE_API_KEY`, respectively.
+
+        We check for the main keys (e.g., paths) in the given `key_field` and hashes in the given
+        `hash_field`.
+
+        If you set `debug` to True, then no changes will be made.
+        """
+        self.table_name = table_name
+        self.key_field = key_field
+        self.hash_field = hash_field
+        self.airtable_kw = dict(base_id=base_id, api_key=api_key)
+        self.debug = debug
+        self.incr = 10 # this is an airtable limit for adding/deleting/etc
+        rows = airtable_all_rows(table_name=self.table_name, **self.airtable_kw)
+        print(f'Got {len(rows)} rows: {json.dumps([rows[:2]], indent=2)}')
+        self.key_to_row, keys = {}, []
+        for row in rows:
+            if key_field not in row['fields']:
+                continue
+            keys.append(row['fields'][key_field])
+            self.key_to_row[keys[-1]] = row
+        print(f'Got {len(keys)} valid rows: {keys[:5]}')
+        super().__init__(keys)
+
+    def hash_function(self, keys: Iterable[str]) -> Iterable[str]:
+        """Returns the hash values for the given `keys`"""
+        return [self.key_to_row[key]['fields'].get(self.hash_field, '') for key in keys]
+
+    def execute_add(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes ADD operations from given `diffs` going from `self` to `other`.
+
+        This adds the given keys and their hashes to airtable.
+        """
+        logger.info(f'Adding {len(diffs)} ids: {[d.b for d in diffs[:5]]}')
+        def do_add(to_add):
+            if self.debug:
+                logger.info(f'Adding {len(to_add)}: {json.dumps(to_add, indent=2)}')
+            else:
+                resp = airtable_api_call(method='post', endpoint=self.table_name, records=to_add, **self.airtable_kw)
+                #print(resp)
+
+        hashes = other.hash_function([d.b for d in diffs])
+        rows = [dict(fields={self.key_field: d.b, self.hash_field: hashes[i]}) for i, d in
+                enumerate(diffs)]
+        list(incr_iter(tqdm(rows), func=do_add, incr=self.incr))
+
+    def execute_delete(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes DELETE operations from given `diffs` going from `self` to `other`
+
+        This does a straightforward airtable delete, by mapping from the keys to the row ids.
+        """
+        logger.info(f'Deleting {len(diffs)} ids: {[d.a for d in diffs[:5]]}')
+        def do_del(to_del):
+            if self.debug:
+                logger.info(f'Deleting {len(to_del)}: {to_del}')
+            else:
+                # note that this is a url-encoded array of record ids, not json
+                resp = airtable_api_call(method='delete', endpoint=f'{self.table_name}', ids=to_del, **self.airtable_kw)
+                print(resp)
+
+        to_del = [self.key_to_row[d.a]['id'] for d in diffs]
+        list(incr_iter(tqdm(to_del), func=do_del, incr=self.incr))
+
+    def execute_move(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes MOVE operations from given `diffs` going from `self` to `other`
+
+        In airtable, we can do a PATCH request with the row id and new key to update the key field.
+        """
+        logger.info(f'Moving {len(diffs)} ids: {diffs[:5]}')
+        def do_move(to_move):
+            if self.debug:
+                logger.info(f'Moving {len(to_move)}: {json.dumps(to_move, indent=2)}')
+            else:
+                resp = airtable_api_call(method='patch', endpoint=self.table_name, records=to_move, **self.airtable_kw)
+                #print(resp)
+
+        to_move = []
+        for d in diffs:
+            row = self.key_to_row[d.a]
+            to_move.append(dict(id=row['id'], fields={self.key_field: d.b}))
+        list(incr_iter(tqdm(to_move), func=do_move, incr=self.incr))
+
+    def execute_copy(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes COPY operations from given `diffs` going from `self` to `other`
+
+        We don't implement this because we generally don't want duplicate rows in airtable.
+        """
+        raise NotImplementedError("execute COPY not implemented for Airtable")
 
 
 if __name__ == '__main__':
