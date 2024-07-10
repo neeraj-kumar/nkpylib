@@ -158,7 +158,7 @@ def colorRects(im, rects, colors, where='center', shape='point', size=1):
     elif where == 'center':
         locs = [((x0+x1)//2,(y0+y1)//2) for x0,y0,x1,y1 in rects]
     # draw
-    import ImageDraw
+    from PIL import ImageDraw
     draw = ImageDraw.Draw(im)
     for loc, color in zip(locs, colors):
         if shape == 'point':
@@ -1237,72 +1237,6 @@ def makegif(ims, fname):
     gifmaker.makedelta(fp, ims)
     fp.close()
 
-def get_exif_data(image):
-    """Returns a dictionary from the exif data of an PIL Image item. Also converts the GPS Tags
-    From https://gist.github.com/983821
-    """
-    from PIL.ExifTags import TAGS, GPSTAGS
-    exif_data = {}
-    info = image._getexif()
-    if info:
-        for tag, value in info.items():
-            decoded = TAGS.get(tag, tag)
-            if decoded == "GPSInfo":
-                gps_data = {}
-                for t in value:
-                    sub_decoded = GPSTAGS.get(t, t)
-                    gps_data[sub_decoded] = value[t]
-                exif_data[decoded] = gps_data
-            else:
-                exif_data[decoded] = value
-    return exif_data
-
-def _convert_to_degrees(value):
-    """Helper function to convert the GPS coordinates stored in the EXIF to degress in float format"""
-    d0 = value[0][0]
-    d1 = value[0][1]
-    d = float(d0) / float(d1)
-    m0 = value[1][0]
-    m1 = value[1][1]
-    m = float(m0) / float(m1)
-    s0 = value[2][0]
-    s1 = value[2][1]
-    s = float(s0) / float(s1)
-    return d + (m / 60.0) + (s / 3600.0)
-
-def get_lat_lon(exif_data):
-    """Returns the latitude and longitude, if available, from the provided exif_data (obtained through get_exif_data above)"""
-    lat = None
-    lon = None
-
-    def _get_if_exist(data, key):
-        if key in data:
-            return data[key]
-        return None
-
-    if "GPSInfo" in exif_data:
-        gps_info = exif_data["GPSInfo"]
-        gps_latitude = _get_if_exist(gps_info, "GPSLatitude")
-        gps_latitude_ref = _get_if_exist(gps_info, 'GPSLatitudeRef')
-        gps_longitude = _get_if_exist(gps_info, 'GPSLongitude')
-        gps_longitude_ref = _get_if_exist(gps_info, 'GPSLongitudeRef')
-        if gps_latitude and gps_latitude_ref and gps_longitude and gps_longitude_ref:
-            lat = _convert_to_degrees(gps_latitude)
-            if gps_latitude_ref != "N":
-                lat = 0 - lat
-            lon = _convert_to_degrees(gps_longitude)
-            if gps_longitude_ref != "E":
-                lon = 0 - lon
-    return lat, lon
-
-def getgps(im):
-    """Returns a GPS (lat, lon) pair from an image or image filename"""
-    if isinstance(im, basestring):
-        im = Image.open(im)
-    exif_data = get_exif_data(im)
-    loc = get_lat_lon(exif_data)
-    return loc
-
 
 # TILING
 class ImagePair(object):
@@ -1752,4 +1686,3 @@ if __name__ == '__main__':
             pprint(exif_data)
     elif task == 'progress':
         testprogress(sys.argv[2:])
-
