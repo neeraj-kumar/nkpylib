@@ -514,7 +514,7 @@ class AirtableTree(Tree):
             else:
                 # note that this is a url-encoded array of record ids, not json
                 resp = airtable_api_call(method='delete', endpoint=f'{self.table_name}', ids=to_del, **self.airtable_kw)
-                print(resp)
+                #print(resp)
 
         to_del = [self.key_to_row[d.a]['id'] for d in diffs]
         list(incr_iter(tqdm(to_del), func=do_del, incr=self.incr))
