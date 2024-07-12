@@ -169,6 +169,7 @@ class Task:
 
     RUNNER: Optional['TaskRunner'] = None
     RUN_STYLE = RunStyle.MAIN
+    ENABLED = True
     INPUTS = {}  # type: Dict[str, Tuple[Type[Task], Muxing]]
     DEPENDENCIES = []  # type: List[Type[Task]]
     LOG_LEVEL = logging.INFO
@@ -269,6 +270,9 @@ class TaskRunner:
         self.children_by_task = defaultdict(list)
         self.run_loop_done = False
         for task_cls in get_all_concrete_subclasses(Task):
+            # skip disabled tasks
+            if not task_cls.ENABLED:
+                continue
             # point tasks to this runner
             task_cls.RUNNER = self
             # build graph
