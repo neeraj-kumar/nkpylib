@@ -154,6 +154,13 @@ class AirtableUpdater:
         if 'needs review' not in kw:
             kw['needs review'] = True
         row.update(**kw)
+        # do mapping
+        for field, value in kw.items():
+            if field in self.mappers:
+                if isinstance(value, str):
+                    row[field] = kw[field] = self.mappers[field][value]['id']
+                else:
+                    row[field] = kw[field] = [self.mappers[field][v]['id'] for v in value]
         return airtable_api_call(endpoint=self.table_name, method='patch', records=[dict(id=row['id'], fields=kw)], typecast=typecast)
 
     def upsert(self, key: str, typecast=False, error_on_mapping:bool=True, **kw) -> Any:
