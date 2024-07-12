@@ -359,7 +359,7 @@ class ChromaTree(Tree):
         out), stored under name `hash_key`.
 
         The `add_func` is called when we detect a new key in the "other" tree we compare this
-        against. It is called with `key` and `root` parameters, both filled from "other". It should
+        against. It is called with `key` (from the other tree) and `other` parameters. It should
         contain:
         - embedding: the embedding to use for this item
         - document: the document to use for this item
@@ -396,8 +396,9 @@ class ChromaTree(Tree):
         to_add = dict(ids=[], embeddings=[], metadatas=[], documents=[])
         for d in tqdm(diffs):
             try:
-                md = self.add_func(key=d.b, root=other.root)
+                md = self.add_func(key=d.b, other=other)
             except Exception:
+                #raise #TODO for debugging
                 continue
             to_add['ids'].append(d.b)
             to_add['embeddings'].append(md.pop('embedding'))
@@ -452,6 +453,7 @@ class AirtableTree(Tree):
                  hash_field: str,
                  base_id: str='',
                  api_key: str='',
+                 row_filter_func: Optional[Callable]=None,
                  debug: bool=False):
         """Initialize this airtable tree with the given table and base id.
 
@@ -459,7 +461,9 @@ class AirtableTree(Tree):
         `AIRTABLE_BASE_ID` or `AIRTABLE_API_KEY`, respectively.
 
         We check for the main keys (e.g., paths) in the given `key_field` and hashes in the given
-        `hash_field`.
+        `hash_field`. We store a mapping `key_to_row` from keys to the full row data. We pull down
+        all rows that have a non-empty `key_field` and that return True-ish from
+        `row_filter_func(row)`. (If no `row_filter_func` is given, then we skip that second check.)
 
         If you set `debug` to True, then no changes will be made.
         """
@@ -474,6 +478,8 @@ class AirtableTree(Tree):
         self.key_to_row, keys = {}, []
         for row in rows:
             if key_field not in row['fields']:
+                continue
+            if row_filter_func is not None and not row_filter_func(row):
                 continue
             keys.append(row['fields'][key_field])
             self.key_to_row[keys[-1]] = row
