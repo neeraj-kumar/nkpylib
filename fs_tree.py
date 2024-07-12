@@ -470,7 +470,7 @@ class AirtableTree(Tree):
         self.debug = debug
         self.incr = 10 # this is an airtable limit for adding/deleting/etc
         rows = airtable_all_rows(table_name=self.table_name, **self.airtable_kw)
-        print(f'Got {len(rows)} rows: {json.dumps([rows[:2]], indent=2)}')
+        #print(f'Got {len(rows)} rows: {json.dumps([rows[:2]], indent=2)}')
         self.key_to_row, keys = {}, []
         for row in rows:
             if key_field not in row['fields']:
