@@ -1,3 +1,13 @@
+"""Some simple code to generate an atlas from a video file using optical flow.
+
+The "atlas" in this case is conceptually a single large image that is what the the video is showing.
+This assumes the video is of a screen that is scrolling only vertically, and that the scrolling is
+smooth enough that optical flow can be used to track the movement of the screen.
+
+Note that currently (as of end of 2023), this code kinda works, but the tracking is not perfect,
+leading to artifacts in the generated atlases. It's also fairly slow.
+"""
+
 import time
 
 import cv2

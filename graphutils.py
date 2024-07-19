@@ -3,7 +3,7 @@
 
 Licensed under the 3-clause BSD License:
 
-Copyright (c) 2014-2022, Neeraj Kumar (neerajkumar.org)
+Copyright (c) 2014-, Neeraj Kumar (neerajkumar.org)
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
