@@ -70,6 +70,7 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
+import atexit
 import inspect
 import logging
 import threading
@@ -80,7 +81,7 @@ from concurrent.futures import ProcessPoolExecutor
 from enum import auto, Enum
 from pprint import pformat
 from subprocess import check_output
-from typing import Dict, List, Tuple, Type, Optional
+from typing import Dict, List, Tuple, Type, Optional, Sequence, Any
 
 
 def abstract_class_attributes(*names):
@@ -256,35 +257,35 @@ def get_all_concrete_subclasses(cls):
 class TaskRunner:
     """A runner for tasks"""
 
-    def __init__(self, starting_task, n_procs=10, **kwargs):
+    def __init__(self, starting_task,
+                 n_procs=10,
+                 enable_tasks: Optional[Sequence[Task]]=None,
+                 disable_tasks: Optional[Sequence[Task]]=None,
+                 **kwargs):
         """Initializes this task runner with given `starting_task`.
+
+        By default, this will run all tasks that are a subclass of `Task` and have class variable
+        `ENABLED` set to `True`. You can optionally pass in `enable_tasks` and `disable_tasks` to
+        change this behavior:
+        - If `enable_tasks` is not `None`, then only tasks in this list will be enabled.
+        - If `disable_tasks` is not `None`, then all tasks will be enabled except those in this list.
 
         You can optionally pass any `kwargs` which are accessible dict-style. This runner is also
         available to all tasks as `task.RUNNER`
 
-        This first generates the graph and topologically sorts it.
+        This first generates the graph and dependencies. It then sets up a process pool and a thread
+        to process the futures that are created from tasks. Finally, it initializes the starting
+        task and sets it as ready to run.
+
+        Call `run()` to start the tasks.
         """
         self.kwargs = kwargs
-        # build up a graph of tasks to then sort
-        self.graph = {}
-        self.children_by_task = defaultdict(list)
-        self.run_loop_done = False
+        # build up a graph of tasks and their dependencies
+        self.graph, self.children_by_task = self.get_task_hierarchy(enable_tasks, disable_tasks)
         for task_cls in get_all_concrete_subclasses(Task):
-            # skip disabled tasks
-            if not task_cls.ENABLED:
-                continue
-            # point tasks to this runner
             task_cls.RUNNER = self
-            # build graph
-            self.graph[task_cls] = set(task_cls.DEPENDENCIES)
-            if task_cls.INPUTS:
-                for key, (input_cls, muxing) in task_cls.INPUTS.items():
-                    self.graph[task_cls].add(input_cls)
-                    self.children_by_task[input_cls].append((task_cls, muxing, key))
-        # self.task_order = TopologicalSorter(self.graph).static_order()
-        # assert self.task_order[0] == starting_task
-
         # create actual tasks
+        self.run_loop_done = False
         starting_task.status = Status.READY
         self.tasks_by_key = defaultdict(dict)
         self.tasks_by_key[starting_task.key][starting_task.__class__] = starting_task
@@ -292,6 +293,39 @@ class TaskRunner:
         self.pool = ProcessPoolExecutor(n_procs)
         self.futures_thread = threading.Thread(target=self.process_futures)
         self.futures_thread.start()
+        atexit.register(self.__del__)
+
+    @classmethod
+    def get_task_hierarchy(cls, enable_tasks=None, disable_tasks=None):
+        """Returns the task hierarchy as a graph and children_by_task dict.
+
+        The graph is a dictionary of task classes to their dependencies. The children_by_task is a
+        dictionary of task classes to a list of tuples of (child task class, muxing, key field).
+
+        If `enable_tasks` is not `None`, then only tasks in this list will be enabled.
+        If `disable_tasks` is not `None`, then all tasks will be enabled except those in this list.
+        """
+        graph = {}
+        children_by_task = defaultdict(list)
+        for task_cls in get_all_concrete_subclasses(Task):
+            if enable_tasks:
+                if task_cls not in enable_tasks:
+                    continue
+            elif disable_tasks:
+                if task_cls in disable_tasks:
+                    continue
+            else:
+                if not task_cls.ENABLED:
+                    continue
+            # build graph
+            graph[task_cls] = set(task_cls.DEPENDENCIES)
+            if task_cls.INPUTS:
+                for key, (input_cls, muxing) in task_cls.INPUTS.items():
+                    graph[task_cls].add(input_cls)
+                    children_by_task[input_cls].append((task_cls, muxing, key))
+        # self.task_order = TopologicalSorter(self.graph).static_order()
+        # assert self.task_order[0] == starting_task
+        return graph, children_by_task
 
     def __getitem__(self, field):
         """Returns the kwarg for the given `field`"""
@@ -324,7 +358,9 @@ class TaskRunner:
         return self.tasks_by_key[key].get(task_cls, None)
 
     def __del__(self):
+        self.run_loop_done = True
         self.pool.shutdown()
+        self.futures_thread.join()
 
     def process_output(self, output, task):
         if task.status != Status.DONE:
