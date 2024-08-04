@@ -1,12 +1,24 @@
 """Some utilities for dealing with chroma"""
 
 from __future__ import annotations
+
+import logging
+import time
+
+from threading import Lock
 from typing import Any, Callable, NamedTuple, Optional, Union
 
 import numpy as np
 
-from chromadb import Collection
+from chromadb import Collection, HttpClient, PersistentClient
 from tqdm import tqdm
+
+CHROMA_CLIENT = None
+
+CHROMA_LOCK = Lock()
+
+logger = logging.getLogger(__name__)
+
 
 class FeatureLabel(NamedTuple):
     features: np.ndarray
@@ -23,7 +35,8 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     - id
     - embedding
     - document
-    - all other metadata fields
+    - idx (which idx-th entry this is)
+    - metadata: all other metadata fields
 
     The output of this function should be either:
     - A numpy array of the features
@@ -42,11 +55,17 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     ids = []
     labels = []
     features = []
-
-    for i in tqdm(range(0, col.count(), incr), desc='Extracting features'):
-        resp = col.get(offset=i, limit=incr, where=filter_kw, include=['embeddings', 'metadatas', 'documents'])
+    idx = 0
+    for i in tqdm(range(0, col.count()*2, incr), desc='Extracting features'):
+        try:
+            resp = col.get(offset=i, limit=incr, where=filter_kw, include=['embeddings', 'metadatas', 'documents'])
+        except Exception as e:
+            if 'IndexError' in str(e): # we exhausted results (e.g. due to filters), break
+                break
+            raise
         for id, emb, md, doc in zip(resp['ids'], resp['embeddings'], resp['metadatas'], resp['documents']):
-            feat = feature_func(dict(id=id, embedding=emb, metadata=md, document=doc))
+            feat = feature_func(dict(id=id, embedding=emb, metadata=md, document=doc, idx=idx))
+            idx += 1
             if feat is None:
                 continue
             ids.append(id)
@@ -62,3 +81,29 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     else:
         labels = None
     return ids, np.array(features), labels
+
+
+def load_chroma_client(db_path: str, port: int):
+    """Loads chroma client (if not already loaded) and returns it.
+
+    This function is thread-safe and will only load the client once.
+    It will first try to load the client from the server at the given `port`.
+    If that fails, it will try to load the client from the given `db_path`.
+    """
+    global CHROMA_CLIENT
+    if CHROMA_CLIENT is None:
+        with CHROMA_LOCK:
+            # first try loading from the server
+            try:
+                CHROMA_CLIENT = HttpClient(port=port)
+                logger.info(f'Loaded chromadb client from server at port {port}')
+                return CHROMA_CLIENT
+            except Exception as e:
+                logger.info(f'chromadb client not running: {e}')
+                pass
+            # now try loading from disk
+            logger.info(f'Loading chromadb client at {db_path}')
+            t0 = time.time()
+            CHROMA_CLIENT = PersistentClient(path=db_path)
+            logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
+    return CHROMA_CLIENT
