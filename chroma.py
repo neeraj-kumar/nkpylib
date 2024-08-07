@@ -27,6 +27,7 @@ class FeatureLabel(NamedTuple):
 def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, FeatureLabel]]],
                      col: Collection,
                      incr: int=20,
+                     ss: int=1,
                      **filter_kw: Any) -> tuple[list[str], np.ndarray, Optional[list[Any]]]:
     """Extracts features from the given chroma `col` using the given `feature_func`.
 
@@ -43,6 +44,8 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     - A FeatureLabel tuple containing:
       - A label for the entry (e.g. the class or category)
       - A numpy array of the features
+    - It can also raise StopIteration to stop the extraction early
+      - The current batch will be fully run in this case.
 
     You can optionally pass in `filter_kw` to filter the Chroma entries before extracting features.
     These are passed to the `where` parameter of the Chroma `get()` call.
@@ -51,30 +54,37 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     - A list of the Chroma entry IDs
     - A numpy array of the extracted features
     - A list of the labels (if the feature_func returns a tuple), else None
+
+    The extraction is done in batches of `incr` entries at a time.
+    You can also pass in `ss` > 1 to subsample one batch out of every `ss` batches.
     """
     ids = []
     labels = []
     features = []
     idx = 0
-    for i in tqdm(range(0, col.count()*2, incr), desc='Extracting features'):
+    resp = None
+    for i in tqdm(range(0, col.count()*2, incr*ss), desc='Extracting features'):
         try:
             resp = col.get(offset=i, limit=incr, where=filter_kw, include=['embeddings', 'metadatas', 'documents'])
         except Exception as e:
             if 'IndexError' in str(e): # we exhausted results (e.g. due to filters), break
                 break
             raise
-        for id, emb, md, doc in zip(resp['ids'], resp['embeddings'], resp['metadatas'], resp['documents']):
-            feat = feature_func(dict(id=id, embedding=emb, metadata=md, document=doc, idx=idx))
-            idx += 1
-            if feat is None:
-                continue
-            ids.append(id)
-            if isinstance(feat, FeatureLabel):
-                labels.append(feat.label)
-                features.append(feat.features)
-            else:
-                features.append(feat)
-            len_last = lambda arr: f'{len(arr)}' if arr else 'None'
+        try:
+            for id, emb, md, doc in zip(resp['ids'], resp['embeddings'], resp['metadatas'], resp['documents']):
+                feat = feature_func(dict(id=id, embedding=emb, metadata=md, document=doc, idx=idx))
+                idx += 1
+                if feat is None:
+                    continue
+                ids.append(id)
+                if isinstance(feat, FeatureLabel):
+                    labels.append(feat.label)
+                    features.append(feat.features)
+                else:
+                    features.append(feat)
+                len_last = lambda arr: f'{len(arr)}' if arr else 'None'
+        except StopIteration:
+            break
     assert len(ids) == len(features), f'mismatched lengths for ids ({len(ids)}) and features ({len(features)})'
     if labels:
         assert len(labels) == len(features), f'Mismatched lengths for labels ({len(labels)}) and features ({len(features)})'
