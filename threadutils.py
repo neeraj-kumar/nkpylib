@@ -33,10 +33,10 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-import os, sys, time, Queue
+import os, sys, time, queue
 from threading import Thread, Event, Lock
-from Queue import Empty
-from StringIO import StringIO
+from queue import Empty
+from io import StringIO
 import urllib
 
 class CustomURLopener(urllib.FancyURLopener):
@@ -72,7 +72,7 @@ def parmap(func, args, **kw):
         interval: Delay between spawning each worker [0]
 
     """
-    from Queue import Queue
+    from queue import Queue
     from threading import Lock
     inq = Queue()
     retlock = Lock()
@@ -82,7 +82,7 @@ def parmap(func, args, **kw):
     def fn():
         while 1:
             i, el = inq.get()
-            #print 'Going to call with %d, %s' % (i, el,)
+            #print('Going to call with %d, %s' % (i, el,))
             out = func(*el)
             with retlock:
                 ret[i] = out
@@ -125,7 +125,7 @@ def dlmany(urls, fnames, nprocs=10, callback=None, validfunc=os.path.exists, che
     python sets this GLOBALLY for all sockets!
     """
     from urllib import urlretrieve
-    from Queue import Queue
+    from queue import Queue
     import socket
     assert len(urls) == len(fnames)
     if not urls: return []
@@ -157,8 +157,8 @@ def dlmany(urls, fnames, nprocs=10, callback=None, validfunc=os.path.exists, che
                 else:
                     #os.remove(f)
                     raise ValueError
-            except Exception, e:
-                #print >>sys.stderr, 'Exception on %d: %s -> %s: %s' % (i, u, f, e)
+            except Exception as e:
+                #print('Exception on %d: %s -> %s: %s' % (i, u, f, e), file=sys.stderr)
                 outq.put((i,u,None))
 
     # spawn download threads
@@ -332,7 +332,7 @@ class SimpleWebServer(Thread):
 
             def log_message(self, fmt, *args, **kw):
                 """Logs to our logfile, rather than sys.stderr"""
-                print >>logf, fmt % args
+                print(fmt % args, file=logf)
 
         self.httpd = HTTPServer((host, port), Handler)
         self.address = self.httpd.socket.getsockname()
@@ -347,14 +347,14 @@ class SimpleWebServer(Thread):
             self.validhosts.update(ipaddrlist)
         self.validhosts.discard(self.address[0])
         self.validhosts = list(self.validhosts) + [self.address[0]]
-        print >>logf, 'Valid hosts are: %s' % (self.validhosts,)
+        print('Valid hosts are: %s' % (self.validhosts,), file=logf)
 
     def gethost(self): return self.validhosts[-1]
     host = property(gethost, None)
 
     def run(self):
         """Starts the daemon. Call using start() to run in a new thread."""
-        print >>self.logf, 'Serving HTTP on %s:%s' % (self.host, self.port)
+        print('Serving HTTP on %s:%s' % (self.host, self.port), file=self.log)
         self.httpd.serve_forever()
 
     def localToNet(self, path):
@@ -362,7 +362,7 @@ class SimpleWebServer(Thread):
         If an invalid path is given (i.e., not in our location), None is returned"""
         from urllib import pathname2url
         path = os.path.abspath(path)
-        #print 'path is %s and root is %s' % (path, self.rootdir)
+        print('path is %s and root is %s' % (path, self.rootdir))
         if not path.startswith(self.rootdir): return None
         rel = path.replace(self.rootdir, '')
         url = 'http://%s:%s' % (self.host, self.port) + pathname2url(rel)
@@ -435,7 +435,7 @@ class ExistingWebServer(Thread):
         If an invalid path is given (i.e., not in our location), None is returned"""
         from urllib import pathname2url
         path = os.path.abspath(path)
-        #print 'path is %s and root is %s' % (path, self.rootdir)
+        print('path is %s and root is %s' % (path, self.rootdir))
         if not path.startswith(self.rootdir): return None
         rel = pathname2url(path.replace(self.rootdir, '')).lstrip('/')
         return self.rooturl + rel
@@ -467,26 +467,6 @@ class ExistingWebServer(Thread):
         return 1
 
 
-def testSimpleWebServer(rootdir):
-    """Runs a series of tests on the simple web server"""
-    w = SimpleWebServer(rootdir)
-    baseurl = 'http://%s:%s/' % (w.host, w.port)
-    print 'Created web server at %s' % (baseurl)
-    w.start()
-    urls = [baseurl, baseurl+'odijf/dofij/df%20dfi/', 'http://127.0.0.1:%s/' % (w.port), 'http://aphex.cs.columbia.edu:%s/' % (w.port), 'http://apu1nahasa.dyndns.org:%s/' % (w.port)]
-    for url in urls:
-        print 'NetToLocal for %s yielded %s' % (url, w.netToLocal(url))
-    paths = ['/', '/home/neeraj/', rootdir, rootdir +'/odijf/dfoij asdoij~dofij/']
-    for path in paths:
-        print 'LocalToNet for %s yielded %s' % (path, w.localToNet(path))
-    print 'Webserver now reports adddress as: %s:%s' % (w.host, w.port)
-
-    while 1:
-        try:
-            time.sleep(1)
-        except KeyboardInterrupt: break
-
-
 # QUEUE UTILITIES
 def feastOnQueue(q, timeout):
     """Feasts on a queue for upto 'timeout' secs, or until it's empty (whichever comes first).
@@ -511,7 +491,7 @@ def feastOnQueue(q, timeout):
 def findFromQueue(q, matchfunc):
     """Goes through a queue and returns any elements which matchfunc(el) returns true for.
     The other elements are put back on the queue"""
-    from Queue import Empty
+    from queue import Empty
     num = q.qsize()
     ret = []
     for i in range(num):
@@ -527,7 +507,7 @@ def findFromQueue(q, matchfunc):
 def getFirstNFromQueue(q, n):
     """Returns the first n items from the given queue (non-blocking) as a list.
     The returned list could have less than n items (or empty if queue is empty)"""
-    from Queue import Empty
+    from queue import Empty
     ret = []
     for i in range(n):
         try:
@@ -556,7 +536,7 @@ class HiLoQueue(object):
     def __init__(self, num=-1, qhi=None, qlo=None, cons=lambda: Queue.Queue(-1)):
         """Initializes this with the given queues, or creates new ones if None.
         The cons() function is used to construct the queue objects."""
-        from Queue import Queue
+        from queue import Queue
         if qhi is None:
             qhi = cons()
         if qlo is None:
@@ -596,7 +576,7 @@ class HiLoQueue(object):
         """Just like Queue.get, except that it first checks the hi-priority queue,
         then falls back to the lo-priority one"""
         def log(s):
-            print >>sys.stderr, s
+            print(s, file=sys.stderr)
 
         #log('\nNew get request with block=%s and timeout=%s and hisize=%s, losize=%s' % (block, timeout, self.qhi.qsize(), self.qlo.qsize()))
 
@@ -646,12 +626,12 @@ def testHiLoQueue():
     hi.put(50)
     for i in range(10):
         lo.put(i)
-    print hlq.get() # 50
-    print hlq.get() # 0
-    print hlq.get() # 1
+    print(hlq.get()) # 50
+    print(hlq.get()) # 0
+    print(hlq.get()) # 1
     hi.put(90)
-    print hlq.get() # 90
-    print hlq.get() # 2
+    print(hlq.get()) # 90
+    print(hlq.get()) # 2
 
 
 class QueueService(object):
@@ -691,8 +671,8 @@ class QueueService(object):
                 self.outdict[id] = (input, output)
                 self.notifier.set(id)
                 self.allnotify.set()
-            except Exception, e:
-                print >>sys.stderr, 'Caught an exception in monitor end!!! %s' % (e,)
+            except Exception as e:
+                print('Caught an exception in monitor end!!! %s' % (e,), file=sys.stderr)
 
     def _monitorCallbacks(self):
         """Monitors our list of callbacks to see if any are done"""
@@ -856,7 +836,6 @@ if __name__ == '__main__':
     import doctest
     doctest.testmod()
     from random import random
-    testSimpleWebServer('/home/neeraj/temp/'); sys.exit()
     def proc(lst):
         return [str(x) for x in lst]
 
