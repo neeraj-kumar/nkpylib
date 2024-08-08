@@ -117,6 +117,11 @@ def chained_producer_consumers(functions: list[function],
             logger.debug(f'yielded result, threads left: {len(threads)}')
         except Empty:
             continue
+        # stop on control-c and set stop_idx to the last index
+        except KeyboardInterrupt:
+            with lock:
+                stop_idx = len(functions) - 1
+            break
     for thread in threads:
         thread.join()
 
