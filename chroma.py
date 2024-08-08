@@ -13,6 +13,8 @@ import numpy as np
 from chromadb import Collection, HttpClient, PersistentClient
 from tqdm import tqdm
 
+from nkpylib.thread_utils import chained_producer_consumers
+
 CHROMA_CLIENT = None
 
 CHROMA_LOCK = Lock()
@@ -58,33 +60,48 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     The extraction is done in batches of `incr` entries at a time.
     You can also pass in `ss` > 1 to subsample one batch out of every `ss` batches.
     """
+    def producer():
+        """Produces Chroma entries in batches of `incr`"""
+        idx = 0
+        for i in tqdm(range(0, col.count()+incr, incr*ss), desc='Extracting features'):
+            try:
+                resp = col.get(offset=i, limit=incr, where=filter_kw, include=['embeddings', 'metadatas', 'documents'])
+            except Exception as e:
+                if 'IndexError' in str(e):
+                    print(f'Index error?? {e}')
+                    continue
+                raise
+            if not resp['ids']:
+                break
+            for id, emb, md, doc in zip(resp['ids'], resp['embeddings'], resp['metadatas'], resp['documents']):
+                yield dict(id=id, embedding=emb, metadata=md, document=doc, idx=idx)
+                idx += 1
+
+    def consumer(item):
+        """Runs feature extraction on the output of the chroma function, returning (id, features, label) or None."""
+        feat = feature_func(item)
+        if feat is None:
+            return None
+        label = None
+        if isinstance(feat, FeatureLabel):
+            if feat.label is not None:
+                label = feat.label
+            assert feat.features is not None, f'features is None for {id}'
+            feat = feat.features
+        return (item['id'], feat, label)
+
     ids = []
     labels = []
     features = []
-    idx = 0
-    resp = None
-    for i in tqdm(range(0, col.count()*2, incr*ss), desc='Extracting features'):
-        try:
-            resp = col.get(offset=i, limit=incr, where=filter_kw, include=['embeddings', 'metadatas', 'documents'])
-        except Exception as e:
-            if 'IndexError' in str(e): # we exhausted results (e.g. due to filters), break
-                break
-            raise
-        try:
-            for id, emb, md, doc in zip(resp['ids'], resp['embeddings'], resp['metadatas'], resp['documents']):
-                feat = feature_func(dict(id=id, embedding=emb, metadata=md, document=doc, idx=idx))
-                idx += 1
-                if feat is None:
-                    continue
-                ids.append(id)
-                if isinstance(feat, FeatureLabel):
-                    labels.append(feat.label)
-                    features.append(feat.features)
-                else:
-                    features.append(feat)
-                len_last = lambda arr: f'{len(arr)}' if arr else 'None'
-        except StopIteration:
-            break
+    for output in chained_producer_consumers([producer, consumer]):
+        if output is None:
+            continue
+        id, feat, label = output
+        ids.append(id)
+        features.append(feat)
+        if label is not None:
+            labels.append(label)
+
     assert len(ids) == len(features), f'mismatched lengths for ids ({len(ids)}) and features ({len(features)})'
     if labels:
         assert len(labels) == len(features), f'Mismatched lengths for labels ({len(labels)}) and features ({len(features)})'
