@@ -56,16 +56,19 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
                      col: Collection,
                      incr: int=20,
                      ss: int=1,
+                     include: Optional[list[str]]=None,
                      **filter_kw: Any) -> tuple[list[str], np.ndarray, Optional[list[Any]]]:
     """Extracts features from the given chroma `col` using the given `feature_func`.
 
     The feature_func should take in a single Chroma entry and return its features.
     It can also return `None` to skip that entry. The entry is passed as a dict containing:
+    - idx (which idx-th entry this is)
     - id
     - embedding
     - document
-    - idx (which idx-th entry this is)
     - metadata: all other metadata fields
+    The last 3 elements are only included if the corresponding `include` parameter is passed (or if
+    `include` is None, which is the default).
 
     The output of this function should be either:
     - A numpy array of the features
@@ -86,12 +89,16 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     The extraction is done in batches of `incr` entries at a time.
     You can also pass in `ss` > 1 to subsample one batch out of every `ss` batches.
     """
+    valid_includes = {'embeddings', 'metadatas', 'documents'}
+    if include is None:
+        include = list(valid_includes)
+    assert all(inc in valid_includes for inc in include), f'Invalid include: {include}'
     def producer():
         """Produces Chroma entries in batches of `incr`"""
         idx = 0
         for i in tqdm(range(0, col.count()+incr, incr*ss), desc='Extracting features'):
             try:
-                resp = col.get(offset=i, limit=incr, where=filter_kw, include=['embeddings', 'metadatas', 'documents'])
+                resp = col.get(offset=i, limit=incr, where=filter_kw, include=include)
             except Exception as e:
                 if 'IndexError' in str(e):
                     print(f'Index error?? {e}')
@@ -99,8 +106,15 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
                 raise
             if not resp['ids']:
                 break
-            for id, emb, md, doc in zip(resp['ids'], resp['embeddings'], resp['metadatas'], resp['documents']):
-                yield dict(id=id, embedding=emb, metadata=md, document=doc, idx=idx)
+            for i, id in enumerate(resp['ids']):
+                to_yield = dict(id=id, idx=idx)
+                if 'embeddings' in include:
+                    to_yield['embedding'] = resp['embeddings'][i]
+                if 'metadatas' in include:
+                    to_yield['metadata'] = resp['metadatas'][i]
+                if 'documents' in include:
+                    to_yield['document'] = resp['documents'][i]
+                yield to_yield
                 idx += 1
 
     def consumer(item):
