@@ -22,6 +22,32 @@ CHROMA_LOCK = Lock()
 logger = logging.getLogger(__name__)
 
 
+def load_chroma_client(db_path: str, port: int):
+    """Loads chroma client (if not already loaded) and returns it.
+
+    This function is thread-safe and will only load the client once.
+    It will first try to load the client from the server at the given `port`.
+    If that fails, it will try to load the client from the given `db_path`.
+    """
+    global CHROMA_CLIENT
+    if CHROMA_CLIENT is None:
+        with CHROMA_LOCK:
+            # first try loading from the server
+            try:
+                CHROMA_CLIENT = HttpClient(port=port)
+                logger.info(f'Loaded chromadb client from server at port {port}')
+                return CHROMA_CLIENT
+            except Exception as e:
+                logger.info(f'chromadb client not running: {e}')
+                pass
+            # now try loading from disk
+            logger.info(f'Loading chromadb client at {db_path}')
+            t0 = time.time()
+            CHROMA_CLIENT = PersistentClient(path=db_path)
+            logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
+    return CHROMA_CLIENT
+
+
 class FeatureLabel(NamedTuple):
     features: np.ndarray
     label: Any
@@ -108,29 +134,3 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
     else:
         labels = None
     return ids, np.array(features), labels
-
-
-def load_chroma_client(db_path: str, port: int):
-    """Loads chroma client (if not already loaded) and returns it.
-
-    This function is thread-safe and will only load the client once.
-    It will first try to load the client from the server at the given `port`.
-    If that fails, it will try to load the client from the given `db_path`.
-    """
-    global CHROMA_CLIENT
-    if CHROMA_CLIENT is None:
-        with CHROMA_LOCK:
-            # first try loading from the server
-            try:
-                CHROMA_CLIENT = HttpClient(port=port)
-                logger.info(f'Loaded chromadb client from server at port {port}')
-                return CHROMA_CLIENT
-            except Exception as e:
-                logger.info(f'chromadb client not running: {e}')
-                pass
-            # now try loading from disk
-            logger.info(f'Loading chromadb client at {db_path}')
-            t0 = time.time()
-            CHROMA_CLIENT = PersistentClient(path=db_path)
-            logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
-    return CHROMA_CLIENT
