@@ -24,7 +24,7 @@ import requests
 
 from tqdm import tqdm
 
-from cacheutils import APICache
+from nkpylib.cacheutils import APICache
 wmcache = partial(APICache, cachedir='cache/wikimapia/%(fn)s/', mindelay=5, serializer='json')
 
 @wmcache
