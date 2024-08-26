@@ -29,3 +29,7 @@ lint:
 ## tests out the file watcher
 watcher:
 	python3 file_watcher.py ~/dp/Recipes/ ./
+
+## wikimapia tests
+wikimapia:
+	python3 wikimapia.py
