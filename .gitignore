@@ -1,5 +1,8 @@
 *.py[co]
 
+# cache
+cache
+
 # Packages
 *.egg
 *.egg-info

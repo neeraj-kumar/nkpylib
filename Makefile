@@ -30,6 +30,6 @@ lint:
 watcher:
 	python3 file_watcher.py ~/dp/Recipes/ ./
 
-## wikimapia tests
-wikimapia:
-	python3 wikimapia.py
+## geocoder tests
+geo:
+	python3 geo.py
