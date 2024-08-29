@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 from threading import Lock
@@ -47,6 +48,20 @@ def load_chroma_client(db_path: str, port: int):
             logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
     return CHROMA_CLIENT
 
+def remove_md_keys(md: dict, patterns: list[Union[str, re.Pattern]]) -> dict:
+    """Removes keys from the metadata dict that match any of the given patterns.
+
+    These should be regexp patterns (or re objects).
+    Returns new metadata dict suitable for .update() with just the keys to set to None
+    """
+    patterns = [re.compile(pat) if isinstance(pat, str) else pat for pat in patterns]
+    ret = {}
+    for key in list(md.keys()):
+        for pat in patterns:
+            if pat.match(key):
+                ret[key] = None
+                break
+    return ret
 
 class FeatureLabel(NamedTuple):
     features: np.ndarray
