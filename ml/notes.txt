@@ -1,0 +1,80 @@
+Timings on ec2 g4dn.xlarge, 4 cores, $12.624/day:
+
+huggingface:
+- beam seemed to be fastest, at 1.7 tokens/s
+
+awq model from https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-AWQ
+- uses gpu
+- 235 tokens in 80s = 2.93 tokens/s (using text-generation-ui)
+  - but it does it interactively...
+
+llama-cpp-python:
+- mistral-7b-instruct-v0.2.Q5_K_M.gguf (this code)
+  - orig: 393 tokens in 127s = 3.1 tokens/s
+  - after compiling with cublas: 394 tokens in 100s = 3.9 tokens/s
+- mistral-7b-instruct-v0.2.Q4_K_M.gguf (with cublas)
+  - 316 tokens in 97s = 3.3 tokens/s (server with default params)
+  - 452 tokens in 138s = 3.27 tokens/s (server with default params)
+  - 328 tokens in 82s = 4.0 tokens/s (4 threads)
+  - 443 tokens in 133s = 3.33 tokens/s (2 threads, ~1.7GB ram)
+  - 461 tokens in 115s = 4.01 tokens/s (0 gpu layers, ~1.7GB ram)
+  - 447 tokens in 115s = 3.88 tokens/s (orig seq length of 32k, not 8k, ~4.7GB ram)
+  ------ switching to inf1.2xlarge, with 8 cores, slightly cheaper at $8.688/day ------
+  - i realized that the optimizations require models to be recompiled for aws neuron
+  - but since i'd booted the machine already, i wanted to see how it would do with the default model
+  - i apt installed libopenblas-dev and compiled llama-cpp with it
+  - 394 tokens in 58s = 6.79 tokens/s (4 threads, ~1.7GB ram)
+  - 306 tokens in 38s = 8.05 tokens/s (8 threads, ~1.7GB ram)
+  ------ switching to c7i.4xlarge, with 16 cores, slightly more expensive at $17.136/day ------
+  - 397 tokens in 56s = 7.09 tokens/s (4 threads, ~1.6GB ram)
+  - 399 tokens in 31s = 12.87 tokens/s (8 threads, ~1.6GB ram)
+  - 381 tokens in 24s = 15.87 tokens/s (16 threads, ~1.6GB ram)
+  - 840 tokens in 45s = 18.67 tokens/s (2 instances x 8 threads, ~2.7GB ram)
+  - 1344 tokens in 96s = 14 tokens/s (4 instances x 4 threads, ~5.0GB ram)
+  ------ trying it on my home machine with 16 cores, 60GB ram ------
+  - 343 tokens in 40s = 8.57 tokens/s (4 threads)
+  - 365 tokens in 45s = 8.11 tokens/s (8 threads)
+  - 396 tokens in 50s = 7.92 tokens/s (12 threads)
+  - 380 tokens in 67s = 5.67 tokens/s (16 threads)
+  - 660 tokens in 78s = 8.46 tokens/s (2 instances x 8 threads)
+  - 820 tokens in 93s = 8.82 tokens/s (2 instances x 7 threads)
+  - 1164 tokens in 136s = 8.56 tokens/s (3 instances x 5 threads)
+
+throughput by pricing:
+- g4dn.xlarge: 4 tokens/s / $12.624/day = 28.2 ktokens/$
+- inf1.2xlarge: 8.05 tokens/s / $8.688/day = 80.1 ktokens/$
+- c7i.4xlarge: 18.67 tokens/s / $17.136/day = 94.1 ktokens/$
+- c7i.2xlarge: 12.87 tokens/s / $8.568/day = 129.8 ktokens/$ [assuming 8 threads has same speed]
+- c7i.xlarge: 7.09 tokens/s / $4.284/day = 143.0 ktokens/$ [assuming 4 threads has same speed]
+
+time to completion and total cost by instance type:
+- assume 100 documents, 5000 words each, 7500 tokens each (~1.5 tokens/word, ~4.8 chars/token)
+- Total: 750k tokens
+- c7i.4xlarge: 750k tokens / 18.67 tokens/s = 11.2 hours, cost: $8.00
+- c7i.2xlarge: 750k tokens / 12.87 tokens/s = 16.2 hours, cost: $5.78
+- c7i.xlarge: 750k tokens / 7.09 tokens/s = 29.4 hours, cost: $5.25
+
+At this scale, we should just use the largest machine, since the costs are all small.
+
+# Deployment
+I can try to set the appropriate params on the llama-cpp server, but it's not clear i can do e.g.,
+multiple instances easily. So instead, I should setup tornado here, and maintain a pool of procs to
+handle requests. I can gen futures and send some sort of future id back to the client, and then the
+client can poll for the result. Or I can have a synchronous endpoint that just waits for the result.
+
+Actually, since it seems like for small scale I can just run this at home, I don't even need
+tornado; instead, I can just use a ProcessPoolExecutor to run the llama-cpp code in parallel from my
+main code. It's probably helpful to create a simple function for that in this module, so we can
+easily import and use it from others.
+
+I'll need to fetch embeddings as well, of course.
+
+Embedding timings:
+- I tried many libs that i couldn't get working, but finally bge via SentenceTransformer did it
+  - recommended by Kapil, slightly older, but good enough.
+  - for better/lighter, maybe try multilingual-e5-large-instruct
+- on a c7i.4xlarge, it's 4.75 sentences/s, using 8 cores only.
+- Local machine speed:
+  - bge: 1.67 sentences/s for embedding speed, 1 proc
+  - bge: If i use the multiprocess version (2 procs * 8 cores), I get 2.05 sentences/s
+  - e5: couldn't get working...needs version 2.4.0dev of st but i have 2.2
