@@ -212,7 +212,7 @@ class FaceSystem(ABC):
         W, H = Image.open(path).size
         ret.update(img_path=path, resized_w=W, resized_h=H)
         t1 = time.time()
-        logger.info(f'Preprocessed {url} to {ret} in {t1-t0:.2f}s')
+        logger.debug(f'Preprocessed {url} to {ret} in {t1-t0:.2f}s')
         return ret
 
     def postprocess_faces(self,
@@ -406,12 +406,11 @@ class RetinaFaceSystem(FaceSystem):
 
     def _detect_face(self, img: str, output_fmts: Optional[dict[str, str]]=None) -> FaceDetectionResult:
         """Actual face processing for a single face `img`."""
-        logger.info(f'Starting detect face with {img}, {output_fmts}')
+        logger.debug(f'Starting detect face with {img}, {output_fmts}')
         t0 = time.time()
         input = self.preprocess_image(img)
         t1 = time.time()
         faces = self.retina_extract_faces(input['img_path'], threshold=self.threshold, align=True)
-        print(f'got raw face keys: {faces[0].keys()}')
         t2 = time.time()
         # the aligned images are in bgr format, so fix them to rgb
         for f in faces:

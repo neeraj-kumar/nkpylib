@@ -168,7 +168,6 @@ def generic_run_model(
         if cache_key is not None:
             cache[cache_key] = ret
     t2 = time.time()
-    # the output is already in openai compatible format, just do some cleanup
     ret['timing'] = dict(
         load_time=t1-t0 if did_load else 0,
         generate=t2-t1,
