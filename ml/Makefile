@@ -62,14 +62,14 @@ rep-face:
 
 ## test out llm completion using replicate
 rep-llm:
-	@cd .. && python3 -m llm.replicate_wrapper llm&& cd -
+	@python3 replicate_wrapper.py llm
 
 ## test out retina face
-test-retina:
+face-retina:
 	@python3 faces.py -d retina radiohead.jpg game.jpg
 
 ## test out replicate face detection
-test-rep-faces:
+face-replicate:
 	@python3 faces.py -d replicate radiohead.jpg game.jpg
 
 ## copy stuff into our git repo

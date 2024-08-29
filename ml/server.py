@@ -16,7 +16,7 @@ import requests
 from PIL import Image
 from pydantic import BaseModel
 
-from llm_constants import DEFAULT_MODELS
+from nkpylib.ml.constants import DEFAULT_MODELS
 
 app = fastapi.FastAPI()
 app.state.models = {}
@@ -185,7 +185,7 @@ async def completions(req: CompletionRequest):
         req.model = DEFAULT_MODELS[req.model]
     if 'llama-3' in req.model:
         # run this using replicate
-        from replicate_wrapper import llm_complete
+        from nkpylib.ml.replicate_wrapper import llm_complete
         def load_func(model, **kw):
             return model
 

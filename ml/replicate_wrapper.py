@@ -21,7 +21,7 @@ import requests
 
 from PIL import Image
 
-from llm.llm_constants import REPLICATE_MODELS
+from nkpylib.ml.constants import REPLICATE_MODELS
 
 logger = logging.getLogger(__name__)
 

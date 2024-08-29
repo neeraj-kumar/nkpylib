@@ -215,7 +215,7 @@ class ReplicateFaceSystem(FaceSystem):
     def _detect_face(self, img: str, mask_fmt: str, crop_fmt: str, crop_size: int) -> FaceDetectionResult:
         """Actual processing"""
         print(f'Starting detect face with {img}, {mask_fmt}, {crop_fmt}, {crop_size}')
-        from llm.replicate_wrapper import face_detection
+        from nkpylib.ml.replicate_wrapper import face_detection
         input = self.preprocess_image(img)
         raw = face_detection(input['img_path'])
         boxes, mask_urls = raw['boxes'], raw['mask_urls']

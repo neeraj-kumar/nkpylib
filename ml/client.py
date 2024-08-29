@@ -11,6 +11,7 @@ Note that by default, we use caching for all calls. Set `use_cache=False` to dis
 
 from __future__ import annotations
 
+import sys
 import tempfile
 
 from concurrent.futures import ThreadPoolExecutor
@@ -18,7 +19,7 @@ from typing import Any, Optional, Union
 
 import requests
 
-from .llm_constants import SERVER_BASE_URL, SERVER_API_VERSION
+from nkpylib.mlconstants import SERVER_BASE_URL, SERVER_API_VERSION
 
 def single_call(endpoint: str, model:Optional[str]=None, **kw) -> dict:
     """Calls a single endpoint on the server. Returns the raw json response (as a dict)."""
@@ -189,7 +190,6 @@ def embed_images(images: list, model='image', use_cache=True, **kw) -> list:
 
 if __name__ == '__main__':
     # check that we're not importing torch or numpy, etc
-    import sys
     disallowed = ['torch', 'numpy', 'transformers', 'PIL']
     for key in sys.modules.keys():
         if any([dis in key for dis in disallowed]):
