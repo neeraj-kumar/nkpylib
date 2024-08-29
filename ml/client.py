@@ -19,7 +19,7 @@ from typing import Any, Optional, Union
 
 import requests
 
-from nkpylib.mlconstants import SERVER_BASE_URL, SERVER_API_VERSION
+from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION
 
 def single_call(endpoint: str, model:Optional[str]=None, **kw) -> dict:
     """Calls a single endpoint on the server. Returns the raw json response (as a dict)."""
