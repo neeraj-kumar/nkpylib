@@ -121,14 +121,28 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
                 raise
             if not resp['ids']:
                 break
+            n_ids = len(resp['ids'])
             for i, id in enumerate(resp['ids']):
                 to_yield = dict(id=id, idx=idx)
-                if 'embeddings' in include:
-                    to_yield['embedding'] = resp['embeddings'][i]
-                if 'metadatas' in include:
-                    to_yield['metadata'] = resp['metadatas'][i]
-                if 'documents' in include:
-                    to_yield['document'] = resp['documents'][i]
+                # sometimes there's a bug and the lengths of things don't match; return None if so
+                if resp.get('embeddings'):
+                    if len(resp['embeddings']) != n_ids:
+                        logger.error(f'Embeddings length mismatch: {len(resp["embeddings"])} vs {n_ids}')
+                        yield None
+                    else:
+                        to_yield['embedding'] = resp['embeddings'][i]
+                if resp.get('metadatas'):
+                    if len(resp['metadatas']) != n_ids:
+                        logger.error(f'Metadatas length mismatch: {len(resp["metadatas"])} vs {n_ids}')
+                        yield None
+                    else:
+                        to_yield['metadata'] = resp['metadatas'][i]
+                if resp.get('documents'):
+                    if len(resp['documents']) != n_ids:
+                        logger.error(f'Documents length mismatch: {len(resp["documents"])} vs {n_ids}')
+                        yield None
+                    else:
+                        to_yield['document'] = resp['documents'][i]
                 yield to_yield
                 idx += 1
 
