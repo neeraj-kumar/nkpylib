@@ -262,6 +262,35 @@ def run_search(q: str,
             break
     return searcher.search(q=q, **kw)
 
+def default_index() -> str:
+    """Returns default HTML index page that loads react etc from CDNs.
+
+    This also inlines the nk js utils code.
+
+    Your jsx and css code should be at /static/app.{jsx,css}
+    """
+    # load 'nk-utils.js' from the same directory as this file
+    with open(f'{os.path.dirname(__file__)}/nk-utils.jsx') as f:
+        nk_utils_js = f.read()
+    return f'''<!doctype html>
+<html>
+  <head>
+    <script src="https://unpkg.com/react/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react-router-dom@4/umd/react-router-dom.min.js"></script>
+    <script src="https://unpkg.com/babel-standalone/babel.js"></script>
+    <script src="https://unpkg.com/localforage/dist/localforage.js"></script>
+    <script src="https://unpkg.com/immer@9/dist/immer.umd.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha512-ZwR1/gSZM3ai6vCdI+LVF1zSq/5HznD3ZSTk7kajkaj4D292NLuduDCO1c/NT8Id+jE58KYLKT7hXnbtryGmMg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+<body>
+  <div id="main" />
+</body>
+<script type="text/babel">{nk_utils_js}</script>
+<script src="/static/app.jsx" type="text/babel"></script>
+</html>'''
 
 def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
                          make_app: Callable[[], Application]=lambda: Application(),
@@ -275,7 +304,8 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
 
     We also setup logging.
     """
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(funcName)s %(message)s')
+    # include line number
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(funcName)s:%(lineno)d: %(message)s')
     if parser is None:
         parser = argparse.ArgumentParser(description='Web server')
     parser.add_argument('-p', '--port', type=int, default=default_port, help='Port to listen on')
