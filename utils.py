@@ -53,12 +53,14 @@ Code Starts Now
 """
 
 import os, sys, random, math, time
+import functools
+
 from math import pi
 from itertools import *
 from threading import Thread
 import string
 
-# DECORATORS
+## DECORATORS
 def tracefunc(fn):
     """Decorator that traces function exits, arguments, and return values"""
     def newfn(*args, **kw):
@@ -95,24 +97,6 @@ def memuse(fn):
         log('*****  Function %s.%s took %d bytes' % (fn.__module__, fn.__name__, used))
         return r
     newfn.__name__ = fn.__name__ + ' (MEMUSE)'
-    newfn.__module__ = fn.__module__
-    return newfn
-
-def memoize(fn):
-    """Decorator to cache a function.
-
-    .. warning::
-       Make sure it's a functional method (i.e., no side effects)!
-    """
-    cache = {}
-    def newfn(*args, **kw):
-        key = (tuple(args), tuple(sorted(kw.items())))
-        if key in cache:
-            return cache[key]
-        else:
-            cache[key] = val = fn(*args, **kw)
-            return val
-    newfn.__name__ = fn.__name__ + ' (MEMOIZED)'
     newfn.__module__ = fn.__module__
     return newfn
 
@@ -276,6 +260,30 @@ def incrpicklecache(pickname, protocol=-1, interval=-1):
         return retfunc
     return actualret
 
+def timed_cache(seconds: int):
+    """Decorator to cache the result of a function for a given number of seconds."""
+    def decorator(func):
+        cache = {}
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(kwargs.items()))  # Create a cache key based on arguments
+            current_time = time.time()
+
+            # Check if result is in the cache and if it's still valid
+            if key in cache:
+                result, timestamp = cache[key]
+                if current_time - timestamp < seconds:
+                    return result
+
+            # Call the function and store the result in the cache
+            result = func(*args, **kwargs)
+            cache[key] = (result, current_time)  # Store result with the current time
+            return result
+
+        return wrapper
+    return decorator
+
 def bgrun(nthreads=1, bgthreads=[]):
     """Decorator to run an operation in the background, upto `nthreads` instances.
     Adds as threads as needed to bring the total number of alive threads in `bgthreads`
@@ -351,7 +359,6 @@ def autoRestarter(exceptions, timeout=1.0):
     exceptions = tuple(exceptions)
     def decorator(f, exceptions=exceptions, timeout=timeout):
         def ret(*args, **kw):
-            import time
             while 1:
                 try:
                     return f(*args, **kw)
@@ -381,7 +388,7 @@ def queueize(inq, outq, func, endfunc=None):
     #sys.stderr.flush()
 
 
-# TIMING UTILS
+## TIMING UTILS
 def getTimestamp(t=None, fmt='%Y-%m-%d %H:%M:%S'):
     """Returns the timestamp for the given time (defaults to current time).
     The time should be in secs since epoch.
@@ -749,7 +756,7 @@ def time2names(t, thresh=0, gps=None):
     return ret
 
 
-# MEMORY UTILS
+## MEMORY UTILS
 #: mapping strings to multipliers on bytes
 MEMORY_UNITS = {'B': 1, 'kB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
 
@@ -937,7 +944,7 @@ class MemUsage(object):
         raise KeyError("'%s' not found in items" % (key,))
 
 
-# LOGGING UTILS
+## LOGGING UTILS
 def log(s, f=sys.stderr, funcindent=-1):
     """Logs the given string to the given file (:class:`sys.stderr` by default).
     Unless the string contains '\r', an endline is printed.
@@ -1043,7 +1050,7 @@ def spark(vals, wrap=0, scale=None, f=sys.stdout):
             Popen(args, stdout=f).communicate()
 
 
-# ITERTOOLS AND SEQUENCES UTILS
+## ITERTOOLS AND SEQUENCES UTILS
 def arange(from_, to, step):
     """Returns samples generated in the range ``[from_, to]``, with given `step` size.
     If `step` is 0, then just returns ``[from_]``
@@ -1084,22 +1091,6 @@ def nkgrouper(n, iterable):
     for g in groups:
         els = [e for e in g if e != UNIQ]
         yield els
-
-def any(seq, pred=None):
-    """Returns `True` if `pred(x)` is true for at least one element in the iterable.
-    Taken from the :mod:`itertools` recipes.
-    """
-    for elem in ifilter(pred, seq):
-        return True
-    return False
-
-def all(seq, pred=None):
-    """Returns `True` if `pred(x)` is true for all elements in the iterable.
-    Taken from the :mod:`itertools` recipes.
-    """
-    for elem in ifilterfalse(pred, seq):
-        return False
-    return True
 
 def cumsum(seq, start=0):
     """Returns the cumulative sum of the given elements.
@@ -1394,7 +1385,22 @@ def roundrobin(seqOfSeqs, num, dopad=0, pad=None):
     return ret
 
 
-# DICT UTILS
+## DICT UTILS
+def specialize(v):
+    """Specializes a value into a more specific type, if possible."""
+    constants = dict(true=True, false=False, none=None)
+    if isinstance(v, str):
+        if v.lower() in constants:
+            return constants[v.lower()]
+        try:
+            v = int(v)
+        except:
+            try:
+                v = float(v)
+            except:
+                pass
+    return v
+
 def getDictValues(d, fields, defaults=None):
     """Returns a list of values from a dictionary using the given seq of `fields`.
     If `defaults` is given, it should be same length as `fields`."""
@@ -1524,7 +1530,7 @@ def summarizekeys(d, counts={}, base=''):
     return counts
 
 
-# MATH UTILS
+## MATH UTILS
 def clamp(val, minval, maxval):
     """Clamps the given value to lie between the given `minval` and `maxval`"""
     return min(max(val, minval), maxval)
@@ -1970,7 +1976,7 @@ def filternnresults(dists, k=None, r=None, sort=1):
     return ret
 
 
-# GEOMETRY UTILS
+## GEOMETRY UTILS
 # All triangle functions take (x,y) pairs as inputs for points
 def getDistance(pt1, pt2):
     """Returns euclidean distance between two points"""
@@ -2406,7 +2412,7 @@ def locateGPS(loc, objs, imsize=(1000,1000), indist='50 meters', neardist='1 km'
     return objsin, objsnear
 
 
-# PROBABILITY AND SAMPLING UTILS
+## PROBABILITY AND SAMPLING UTILS
 def minsample(population, k, randomize=1):
     """Samples upto `k` elements from `population`, without replacement.
     Equivalent to :func:`random.sample`, but works even if ``k >= len(population)``.
