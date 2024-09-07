@@ -279,8 +279,13 @@ def default_index() -> str:
     <script src="https://unpkg.com/react-dom/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/react-router-dom@4/umd/react-router-dom.min.js"></script>
     <script src="https://unpkg.com/babel-standalone/babel.js"></script>
+    <script src="https://unpkg.com/prop-types/prop-types.min.js"></script>
     <script src="https://unpkg.com/localforage/dist/localforage.js"></script>
     <script src="https://unpkg.com/immer@9/dist/immer.umd.development.js"></script>
+
+    <script src="https://unpkg.com/ag-grid-community@28/dist/ag-grid-community.js"></script>
+    <script src="https://unpkg.com/ag-grid-react@28/bundles/ag-grid-react.min.js"></script>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha512-ZwR1/gSZM3ai6vCdI+LVF1zSq/5HznD3ZSTk7kajkaj4D292NLuduDCO1c/NT8Id+jE58KYLKT7hXnbtryGmMg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="/static/app.css">
