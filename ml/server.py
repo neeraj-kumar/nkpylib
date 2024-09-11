@@ -1,6 +1,46 @@
-"""LLM and embedding server code.
+"""LLM and embedding (and other ML) server code.
 
-The ap
+This is a server you can run that provides a REST API for various kinds of ML, particularly those
+with large models. The idea is that all the heavy dependencies (and different implementations) are
+encapsulated here, and you can interact with this using the `client.py` module without taking on any
+of the dependencies.
+
+In the future, I hope to make this more general and more robust, but for now it's a simple fastapi
+server.
+
+In general, functions come in two flavors:
+- raw: These functions return the raw JSON response from the server. These are in
+  openai-compatible format. For now, this is probably not very useful except in niche cases.
+- non-raw (no suffix): These functions return the actual data you want, e.g. the embedding or the
+  completion text.
+
+In both cases, you can optionally provide a model name, but there's always a sensible default.
+The list of default models (with short names) is in `nkpylib.ml.constants.DEFAULT_MODELS`.
+
+By default, we cache results for each model, but you can turn this off by setting `use_cache=False`
+in your request.
+
+We also provide batch versions of the functions, which take a list of inputs and return a list of
+outputs. These typically have pluralized function names (e.g., embed_image_url -> embed_image_urls).
+
+Anywhere a `url` is specified, it can also be a local path on this machine.
+
+Current ML types and models:
+- Text completion:
+  - `mistral-7b-instruct-v0.2.Q4_K_M.gguf`: The Meta-Llama model with 7B parameters, fine-tuned on
+    instruct prompts, with a Q4_K_M quantization
+  - `llama-3`: The Llama-3-70b model running via Replicate, which is close to the state of the art
+    as of Mid-2024.
+- Text embeddings:
+  - `st`: The SentenceTransformers library, which has a variety of models. The default is
+    'BAAI/bge-large-en-v1.5', which is a large English model, and performs well on benchmarks for longish text.
+  - `clip`: The OpenAI CLIP model, which can embed both text and images. Use this for cases where
+    you expect to be matching text against images. Note that the text cannot be too long.
+- String similarity:
+  - This embeds two strings using any of the text embedding models, and then computes the cosine
+    similarity between the two embeddings. Higher is more similar.
+- Image embeddings:
+  - `clip`: The OpenAI CLIP model, which can embed both text and images (in the same space).
 """
 
 import functools
