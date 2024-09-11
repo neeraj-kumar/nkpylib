@@ -182,7 +182,7 @@ async def completions(req: CompletionRequest):
     cache_key = f"{req.max_tokens}:{req.prompt}" if req.use_cache else None
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
-    if 'llama-3' in req.model:
+    if 'llama-3' in req.model or 'llama3' in req.model:
         # run this using replicate
         from nkpylib.ml.replicate_wrapper import llm_complete
         def load_func(model, **kw):
