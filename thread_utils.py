@@ -6,10 +6,13 @@ and most of it is outdated.
 
 from __future__ import annotations
 
+import functools
 import logging
+import os
 import threading
 import time
 
+from os.path import abspath, basename, dirname, exists, join, relpath
 from queue import Queue, Empty
 from typing import Any, Iterable
 
@@ -124,6 +127,51 @@ def chained_producer_consumers(functions: list[function],
             break
     for thread in threads:
         thread.join()
+
+def ensure_singleton(max_delay):
+    """Decorator to ensure a given function is run as a singleton.
+
+    This creates a file in the same directory as the function with filename '.{function_name}'
+    which contains the output of time.time(). If it detects that the file exists, it checks the
+    timestamp. If the timestamp is older than current time - max_delay, then it assumes it was too
+    old, and deletes it.
+
+    Once the underlying function finishes (or errors), we delete the file.
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def inner(*args, **kw):
+            path = join(dirname(__file__), f'.{basename(fn.__name__)}.lock')
+            now = time.time()
+            if exists(path):
+                # read first line
+                with open(path) as f:
+                    try:
+                        ts = float(f.readline().strip())
+                        if now - ts > max_delay:
+                            os.remove(path)
+                        else:
+                            # it's running, so abort
+                            logger.info(f'Function {fn.__name__} already running for {now-ts:0.1f}s (< {max_delay}s), aborting')
+                            sys.exit(99)
+                    except Exception:
+                        # not a valid lock file, delete
+                        os.remove(path)
+            # at this point, it's safe to run the function, so create lock file
+            with open(path, 'w') as f:
+                f.write(str(now))
+            # run the function
+            try:
+                return fn(*args, **kw)
+            finally:
+                # delete the lock file on success or exception
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+
+        return inner
+    return decorator
 
 
 if __name__ == "__main__":
