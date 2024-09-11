@@ -1,4 +1,25 @@
-"""Face-related utilities."""
+"""Face-related utilities.
+
+The main thing in this module is the `FaceSystem` class, which is an abstract class that defines
+a face detector + related functionality. There are a few implementations of this class, including
+one using mediaface (running either on Replicate or locally via docker at a given port); and a
+much better one (RetinaFace), also running locally (within this process).
+
+You initialize the system once, and then you can call `detect_faces()` on a list of images (urls or
+local paths), and it will return a list of `FaceDetectionResult` objects, which contain the face
+boxes and other info.
+
+You can also optionally specify the output formats for different types of outputs (masks, crops,
+etc.) using the `all_output_fmts` parameter. This should be a list of the same length as `images`,
+each containing a mapping from output type to an output format string. The output types are usually
+things like 'mask', 'crop', etc. The format string should contain a %-compatible placeholder for
+the face number within that.
+
+Note that different implementations might support different kinds of outputs, but we provide
+`crop` with all methods, which simply uses the detected face boxes.
+
+The face systems can also all do downscaling of inputs (mainly for speed).
+"""
 
 from __future__ import annotations
 
@@ -79,8 +100,8 @@ class FaceDetectionResult(NamedTuple):
     resized_w: int # resized image width
     resized_h: int # resized image height
     boxes: list[tuple[float, float, float, float]] # list of face boxes in fractional (x0, y0, x1, y1) coords
+    timings: dict[str, float] # timings for different parts of the process
     output_paths: Optional[dict[str, list[str]]] = None # output paths by type (masks, crops, etc.)
-    timings: Optional[dict[str, float]] = None # timings for different parts of the process
 
 
 class FaceSystem(ABC):
@@ -124,7 +145,7 @@ class FaceSystem(ABC):
 
     def detect_faces(self,
                      images: list[ImageT],
-                     all_output_fmts: Optional[list[dict[str, str]]]=None,
+                     all_output_fmts: Optional[list[Optional[dict[str, str]]]]=None,
                      ) -> Iterable[Union[FaceDetectionResult, Exception]]:
         """Detect faces in images, and optionally crop/etc.
 
@@ -234,7 +255,7 @@ class FaceSystem(ABC):
 
         The output is a `FaceDetectionResult`.
         """
-        ret = dict(output_paths={}, timings={})
+        ret: dict[str, Any] = dict(output_paths={}, timings={})
         for field in 'input_url orig_w orig_h resized_w resized_h'.split():
             ret[field] = input[field]
         # normalize the boxes to fractions of the resized input
@@ -242,7 +263,7 @@ class FaceSystem(ABC):
         ret['boxes'] = boxes = [(x0/W, y0/H, x1/W, y1/H) for x0, y0, x1, y1 in boxes]
         # if we don't have any output formats we're done
         if not output_fmts:
-            return FaceDetectionResult(**ret)
+            return FaceDetectionResult(**ret) # type: ignore
         if not output_urls:
             output_urls = {}
         for i, box in enumerate(boxes):
@@ -250,7 +271,7 @@ class FaceSystem(ABC):
                 t0 = time.time()
                 if not fmt:
                     continue
-                url = output_urls.get(output_type, [''] * len(boxes))[i]
+                url: Optional[ImageT] = output_urls.get(output_type, [''] * len(boxes))[i]
                 if url is None or (isinstance(url, str) and not url):
                     # special case for `crop`: do the actual cropping
                     if output_type == 'crop':
@@ -286,9 +307,10 @@ class ReplicateFaceSystem(FaceSystem):
     - The only extra outputs are mask images, but these are the same size as the resized images, not
       originals.
     """
-    def _detect_face(self, img: str, output_fmts: Optional[dict[str, str]]=None) -> FaceDetectionResult:
+    def _detect_face(self, img: ImageT, output_fmts: Optional[dict[str, str]]=None) -> FaceDetectionResult:
         """Actual face processing for a single face `img`."""
         from nkpylib.ml.replicate_wrapper import face_detection
+        assert isinstance(img, str), f'Expected string, got {type(img)}'
         logger.info(f'Starting detect face with {img}, {output_fmts}')
         t0 = time.time()
         input = self.preprocess_image(img)
@@ -321,7 +343,7 @@ class RetinaFaceSystem(FaceSystem):
         align: bool = True,
         allow_upscaling: bool = True,
         expand_face_area: int = 0,
-        ) -> list[dict[str, object]]:
+        ) -> list[dict[str, Any]]:
         """
         Detect, crop, and optionally align faces.
 
@@ -336,7 +358,7 @@ class RetinaFaceSystem(FaceSystem):
         - allow_upscaling (bool): allowing up-scaling
         - expand_face_area (int): expand detected facial area with a percentage
         """
-        from retinaface.RetinaFace import detect_faces, postprocess, preprocess
+        from retinaface.RetinaFace import detect_faces, postprocess, preprocess # type: ignore
         resp: list[dict[str, object]] = []
 
         # ---------------------------
@@ -398,19 +420,14 @@ class RetinaFaceSystem(FaceSystem):
                 resp[-1]['aligned'] = facial_img
         return resp
 
-    def _detect_face(self, img: str) -> FaceDetectionResult:
-        """Detects faces in a single image"""
-        # normalize the boxes to fractions of the resized input
-        ret = dict(boxes=boxes, orig_w=input['orig_w'], orig_h=input['orig_h'], resized_w=W, resized_h=H)
-        print(f'Raw: {raw}')
-
-    def _detect_face(self, img: str, output_fmts: Optional[dict[str, str]]=None) -> FaceDetectionResult:
+    def _detect_face(self, img: ImageT, output_fmts: Optional[dict[str, str]]=None) -> FaceDetectionResult:
         """Actual face processing for a single face `img`."""
+        assert isinstance(img, str), f'Expected string, got {type(img)}'
         logger.debug(f'Starting detect face with {img}, {output_fmts}')
         t0 = time.time()
         input = self.preprocess_image(img)
         t1 = time.time()
-        faces = self.retina_extract_faces(input['img_path'], threshold=self.threshold, align=True)
+        faces = self.retina_extract_faces(input['img_path'], threshold=self.threshold, align=True) # type: ignore
         t2 = time.time()
         # the aligned images are in bgr format, so fix them to rgb
         for f in faces:
