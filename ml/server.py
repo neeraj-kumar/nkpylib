@@ -7,7 +7,7 @@ import functools
 import time
 import uuid
 
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Callable
 
 import fastapi
 import numpy as np
@@ -24,11 +24,15 @@ app.state.cache = {}
 
 device = 'cpu'
 
+# load func takes model name and **kw, and returns the loaded model
+LoadFuncT = Callable[[Any], Any]
+RunFuncT = Callable[[Any, Any], dict]
+
 @functools.cache
 def load_clip(model_name=DEFAULT_MODELS['clip']):
     """Loads clip and returns two embedding functions: one for text, one for images"""
     import torch
-    from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer
+    from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = CLIPModel.from_pretrained(model_name)
     processor = CLIPProcessor.from_pretrained(model_name)
@@ -122,7 +126,9 @@ class CompletionRequest(BaseModel):
     kwargs: Optional[dict]={}
     use_cache: Optional[bool]=False
 
-def load_model(model_name: str, load_func: callable, **kw) -> tuple[object, dict, bool]:
+
+
+def load_model(model_name: str, load_func: LoadFuncT, **kw) -> tuple[object, dict, bool]:
     """Loads given `model_name` using the given `load_func`.
 
     Returns `(model, model-specific-cache, did_load)`, where:
@@ -146,12 +152,11 @@ def load_model(model_name: str, load_func: callable, **kw) -> tuple[object, dict
         did_load = False
     return model, app.state.cache[model_name], did_load
 
-
 def generic_run_model(
         input: Any,
         model_name: str,
-        load_func: callable,
-        run_func: callable,
+        load_func: LoadFuncT,
+        run_func: RunFuncT,
         cache_key: Optional[str]=None,
         **kw) -> dict:
     """Generic code for loading and running a model, including caching behavior.
@@ -180,6 +185,7 @@ def generic_run_model(
 async def completions(req: CompletionRequest):
     """Generates completions for the given prompt using the given model."""
     cache_key = f"{req.max_tokens}:{req.prompt}" if req.use_cache else None
+    assert req.model is not None, "Model must be specified for completions request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
     if 'llama-3' in req.model or 'llama3' in req.model:
@@ -243,10 +249,11 @@ class TextEmbeddingRequest(BaseModel):
 @app.post("/v1/embeddings")
 async def text_embeddings(req: TextEmbeddingRequest):
     """Generates embeddings for the given text using the given model."""
+    assert req.model is not None, "Model must be specified for embeddings request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
     def load_func(model, **kw):
-        from sentence_transformers import SentenceTransformer
+        from sentence_transformers import SentenceTransformer # type: ignore
         if model == DEFAULT_MODELS['clip']:
             return load_clip(model)[0]
         else:
@@ -288,6 +295,7 @@ class ImageEmbeddingRequest(BaseModel):
 @app.post("/v1/image_embeddings")
 async def image_embeddings(req: ImageEmbeddingRequest):
     """Generates embeddings for the given image url (or local path) using the given model."""
+    assert req.model is not None, "Model must be specified for image embeddings request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
     def run_func(input, model, **kw):
@@ -325,7 +333,7 @@ async def strsim(req: StrSimRequest):
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
     # embed both texts by calling the text_embeddings function
-    timings = {}
+    timings: dict[str, float] = {}
     async def call(s):
         ret = await text_embeddings(TextEmbeddingRequest(input=s, model=req.model, use_cache=req.use_cache))
         # update timings by adding all numbers, and taking "or" of boolean values
