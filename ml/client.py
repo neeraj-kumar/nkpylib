@@ -15,13 +15,20 @@ import sys
 import tempfile
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Sequence
 
+import numpy as np
 import requests
+
+from PIL import Image
 
 from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION
 
-def single_call(endpoint: str, model:Optional[str]=None, **kw) -> dict:
+#TODO tighten this up
+# typedef for raw json response from server
+ResponseT = dict[str, Any]
+
+def single_call(endpoint: str, model:Optional[str]=None, **kw) -> ResponseT:
     """Calls a single endpoint on the server. Returns the raw json response (as a dict)."""
     url = f"{SERVER_BASE_URL}/v{SERVER_API_VERSION}/{endpoint}"
     data = dict(**kw)
@@ -29,7 +36,7 @@ def single_call(endpoint: str, model:Optional[str]=None, **kw) -> dict:
         data['model'] = model
     return requests.post(url, json=data).json()
 
-def call_llm_raw(prompt: str, max_tokens:int =128, model:Optional[Any] =None, use_cache=True, **kw) -> dict:
+def call_llm_raw(prompt: str, max_tokens:int =128, model:Optional[str] =None, use_cache=True, **kw) -> ResponseT:
     """Calls our local llm server for a completion.
 
     Uses the 'mistral-7b-instruct-v0.2.Q4_K_M.gguf' by default.
@@ -43,7 +50,7 @@ def call_llm_raw(prompt: str, max_tokens:int =128, model:Optional[Any] =None, us
                        use_cache=use_cache,
                        **kw)
 
-def call_llm(prompt: str, max_tokens:int =128, model:Optional[Any] =None, use_cache=True, **kw) -> str:
+def call_llm(prompt: str, max_tokens:int =128, model:Optional[str] =None, use_cache=True, **kw) -> str:
     """Calls our local llm server for a completion.
 
     Uses the 'mistral-7b-instruct-v0.2.Q4_K_M.gguf' by default.
@@ -52,7 +59,7 @@ def call_llm(prompt: str, max_tokens:int =128, model:Optional[Any] =None, use_ca
     """
     return call_llm_raw(prompt, max_tokens, model, use_cache, **kw)['choices'][0]['text']
 
-def embed_text_raw(s: str, model='sentence', use_cache=True, **kw) -> dict:
+def embed_text_raw(s: str, model: str='sentence', use_cache=True, **kw) -> ResponseT:
     """Embeds a string using the specified model.
 
     Models:
@@ -63,7 +70,7 @@ def embed_text_raw(s: str, model='sentence', use_cache=True, **kw) -> dict:
     """
     return single_call("embeddings", input=s, model=model, use_cache=use_cache, **kw)
 
-def embed_text(s: str, model='sentence', use_cache=True, **kw) -> list:
+def embed_text(s: str, model='sentence', use_cache=True, **kw) -> list[float]:
     """Embeds a string using the specified model.
 
     Models:
@@ -74,7 +81,7 @@ def embed_text(s: str, model='sentence', use_cache=True, **kw) -> list:
     """
     return embed_text_raw(s, model=model, use_cache=use_cache, **kw)['data'][0]['embedding']
 
-def embed_texts(input_strings: list[str], model='sentence', use_cache=True, **kw) -> list:
+def embed_texts(input_strings: list[str], model='sentence', use_cache=True, **kw) -> list[list[float]]:
     """Embeds a list of strings using the specified model.
 
     Models:
@@ -89,7 +96,7 @@ def embed_texts(input_strings: list[str], model='sentence', use_cache=True, **kw
         futures = [executor.submit(embed_text, s, model, use_cache, **kw) for s in input_strings]
         return [future.result() for future in futures]
 
-def strsim_raw(a: str, b: str, model='clip', use_cache=True, **kw) -> float:
+def strsim_raw(a: str, b: str, model='clip', use_cache=True, **kw) -> ResponseT:
     """Computes the similarity between two strings.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
@@ -120,7 +127,7 @@ def strsims(input_pairs: list[tuple[str, str]], model='clip', use_cache=True, **
         futures = [executor.submit(strsim, a, b, model, use_cache, **kw) for a, b in input_pairs]
         return [future.result() for future in futures]
 
-def embed_image_url_raw(url: str, model='image', use_cache=True, **kw) -> dict:
+def embed_image_url_raw(url: str, model='image', use_cache=True, **kw) -> ResponseT:
     """Embeds an image (url or local path) using the specified model.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
@@ -129,7 +136,7 @@ def embed_image_url_raw(url: str, model='image', use_cache=True, **kw) -> dict:
     """
     return single_call("image_embeddings", url=url, model=model, use_cache=use_cache, **kw)
 
-def embed_image_url(url: str, model='image', use_cache=True, **kw) -> dict:
+def embed_image_url(url: str, model='image', use_cache=True, **kw) -> list[float]:
     """Embeds an image (url or local path) using the specified model.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
@@ -138,7 +145,7 @@ def embed_image_url(url: str, model='image', use_cache=True, **kw) -> dict:
     """
     return embed_image_url_raw(url, model=model, use_cache=use_cache, **kw)['data'][0]['embedding']
 
-def embed_image_urls(urls: list[str], model='image', use_cache=True, **kw) -> list:
+def embed_image_urls(urls: list[str], model='image', use_cache=True, **kw) -> list[list[float]]:
     """Embeds a list of images (urls or local paths) using the specified model.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
@@ -152,7 +159,7 @@ def embed_image_urls(urls: list[str], model='image', use_cache=True, **kw) -> li
         return [future.result() for future in futures]
 
 
-def embed_image_raw(img: Any, model='image', use_cache=True, **kw) -> dict:
+def embed_image_raw(img: Image.Image, model='image', use_cache=True, **kw) -> ResponseT:
     """Embeds an image (loaded PIL image) using the specified model.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
@@ -164,7 +171,7 @@ def embed_image_raw(img: Any, model='image', use_cache=True, **kw) -> dict:
         ret = single_call("image_embeddings", url=f.name, model=model, use_cache=use_cache, **kw)
     return ret
 
-def embed_image(img: Any, model='image', use_cache=True, **kw) -> dict:
+def embed_image(img: Image.Image, model='image', use_cache=True, **kw) -> list[float]:
     """Embeds an image (loaded PIL image) using the specified model.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
@@ -173,7 +180,7 @@ def embed_image(img: Any, model='image', use_cache=True, **kw) -> dict:
     """
     return embed_image_raw(img, model=model, use_cache=use_cache, **kw)['data'][0]['embedding']
 
-def embed_images(images: list, model='image', use_cache=True, **kw) -> list:
+def embed_images(images: list[Image.Image], model='image', use_cache=True, **kw) -> list[list[float]]:
     """Embeds a list of images (loaded PIL images) using the specified model.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
@@ -185,7 +192,6 @@ def embed_images(images: list, model='image', use_cache=True, **kw) -> list:
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(embed_image, img, model, use_cache, **kw) for img in images]
         return [future.result() for future in futures]
-
 
 
 if __name__ == '__main__':
