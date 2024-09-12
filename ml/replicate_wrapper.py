@@ -86,7 +86,7 @@ def run_replicate_model(model_name: str,
         prediction.wait()
         return prediction
 
-def face_detection(img: str) -> dict(str, Any):
+def face_detection(img: str) -> dict[str, Any]:
     """
     Runs face detection on the given image.
 
@@ -124,7 +124,7 @@ def face_detection(img: str) -> dict(str, Any):
             boxes.append(box)
         except Exception:
             pass
-    ret = dict(boxes=[], mask_urls=[])
+    ret: dict[str, Any] = dict(boxes=[], mask_urls=[])
     for box, url in zip(boxes, prediction.output):
         ret['boxes'].append(box)
         ret['mask_urls'].append(url)
