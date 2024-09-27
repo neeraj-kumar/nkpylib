@@ -81,6 +81,8 @@ def airtable_api_gen(**kw) -> Any:
     offset = ''
     while True:
         resp = airtable_api_call(offset=offset, **kw)
+        if 'error' in resp:
+            raise Exception(f'Error in response: {resp}, api call with kw={kw}')
         yield resp
         offset = resp.get('offset', None)
         if not offset:
@@ -88,6 +90,7 @@ def airtable_api_gen(**kw) -> Any:
 
 def airtable_all_rows(table_name: str, **kw) -> list[dict]:
     """Returns all rows from `table_name`"""
+    logger.info(f'Getting all rows from {table_name}')
     return [row for resp in airtable_api_gen(endpoint=table_name, **kw) for row in resp['records']]
 
 
@@ -111,12 +114,7 @@ class AirtableUpdater:
         if map_tables is not None:
             for mt_name in map_tables:
                 for row in airtable_all_rows(mt_name):
-                    # add the mapping based on both id and name
-                    to_add = row['fields'].copy()
-                    to_add['id'] = row['id']
-                    self.mappers[mt_name][row['id']] = to_add
-                    if 'Name' in row['fields']:
-                        self.mappers[mt_name][row['fields']['Name']] = to_add
+                    self.add_map_value(mt_name, row)
         # load the entire table
         self.data = {}
         for row in airtable_all_rows(table_name):
@@ -128,6 +126,17 @@ class AirtableUpdater:
                 self.data[value] = row['fields']
                 self.data[value]['id'] = row['id']
         logger.info(f'Read {len(self.data)} rows from {table_name}, key={key_name}')
+
+    def add_map_value(self, mt_name: str, row: dict) -> None:
+        """Adds a row to the mapping table.
+
+        The row is assumed to be from the response to a POST call.
+        """
+        to_add = row['fields'].copy()
+        to_add['id'] = row['id']
+        self.mappers[mt_name][row['id']] = to_add
+        if 'Name' in row['fields']:
+            self.mappers[mt_name][row['fields']['Name']] = to_add
 
     def create(self, error_on_mapping:bool = True, **kw) -> Any:
         """Creates a new row with given `kw`, performing mapping"""
