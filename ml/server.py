@@ -43,6 +43,10 @@ Current ML types and models:
   - `clip`: The OpenAI CLIP model, which can embed both text and images (in the same space).
 """
 
+#TODO have some kind of context manager for deciding where to run llm functions from? (local, replicate, openai)
+#TODO single version of sync async, futures, etc
+#TODO extract text common function in nkpylib - checks txt/pdf/image
+
 import functools
 import time
 import uuid
