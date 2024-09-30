@@ -42,4 +42,6 @@ search:
 	#python3 web_search.py "thorf - dagrenning"
 	#python3 web_search.py "1.2lb in g"
 	#python3 web_search.py "rice wine vinegar substitute"
-	python3 web_search.py "site:wikipedia.org philosophy"
+	#python3 web_search.py "site:wikipedia.org philosophy"
+	#python3 web_search.py "asoid"
+	python3 web_search.py "site:www.the-pasta-project.com busiate pasta with trapani pesto"

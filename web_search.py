@@ -11,35 +11,26 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
+from collections import Counter, defaultdict
 from os.path import dirname, basename, splitext, exists
 from typing import Iterable, List, Tuple
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import requests
 
 from pyquery import PyQuery as pq
 
-from constants import USER_AGENT
+from nkpylib.constants import USER_AGENT
+from nkpylib.web_utils import make_request
 
 logger = logging.getLogger(__name__)
 
-def make_request(url: str, method='get', **kwargs) -> requests.Response:
-    """Makes a request to the given `url` with `method` with the given kwargs"""
-    headers = {'User-Agent': USER_AGENT}
-    return requests.request(method, url, headers=headers, **kwargs)
-
-def resolve_url(url: str, method='head', **kwargs) -> str:
-    """Follows the url through all redirects and returns the ultimate url"""
-    r = make_request(url, method, **kwargs)
-    r.raise_for_status()
-    return r.url
-
 class Searcher(ABC):
     """An abstract class for searching the web."""
-
     @abstractmethod
     def search(self, query: str) -> Iterable[dict]:
         """Search the web for the given query and yield an iterator over results."""
@@ -55,7 +46,15 @@ class BingWebSearch(Searcher):
         r = make_request(url, params=params)
         r.raise_for_status()
         d = pq(r.text)
-        for result in d('.b_algo').items():
+        results = []
+        # first check the top-section
+        # we want the parent div of the .b_tpcn class within the top section (if it exists)
+        top_section = d(d('#b_topw .b_tpcn').parent())
+        if top_section:
+            results.extend(top_section.items())
+        # now add remaining results
+        results.extend(d('.b_algo').items())
+        for result in results:
             r= {}
             orig = result('a').text() # this has a bunch of stuff, that we get in other ways
             if 'Tags:' in orig: # but tags is unique here, as far as i can tell (only sometimes)
@@ -88,6 +87,7 @@ class BingWebSearch(Searcher):
             return m.group(1)
         else:
             return ''
+
 
 if __name__ == '__main__':
     parser = ArgumentParser()

@@ -15,24 +15,57 @@ import os
 import re
 import time
 import traceback
-import urllib.parse as urlparse
 
 from abc import ABC, abstractmethod
 from collections import Counter
 from typing import Any, Optional, Callable
+from urllib.parse import urlparse
+
+import requests
 
 from tornado.ioloop import IOLoop
 from tornado.web import Application, RequestHandler
 
+from nkpylib.constants import USER_AGENT
 from nkpylib.utils import specialize
 from nkpylib.ml.client import call_llm
-
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SEARCH_LOG_FILE = 'search-logs.jsonl'
 
 DEFAULT_LLM_MODEL = 'llama3'
+
+REQUEST_TIMES = {}
+
+def make_request(url: str,
+                 method='get',
+                 min_delay=1,
+                 request_times=REQUEST_TIMES,
+                 headers=None,
+                 **kwargs) -> requests.Response:
+    """Makes a request to the given `url` with `method` with the given kwargs.
+
+    We maintain a mapping from host to last request time in request_times (stored by default as a
+    global in this module, but you can pass your own), and we wait `min_delay` seconds before
+    contacting the same host again.
+    """
+    host = urlparse(url).hostname
+    elapsed = time.time() - request_times.get(host, 0)
+    if elapsed < min_delay:
+        time.sleep(min_delay - elapsed)
+    request_times[host] = time.time()
+    _headers = {'User-Agent': USER_AGENT}
+    if headers is not None:
+        _headers.update(headers)
+    return requests.request(method, url, headers=_headers, **kwargs)
+
+def resolve_url(url: str, method='head', **kwargs) -> str:
+    """Follows the url through all redirects and returns the ultimate url"""
+    r = make_request(url, method, **kwargs)
+    r.raise_for_status()
+    return r.url
+
 
 class BaseSearcher(ABC):
     """Searcher base class.
