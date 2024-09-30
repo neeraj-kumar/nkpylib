@@ -111,9 +111,11 @@ function strftime(date, fmt) {
 
 // makes a link to an object, with the child as the text
 const makeLink = (obj, child, idx, kw) => {
+  /* TODO fix
   return (
     <a href={obj.url} target="_blank" key={idx} {...kw}>{child}</a>
   );
+  */
 }
 
 // hash a string to a number
@@ -132,4 +134,9 @@ const numberToColor = (num) => {
   let g = (num & 0x00FF00) >> 8;
   let b = num & 0x0000FF;
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+// generate a unique string id of given length
+const uniqueId = (len=8) => {
+  return Math.random().toString(36).substring(2, 2+len);
 }
