@@ -303,7 +303,7 @@ def default_index() -> str:
     Your jsx and css code should be at /static/app.{jsx,css}
     """
     # load 'nk-utils.js' from the same directory as this file
-    with open(f'{os.path.dirname(__file__)}/nk-utils.jsx') as f:
+    with open(f'{os.path.dirname(__file__)}/nk-utils.js') as f:
         nk_utils_js = f.read()
     return f'''<!doctype html>
 <html>

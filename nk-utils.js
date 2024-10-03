@@ -109,15 +109,6 @@ function strftime(date, fmt) {
   return out;
 }
 
-// makes a link to an object, with the child as the text
-const makeLink = (obj, child, idx, kw) => {
-  /* TODO fix
-  return (
-    <a href={obj.url} target="_blank" key={idx} {...kw}>{child}</a>
-  );
-  */
-}
-
 // hash a string to a number
 const hashString = (str) => {
   let hash = 0;
