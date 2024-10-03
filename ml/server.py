@@ -46,6 +46,8 @@ Current ML types and models:
 #TODO have some kind of context manager for deciding where to run llm functions from? (local, replicate, openai)
 #TODO single version of sync async, futures, etc
 #TODO extract text common function in nkpylib - checks txt/pdf/image
+#TODO Add VQA model
+
 
 import functools
 import time
