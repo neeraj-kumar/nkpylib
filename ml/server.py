@@ -44,16 +44,16 @@ Current ML types and models:
 """
 
 #TODO have some kind of context manager for deciding where to run llm functions from? (local, replicate, openai)
-#TODO single version of sync async, futures, etc
-#TODO extract text common function in nkpylib - checks txt/pdf/image
 #TODO Add VQA model
 
 
 import functools
+import tempfile
 import time
 import uuid
 
 from typing import Any, Optional, Union, Callable
+from urllib.request import urlretrieve
 
 import fastapi
 import numpy as np
@@ -63,6 +63,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from nkpylib.ml.constants import DEFAULT_MODELS
+from nkpylib.ml.text import get_text
 
 app = fastapi.FastAPI()
 app.state.models = {}
@@ -402,6 +403,35 @@ async def strsim(req: StrSimRequest):
         similarity=ret,
         timings=timings,
     )
+
+
+class GetTextRequest(BaseModel):
+    url: str
+    use_cache: Optional[bool]=False
+    kw: Any=None
+
+@app.post("/v1/get_text")
+async def get_text_api(req: GetTextRequest, cache={}):
+    """Gets the text from the given URL or path of pdf, image, or text."""
+    # check cache
+    cache_key = req.url if req.use_cache else None
+    if cache_key in cache:
+        return cache[cache_key]
+    # if it's a url or data url, download it
+    kw = req.kw or {}
+    if req.url.startswith('http') or req.url.startswith('data:'):
+        ext = req.url.split('.')[-1]
+        if req.url.startswith('data:'):
+            ext = req.url.split(';')[0].split('/')[-1]
+        with tempfile.NamedTemporaryFile(delete=True, suffix=f'.{ext}') as f:
+            urlretrieve(req.url, f.name)
+            ret = get_text(f.name, **kw)
+    else:
+        ret = get_text(req.url, **kw)
+    ret = dict(url=req.url, text=ret)
+    if cache_key is not None:
+        cache[cache_key] = ret
+    return ret
 
 
 if __name__ == '__main__':

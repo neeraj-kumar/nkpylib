@@ -38,11 +38,13 @@ def get_text(path: str, *args, **kw) -> str:
     Else we assume it's a text file, and just read the text directly.
     """
     type, enc = mimetypes.guess_type(path)
-    if enc == '.pdf':
+    print(f'path={path}, type={type}, enc={enc}')
+    if type.endswith('/pdf'):
         out = get_pdf_text(path, *args)
     elif type.startswith('image'):
         out = get_ocr_text(path, **kw)
     else:
-        with open(path) as f:
+        # open in unicode mode
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
             out = f.read()
     return out
