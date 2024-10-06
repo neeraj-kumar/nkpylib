@@ -26,6 +26,10 @@ const registerServiceWorker = async (resources, path='/static/offline-worker.js'
   }
 };
 
+function is_string(obj) {
+  return typeof obj === 'string' || obj instanceof String;
+}
+
 /* Does a 'sane' comparison of 2 values, returning -1, 0, or 1.
  *
  * You almost always want this when sorting an array (as the 3rd argument), because the default uses
