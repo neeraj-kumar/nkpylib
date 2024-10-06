@@ -256,7 +256,7 @@ class LLMSearcher(BaseSearcher):
         kwargs = self.gen_prompt_kw(q)
         prompt = self.prompt_fmt.format(**kwargs)
         logger.debug(f'From q {q} got kwargs {kwargs}, and prompt: {prompt}')
-        structured_q = call_llm(prompt, model=self.model_name).strip()
+        structured_q = call_llm.single(prompt, model=self.model_name).strip()
         self.add_msg(f'Translated "{q}" to "{structured_q}" using {self.model_name}')
         self.log(llm_translation={q: structured_q})
         try:
