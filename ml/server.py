@@ -45,6 +45,7 @@ Current ML types and models:
 
 #TODO have some kind of context manager for deciding where to run llm functions from? (local, replicate, openai)
 #TODO Add VQA model
+#TODO some way to turn an LLM query into an embeddings + code query (e.g. recipe pdf name correction)
 
 
 import functools
