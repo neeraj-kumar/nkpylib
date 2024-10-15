@@ -19,7 +19,9 @@ import os
 import time
 
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+from pprint import pprint
 from typing import Any
 
 import requests
@@ -111,13 +113,23 @@ class AirtableUpdater:
         self.key_name = key_name
         # load any mappers
         self.mappers = defaultdict(dict)
+        pool = ThreadPoolExecutor()
+        futures = []
+        f = pool.submit(lambda: list(airtable_all_rows(table_name)))
+        futures.append(('all', f))
         if map_tables is not None:
             for mt_name in map_tables:
-                for row in airtable_all_rows(mt_name):
+                f = pool.submit(lambda mt_name: list(airtable_all_rows(mt_name)), mt_name)
+                futures.append((mt_name, f))
+            for mt_name, f in futures[1:]:
+                logger.info(f'Reading mapping rows for {mt_name}')
+                for row in f.result():
                     self.add_map_value(mt_name, row)
+            futures = futures[:1]
         # load the entire table
         self.data = {}
-        for row in airtable_all_rows(table_name):
+        logger.info(f'Reading main data for {table_name}')
+        for row in futures[0][1].result():
             if key_name == 'id':
                 value = row['id']
             else:
@@ -186,3 +198,12 @@ class AirtableUpdater:
 
     def __contains__(self, key: str) -> bool:
         return key in self.data
+
+
+if __name__ == '__main__':
+    # filter by last modified time is today
+    now = '2024-10-15T01:59'
+    ret = airtable_api_call('Dishes', filterByFormula="{last_modified} >= '%s'" % now)
+    recs = [r['fields']['last_modified'] for r in ret['records']]
+    print(f'Got {len(recs)} records for dishes modified since {now}')
+    pprint(recs)
