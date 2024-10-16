@@ -20,6 +20,7 @@ import time
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import date, datetime
 from pprint import pprint
 from typing import Any
@@ -139,6 +140,9 @@ class AirtableUpdater:
                 self.data[value]['id'] = row['id']
         logger.info(f'Read {len(self.data)} rows from {table_name}, key={key_name}')
 
+    def __len__(self) -> int:
+        return len(self.data)
+
     def add_map_value(self, mt_name: str, row: dict) -> None:
         """Adds a row to the mapping table.
 
@@ -193,8 +197,19 @@ class AirtableUpdater:
             return self.create(error_on_mapping=error_on_mapping, **newkw)
 
     def get(self, key: str) -> dict[str, Any]:
-        """Returns the row with the given key"""
-        return self.data[key]
+        """Returns the row with the given key, mapping tables that we have."""
+        row = deepcopy(self.data[key])
+        for field, value in row.items():
+            if field in self.mappers:
+                if isinstance(value, list):
+                    row[field] = [self.mappers[field].get(v, v) for v in value]
+                else:
+                    row[field] = self.mappers[field].get(value, value)
+        return row
+
+    def __iter__(self):
+        """Iterates through our keys"""
+        return iter(self.data)
 
     def __contains__(self, key: str) -> bool:
         return key in self.data
