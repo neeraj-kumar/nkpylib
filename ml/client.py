@@ -199,7 +199,7 @@ def single_call(endpoint: str, model:Optional[str]=None, **kw) -> ResponseT:
 def call_llm(prompt: str, max_tokens:int =128, model:Optional[str] =None, use_cache=True, **kw) -> ResponseT:
     """Calls our local llm server for a completion.
 
-    Uses the 'mistral-7b-instruct-v0.2.Q4_K_M.gguf' by default.
+    Uses the 'mistral-7b-instruct-v0.2.Q4_K_M.gguf' model by default.
 
     Returns the raw json response (as a dict).
     """
