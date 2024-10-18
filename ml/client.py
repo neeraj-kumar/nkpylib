@@ -68,6 +68,11 @@ import requests
 
 from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION
 
+def chunked(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
 # typedef for raw json response from server #TODO tighten this up
 ResponseT = dict[str, Any]
 

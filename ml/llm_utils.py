@@ -2,14 +2,9 @@
 
 import re
 
-from typing import Optional, Sequence
+from typing import Iterator, Optional, Sequence
 
-from nkpylib.ml.client import call_llm
-
-def chunked(lst, n):
-    """Yield successive n-sized chunks from lst."""
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
+from nkpylib.ml.client import call_llm, chunked
 
 CHUNKED_PROMPT = """%s
 
@@ -22,11 +17,11 @@ the item number).
 
 def llm_transform_list(base_prompt: str,
                        items: Sequence[str],
-                       max_tokens:int =512,
-                       model:str ='llama-3',
+                       max_tokens:int =8000,
+                       model:str ='llama3',
                        chunk_size:int = 10,
                        prompt_fmt: str=CHUNKED_PROMPT,
-                       **kw) -> list[Optional[str]]:
+                       **kw) -> Iterator[Optional[str]]:
     """Transforms a list of items using an LLM.
 
     Often you have a list of items that you want to transform using an LLM. If the list is very
@@ -47,7 +42,7 @@ def llm_transform_list(base_prompt: str,
         2. <item 2>
         ...
 
-    Uses the 'llama-3' model by default.
+    Uses the 'llama3' model by default.
 
     Returns a list of outputs of the same length as the input. If we cannot parse a valid item
     number, then we return `None` for that input.
@@ -59,7 +54,6 @@ def llm_transform_list(base_prompt: str,
         prompt = prompt_fmt % (base_prompt, len(lst), lst)
         f = call_llm.single_future(prompt, max_tokens=max_tokens, model=model, **kw)
         futures.append((chunk, f))
-    ret = []
     for chunk, future in futures:
         llm_output = future.result()
         lines = [output_re.match(l) for l in llm_output.split('\n')]
@@ -68,7 +62,6 @@ def llm_transform_list(base_prompt: str,
         # now we can build the output list
         for i, input in enumerate(chunk):
             if i+1 in out:
-                ret.append(out[i+1])
+                yield out[i+1]
             else:
-                ret.append(None)
-    return ret
+                yield None
