@@ -3,56 +3,31 @@
 This deals with ld+json recipe cards, downloading recipes, parsing recipes, generating improved
 recipes, etc.
 
-
 TODO:
-- Recipe card++
-  - ingredients:
-    - generate id -> deterministic, like "gar1"?
-    - range: always have min, max and if it's one value, they're just the same (front-end displays
-      differently)
-    - embed substitutions in ingredients
-      - look up from airtable
-      - rather than ingredients having a substitution field (with self-refs), create a separate
-        table with fields ingr1, notes1, ingr2, notes2, quantity, desc/misc notes
-        - notes are things like "fresh", "small", or "cherry" to modify the key ingredient
-    - ingr has bool field "is key ingredient" (for that recipe)
-    - ingr table has "variants" text field, like "cherry tomato,roma tomato,beefsteak tomato"
-      - embed each of these separately in recipe-texts, all linking back to the same ingr row
-    - can use embeddings to get shortlist of similar, when looking up
-    - ingr unit has size (small, medium, 14 oz can, etc)
-    - also "actual item name": "tomato"
-    - complicated example: "1 (7 oz) block of Greek feta cheese in brine (torn into slabs)"
-    - item has possibilities, like coconut oil or olive oil
-      - these are like substitutes, and should be represented the same, so maybe each alternate has
-        a field like "alternate source", which is "from recipe" or "from airtable" or "from bing"
-      - maybe a url the substitute came from?
-      - duplicate entire ingr structure, since quantities/notes/ might also change
-    - when asking llm, separate fields using ; and possibilities using |
-    - default unit "" (e.g., carrots)
-    - alternate quantities (e.g., 3 cups or 1 lb)?
-      - still a full possibility, can merge in client somehow
-      - maybe a "possibility type" field, like "quantity" or "unit" or "item", or multiple of those
-    - "garnishes/sides: handful of chopped fresh basil, or cilantro, optional sriracha or chili
-      garlic sauce"
-  - matching ingr -> step
-    - maybe don't have sections be a dict because it might lose order?
-    - prompt: "here are all [original string, not parsed] ingredients with ids. for each input step,
-      output comma-separated ingredient ids, if any"
-    - inputs: each step, with all newlines removed
-    - in client: split screen between steps and ingredients?
-      - maybe just have an extra optional line below the step that shows ingr and quantities,
-        clicking on which will jump you to the ingr
-      - also have a voice command "show ingredients for current step"
-    - don't include pastes, intermediate things
-  - when we regenerate the recipe cards, we can re-use all-ingredients.json somehow
-  - do analysis on ingredients
-  - output notes separately for ingredients
-  - Consider ranges and substitutes for ingredients.
-  - Steps:
-    - Include metadata and linkages to quantities and pre-mixed sets of ingredients.
-  - make sure to include recipe yield to modify
-
-- what about intermediate pastes/sauces?
+- ingredients:
+- embed substitutions in ingredients
+  - look up from airtable
+  - maybe url the substitute came from?
+  - duplicate entire ingr structure, since quantities/notes/ might also change
+- ingr table has "variants" text field, like "cherry tomato,roma tomato,beefsteak tomato"
+  - embed each of these separately in recipe-texts, all linking back to the same ingr row
+  - rather than ingredients having a substitution field (with self-refs), create a separate
+    table with fields ingr1, notes1, ingr2, notes2, quantity, desc/misc notes
+    - notes are things like "fresh", "small", or "cherry" to modify the key ingredient
+- can use embeddings to get shortlist of similar, when looking up
+- when asking llm, separate fields using ; and possibilities using |
+- alternate quantities (e.g., 3 cups or 1 lb)?
+  - still a full possibility, can merge in client somehow
+  - maybe a "possibility type" field, like "quantity" or "unit" or "item", or multiple of those
+- matching ingr -> step in client
+- split screen between steps and ingredients?
+- maybe just have an extra optional line below the step that shows ingr and quantities,
+  clicking on which will jump you to the ingr
+- also have a voice command "show ingredients for current step"
+- when we regenerate the recipe cards, we can re-use all-ingredients.json somehow
+- do analysis on ingredients
+- pre-mixed/intermediate sets of ingredients like pastes or sauces
+- make sure to include recipe yield to modify
 
 - figure out ways to use other recipe card fields, like video, comments, tags, yield, ratings,
   times, description, nutrition, categories, cuisines, dietary restrictions
@@ -60,14 +35,13 @@ TODO:
 - do some analysis on all recipe cards
     - all fields
     - field types with examples
-- parse recipe cards into cleaned up/reformatted recipe cards
-  - For vegan banh xeo (ee146), the recipe card has no sections (all mixed together), and different
-    from webpage
-
+- sectionizing:
+  - For vegan banh xeo (ee146), the recipe card has no sections (all mixed together), and different from webpage
 """
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -77,6 +51,7 @@ import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from dataclasses import asdict, dataclass
 from subprocess import check_output
 from typing import Any, Iterable, Optional, Union
 from urllib.parse import urlparse
@@ -193,16 +168,50 @@ def get_url_from_recipe(path: str, title: str) -> str:
     return ''
 
 
-INGREDIENT_PROMPT = '''The following are a list of ingredients from a recipe. Break each one into:
-- a quantity (e.g., 1, 2.5, 1/2), but converted to a float
-- a unit (e.g., cup, tbsp, tsp, g, kg, ml, l, oz, lb, etc.)
-- an ingredient name (e.g., flour, sugar, salt, etc.)
+INGREDIENT_PROMPT = '''The following are a list of ingredients from a recipe for "{name}". Break each one into:
+- a min and max quantity (e.g., 1, 2.5, 1/2), but converted to a float. If there's only a single
+  value (e.g. 2), then min and max are the same (e.g. 2). If it's a range (e.g., 1-2), then min is
+  the lower bound and max is the upper bound. Note that the unit might have a size, such as a 14 oz can, in which case the min and max quantities should refer to number of units (e.g. cans). If there's no value, then set these both to 1.
+- a unit (e.g., cup, tbsp, tsp, g, kg, ml, l, oz, lb, etc.). If there's no unit (e.g., carrots or
+  cucumber), then leave this blank.
+- the full ingredient name as listed in the input (e.g., gluten-free flour, brown sugar, cherry
+  tomatoes, etc.), but without any extra notes (see below)
+- the ingredient primary name (e.g., flour, sugar, tomatoes, etc.)
+- the importance of the ingredient: 2 if it's a key ingredient for the dish, 1 if it's a required
+  but not key ingredient, and 0 if optional. For deciding if it's a key ingredient, use your best judgment based on the recipe name and other ingredients. In general, the main vegetables and distinctive spices are key (e.g. potatoes or sesame oil), standard things (like oil, salt or garlic) are not key, and garnishes (like scallions or cilantro) are sometimes optional.
 - optionally, any additional notes (e.g., "finely chopped", "divided", "to taste", etc.)
 
-For each input ingredient, output the elements above separated by semicolons, all in one line.
+For each input ingredient, output: min, max, unit, full ingredient name, ingredient key name, importance, and notes (all separated by semicolons, all in one line). Strip any extra spaces, punctuation, parentheses, etc.
+
+Some examples:
+
+1/4 Cup Parmesan Cheese, grated, use more if prefer -> 0.25;0.25;cup;Parmesan Cheese;Parmesan Cheese;1; grated, use more if prefer
+4  garlic cloves (crushed) -> 4;4;;garlic cloves;garlic;1;crushed
+2 14 ounces can fava beans -> 2;2;14 ounces can;fava beans;fava beans;2
+1 (7 oz) block of Greek feta cheese in brine (torn into slabs) -> 1;1;7 oz block;Greek feta cheese in brine;feta cheese;1;torn into slabs
+1 cup potatoes ((2 medium) chopped to \u00bd inch) -> 1;1;cup;potatoes;potatoes;2;2 medium chopped to 1/2 inch
+\u00be to 1 cup cauliflower ((gobi florets)) -> 0.75;1;cup;cauliflower;cauliflower;2;gobi florets
+1/2 cup thinly sliced green onion  ((optional, 2 stalks yield ~1/2 cup)) -> 0.5;0.5;cup;green onion;green onion;0;2 stalks yield ~1/2 cup
+2 tbsp Olive Oil, replace 1 tbsp oil with sun dried tomato oil -> 2;2;tbsp;Olive Oil;Olive Oil;1;replace 1 tbsp oil with sun dried tomato oil
+1/4 Cup Wine, good qaulity cooking wine, or leftover white wine -> 0.25;0.25;cup;Wine;Wine;1;good qaulity cooking wine or leftover white wine
+garnishes/sides: handful of chopped fresh basil, or cilantro, optional sriracha or chili -> 1;1;handful;garnishes/sides;garnish;0;handful of chopped fresh basil, or cilantro, optional sriracha or chili
 '''
 
-Ingredient = dict[str, Union[float, str, list[str]]]
+@dataclass
+class Ingredient:
+    """A class to represent an ingredient in a recipe."""
+    id: str
+    min: float
+    max: float
+    unit: str
+    full_item: str
+    main_item: str
+    notes: list[str]
+    importance: int = 1
+    type: str = 'main'
+    source: str = 'recipe'
+    alternates: list[Ingredient] = None
+
 
 class NKRecipe:
     """A class to represent an improved recipe card.
@@ -214,42 +223,141 @@ class NKRecipe:
     def __repr__(self) -> str:
         return f'<NKRecipe name="{self.recipe.get("name", "")}">'
 
-    def transform_ingredients(self, ingredients: list[str]) -> list[Ingredient]:
-        """Transforms our list of ingredients using an LLM.
+    @classmethod
+    def match_ingrs_to_steps(cls, all_steps: list[dict[str]], ingrs: list[Ingredient], name: str) -> None:
+        """For each step, output a list of matching ingredients, using an LLM"""
+        ingrs = ['i_%d:%s' % (i, ingr.strip().replace('\n', '. ')) for i, ingr in enumerate(ingrs)]
+        steps = []
+        for i, step in enumerate(all_steps):
+            steps.append(f's_%s:%s' % (step['section'], step['text'].replace("\n", ". ").strip()))
 
-        """
-        out_ingr = []
+        prompt = f'''Here is the full list of ingredients for the recipe "{name}", followed by the steps. Each ingredient is written as <ingredient id>:<ingredient text> and each step is written as <step index>. <step section>:<step text>
+
+For each input step listed below, output a comma-separated list of ingredient ids that are used in that step. If there are no ingredients used in the step, output an empty string. If ingredients were used in a previous step and combined or cooked (e.g., to make a sauce or toasted, etc), don't include them in subsequent steps.
+
+{len(ingrs)} Ingredients:
+{ingrs}
+
+Input Steps follow after this.
+'''
+        outputs = llm_transform_list(base_prompt=prompt, items=steps, chunk_size=50)
+        # map values back to ingredient indices
+        for cur, out in zip(all_steps, outputs):
+            cur['ingredients'] = []
+            if not out:
+                continue
+            cur['ingredients'] = [int(ingr_id.split('_',1)[-1]) for ingr_id in out.split(',')]
+
+    @classmethod
+    def add_timers_to_steps(cls, steps: list[dict[str]]) -> None:
+        """Adds timer information to steps."""
+        inputs = [s['text'] for s in steps]
+        prompt = f'''For each of the following steps of a recipe, determine if one or more durations are listed that would be helpful to run timers for. Output a (possibly-empty) comma-separated list of timers corresponding to each input step. There might be multiple timers per step. Output each timer in the form <short name>:<hours>:<minutes>:<seconds> where each of hours, minutes, and seconds might be 0. If a range is given, output a timer for both ends of the range, append " min" and " max" to the short name respectively.
+
+Some examples:
+Cover and let rest for 1 hour (or 30 minutes if you\u2019re in a hurry). -> rest min:0:30:0,rest max:1:0:0
+Heat a medium or large skillet over medium-high heat (we recommend a well-seasoned cast iron). Once pan is hot, add the uncooked tortilla and cook until the edges start to lift away (about 30-45 seconds). Then flip and cook an additional 30-45 seconds. -> cook min:0:0:30,cook max:0:0:45,flip min:0:0:30,flip max:0:0:45
+Leftovers can be stored covered in the refrigerator for 2-3 days or the freezer for 1 month. Best when fresh. Reheat in the microwave. -> 
+If using chili flakes, add them at this moment. Sizzle for 10 seconds or so. Then add light soy sauce, Shaoxing rice wine, Chinese five spice powder, and sugar. Cook for a further 30 seconds or so. -> sizzle:0:0:10,cook:0:0:30
+Heat a large pot over medium-low heat. Once hot, add oil (or water) and garlic. Saut\u00e9 briefly for 1 minute, stirring frequently, until barely golden brown. Then add tomatoes, oregano, coconut sugar, salt, and pepper flake. -> saute:0:1:0
+If you\u2019re using canned chickpeas, drain and rinse. If using our Instant Pot Chickpeas, simply ensure your chickpeas are drained of excess cooking liquid and proceed as instructed. -> 
+To a large mixing bowl add chickpeas, harissa paste, lemon juice, minced garlic, salt, maple syrup, paprika, and olive oil and stir gently to combine. -> 
+Bring a pot of water to boil and add a tablespoon of natural coarse salt. Add chopped potatoes and carrots and boil until just cooked (about 12 minutes). Strain, and set aside until needed.\u00a0 -> boil:0:12:0
+
+Input Steps follow after this.
+'''
+        outputs = llm_transform_list(base_prompt=prompt, items=inputs, chunk_size=50)
+        for cur, out in zip(steps, outputs):
+            cur['timers'] = []
+            if not out:
+                continue
+            for timer in out.split(','):
+                timer = timer.strip()
+                if timer:
+                    name, h, m, s = timer.split(':')
+                    cur['timers'].append(dict(name=name, h=int(h), m=int(m), s=int(s)))
+
+    @classmethod
+    def transform_ingredients(cls, ingredients: list[str], name: str) -> list[Ingredient]:
+        """Transforms our list of ingredients using an LLM."""
+        ret = []
         # run llm in parallel
-        outputs = llm_transform_list(base_prompt=INGREDIENT_PROMPT, items=ingredients, chunk_size=20)
+        outputs = llm_transform_list(base_prompt=INGREDIENT_PROMPT.format(name=name), items=ingredients, chunk_size=50)
+        counts_by_name = Counter()
         for input, output in zip(ingredients, outputs):
             if not output:
                 raise ValueError(f'Error processing ingredient: {input}')
             out = [el.strip() for el in output.split(';')]
-            qty: Union[float, str]
-            qty, unit, item, *notes = out
+            m, M, unit, full_item, main_item, importance, *notes = out
+            name = main_item.lower().replace(' ', '_')[:3]
+            counts_by_name[name] += 1
             notes = [n.strip() for n in notes if n.strip()]
             try:
-                qty = float(qty)
+                m = float(m)
             except ValueError:
                 pass
-            print(f' input: "{input}" -> output: "{qty};{unit};{item};{" ".join(notes)}"')
-            out_ingr.append(dict(quantity=qty, unit=unit, item=item, notes=notes))
-        return out_ingr
+            try:
+                M = float(M)
+            except ValueError:
+                pass
+            try:
+                importance = int(importance)
+            except ValueError:
+                importance = 1
+            obj = Ingredient(id=f'{name}{counts_by_name[name]}',
+                             min=m,
+                             max=M,
+                             unit=unit,
+                             full_item=full_item,
+                             main_item=main_item,
+                             importance=importance,
+                             notes=notes)
+            obj = asdict(obj)
+            #print(f' input: "{input}" -> {obj}')
+            ret.append(obj)
+        return ret
 
-    def improve(self) -> dict[str, Any]:
-        """Improves our recipe and outputs a new recipe card object."""
-        recipe = deepcopy(self.recipe)
-        # transform ingredients
-        recipe['ingredients'] = {'main': self.transform_ingredients(recipe.pop("recipeIngredient"))}
-        #TODO figure out how to split ingredients into sections
-        # steps might come with sections or not
-        recipe['steps'] = {}
-        instructions = recipe.pop('recipeInstructions')
+    @classmethod
+    def clean_text(cls, s: str) -> str:
+        """Does some cleanup of text, such as replacing &nbsp; with spaces, stripping spaces, etc."""
+        s = html.unescape(s)
+        s = re.sub(r'\s+', ' ', s).strip()
+        return s
+
+    @classmethod
+    def sectionize_steps(cls, instructions: list[str]) -> dict[str, list[str]]:
+        """Splits the ingredients from the raw recipe into sections as needed. Also does some cleanup."""
         # if we have no sections, enclose in a section named main
+        ret = {}
         if instructions[0]['@type'] == 'HowToStep':
             instructions = [{'itemListElement': instructions, '@type': 'HowToSection', 'name': 'main'}]
         for section in instructions:
             name = section['name']
             steps = [s['text'] if 'text' in s else s for s in section['itemListElement']]
-            recipe['steps'][name] = steps
+            ret[name] = [dict(text=cls.clean_text(s), section=name) for s in steps]
+        return ret
+
+    def improve(self) -> dict[str, Any]:
+        """Improves our recipe and outputs a new recipe card object."""
+        recipe = deepcopy(self.recipe)
+        # transform ingredients
+        name = recipe.get('name', recipe.get('title', recipe.get('headline', '')))
+        orig_ingrs = [self.clean_text(ingr) for ingr in recipe.pop("recipeIngredient")]
+        recipe['ingredients'] = {'main': self.transform_ingredients(orig_ingrs, name=name)}
+        ingr_id_by_idx = {i: ingr['id'] for i, ingr in enumerate(recipe['ingredients']['main'])}
+        #TODO figure out how to split ingredients into sections
+        # split steps into sections and do some cleanup
+        recipe['steps'] = self.sectionize_steps(recipe.pop("recipeInstructions"))
+        all_steps = []
+        for sec, steps in recipe['steps'].items():
+            all_steps.extend(steps)
+        self.match_ingrs_to_steps(all_steps=all_steps,
+                                  ingrs=orig_ingrs,
+                                  name=name)
+        self.add_timers_to_steps(all_steps)
+        # map the recipe step-ingredients to ingredient ids
+        for sec, steps in recipe['steps'].items():
+            for step in steps:
+                step['ingredients'] = [ingr_id_by_idx[i] for i in step['ingredients']]
+        print(json.dumps(recipe, indent=2))
         return recipe
