@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date, datetime
 from pprint import pprint
-from typing import Any
+from typing import Any, Iterator, Optional
 
 import requests
 
@@ -213,6 +213,11 @@ class AirtableUpdater:
 
     def __contains__(self, key: str) -> bool:
         return key in self.data
+
+    def items(self) -> Iterator[tuple[str, dict]]:
+        """Yields key, row pairs, where the row is the output from `get`"""
+        for key in self:
+            yield key, self.get(key)
 
 
 if __name__ == '__main__':

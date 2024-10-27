@@ -46,6 +46,8 @@ def llm_transform_list(base_prompt: str,
 
     Returns a list of outputs of the same length as the input. If we cannot parse a valid item
     number, then we return `None` for that input.
+
+    Any additional keyword arguments are passed to the LLM call (call_llm.single_future()).
     """
     futures = []
     output_re = re.compile(r'^(\d+)\. (.*)$')
