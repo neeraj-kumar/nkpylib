@@ -36,7 +36,7 @@ DEFAULT_SEARCH_LOG_FILE = 'search-logs.jsonl'
 
 DEFAULT_LLM_MODEL = 'llama3'
 
-REQUEST_TIMES = {}
+REQUEST_TIMES: dict[str, float] = {}
 
 def make_request(url: str,
                  method='get',
@@ -119,7 +119,7 @@ class BaseSearcher(ABC):
     def add_msg(self, msg: str) -> None:
         """Adds a message to the request object."""
         if self.req is not None:
-            self.req.msgs.append(msg)
+            self.req.msgs.append(msg) # type: ignore
             # also print it to the log
             logger.info(f'Req msg: {msg}')
 
@@ -144,7 +144,7 @@ class BaseSearcher(ABC):
         """
         t0 = time.time()
         self.req = req
-        self.req.msgs = []
+        self.req.msgs = [] # type: ignore
         parsed = self.parse(q)
         t1 = time.time()
         ret = self._search(q=q, parsed=parsed, **kw)
@@ -155,7 +155,11 @@ class BaseSearcher(ABC):
                  ret=ret,
                  times=times,
                  **kw)
-        return dict(q=q, parsed=parsed, ret=ret, times=times, msgs=self.req.msgs)
+        return dict(q=q,
+                    parsed=parsed,
+                    ret=ret,
+                    times=times,
+                    msgs=self.req.msgs) # type: ignore
 
     def parse(self, q: str) -> object:
         """Parses a search query.
@@ -261,18 +265,18 @@ class LLMSearcher(BaseSearcher):
         self.log(llm_translation={q: structured_q})
         try:
             parsed = self.full_searcher.parse(structured_q)
-            self.req.searcher_used = self.full_searcher
+            self.req.searcher_used = self.full_searcher # type: ignore
         except Exception as e:
             self.add_msg(f'Could not run full search, switching to simple search: {e}')
             traceback.print_exc()
             parsed = self.simple_searcher.parse(q)
-            self.req.searcher_used = self.simple_searcher
+            self.req.searcher_used = self.simple_searcher # type: ignore
         return parsed
 
     def _search(self, q: str, parsed: object, **kw: Any) -> dict[str, object]:
         """Runs the search using whichever searcher was used in `parse()`."""
         assert self.req is not None
-        return self.req.searcher_used._search(q=q, parsed=parsed, **kw)
+        return self.req.searcher_used._search(q=q, parsed=parsed, **kw) # type: ignore
 
 
 def run_search(q: str,

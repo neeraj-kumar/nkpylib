@@ -15,8 +15,13 @@ help:
 	} \
 	{ lastLine = $$0 }' $(MAKEFILE_LIST)
 
-BASE_PY_FILES=graphutils.py image_features.py
+BASE_PY_FILES=chroma.py airtable.py recipes.py web_utils.py web_search.py constants.py state_logger.py thread_utils.py geo.py tasks.py fs_tree.py
+# utils.py
 PY_FILES=$(BASE_PY_FILES)
+
+## runs typechecking on various files
+mypy:
+	mypy $(PY_FILES)
 
 ## runs various code cleanup/checking: black, autoimport, mypy and pylint
 lint:

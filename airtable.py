@@ -113,7 +113,7 @@ class AirtableUpdater:
         self.table_name = table_name
         self.key_name = key_name
         # load any mappers
-        self.mappers = defaultdict(dict)
+        self.mappers: defaultdict[str, dict] = defaultdict(dict)
         pool = ThreadPoolExecutor()
         futures = []
         f = pool.submit(lambda: list(airtable_all_rows(table_name)))

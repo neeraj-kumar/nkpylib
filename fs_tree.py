@@ -69,7 +69,7 @@ class Diff:
         Returns a list of lists of diffs.
         """
         ret = []
-        cur = []
+        cur: list[Diff] = []
         for d in diffs:
             if not cur:
                 cur.append(d)
@@ -84,7 +84,7 @@ class Diff:
             ret.append(cur)
         return ret
 
-def incr_iter(it: Iterable[Any], func: Callable[list[Any], Any], incr: int) -> Iterable[Any]:
+def incr_iter(it: Iterable[Any], func: Callable[[list[Any]], Any], incr: int) -> Iterable[Any]:
     """A generic function to run a batched function over individual items.
 
     Items generated from `it` are passed to `func` in batches of `incr`.
@@ -122,7 +122,7 @@ class Tree(ABC):
     """
     def __init__(self, keys: list[str]):
         self.keys = keys[:]
-        self.hash_by_key = {}
+        self.hash_by_key: dict[str, str] = {}
 
     def __len__(self):
         return len(self.keys)
@@ -153,18 +153,18 @@ class Tree(ABC):
         a ValueError.
         """
         diffs = []
-        self_keys = set(self.keys)
-        other_keys = set(other.keys)
+        self_keys_ = set(self.keys)
+        other_keys_ = set(other.keys)
         if assume_keys_constant:
             # first filter out the keys that are the same
-            common = self_keys & other_keys
-            self_keys -= common
-            other_keys -= common
+            common = self_keys_ & other_keys_
+            self_keys_ -= common
+            other_keys_ -= common
         # hash remaining keys
-        self_keys = sorted(self_keys)
-        other_keys = sorted(other_keys)
-        self_hashes = self.hash(self_keys)
-        other_hashes = other.hash(other_keys)
+        self_keys = sorted(self_keys_)
+        other_keys = sorted(other_keys_)
+        self_hashes = list(self.hash(self_keys))
+        other_hashes = list(other.hash(other_keys))
         # we can't handle duplicates in the original for now
         if len(set(self_hashes)) != len(self_hashes):
             # Duplicate hashes in original
@@ -184,7 +184,7 @@ class Tree(ABC):
             else:
                 raise ValueError()
         before_by_hash = {h: k for h, k in zip(self_hashes, self_keys)}
-        after_by_hash = {h: defaultdict(list) for h in other_hashes}
+        after_by_hash: dict[str, dict[str, list[str]]] = {h: defaultdict(list) for h in other_hashes}
         for key, hash in zip(other_keys, other_hashes):
             after_by_hash[hash][key].append(key)
         # now we can do the comparison
@@ -256,10 +256,10 @@ class FileTree(Tree):
     """
     def __init__(self,
                  root: str,
-                 keys: Optional[list[str]]=None,
-                 hash_constructor: callable = sha256,
+                 keys: list[str] | None=None,
+                 hash_constructor: Callable = sha256,
                  read_dir: bool = False,
-                 filter_func: Optional[callable] = None):
+                 filter_func: Callable|None = None):
         """Initializes this file tree at given `root`.
 
         If you give a list of keys, then initializes with those keys.
@@ -335,7 +335,7 @@ class ChromaTree(Tree):
         This adds the given keys to chroma, including all relevant metadata.
         """
         assert self.add_func is not None
-        to_add = dict(ids=[], embeddings=[], metadatas=[], documents=[])
+        to_add: dict[str, list[Any]] = dict(ids=[], embeddings=[], metadatas=[], documents=[])
         for d in tqdm(diffs):
             try:
                 md = self.add_func(key=d.b, other=other)
@@ -499,7 +499,7 @@ if __name__ == '__main__':
     parser.add_argument("dir_a", help="'Before' directory")
     parser.add_argument("dir_b", help="'After' directory")
     args = parser.parse_args()
-    files1 = get_file_listing(args.dir_a)
-    files2 = get_file_listing(args.dir_b)
-    print(json.dumps(files1, indent=2))
-
+    fs1 = FileTree(args.dir_a, read_dir=True)
+    fs2 = FileTree(args.dir_b, read_dir=True)
+    diffs = fs1.compare(fs2)
+    print(f"Got {len(diffs)} diffs: {diffs}")

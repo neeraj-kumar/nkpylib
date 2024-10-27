@@ -9,16 +9,16 @@ import re
 import time
 
 from threading import Lock
-from typing import Any, Callable, NamedTuple, Optional, Union
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 
-from chromadb import Collection, HttpClient, PersistentClient
+from chromadb import Collection, HttpClient, PersistentClient, Client
 from tqdm import tqdm
 
 from nkpylib.thread_utils import chained_producer_consumers
 
-CHROMA_CLIENT = None
+CHROMA_CLIENT: Any | None = None
 
 CHROMA_LOCK = Lock()
 
@@ -37,7 +37,7 @@ def load_chroma_client(db_path: str, port: int):
         with CHROMA_LOCK:
             # first try loading from the server
             try:
-                CHROMA_CLIENT = HttpClient(port=port)
+                CHROMA_CLIENT = HttpClient(port=port) # type: ignore # this is a bug in an older version of chromadb
                 logger.info(f'Loaded chromadb client from server at port {port}')
                 return CHROMA_CLIENT
             except Exception as e:
@@ -50,16 +50,16 @@ def load_chroma_client(db_path: str, port: int):
             logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
     return CHROMA_CLIENT
 
-def remove_md_keys(md: dict, patterns: list[Union[str, re.Pattern]]) -> dict:
+def remove_md_keys(md: dict, patterns: list[str | re.Pattern]) -> dict:
     """Removes keys from the metadata dict that match any of the given patterns.
 
     These should be regexp patterns (or re objects).
     Returns new metadata dict suitable for .update() with just the keys to set to None
     """
-    patterns = [re.compile(pat) if isinstance(pat, str) else pat for pat in patterns]
-    ret = {}
+    pats = [re.compile(pat) if isinstance(pat, str) else pat for pat in patterns]
+    ret: dict[str, None] = {}
     for key in list(md.keys()):
-        for pat in patterns:
+        for pat in pats:
             if pat.match(key):
                 ret[key] = None
                 break
@@ -69,12 +69,12 @@ class FeatureLabel(NamedTuple):
     features: np.ndarray
     label: Any
 
-def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, FeatureLabel]]],
+def extract_features(feature_func: Callable[[Any], np.ndarray | FeatureLabel | None],
                      col: Collection,
                      incr: int=20,
                      ss: int=1,
-                     include: Optional[list[str]]=None,
-                     **filter_kw: Any) -> tuple[list[str], np.ndarray, Optional[list[Any]]]:
+                     include: list[str] | None=None,
+                     **filter_kw: Any) -> tuple[list[str], np.ndarray, list[Any] | None]:
     """Extracts features from the given chroma `col` using the given `feature_func`.
 
     The feature_func should take in a single Chroma entry and return its features.
@@ -162,7 +162,7 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
         return (item['id'], feat, label)
 
     ids = []
-    labels = []
+    labels: list[Any] | None = []
     features = []
     for output in chained_producer_consumers([producer, consumer]):
         if output is None:
@@ -170,7 +170,7 @@ def extract_features(feature_func: Callable[[Any], Optional[Union[np.ndarray, Fe
         id, feat, label = output
         ids.append(id)
         features.append(feat)
-        if label is not None:
+        if label is not None and labels is not None:
             labels.append(label)
 
     assert len(ids) == len(features), f'mismatched lengths for ids ({len(ids)}) and features ({len(features)})'

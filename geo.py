@@ -63,6 +63,8 @@ def wikimapia(function, **kw):
     return ret
 
 
+CategoryResp = dict[str, Any] | list[str]
+
 class Geocoder(ABC):
     """Abstract base class for geocoding and place-info APIs."""
     def __init__(self,
@@ -75,11 +77,11 @@ class Geocoder(ABC):
         If `api_key` is not provided, then it will be read from the environment variable
         `api_key_env`.
         """
-        if not api_key:
+        while not api_key:
             assert api_key_env, 'Either api_key or api_key_env must be provided'
-            api_key = os.getenv(api_key_env)
+            api_key = os.getenv(api_key_env) or ''
         self.api_key = api_key
-        self.last_call = 0
+        self.last_call = 0.0
         self.api_delay = api_delay
         self.cache_dir = cache_dir
         self.cache_fmt = f'cache/{self.__class__.__name__}/%(fn)s/%(kw)s.json'
@@ -132,7 +134,7 @@ class Geocoder(ABC):
         """Generator for pagination of API calls."""
         raise NotImplementedError
 
-    def categories(self, obj: Optional[Any]=None, type: str='all', **kw: Any) -> dict[str, Any]:
+    def categories(self, obj: Optional[Any]=None, type: str='all', **kw: Any) -> CategoryResp:
         """Returns categories of places.
 
         If `obj` is None, then possible categories. Otherwise, it returns categories of the given
@@ -189,11 +191,12 @@ class Wikimapia(Geocoder):
                 break
             page += 1
 
-    def categories(self, obj: Optional[Any]=None, **kw: Any) -> dict[str, Any]:
+    def categories(self, obj: Optional[Any]=None, type: str='', **kw: Any) -> CategoryResp:
         """Returns categories of places.
 
         We ignore the 'type' constraints, as Wikimapia doesn't have that concept.
         """
+        assert not type
         if obj is not None:
             return [t['title'] for t in obj.get('tags', [])]
         categories = {}
@@ -221,7 +224,6 @@ class Wikimapia(Geocoder):
     def get_id(self, obj: dict[str, Any]) -> Any:
         return obj['id']
 
-
 class Geoapify(Geocoder):
     """Notes:
     - Pricing is in credits (1 req = 1 credit generally)
@@ -244,7 +246,7 @@ class Geoapify(Geocoder):
         """Returns the place_id from the given object returned from the API."""
         return obj['properties']['place_id']
 
-    def categories(self, obj: Optional[Any]=None, type: str='common', **kw: Any) -> dict[str, Any]:
+    def categories(self, obj: Optional[Any]=None, type: str='common', **kw: Any) -> CategoryResp:
         """Returns categories of places.
 
         If `obj` is given, then returns the categories of the given object. Otherwise, returns all
@@ -317,6 +319,7 @@ class Geoapify(Geocoder):
             return common_cats + rare_cats
         elif type == 'common':
             return common_cats[:]
+        raise NotImplementedError(f'Unknown type for categories: {type}')
 
     def nearby_places(self, lat: float, lon: float, radius: float=1000, limit:int=20, include_extra_cats: bool=False, **kw: Any) -> list[dict[str, Any]]:
         """Returns places near the given `lat` and `lon`, within `radius`.

@@ -17,12 +17,12 @@ from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from os.path import dirname, basename, splitext, exists
-from typing import Iterable, List, Tuple
+from typing import Any, Iterable
 from urllib.parse import quote_plus, urlparse
 
 import requests
 
-from pyquery import PyQuery as pq
+from pyquery import PyQuery as pq # type: ignore
 
 from nkpylib.constants import USER_AGENT
 from nkpylib.web_utils import make_request
@@ -43,9 +43,9 @@ class BingWebSearch(Searcher):
         """Search bing for the given query"""
         url = "https://www.bing.com/search"
         params = {'q': query}
-        r = make_request(url, params=params)
-        r.raise_for_status()
-        d = pq(r.text)
+        req = make_request(url, params=params)
+        req.raise_for_status()
+        d = pq(req.text)
         results = []
         # first check the top-section
         # we want the parent div of the .b_tpcn class within the top section (if it exists)
@@ -55,7 +55,7 @@ class BingWebSearch(Searcher):
         # now add remaining results
         results.extend(d('.b_algo').items())
         for result in results:
-            r= {}
+            r: dict[str, Any] = {}
             orig = result('a').text() # this has a bunch of stuff, that we get in other ways
             if 'Tags:' in orig: # but tags is unique here, as far as i can tell (only sometimes)
                 r['tags'] = [t.strip() for t in orig.split('Tags:')[1].split('\n') if t.strip()]

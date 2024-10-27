@@ -77,7 +77,7 @@ import threading
 import time
 
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from enum import auto, Enum
 from pprint import pformat
 from subprocess import check_output
@@ -287,9 +287,9 @@ class TaskRunner:
         # create actual tasks
         self.run_loop_done = False
         starting_task.status = Status.READY
-        self.tasks_by_key = defaultdict(dict)
+        self.tasks_by_key: defaultdict[str, dict] = defaultdict(dict)
         self.tasks_by_key[starting_task.key][starting_task.__class__] = starting_task
-        self.futures = {}
+        self.futures: dict[Future, Task] = {}
         self.pool = ProcessPoolExecutor(n_procs)
         self.futures_thread = threading.Thread(target=self.process_futures)
         self.futures_thread.start()
