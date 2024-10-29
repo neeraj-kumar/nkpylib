@@ -4,7 +4,8 @@ This deals with ld+json recipe cards, downloading recipes, parsing recipes, gene
 recipes, etc.
 
 TODO:
-- ingredients:
+- remove $ amounts in ingredients
+- split long steps into multiple steps
 - embed substitutions in ingredients
   - look up from airtable
   - maybe url the substitute came from?
@@ -20,15 +21,13 @@ TODO:
   - still a full possibility, can merge in client somehow
   - maybe a "possibility type" field, like "quantity" or "unit" or "item", or multiple of those
 - matching ingr -> step in client
-- split screen between steps and ingredients?
-- maybe just have an extra optional line below the step that shows ingr and quantities,
-  clicking on which will jump you to the ingr
-- also have a voice command "show ingredients for current step"
-- when we regenerate the recipe cards, we can re-use all-ingredients.json somehow
+  - split screen between steps and ingredients?
+  - maybe just have an extra optional line below the step that shows ingr and quantities,
+    clicking on which will jump you to the ingr
+  - also have a voice command "show ingredients for current step"
+- when we regenerate the recipe cards, re-use all-ingredients.json somehow?
 - do analysis on ingredients
 - pre-mixed/intermediate sets of ingredients like pastes or sauces
-- make sure to include recipe yield to modify
-
 - figure out ways to use other recipe card fields, like video, comments, tags, yield, ratings,
   times, description, nutrition, categories, cuisines, dietary restrictions
 
