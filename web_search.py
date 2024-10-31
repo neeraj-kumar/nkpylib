@@ -5,6 +5,13 @@
 #TODO image search + embeddings
 #TODO unit conversions
 #TODO ingredient substitutions
+#TODO web parsing with LLMs
+#     - roughly rag style
+#     - feed it search query
+#     - define structured output types
+#     - merging results?
+#     - look for existing libs
+#     - does bing have summarized ai results?
 
 from __future__ import annotations
 

@@ -51,6 +51,8 @@ def llm_transform_list(base_prompt: str,
     """
     futures = []
     output_re = re.compile(r'^(\d+)\. (.*)$')
+    for i, s in enumerate(items):
+        assert '\n' not in s, f'Newline in input item {i+1}: {s}'
     for chunk in chunked(items, chunk_size):
         lst = ''.join(f'{i+1}. {item}\n' for i, item in enumerate(chunk))
         prompt = prompt_fmt % (base_prompt, len(lst), lst)
