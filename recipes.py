@@ -330,10 +330,17 @@ Input Steps follow after this.
         ret = {}
         if instructions[0]['@type'] == 'HowToStep':
             instructions = [{'itemListElement': instructions, '@type': 'HowToSection', 'name': 'main'}]
+        done = set()
         for section in instructions:
             name = section['name']
+            secname = name.lower()[:4]
+            num = 1
+            while f's-{secname}{num}' in done:
+                num += 1
+            basename = f's-{secname}{num}'
+            done.add(basename)
             steps = [s['text'] if 'text' in s else s for s in section['itemListElement']]
-            ret[name] = [dict(text=cls.clean_text(s), section=name) for s in steps]
+            ret[name] = [dict(text=cls.clean_text(s), section=name, id=f'{basename}-{i+1}00') for i, s in enumerate(steps)]
         return ret
 
     def improve(self) -> dict[str, Any]:
