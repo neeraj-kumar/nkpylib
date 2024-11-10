@@ -131,6 +131,7 @@ class AirtableUpdater:
         self.data = {}
         logger.info(f'Reading main data for {table_name}')
         for row in futures[0][1].result():
+            self._setrow(row)
             if key_name == 'id':
                 value = row['id']
             else:
@@ -139,6 +140,16 @@ class AirtableUpdater:
                 self.data[value] = row['fields']
                 self.data[value]['id'] = row['id']
         logger.info(f'Read {len(self.data)} rows from {table_name}, key={key_name}')
+
+    def _setrow(self, row: dict) -> None:
+        """Sets a given row in the data"""
+        if self.key_name == 'id':
+            key = row['id']
+        else:
+            key = row['fields'].get(self.key_name, None)
+        if key:
+            self.data[key] = row['fields']
+            self.data[key]['id'] = row['id']
 
     def __len__(self) -> int:
         return len(self.data)
@@ -169,9 +180,10 @@ class AirtableUpdater:
                         raise Exception(f'Could not find {mt_name}={mt_value} in mappers: {sorted(mt_data)}')
                     else:
                         del kw[mt_name]
-        if 'needs review' not in kw:
-            kw['needs review'] = True
-        return airtable_api_call(endpoint=self.table_name, method='post', records=[dict(fields=dict(**kw))])
+        resp = airtable_api_call(endpoint=self.table_name, method='post', records=[dict(fields=dict(**kw))])
+        new_id = resp['records'][0]['id']
+        self._setrow(resp['records'][0])
+        return resp
 
     def update(self, key: str, typecast=False, **kw) -> Any:
         """Updates the row with the given key"""
@@ -186,7 +198,17 @@ class AirtableUpdater:
                     row[field] = kw[field] = self.mappers[field][value]['id']
                 else:
                     row[field] = kw[field] = [self.mappers[field][v]['id'] for v in value]
-        return airtable_api_call(endpoint=self.table_name, method='patch', records=[dict(id=row['id'], fields=kw)], typecast=typecast)
+        resp = airtable_api_call(endpoint=self.table_name, method='patch', records=[dict(id=row['id'], fields=kw)], typecast=typecast)
+        self._setrow(resp['records'][0])
+        return resp
+
+    def delete(self, key: str) -> Any:
+        """Deletes the row with the given key"""
+        if key not in self.data:
+            return
+        resp = airtable_api_call(endpoint=self.table_name, method='delete', ids=[self.data[key]['id']])
+        del self.data[key]
+        return resp
 
     def upsert(self, key: str, typecast=False, error_on_mapping:bool=True, **kw) -> Any:
         """Updates or inserts"""
