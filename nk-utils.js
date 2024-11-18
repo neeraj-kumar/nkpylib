@@ -135,3 +135,93 @@ const numberToColor = (num) => {
 const uniqueId = (len=8) => {
   return Math.random().toString(36).substring(2, 2+len);
 }
+
+/* A react hook to allow for setting url query params based on state.
+ *
+ * Define a mapping paramStateMap of state key names to query param names. This will first check to
+ * see if the query params are set on page load, and set the initial state accordingly. It will also
+ * update the query params when the state changes, adding a history entry.
+ *
+ * Use this as follows:
+ *
+ *  const [queryState, updateQueryState, submitQueryState] = useQueryParams(
+ *    { x: "a", y: "b", z: "c" },
+ *    (newState) => {
+ *      console.log("Query params changed:", newState);
+ *      // Perform actions based on new query state
+ *    }
+ *  );
+ *
+ *  ...
+ *
+ *  return (
+ *    ...
+ *      <label>
+ *        X:
+ *        <input
+ *          type="text"
+ *          value={queryState.x}
+ *          onChange={(e) => updateQueryState({ x: e.target.value })}
+ *          onSubmit={submitQueryState}
+ *        />
+ *      </label>
+ *
+ */
+const useQueryParams = (paramStateMap, onParamChange) => {
+  const [state, setState] = React.useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialState = {};
+    Object.entries(paramStateMap).forEach(([stateKey, paramKey]) => {
+      initialState[stateKey] = params.get(paramKey) || "";
+    });
+    return initialState;
+  });
+
+  // Updates the browser URL and history state
+  const updateUrl = (newState) => {
+    const params = new URLSearchParams(window.location.search);
+    Object.entries(paramStateMap).forEach(([stateKey, paramKey]) => {
+      const value = newState[stateKey];
+      if (value) {
+        params.set(paramKey, value);
+      } else {
+        params.delete(paramKey);
+      }
+    });
+    window.history.pushState(newState, "", `?${params.toString()}`);
+  };
+
+  // Sync state with URL changes
+  React.useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const newState = {};
+      Object.entries(paramStateMap).forEach(([stateKey, paramKey]) => {
+        newState[stateKey] = params.get(paramKey) || "";
+      });
+      setState(newState);
+      onParamChange(newState);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [paramStateMap, onParamChange]);
+
+  // Trigger `onParamChange` on initial load
+  React.useEffect(() => {
+    onParamChange(state);
+  }, []); // Only run once on component mount
+
+  // Function to update the state without affecting the URL
+  const updateState = (partialState) => {
+    setState((prevState) => ({ ...prevState, ...partialState }));
+  };
+
+  // Function to sync the current state with the URL on submission
+  const submitStateToUrl = () => {
+    updateUrl(state);
+    onParamChange(state); // Optionally trigger a change action on submission
+  };
+
+  return [state, updateState, submitStateToUrl];
+};
