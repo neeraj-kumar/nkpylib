@@ -49,10 +49,10 @@ A = TypeVar('A')
 B = TypeVar('B')
 
 def floydwarshall(g: GraphT, v: int) -> GraphT:
-    """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths.
-    The input graph g should be something indexable by (i,j) to get distance between nodes i and j.
-    This should be pre-filled with the costs between known nodes, 0 for the diagonal, and infinity elsewhere.
-    v is the number of vertices.
+    """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths. The
+    input graph g should be something indexable by (i,j) to get distance between nodes i and j. This
+    should be pre-filled with the costs between known nodes, 0 for the diagonal, and infinity
+    elsewhere. v is the number of vertices.
 
     Modifies the given g directly and returns it.
     """
