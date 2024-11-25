@@ -42,11 +42,11 @@ import numpy as np
 
 # some helpful type aliases
 GraphT: TypeAlias = dict[tuple[Any, Any], float]
-ScoreFunc: TypeAlias = Callable[[A, B], float]
 
 # Type variables for bipartite matching functions
 A = TypeVar('A')
 B = TypeVar('B')
+ScoreFunc: TypeAlias = Callable[[A, B], float]
 
 def floydwarshall(g: GraphT, v: int) -> GraphT:
     """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths. The
