@@ -22,6 +22,9 @@ In addition, the wrapper allows you to specify the following:
   `ThreadPoolExecutor` for each FunctionWrapper instance. Note that because we're calling a server
   (running a different process) for the actual work, there is no benefit to using a
   `ProcessPoolExecutor`.
+- `progress_msg`: A string to display as a progress message using tqdm. If set to an empty string
+  (the default), no progress bar is shown. If specified, it is used as the description for the tqdm
+  progress bar.
 
 The core functions and their inputs and other parameters are:
 - `call_llm`: LLM completion with a given input prompt
@@ -94,7 +97,20 @@ class FunctionWrapper:
 
         We also allow you to pass in an executor to use for parallel calls. By default, we create a
         new ThreadPoolExecutor for each FunctionWrapper instance.
-        """
+        The core function should take the input and any additional arguments and return the raw
+        JSON response from the server. The final function should take the raw response and return
+        a more user-friendly output. If no final function is provided, we default to 'raw' mode (and
+        disallow setting mode to 'final').
+
+        By default, we use 'final' mode, which processes the response and returns a more
+        user-friendly output. You can set the mode to 'raw' to return the raw JSON response.
+
+        We also allow you to pass in an executor to use for parallel calls. By default, we create a
+        new ThreadPoolExecutor for each FunctionWrapper instance.
+
+        The `progress_msg` parameter allows you to specify a message to display with a tqdm progress
+        bar during batch processing. If `progress_msg` is an empty string (the default), no progress
+        bar is shown. If specified, it is used as the description for the tqdm progress bar.
         self.core_func = core_func
         if executor is None:
             executor = ThreadPoolExecutor()
