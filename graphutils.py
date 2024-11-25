@@ -164,7 +164,7 @@ class Router:
         self._nn_func = nn_func
         self._nn_pred = nn_pred
 
-    def find_path(self, a: Any, b: Any) -> Tuple[List[Any], float]:
+    def find_path(self, a: Any, b: Any) -> tuple[list[Any], float]:
         """Finds a path from `a` to `b` matching our criteria.
 
         Returns `(path, cost)`, where the path is a list of node ids, and cost is total cost.
