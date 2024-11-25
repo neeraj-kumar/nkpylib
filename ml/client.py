@@ -74,7 +74,7 @@ import requests
 
 from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION
 
-def chunked(lst, n):
+def chunked(lst: list[Any], n: int) -> Iterator[list[Any]]:
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
@@ -84,7 +84,13 @@ ResponseT = dict[str, Any]
 
 class FunctionWrapper:
     """Wrapper for a function to make it executable in various ways."""
-    def __init__(self, core_func, final_func=None, mode='final', executor=None, progress_msg=''):
+    core_func: Callable[..., ResponseT]
+    final_func: Optional[Callable[[ResponseT], Any]]
+    mode: str
+    executor: ThreadPoolExecutor
+    progress_msg: str
+
+    def __init__(self, core_func: Callable[..., ResponseT], final_func: Optional[Callable[[ResponseT], Any]] = None, mode: str = 'final', executor: Optional[ThreadPoolExecutor] = None, progress_msg: str = ''):
         """Initialize the FunctionWrapper with the core function and optional final function.
 
         The core function should take the input and any additional arguments and return the raw
