@@ -81,7 +81,7 @@ ResponseT = dict[str, Any]
 
 class FunctionWrapper:
     """Wrapper for a function to make it executable in various ways."""
-    def __init__(self, core_func, final_func=None, mode='final', executor=None, show_progress=False):
+    def __init__(self, core_func, final_func=None, mode='final', executor=None, progress_msg=''):
         """Initialize the FunctionWrapper with the core function and optional final function.
 
         The core function should take the input and any additional arguments and return the raw
@@ -100,7 +100,7 @@ class FunctionWrapper:
             executor = ThreadPoolExecutor()
         self.executor = executor
         self.final_func = final_func
-        self.show_progress = show_progress
+        self.progress_msg = progress_msg
         if not final_func:
             mode = "raw"
         self.mode = mode
@@ -124,8 +124,8 @@ class FunctionWrapper:
     def batch(self, inputs, *args, **kwargs):
         """Batch input synchronous mode, processing a list of inputs"""
         futures = self.batch_futures(inputs, *args, **kwargs)
-        if self.show_progress:
-            futures = list(tqdm(futures, desc="Processing batch"))
+        if self.progress_msg:
+            futures = list(tqdm(futures, desc=self.progress_msg))
         return [f.result() for f in futures]
 
     def __call__(self, inputs, *args, **kwargs):
@@ -149,8 +149,8 @@ class FunctionWrapper:
         loop = asyncio.get_running_loop()
         task = partial(self.core_func, *args, **kwargs)
         tasks = [loop.run_in_executor(None, task, inp) for inp in inputs]
-        if self.show_progress:
-            tasks = list(tqdm(asyncio.as_completed(tasks), total=len(inputs), desc="Processing batch async"))
+        if self.progress_msg:
+            tasks = list(tqdm(asyncio.as_completed(tasks), total=len(inputs), desc=self.progress_msg))
         results = await asyncio.gather(*tasks)
         return [self._process_output(result) for result in results]
 
