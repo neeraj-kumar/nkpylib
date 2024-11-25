@@ -111,6 +111,7 @@ class FunctionWrapper:
         The `progress_msg` parameter allows you to specify a message to display with a tqdm progress
         bar during batch processing. If `progress_msg` is an empty string (the default), no progress
         bar is shown. If specified, it is used as the description for the tqdm progress bar.
+        """
         self.core_func = core_func
         if executor is None:
             executor = ThreadPoolExecutor()
