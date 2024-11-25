@@ -45,6 +45,8 @@ The core functions and their inputs and other parameters are:
 So if you wanted raw outputs for string similarity using the 'sentence' model, returned as a list of
 futures, you would do:
 
+    from nkpylib.ml.client import strsim
+
     strsim.mode = 'raw'
     futures = strsim.batch_futures([("dog", "cat"), ("dog", "philosophy")], model='sentence')
 

@@ -1,5 +1,8 @@
 """Various higher-level utilities for working with LLMs."""
 
+#TODO figure out how to match two sets of dicts of data using LLMs/etc
+#TODO   see https://chatgpt.com/share/674361be-3528-8012-9c9b-a83859cdf170
+
 import re
 
 from typing import Iterator, Optional, Sequence
