@@ -133,23 +133,23 @@ class FunctionWrapper:
             raise ValueError("This function does not have a final output processor.")
         self._mode = value
 
-    def single(self, input, *args, **kwargs):
+    def single(self, input: Any, *args: Any, **kwargs: Any) -> Any:
         """Single input synchronous mode, passing a single input"""
         result = self.core_func(input, *args, **kwargs)
         return self._process_output(result)
 
-    def batch(self, inputs, *args, **kwargs):
+    def batch(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Batch input synchronous mode, processing a list of inputs"""
         futures = self.batch_futures(inputs, *args, **kwargs)
         if self.progress_msg:
             futures = list(tqdm(futures, desc=self.progress_msg))
         return [f.result() for f in futures]
 
-    def __call__(self, inputs, *args, **kwargs):
+    def __call__(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Call the batch sync function"""
         return self.batch(inputs, *args, **kwargs)
 
-    async def single_async(self, input, *args, **kwargs):
+    async def single_async(self, input: Any, *args: Any, **kwargs: Any) -> Any:
         """Single input asynchronous mode, passing a single input.
 
         This is an async function that can be awaited.
@@ -161,7 +161,7 @@ class FunctionWrapper:
         result = await loop.run_in_executor(None, task)
         return self._process_output(result)
 
-    async def batch_async(self, inputs, *args, **kwargs):
+    async def batch_async(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Batch input asynchronous mode, processing a list of inputs."""
         loop = asyncio.get_running_loop()
         task = partial(self.core_func, *args, **kwargs)
@@ -171,7 +171,7 @@ class FunctionWrapper:
         results = await asyncio.gather(*tasks)
         return [self._process_output(result) for result in results]
 
-    def single_future(self, input, *args, **kwargs):
+    def single_future(self, input: Any, *args: Any, **kwargs: Any) -> Any:
         """Single input futures mode which returns a future with the started computation."""
         def task():
             ret = self.core_func(input, *args, **kwargs)
@@ -179,11 +179,11 @@ class FunctionWrapper:
 
         return self.executor.submit(task)
 
-    def batch_futures(self, inputs, *args, **kwargs):
+    def batch_futures(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Batch input futures mode which returns a list of futures with the started computations."""
         return [self.single_future(inp, *args, **kwargs) for inp in inputs]
 
-    def _process_output(self, result):
+    def _process_output(self, result: Any) -> Any:
         """Process the output of the core function based on our `mode`."""
         if self.mode == "raw":
             return result
