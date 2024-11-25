@@ -29,16 +29,19 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
+from typing import Callable, Iterator, Tuple, Dict, List, Set, Any
 from queue import Empty, Queue
 
 import numpy as np
 
 
-def floydwarshall(g, v):
+def floydwarshall(g: Dict[Tuple[int, int], float], v: int) -> Dict[Tuple[int, int], float]:
     """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths.
     The input graph g should be something indexable by (i,j) to get distance between nodes i and j.
     This should be pre-filled with the costs between known nodes, 0 for the diagonal, and infinity elsewhere.
@@ -53,7 +56,7 @@ def floydwarshall(g, v):
     return g
 
 
-def dijkstras_shortest_path(graph, src):
+def dijkstras_shortest_path(graph: Dict[Tuple[Any, Any], float], src: Any) -> Tuple[Dict[Any, Any], Dict[Any, float]]:
     """An implementation of Dijkstra's shortest path algorithm.
 
     This starts at `src` and either computes all shortest paths from there.
@@ -95,7 +98,7 @@ def dijkstras_shortest_path(graph, src):
     return previous_nodes, shortest_path
 
 
-def bipartite_matching(a, b, score_func, symmetric=False, threshold=0.0):
+def bipartite_matching(a: List[Any], b: List[Any], score_func: Callable[[Any, Any], float], symmetric: bool = False, threshold: float = 0.0) -> Iterator[Tuple[float, Any, Any]]:
     """Does bipartite matching between lists `a` and `b` using `score_func`.
 
     This computes scores between all elements in a and b using `score_func(x, y)`, and then goes
@@ -133,7 +136,7 @@ def bipartite_matching(a, b, score_func, symmetric=False, threshold=0.0):
         j_left.remove(j)
 
 
-def bipartite_matching_wrapper(a, b, score_func, symmetric=False, threshold=0.0):
+def bipartite_matching_wrapper(a: List[Any], b: List[Any], score_func: Callable[[Any, Any], float], symmetric: bool = False, threshold: float = 0.0) -> Tuple[List[Tuple[float, Any, Any]], Set[Any], Set[Any]]:
     """A wrapper to `bipartite_matching()` that returns `(matches, unmatched_in_a, unmatched_in_b)`
 
     The list of `matches` contains tuples of `(score, a_element, b_element)`. The two unmatched
@@ -157,11 +160,11 @@ class PathNotFoundError(Exception):
 class Router:
     """A routing class to find paths matching certain criteria in graphs"""
 
-    def __init__(self, nn_func, nn_pred=None):
+    def __init__(self, nn_func: Callable[[Any], Iterator[Tuple[Any, float]]], nn_pred: Optional[Callable[[Any, float], bool]] = None):
         self._nn_func = nn_func
         self._nn_pred = nn_pred
 
-    def find_path(self, a, b):
+    def find_path(self, a: Any, b: Any) -> Tuple[List[Any], float]:
         """Finds a path from `a` to `b` matching our criteria.
 
         Returns `(path, cost)`, where the path is a list of node ids, and cost is total cost.
