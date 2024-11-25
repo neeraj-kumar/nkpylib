@@ -104,7 +104,7 @@ def dijkstras_shortest_path(graph: GraphT, src: Any) -> tuple[dict[Any, Any], di
     return previous_nodes, shortest_path
 
 
-def bipartite_matching(a: list[A], b: list[B], score_func: Callable[[A, B], float], symmetric: bool = False, threshold: float = 0.0) -> Iterator[tuple[float, A, B]]:
+def bipartite_matching(a: list[A], b: list[B], score_func: ScoreFunc[A, B], symmetric: bool = False, threshold: float = 0.0) -> Iterator[tuple[float, A, B]]:
     """Does bipartite matching between lists `a` and `b` using `score_func`.
 
     This computes scores between all elements in a and b using `score_func(x, y)`, and then goes
@@ -142,7 +142,7 @@ def bipartite_matching(a: list[A], b: list[B], score_func: Callable[[A, B], floa
         j_left.remove(j)
 
 
-def bipartite_matching_wrapper(a: list[A], b: list[B], score_func: Callable[[A, B], float], symmetric: bool = False, threshold: float = 0.0) -> tuple[list[tuple[float, A, B]], set[A], set[B]]:
+def bipartite_matching_wrapper(a: list[A], b: list[B], score_func: ScoreFunc[A, B], symmetric: bool = False, threshold: float = 0.0) -> tuple[list[tuple[float, A, B]], set[A], set[B]]:
     """A wrapper to `bipartite_matching()` that returns `(matches, unmatched_in_a, unmatched_in_b)`
 
     The list of `matches` contains tuples of `(score, a_element, b_element)`. The two unmatched
