@@ -35,7 +35,7 @@ import logging
 import os
 import sys
 from collections import defaultdict
-from typing import Callable, Iterator, Tuple, Dict, List, Set, Any
+from typing import Callable, Iterator, Tuple, Dict, List, Set, Any, Optional
 from queue import Empty, Queue
 
 import numpy as np
@@ -49,9 +49,9 @@ def floydwarshall(g: Dict[Tuple[int, int], float], v: int) -> Dict[Tuple[int, in
 
     Modifies the given g directly and returns it.
     """
-    for k in xrange(v):
-        for i in xrange(v):
-            for j in xrange(v):
+    for k in range(v):
+        for i in range(v):
+            for j in range(v):
                 g[i, j] = min(g[i, j], g[i, k] + g[k, j])
     return g
 
