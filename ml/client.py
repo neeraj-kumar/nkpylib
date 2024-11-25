@@ -68,7 +68,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
 from tqdm import tqdm
-from typing import Any, Optional, Union, Sequence
+from typing import Any, Optional, Union, Sequence, Callable, Iterator
 
 import requests
 
