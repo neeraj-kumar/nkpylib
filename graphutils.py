@@ -35,7 +35,7 @@ import logging
 import os
 import sys
 from collections import defaultdict
-from typing import Callable, Iterator, Tuple, Set, Any, Optional
+from typing import Callable, Iterator, Any, Optional
 from queue import Empty, Queue
 
 import numpy as np
@@ -160,7 +160,7 @@ class PathNotFoundError(Exception):
 class Router:
     """A routing class to find paths matching certain criteria in graphs"""
 
-    def __init__(self, nn_func: Callable[[Any], Iterator[Tuple[Any, float]]], nn_pred: Optional[Callable[[Any, float], bool]] = None):
+    def __init__(self, nn_func: Callable[[Any], Iterator[tuple[Any, float]]], nn_pred: Optional[Callable[[Any, float], bool]] = None):
         self._nn_func = nn_func
         self._nn_pred = nn_pred
 
