@@ -40,12 +40,13 @@ from queue import Empty, Queue
 
 import numpy as np
 
-# Type variables for generic typing
-A = TypeVar('A')
-B = TypeVar('B')
+# some helpful type aliases
 GraphT: TypeAlias = dict[tuple[Any, Any], float]
 ScoreFunc: TypeAlias = Callable[[A, B], float]
 
+# Type variables for bipartite matching functions
+A = TypeVar('A')
+B = TypeVar('B')
 
 def floydwarshall(g: GraphT, v: int) -> GraphT:
     """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths.
