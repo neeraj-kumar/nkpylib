@@ -44,7 +44,7 @@ import numpy as np
 A = TypeVar('A')
 B = TypeVar('B')
 GraphT: TypeAlias = dict[tuple[Any, Any], float]
-ScoreFunc: TypeAlias = Callable[[Any, Any], float]
+ScoreFunc: TypeAlias = Callable[[A, B], float]
 
 
 def floydwarshall(g: GraphT, v: int) -> GraphT:
