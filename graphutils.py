@@ -95,12 +95,13 @@ def dijkstras_shortest_path(graph, src):
     return previous_nodes, shortest_path
 
 
-def bipartite_matching(a, b, score_func, symmetric=False):
+def bipartite_matching(a, b, score_func, symmetric=False, threshold=0.0):
     """Does bipartite matching between lists `a` and `b` using `score_func`.
 
     This computes scores between all elements in a and b using `score_func(x, y)`, and then goes
     through the score matrix in descending order of score, yielding `(score, a_i, b_j)` tuples.
-    These are filtered such that no duplicate i or j are returned.
+    These are filtered such that no duplicate i or j are returned. We stop if the `score <
+    threshold`.
 
     If `symmetric` is True, then assumes `a` and `b` refer to the same set of objects, and order
     doesn't matter.
@@ -125,12 +126,14 @@ def bipartite_matching(a, b, score_func, symmetric=False):
             continue
         if j not in j_left:
             continue
+        if scores[i, j] < threshold:
+            break
         yield (scores[i, j], a[i], b[j])
         i_left.remove(i)
         j_left.remove(j)
 
 
-def bipartite_matching_wrapper(a, b, score_func, symmetric=False):
+def bipartite_matching_wrapper(a, b, score_func, symmetric=False, threshold=0.0):
     """A wrapper to `bipartite_matching()` that returns `(matches, unmatched_in_a, unmatched_in_b)`
 
     The list of `matches` contains tuples of `(score, a_element, b_element)`. The two unmatched
@@ -138,7 +141,7 @@ def bipartite_matching_wrapper(a, b, score_func, symmetric=False):
     """
     found_a, found_b = set(), set()
     matches = []
-    for score, i, j in bipartite_matching(a, b, score_func, symmetric=symmetric):
+    for score, i, j in bipartite_matching(a, b, score_func, symmetric=symmetric, threshold=threshold):
         matches.append((score, i, j))
         found_a.add(i)
         found_b.add(j)
