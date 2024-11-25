@@ -35,13 +35,13 @@ import logging
 import os
 import sys
 from collections import defaultdict
-from typing import Callable, Iterator, Tuple, Dict, List, Set, Any, Optional
+from typing import Callable, Iterator, Tuple, Set, Any, Optional
 from queue import Empty, Queue
 
 import numpy as np
 
 
-def floydwarshall(g: Dict[Tuple[int, int], float], v: int) -> Dict[Tuple[int, int], float]:
+def floydwarshall(g: dict[tuple[int, int], float], v: int) -> dict[tuple[int, int], float]:
     """An implementation of the Floyd-Warshall algorithm for finding all-pairs shortest paths.
     The input graph g should be something indexable by (i,j) to get distance between nodes i and j.
     This should be pre-filled with the costs between known nodes, 0 for the diagonal, and infinity elsewhere.
@@ -56,7 +56,7 @@ def floydwarshall(g: Dict[Tuple[int, int], float], v: int) -> Dict[Tuple[int, in
     return g
 
 
-def dijkstras_shortest_path(graph: Dict[Tuple[Any, Any], float], src: Any) -> Tuple[Dict[Any, Any], Dict[Any, float]]:
+def dijkstras_shortest_path(graph: dict[tuple[Any, Any], float], src: Any) -> tuple[dict[Any, Any], dict[Any, float]]:
     """An implementation of Dijkstra's shortest path algorithm.
 
     This starts at `src` and either computes all shortest paths from there.
@@ -98,7 +98,7 @@ def dijkstras_shortest_path(graph: Dict[Tuple[Any, Any], float], src: Any) -> Tu
     return previous_nodes, shortest_path
 
 
-def bipartite_matching(a: List[Any], b: List[Any], score_func: Callable[[Any, Any], float], symmetric: bool = False, threshold: float = 0.0) -> Iterator[Tuple[float, Any, Any]]:
+def bipartite_matching(a: list[Any], b: list[Any], score_func: Callable[[Any, Any], float], symmetric: bool = False, threshold: float = 0.0) -> Iterator[tuple[float, Any, Any]]:
     """Does bipartite matching between lists `a` and `b` using `score_func`.
 
     This computes scores between all elements in a and b using `score_func(x, y)`, and then goes
@@ -136,7 +136,7 @@ def bipartite_matching(a: List[Any], b: List[Any], score_func: Callable[[Any, An
         j_left.remove(j)
 
 
-def bipartite_matching_wrapper(a: List[Any], b: List[Any], score_func: Callable[[Any, Any], float], symmetric: bool = False, threshold: float = 0.0) -> Tuple[List[Tuple[float, Any, Any]], Set[Any], Set[Any]]:
+def bipartite_matching_wrapper(a: list[Any], b: list[Any], score_func: Callable[[Any, Any], float], symmetric: bool = False, threshold: float = 0.0) -> tuple[list[tuple[float, Any, Any]], set[Any], set[Any]]:
     """A wrapper to `bipartite_matching()` that returns `(matches, unmatched_in_a, unmatched_in_b)`
 
     The list of `matches` contains tuples of `(score, a_element, b_element)`. The two unmatched
