@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import string
+import readline
 import random
 
 from typing import Any, Callable, TypeVar
