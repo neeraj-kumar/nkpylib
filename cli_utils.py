@@ -18,8 +18,8 @@ InputT = Any
 # an action is a name and a function
 Action = tuple[str, Callable[[list[InputT]], list[InputT]]]
 
-def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> None:
-    """
+def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> list[InputT]:
+    :return: List of items that have been marked as done.
     Parse and execute user input actions on items.
 
     :param user_input: The input string from the user specifying actions and items.
@@ -51,12 +51,14 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
         selected_items = parse_item_spec(item_spec, item_map)
         action_items_map[action_letter].update(selected_items)
 
+    done_items = []
     for action_letter, items in action_items_map.items():
         if items:
             _, action_func = actions[action_letter]
             done_items = action_func(list(items))
             for item in done_items:
-                item_done[item] = True  # Mark item as done
+                done_items.append(item)  # Collect done items
+    return done_items
 
 def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False) -> None:
     """
@@ -82,7 +84,9 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
 
         user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
         try:
-            parse_user_input(user_input, actions, item_map, exclusive)
+            done_items = parse_user_input(user_input, actions, item_map, exclusive)
+            for item in done_items:
+                item_done[item] = True  # Update item_done based on returned done items
         except Exception as e:
             print(f"Error: {e}")
         print("\nItems remaining:")
