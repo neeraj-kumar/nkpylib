@@ -77,6 +77,12 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
         return
 
     while not all(item_done.values()):
+        print("\nItems remaining:")
+        for label, item in item_map.items():
+            if not item_done[item]:
+                print(f"{label}: {item}")
+        print()
+
         action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
 
         user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
