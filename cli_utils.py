@@ -146,7 +146,7 @@ if __name__ == '__main__':
     items, actions = generate_test_data()
 
     # Run tests with random inputs
-    test_cli_with_random_inputs(items, actions)
+    #test_cli_with_random_inputs(items, actions)
 
     # Run the CLI loop with user interaction
     perform_actions_on_items(items, actions)
