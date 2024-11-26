@@ -5,12 +5,12 @@ from __future__ import annotations
 import string
 import random
 
-from typing import Any
+from typing import Any, Callable, Tuple
 
 # an action is a name and a function
-Action = tuple[str, callable]
+Action = Tuple[str, Callable[[Any], None]]
 
-def perform_actions_on_items(items: list[Any], actions: dict[str, Action]):
+def perform_actions_on_items(items: list[Any], actions: dict[str, Action]) -> None:
     """
     Perform actions on a list of items based on user input.
 
@@ -44,7 +44,7 @@ def perform_actions_on_items(items: list[Any], actions: dict[str, Action]):
         except Exception as e:
             print(f"Error: {e}")
 
-def parse_item_spec(item_spec, item_map):
+def parse_item_spec(item_spec: str, item_map: dict[str, Any]) -> list[Any]:
     """
     Parse the item specification and return the corresponding items.
 
@@ -70,7 +70,7 @@ def parse_item_spec(item_spec, item_map):
             i += 1
     return items
 
-def generate_test_data():
+def generate_test_data() -> tuple[list[str], dict[str, Action]]:
     """
     Generate a simple set of items and actions for testing.
 
@@ -91,7 +91,7 @@ def generate_test_data():
 
     return items, actions
 
-def test_cli_with_random_inputs(items, actions, n=10):
+def test_cli_with_random_inputs(items: list[Any], actions: dict[str, Action], n: int = 10) -> None:
     """
     Test the CLI with randomly generated user input strings.
 
