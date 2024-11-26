@@ -1,34 +1,36 @@
 """Command-line tools"""
 
+from __future__ import annotations
+
 import string
 
-def perform_actions_on_items(items, actions):
+from typing import Any
+
+# an action is a name and a function
+Action = tuple[str, callable]
+
+def perform_actions_on_items(items: list[Any], actions: dict[str, Action])):
     """
     Perform actions on a list of items based on user input.
 
     :param items: List of items to perform actions on.
     :param actions: Dictionary mapping action letters to (action_name, action_func).
     """
-    if len(items) > 62:
-        print("Error: Too many items to enumerate with single characters.")
-        return
-
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
     item_map = {label: item for label, item in zip(item_labels, items)}
 
-    while True:
-        user_input = input("Enter actions (e.g., a:1-3,b:4): ").strip()
-        if not user_input:
-            print("Exiting.")
-            break
+    if len(items) > len(item_labels):
+        print("Error: Too many items to enumerate with single characters.")
+        return
 
+    while True:
+        user_input = input(f"Enter actions (e.g., a:1-3,b:4): ").strip()
         try:
             for action_spec in user_input.split(','):
                 action_letter, item_spec = action_spec.split(':')
                 if action_letter not in actions:
                     print(f"Error: Invalid action '{action_letter}'.")
                     continue
-
                 action_name, action_func = actions[action_letter]
                 selected_items = parse_item_spec(item_spec, item_map)
                 for item in selected_items:
