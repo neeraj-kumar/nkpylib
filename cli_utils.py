@@ -160,4 +160,4 @@ if __name__ == '__main__':
     #test_cli_with_random_inputs(items, actions)
 
     # Run the CLI loop with user interaction
-    perform_actions_on_items(items, actions)
+    perform_actions_on_items(items, actions, exclusive=True)
