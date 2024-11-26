@@ -5,10 +5,10 @@ from __future__ import annotations
 import string
 import random
 
-from typing import Any, Callable
+from typing import Any, Callable, list, dict, tuple
 
 # an action is a name and a function
-Action = tuple[str, Callable[[Any], None]]
+Action = tuple[str, Callable[[list[Any]], None]]
 
 def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, Any]) -> None:
     """
