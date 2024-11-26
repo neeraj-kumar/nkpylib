@@ -7,10 +7,13 @@ import random
 
 from typing import Any, Callable
 
-# an action is a name and a function
-Action = tuple[str, Callable[[list[Any]], None]]
+# Type alias for input items
+InputT = Any
 
-def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, Any]) -> None:
+# an action is a name and a function
+Action = tuple[str, Callable[[list[InputT]], None]]
+
+def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT]) -> None:
     """
     Parse and execute user input actions on items.
 
@@ -33,7 +36,7 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
             _, action_func = actions[action_letter]
             action_func(list(items))
 
-def perform_actions_on_items(items: list[Any], actions: dict[str, Action]) -> None:
+def perform_actions_on_items(items: list[InputT], actions: dict[str, Action]) -> None:
     """
     Perform actions on a list of items based on user input.
 
@@ -59,7 +62,7 @@ def perform_actions_on_items(items: list[Any], actions: dict[str, Action]) -> No
         except Exception as e:
             print(f"Error: {e}")
 
-def parse_item_spec(item_spec: str, item_map: dict[str, Any]) -> list[Any]:
+def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]:
     """
     Parse the item specification and return the corresponding items.
 
@@ -106,7 +109,7 @@ def generate_test_data() -> tuple[list[str], dict[str, Action]]:
 
     return items, actions
 
-def test_cli_with_random_inputs(items: list[Any], actions: dict[str, Action], n: int = 10) -> None:
+def test_cli_with_random_inputs(items: list[InputT], actions: dict[str, Action], n: int = 10) -> None:
     """
     Test the CLI with randomly generated user input strings.
 
