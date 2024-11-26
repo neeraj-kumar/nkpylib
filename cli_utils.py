@@ -19,6 +19,39 @@ InputT = Any
 # an action is a name and a function
 Action = tuple[str, Callable[[list[InputT]], Iterable[InputT] | None]]
 
+def perform_actions_on_items(items: list[InputT],
+                             actions: dict[str, Action],
+                             exclusive: bool = False,
+                             print_func: Callable[[InputT], str] = str) -> None:
+    """
+    Perform actions on a list of items based on user input.
+
+    :param items: List of items to perform actions on.
+    :param actions: Dictionary mapping action letters to (action_name, action_func).
+    """
+    item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
+    item_map = {label: item for label, item in zip(item_labels, items)}
+    item_done = {item: False for item in items}  # Initialize item_done
+
+    if len(items) > len(item_labels):
+        print("Error: Too many items to enumerate with single characters.")
+        return
+
+    action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
+    while not all(item_done.values()):
+        print("\nItems remaining:")
+        for label, item in item_map.items():
+            if not item_done[item]:
+                print(f"{label}: {print_func(item)}")
+        print()
+        user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
+        try:
+            done_items = parse_user_input(user_input, actions, item_map, exclusive)
+            for item in done_items:
+                item_done[item] = True  # Update item_done based on returned done items
+        except Exception as e:
+            print(f"Error: {e}")
+
 def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> list[InputT]:
     """
     Parse and execute user input actions on items.
@@ -62,39 +95,6 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
                 done_items.extend(item for item in result if item in item_map.values())
             print(f"Action '{action_letter}' done on items: {', '.join(map(str, items))}")
     return done_items
-
-def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False, print_func: Callable[[InputT], str] = str) -> None:
-    """
-    Perform actions on a list of items based on user input.
-
-    :param items: List of items to perform actions on.
-    :param actions: Dictionary mapping action letters to (action_name, action_func).
-    """
-    item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
-    item_map = {label: item for label, item in zip(item_labels, items)}
-    item_done = {item: False for item in items}  # Initialize item_done
-
-    if len(items) > len(item_labels):
-        print("Error: Too many items to enumerate with single characters.")
-        return
-
-    while not all(item_done.values()):
-
-        action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
-
-        user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
-        try:
-            done_items = parse_user_input(user_input, actions, item_map, exclusive)
-            for item in done_items:
-                item_done[item] = True  # Update item_done based on returned done items
-        except Exception as e:
-            print(f"Error: {e}")
-
-        print("\nItems remaining:")
-        for label, item in item_map.items():
-            if not item_done[item]:
-                print(f"{label}: {print_func(item)}")
-        print()
 
 def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]:
     """
