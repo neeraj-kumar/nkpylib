@@ -97,17 +97,19 @@ def generate_test_data() -> tuple[list[str], dict[str, Action]]:
 
     :return: A tuple containing a list of items and a dictionary of actions.
     """
-    items = ['apple', 'banana', 'cherry', 'date', 'elderberry']
+    items = ['apple', 'banana', 'cherry', 'date', 'elderberry', 'fig', 'grape', 'honeydew', 'kiwi', 'lemon', 'mango']
 
-    def print_item(item):
-        print(f"Item: {item}")
+    def print_items(items):
+        for item in items:
+            print(f"Item: {item}")
 
-    def uppercase_item(item):
-        print(f"Uppercased: {item.upper()}")
+    def uppercase_items(items):
+        for item in items:
+            print(f"Uppercased: {item.upper()}")
 
     actions = {
-        'p': ('print', print_item),
-        'u': ('uppercase', uppercase_item),
+        'p': ('print', print_items),
+        'u': ('uppercase', uppercase_items),
     }
 
     return items, actions
