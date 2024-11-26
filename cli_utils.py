@@ -66,20 +66,8 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
     item_action_map = {item: None for item in item_map.values()}
 
     for action_spec in re.split(r'[,\s;]+', user_input.strip()):
-        if ':' in action_spec:
-            action_letter, item_spec = action_spec.split(':', 1)
-        else:
-            action_letter, item_spec = action_spec[0], action_spec[1:]
-        if action_letter not in actions:
-            print(f"Error: Invalid action '{action_letter}'.")
-            continue
-        selected_items = parse_item_spec(item_spec, item_map)
-        for item in selected_items:
-            if exclusive and item_action_map[item] is not None and item_action_map[item] != action_letter:
-                print(f"Error: Item '{item}' cannot have multiple different actions in exclusive mode.")
-                return
-            item_action_map[item] = action_letter
-        action_letter, item_spec = action_spec.split(':')
+        action_letter = action_spec[0]
+        item_spec = action_spec[1:] if len(action_spec) > 1 else ''
         if action_letter not in actions:
             print(f"Error: Invalid action '{action_letter}'.")
             continue
