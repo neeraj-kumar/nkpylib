@@ -50,3 +50,7 @@ search:
 	#python3 web_search.py "site:wikipedia.org philosophy"
 	#python3 web_search.py "asoid"
 	python3 web_search.py "site:www.the-pasta-project.com busiate pasta with trapani pesto"
+
+## run the CLI utility
+cli:
+	python3 cli_utils.py
