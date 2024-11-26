@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import string
-import readline
 import random
+import re
+import readline
+import string
 
 from typing import Any, Callable, TypeVar
 
@@ -29,7 +30,6 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
 
     item_action_map = {item: None for item in item_map.values()}
 
-    import re
     for action_spec in re.split(r'[,\s;]+', user_input.strip()):
         action_letter, item_spec = action_spec.split(':')
         if action_letter not in actions:
