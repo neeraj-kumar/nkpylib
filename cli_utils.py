@@ -77,10 +77,6 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
         return
 
     while not all(item_done.values()):
-        for label, item in item_map.items():
-            if not item_done[item]:
-                print(f"{label}: {item}")
-        print()
         action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
 
         user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
@@ -90,7 +86,12 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
                 item_done[item] = True  # Update item_done based on returned done items
         except Exception as e:
             print(f"Error: {e}")
+
         print("\nItems remaining:")
+        for label, item in item_map.items():
+            if not item_done[item]:
+                print(f"{label}: {item}")
+        print()
 
 def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]:
     """
