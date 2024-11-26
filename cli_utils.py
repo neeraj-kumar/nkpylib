@@ -23,11 +23,13 @@ def perform_actions_on_items(items: list[Any], actions: dict[str, Action]):
         print("Error: Too many items to enumerate with single characters.")
         return
 
-    item_list = ', '.join(f"{label}:{item}" for label, item in item_map.items())
+    for label, item in item_map.items():
+        print(f"{label}: {item}")
+    print()
     action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
 
     while True:
-        user_input = input(f"Items: {item_list} | Actions: {action_list} | Enter actions: ").strip()
+        user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
         try:
             for action_spec in user_input.split(','):
                 action_letter, item_spec = action_spec.split(':')
