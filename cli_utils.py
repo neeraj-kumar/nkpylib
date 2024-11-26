@@ -19,15 +19,17 @@ InputT = Any
 # an action is a name and a function
 Action = tuple[str, Callable[[list[InputT]], Iterable[InputT] | None]]
 
-def perform_actions_on_items(items: list[InputT],
-                             actions: dict[str, Action],
-                             exclusive: bool = False,
-                             print_func: Callable[[InputT], str] = str) -> None:
+def cli_item_action_loop(items: list[InputT],
+                         actions: dict[str, Action],
+                         exclusive: bool = False,
+                         print_func: Callable[[InputT], str] = str) -> None:
     """
-    Perform actions on a list of items based on user input.
+    Perform actions on a list of items based on user input in a loop until all items are done.
 
     :param items: List of items to perform actions on.
     :param actions: Dictionary mapping action letters to (action_name, action_func).
+    :param exclusive: If True, prevents multiple different actions on the same item.
+    :param print_func: Function to convert each item to a string for display.
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
     item_map = {label: item for label, item in zip(item_labels, items)}
@@ -62,6 +64,7 @@ def parse_user_input(user_input: str,
     :param user_input: The input string from the user specifying actions and items.
     :param actions: Dictionary mapping action letters to (action_name, action_func).
     :param item_map: Dictionary mapping item labels to items.
+    :param exclusive: If True, prevents multiple different actions on the same item.
     :return: List of items that have been marked as done.
     """
     action_items_map = {action: set() for action in actions}
@@ -179,4 +182,4 @@ if __name__ == '__main__':
     #test_cli_with_random_inputs(items, actions)
 
     # Run the CLI loop with user interaction
-    perform_actions_on_items(items, actions, exclusive=True)
+    cli_item_action_loop(items, actions, exclusive=True)
