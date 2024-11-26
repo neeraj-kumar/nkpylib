@@ -67,6 +67,7 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
     item_map = {label: item for label, item in zip(item_labels, items)}
+    item_action_map = {item: None for item in items}  # Initialize item_action_map
 
     if len(items) > len(item_labels):
         print("Error: Too many items to enumerate with single characters.")
