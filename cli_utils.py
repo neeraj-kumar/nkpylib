@@ -66,3 +66,22 @@ def parse_item_spec(item_spec, item_map):
             items.append(item_map[item_spec[i]])
             i += 1
     return items
+
+if __name__ == '__main__':
+    # Define a simple set of items
+    items = ['apple', 'banana', 'cherry', 'date', 'elderberry']
+
+    # Define actions with their corresponding functions
+    def print_item(item):
+        print(f"Item: {item}")
+
+    def uppercase_item(item):
+        print(f"Uppercased: {item.upper()}")
+
+    actions = {
+        'p': ('print', print_item),
+        'u': ('uppercase', uppercase_item),
+    }
+
+    # Run the CLI loop
+    perform_actions_on_items(items, actions)
