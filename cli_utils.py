@@ -16,7 +16,7 @@ InputT = TypeVar('InputT')
 InputT = Any
 
 # an action is a name and a function
-Action = tuple[str, Callable[[list[InputT]], list[InputT]]]
+Action = tuple[str, Callable[[list[InputT]], Iterable[InputT] | None]]
 
 def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> list[InputT]:
     """
@@ -56,10 +56,10 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
     for action_letter, items in action_items_map.items():
         if items:
             _, action_func = actions[action_letter]
-            done_items = action_func(list(items))
+            result = action_func(list(items))
+            if result is not None:
+                done_items.extend(item for item in result if item in item_map.values())
             print(f"Action '{action_letter}' done on items: {', '.join(map(str, items))}")
-            for item in done_items:
-                done_items.append(item)  # Collect done items
     return done_items
 
 def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False, print_func: Callable[[InputT], str] = str) -> None:
