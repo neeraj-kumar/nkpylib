@@ -19,12 +19,13 @@ InputT = Any
 Action = tuple[str, Callable[[list[InputT]], list[InputT]]]
 
 def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> list[InputT]:
-    :return: List of items that have been marked as done.
+    """
     Parse and execute user input actions on items.
 
     :param user_input: The input string from the user specifying actions and items.
     :param actions: Dictionary mapping action letters to (action_name, action_func).
     :param item_map: Dictionary mapping item labels to items.
+    :return: List of items that have been marked as done.
     """
     action_items_map = {action: set() for action in actions}
 
