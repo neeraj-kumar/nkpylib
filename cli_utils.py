@@ -16,7 +16,7 @@ InputT = TypeVar('InputT')
 InputT = Any
 
 # an action is a name and a function
-Action = tuple[str, Callable[[list[InputT]], None]]
+Action = tuple[str, Callable[[list[InputT]], list[InputT]]]
 
 def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> None:
     """
@@ -54,7 +54,9 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
     for action_letter, items in action_items_map.items():
         if items:
             _, action_func = actions[action_letter]
-            action_func(list(items))
+            done_items = action_func(list(items))
+            for item in done_items:
+                item_action_map[item] = None  # Mark item as done
 
 def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False) -> None:
     """
@@ -70,17 +72,19 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
         print("Error: Too many items to enumerate with single characters.")
         return
 
-    for label, item in item_map.items():
-        print(f"{label}: {item}")
-    print()
-    action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
+    while any(item_action_map.values()):
+        for label, item in item_map.items():
+            if item_action_map[item] is not None:
+                print(f"{label}: {item}")
+        print()
+        action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
 
-    while True:
         user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
         try:
             parse_user_input(user_input, actions, item_map, exclusive)
         except Exception as e:
             print(f"Error: {e}")
+        print("\nItems remaining:")
 
 def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]:
     """
@@ -116,13 +120,19 @@ def generate_test_data() -> tuple[list[str], dict[str, Action]]:
     """
     items = ['apple', 'banana', 'cherry', 'date', 'elderberry', 'fig', 'grape', 'honeydew', 'kiwi', 'lemon', 'mango']
 
-    def print_items(items):
+    def print_items(items) -> list[str]:
+        done = []
         for item in items:
             print(f"Item: {item}")
+            done.append(item)
+        return done
 
-    def uppercase_items(items):
+    def uppercase_items(items) -> list[str]:
+        done = []
         for item in items:
             print(f"Uppercased: {item.upper()}")
+            done.append(item)
+        return done
 
     actions = {
         'p': ('print', print_items),
