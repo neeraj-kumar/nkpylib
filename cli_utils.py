@@ -56,7 +56,7 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
             _, action_func = actions[action_letter]
             done_items = action_func(list(items))
             for item in done_items:
-                item_action_map[item] = None  # Mark item as done
+                item_done[item] = True  # Mark item as done
 
 def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False) -> None:
     """
@@ -67,15 +67,15 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
     item_map = {label: item for label, item in zip(item_labels, items)}
-    item_action_map = {item: None for item in items}  # Initialize item_action_map
+    item_done = {item: False for item in items}  # Initialize item_done
 
     if len(items) > len(item_labels):
         print("Error: Too many items to enumerate with single characters.")
         return
 
-    while any(item_action_map.values()):
+    while not all(item_done.values()):
         for label, item in item_map.items():
-            if item_action_map[item] is not None:
+            if not item_done[item]:
                 print(f"{label}: {item}")
         print()
         action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
