@@ -18,15 +18,20 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
     :param actions: Dictionary mapping action letters to (action_name, action_func).
     :param item_map: Dictionary mapping item labels to items.
     """
+    action_items_map = {action: set() for action in actions}
+
     for action_spec in user_input.split(','):
         action_letter, item_spec = action_spec.split(':')
         if action_letter not in actions:
             print(f"Error: Invalid action '{action_letter}'.")
             continue
-        action_name, action_func = actions[action_letter]
         selected_items = parse_item_spec(item_spec, item_map)
-        for item in selected_items:
-            action_func(item)
+        action_items_map[action_letter].update(selected_items)
+
+    for action_letter, items in action_items_map.items():
+        if items:
+            _, action_func = actions[action_letter]
+            action_func(list(items))
 
 def perform_actions_on_items(items: list[Any], actions: dict[str, Action]) -> None:
     """
