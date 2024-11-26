@@ -52,7 +52,10 @@ def perform_actions_on_items(items: list[InputT],
         except Exception as e:
             print(f"Error: {e}")
 
-def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> list[InputT]:
+def parse_user_input(user_input: str,
+                     actions: dict[str, Action],
+                     item_map: dict[str, InputT],
+                     exclusive: bool = False) -> list[InputT]:
     """
     Parse and execute user input actions on items.
 
@@ -67,7 +70,7 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
 
     for action_spec in re.split(r'[,\s;]+', user_input.strip()):
         action_letter = action_spec[0]
-        item_spec = action_spec[1:] if len(action_spec) > 1 else ''
+        item_spec = action_spec[2:] if action_spec[1] == ':' else action_spec[1:]
         if action_letter not in actions:
             print(f"Error: Invalid action '{action_letter}'.")
             continue
@@ -81,7 +84,7 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
             result = action_func(list(items))
             if result is not None:
                 done_items.extend(item for item in result if item in item_map.values())
-            print(f"Action '{action_letter}' done on items: {', '.join(map(str, items))}")
+            #print(f"Action '{action_letter}' done on items: {', '.join(map(str, items))}")
     return done_items
 
 def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]:
