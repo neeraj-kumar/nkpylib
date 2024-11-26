@@ -10,6 +10,24 @@ from typing import Any, Callable
 # an action is a name and a function
 Action = tuple[str, Callable[[Any], None]]
 
+def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, Any]) -> None:
+    """
+    Parse and execute user input actions on items.
+
+    :param user_input: The input string from the user specifying actions and items.
+    :param actions: Dictionary mapping action letters to (action_name, action_func).
+    :param item_map: Dictionary mapping item labels to items.
+    """
+    for action_spec in user_input.split(','):
+        action_letter, item_spec = action_spec.split(':')
+        if action_letter not in actions:
+            print(f"Error: Invalid action '{action_letter}'.")
+            continue
+        action_name, action_func = actions[action_letter]
+        selected_items = parse_item_spec(item_spec, item_map)
+        for item in selected_items:
+            action_func(item)
+
 def perform_actions_on_items(items: list[Any], actions: dict[str, Action]) -> None:
     """
     Perform actions on a list of items based on user input.
@@ -32,15 +50,7 @@ def perform_actions_on_items(items: list[Any], actions: dict[str, Action]) -> No
     while True:
         user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
         try:
-            for action_spec in user_input.split(','):
-                action_letter, item_spec = action_spec.split(':')
-                if action_letter not in actions:
-                    print(f"Error: Invalid action '{action_letter}'.")
-                    continue
-                action_name, action_func = actions[action_letter]
-                selected_items = parse_item_spec(item_spec, item_map)
-                for item in selected_items:
-                    action_func(item)
+            parse_user_input(user_input, actions, item_map)
         except Exception as e:
             print(f"Error: {e}")
 
@@ -115,15 +125,8 @@ def test_cli_with_random_inputs(items: list[Any], actions: dict[str, Action], n:
 
         print(f"Testing with input: {user_input}")
         try:
-            for action_spec in user_input.split(','):
-                action_letter, item_spec = action_spec.split(':')
-                if action_letter not in actions:
-                    print(f"Error: Invalid action '{action_letter}'.")
-                    continue
-                action_name, action_func = actions[action_letter]
-                selected_items = parse_item_spec(item_spec, {label: item for label, item in zip(valid_labels, items)})
-                for item in selected_items:
-                    action_func(item)
+            item_map = {label: item for label, item in zip(valid_labels, items)}
+            parse_user_input(user_input, actions, item_map)
         except Exception as e:
             print(f"Error: {e}")
 
