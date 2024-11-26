@@ -5,7 +5,10 @@ from __future__ import annotations
 import string
 import random
 
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
+
+# Type variable for input items
+InputT = TypeVar('InputT')
 
 # Type alias for input items
 InputT = Any
