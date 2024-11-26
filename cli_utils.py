@@ -61,7 +61,7 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
                 done_items.append(item)  # Collect done items
     return done_items
 
-def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False) -> None:
+def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False, print_func: Callable[[InputT], str] = str) -> None:
     """
     Perform actions on a list of items based on user input.
 
@@ -80,7 +80,7 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
         print("\nItems remaining:")
         for label, item in item_map.items():
             if not item_done[item]:
-                print(f"{label}: {item}")
+                print(f"{label}: {print_func(item)}")
         print()
 
         action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
@@ -96,7 +96,7 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], ex
         print("\nItems remaining:")
         for label, item in item_map.items():
             if not item_done[item]:
-                print(f"{label}: {item}")
+                print(f"{label}: {print_func(item)}")
         print()
 
 def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]:
