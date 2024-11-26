@@ -8,6 +8,7 @@ import readline
 import string
 
 from typing import Any, Callable, TypeVar
+from collections.abc import Iterable
 
 # Type variable for input items
 InputT = TypeVar('InputT')
