@@ -5,10 +5,10 @@ from __future__ import annotations
 import string
 import random
 
-from typing import Any, Callable, Tuple
+from typing import Any, Callable
 
 # an action is a name and a function
-Action = Tuple[str, Callable[[Any], None]]
+Action = tuple[str, Callable[[Any], None]]
 
 def perform_actions_on_items(items: list[Any], actions: dict[str, Action]) -> None:
     """
@@ -126,6 +126,8 @@ def test_cli_with_random_inputs(items: list[Any], actions: dict[str, Action], n:
                     action_func(item)
         except Exception as e:
             print(f"Error: {e}")
+
+if __name__ == '__main__':
     # Generate test data
     items, actions = generate_test_data()
 
