@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import string
+import random
 
 from typing import Any
 
@@ -69,11 +70,14 @@ def parse_item_spec(item_spec, item_map):
             i += 1
     return items
 
-if __name__ == '__main__':
-    # Define a simple set of items
+def generate_test_data():
+    """
+    Generate a simple set of items and actions for testing.
+
+    :return: A tuple containing a list of items and a dictionary of actions.
+    """
     items = ['apple', 'banana', 'cherry', 'date', 'elderberry']
 
-    # Define actions with their corresponding functions
     def print_item(item):
         print(f"Item: {item}")
 
@@ -85,5 +89,48 @@ if __name__ == '__main__':
         'u': ('uppercase', uppercase_item),
     }
 
-    # Run the CLI loop
+    return items, actions
+
+def test_cli_with_random_inputs(items, actions, n=10):
+    """
+    Test the CLI with randomly generated user input strings.
+
+    :param items: List of items to perform actions on.
+    :param actions: Dictionary mapping action letters to (action_name, action_func).
+    :param n: Number of random inputs to generate for testing.
+    """
+    item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
+    valid_labels = item_labels[:len(items)]
+    action_letters = list(actions.keys())
+
+    for _ in range(n):
+        # Generate a random input string
+        num_actions = random.randint(1, 3)
+        input_parts = []
+        for _ in range(num_actions):
+            action = random.choice(action_letters)
+            item_spec = ''.join(random.choice(valid_labels) for _ in range(random.randint(1, 3)))
+            input_parts.append(f"{action}:{item_spec}")
+        user_input = ','.join(input_parts)
+
+        print(f"Testing with input: {user_input}")
+        try:
+            for action_spec in user_input.split(','):
+                action_letter, item_spec = action_spec.split(':')
+                if action_letter not in actions:
+                    print(f"Error: Invalid action '{action_letter}'.")
+                    continue
+                action_name, action_func = actions[action_letter]
+                selected_items = parse_item_spec(item_spec, {label: item for label, item in zip(valid_labels, items)})
+                for item in selected_items:
+                    action_func(item)
+        except Exception as e:
+            print(f"Error: {e}")
+    # Generate test data
+    items, actions = generate_test_data()
+
+    # Run tests with random inputs
+    test_cli_with_random_inputs(items, actions)
+
+    # Run the CLI loop with user interaction
     perform_actions_on_items(items, actions)
