@@ -26,16 +26,19 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
     """
     action_items_map = {action: set() for action in actions}
 
-    item_action_map = {}
+    item_action_map = {item: None for item in item_map.values()}
 
     for action_spec in user_input.split(','):
-        if exclusive:
-            item_spec = action_spec.split(':')[1]
-            for item in parse_item_spec(item_spec, item_map):
-                if item in item_action_map:
-                    print(f"Error: Item '{item}' cannot have multiple actions in exclusive mode.")
-                    return
-                item_action_map[item] = action_spec.split(':')[0]
+        action_letter, item_spec = action_spec.split(':')
+        if action_letter not in actions:
+            print(f"Error: Invalid action '{action_letter}'.")
+            continue
+        selected_items = parse_item_spec(item_spec, item_map)
+        for item in selected_items:
+            if exclusive and item_action_map[item] is not None and item_action_map[item] != action_letter:
+                print(f"Error: Item '{item}' cannot have multiple different actions in exclusive mode.")
+                return
+            item_action_map[item] = action_letter
         action_letter, item_spec = action_spec.split(':')
         if action_letter not in actions:
             print(f"Error: Invalid action '{action_letter}'.")
