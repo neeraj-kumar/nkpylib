@@ -57,6 +57,7 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
         if items:
             _, action_func = actions[action_letter]
             done_items = action_func(list(items))
+            print(f"Action '{action_letter}' done on items: {', '.join(map(str, items))}")
             for item in done_items:
                 done_items.append(item)  # Collect done items
     return done_items
