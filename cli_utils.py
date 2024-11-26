@@ -5,7 +5,7 @@ from __future__ import annotations
 import string
 import random
 
-from typing import Any, Callable, list, dict, tuple
+from typing import Any, Callable
 
 # an action is a name and a function
 Action = tuple[str, Callable[[list[Any]], None]]
