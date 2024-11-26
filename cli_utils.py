@@ -9,7 +9,7 @@ from typing import Any
 # an action is a name and a function
 Action = tuple[str, callable]
 
-def perform_actions_on_items(items: list[Any], actions: dict[str, Action])):
+def perform_actions_on_items(items: list[Any], actions: dict[str, Action]):
     """
     Perform actions on a list of items based on user input.
 
