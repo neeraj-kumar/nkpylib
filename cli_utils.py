@@ -16,7 +16,7 @@ InputT = Any
 # an action is a name and a function
 Action = tuple[str, Callable[[list[InputT]], None]]
 
-def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT]) -> None:
+def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict[str, InputT], exclusive: bool = False) -> None:
     """
     Parse and execute user input actions on items.
 
@@ -26,7 +26,16 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
     """
     action_items_map = {action: set() for action in actions}
 
+    item_action_map = {}
+
     for action_spec in user_input.split(','):
+        if exclusive:
+            item_spec = action_spec.split(':')[1]
+            for item in parse_item_spec(item_spec, item_map):
+                if item in item_action_map:
+                    print(f"Error: Item '{item}' cannot have multiple actions in exclusive mode.")
+                    return
+                item_action_map[item] = action_spec.split(':')[0]
         action_letter, item_spec = action_spec.split(':')
         if action_letter not in actions:
             print(f"Error: Invalid action '{action_letter}'.")
@@ -39,7 +48,7 @@ def parse_user_input(user_input: str, actions: dict[str, Action], item_map: dict
             _, action_func = actions[action_letter]
             action_func(list(items))
 
-def perform_actions_on_items(items: list[InputT], actions: dict[str, Action]) -> None:
+def perform_actions_on_items(items: list[InputT], actions: dict[str, Action], exclusive: bool = False) -> None:
     """
     Perform actions on a list of items based on user input.
 
@@ -61,7 +70,7 @@ def perform_actions_on_items(items: list[InputT], actions: dict[str, Action]) ->
     while True:
         user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
         try:
-            parse_user_input(user_input, actions, item_map)
+            parse_user_input(user_input, actions, item_map, exclusive)
         except Exception as e:
             print(f"Error: {e}")
 
@@ -114,7 +123,7 @@ def generate_test_data() -> tuple[list[str], dict[str, Action]]:
 
     return items, actions
 
-def test_cli_with_random_inputs(items: list[InputT], actions: dict[str, Action], n: int = 10) -> None:
+def test_cli_with_random_inputs(items: list[InputT], actions: dict[str, Action], n: int = 10, exclusive: bool = False) -> None:
     """
     Test the CLI with randomly generated user input strings.
 
@@ -139,7 +148,7 @@ def test_cli_with_random_inputs(items: list[InputT], actions: dict[str, Action],
         print(f"Testing with input: {user_input}")
         try:
             item_map = {label: item for label, item in zip(valid_labels, items)}
-            parse_user_input(user_input, actions, item_map)
+            parse_user_input(user_input, actions, item_map, exclusive)
         except Exception as e:
             print(f"Error: {e}")
 
