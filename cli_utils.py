@@ -18,7 +18,8 @@ Action = tuple[str, Callable[[list[InputT]], Iterable[InputT] | None]]
 def cli_item_action_loop(items: list[InputT],
                          actions: dict[str, Action],
                          exclusive: bool = False,
-                         print_func: Callable[[InputT], str] = str) -> None:
+                         print_func: Callable[[InputT], str] = str,
+                         max_items: int = 0) -> None:
     """
     Perform actions on a list of items based on user input in a loop until all items are done.
 
@@ -28,7 +29,7 @@ def cli_item_action_loop(items: list[InputT],
     :param print_func: Function to convert each item to a string for display.
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
-    max_items_per_chunk = len(item_labels)
+    max_items_per_chunk = min(max_items if max_items > 0 else len(item_labels), len(item_labels))
     total_items = len(items)
     start_index = 0
 
