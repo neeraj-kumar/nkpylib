@@ -13,9 +13,6 @@ from collections.abc import Iterable
 # Type variable for input items
 InputT = TypeVar('InputT')
 
-# Type alias for input items
-InputT = Any
-
 # an action is a name and a function
 Action = tuple[str, Callable[[list[InputT]], Iterable[InputT] | None]]
 
@@ -42,12 +39,12 @@ def cli_item_action_loop(items: list[InputT],
     action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
     while not all(item_done.values()):
         remaining_count = sum(not done for done in item_done.values())
-        print(f"\nItems remaining ({remaining_count}):")
+        print(f"\n{remaining_count} items remaining:")
         for label, item in item_map.items():
             if not item_done[item]:
                 print(f"{label}: {print_func(item)}")
         print()
-        user_input = input(f"Actions: {action_list} | Enter actions: > ").strip()
+        user_input = input(f"Actions: {action_list} > ").strip()
         try:
             done_items = parse_user_input(user_input, actions, item_map, exclusive)
             for item in done_items:
@@ -146,7 +143,10 @@ def generate_test_data() -> tuple[list[str], dict[str, Action]]:
 
     return items, actions
 
-def test_cli_with_random_inputs(items: list[InputT], actions: dict[str, Action], n: int = 10, exclusive: bool = False) -> None:
+def test_cli_with_random_inputs(items: list[InputT],
+                                actions: dict[str, Action],
+                                n: int = 10,
+                                exclusive: bool = False) -> None:
     """
     Test the CLI with randomly generated user input strings.
 
