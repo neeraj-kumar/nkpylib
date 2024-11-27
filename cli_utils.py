@@ -65,7 +65,7 @@ def parse_user_input(user_input: str,
     :param exclusive: If True, prevents multiple different actions on the same item.
     :return: List of items that have been marked as done.
     """
-    action_items_map = {action: set() for action in actions}
+    action_items_map: dict[str, set[InputT]] = {action: set() for action in actions}
 
     item_action_map = {item: None for item in item_map.values()}
 
@@ -78,7 +78,7 @@ def parse_user_input(user_input: str,
         selected_items = parse_item_spec(item_spec, item_map)
         action_items_map[action_letter].update(selected_items)
 
-    done_items = []
+    done_items: list[InputT] = []
     for action_letter, items in action_items_map.items():
         if items:
             _, action_func = actions[action_letter]
