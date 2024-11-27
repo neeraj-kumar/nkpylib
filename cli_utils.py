@@ -122,14 +122,14 @@ def generate_test_data() -> tuple[list[str], dict[str, Action]]:
     """
     items = ['apple', 'banana', 'cherry', 'date', 'elderberry', 'fig', 'grape', 'honeydew', 'kiwi', 'lemon', 'mango']
 
-    def print_items(items) -> list[str]:
+    def print_items(items: list[str]) -> list[str]:
         done = []
         for item in items:
             print(f"Item: {item}")
             done.append(item)
         return done
 
-    def uppercase_items(items) -> list[str]:
+    def uppercase_items(items: list[str]) -> list[str]:
         done = []
         for item in items:
             print(f"Uppercased: {item.upper()}")
