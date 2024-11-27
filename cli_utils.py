@@ -7,8 +7,7 @@ import re
 import readline
 import string
 
-from typing import Any, Callable, TypeVar
-from collections.abc import Iterable
+from typing import Callable, TypeVar, Iterable
 
 # Type variable for input items
 InputT = TypeVar('InputT')
@@ -96,7 +95,7 @@ def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]
     :param item_map: Dictionary mapping item labels to items.
     :return: List of items corresponding to the specification.
     """
-    items = []
+    items: list[InputT] = []
     i = 0
     while i < len(item_spec):
         if i + 2 < len(item_spec) and item_spec[i+1] == '-':
