@@ -28,28 +28,33 @@ def cli_item_action_loop(items: list[InputT],
     :param print_func: Function to convert each item to a string for display.
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
-    item_map = {label: item for label, item in zip(item_labels, items)}
-    item_done = {item: False for item in items}  # Initialize item_done
+    max_items_per_chunk = len(item_labels)
+    total_items = len(items)
+    start_index = 0
 
-    if len(items) > len(item_labels):
-        print("Error: Too many items to enumerate with single characters.")
-        return
+    while start_index < total_items:
+        end_index = min(start_index + max_items_per_chunk, total_items)
+        current_chunk = items[start_index:end_index]
+        item_map = {label: item for label, item in zip(item_labels, current_chunk)}
+        item_done = {item: False for item in current_chunk}
 
-    action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
-    while not all(item_done.values()):
-        remaining_count = sum(not done for done in item_done.values())
-        print(f"\n{remaining_count} items remaining:")
-        for label, item in item_map.items():
-            if not item_done[item]:
-                print(f"{label}: {print_func(item)}")
-        print()
-        user_input = input(f"Actions: {action_list} > ").strip()
-        try:
-            done_items = parse_user_input(user_input, actions, item_map, exclusive)
-            for item in done_items:
-                item_done[item] = True  # Update item_done based on returned done items
-        except Exception as e:
-            print(f"Error: {e}")
+        action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
+        while not all(item_done.values()):
+            remaining_count = sum(not done for done in item_done.values())
+            print(f"\n{remaining_count} items remaining in current chunk:")
+            for label, item in item_map.items():
+                if not item_done[item]:
+                    print(f"{label}: {print_func(item)}")
+            print()
+            user_input = input(f"Actions: {action_list} > ").strip()
+            try:
+                done_items = parse_user_input(user_input, actions, item_map, exclusive)
+                for item in done_items:
+                    item_done[item] = True
+            except Exception as e:
+                print(f"Error: {e}")
+
+        start_index += max_items_per_chunk
 
 def parse_user_input(user_input: str,
                      actions: dict[str, Action],
