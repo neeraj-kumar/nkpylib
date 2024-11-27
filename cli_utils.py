@@ -82,7 +82,7 @@ def parse_user_input(user_input: str,
         if action_letter not in actions:
             print(f"Error: Invalid action '{action_letter}'.")
             continue
-        selected_items = parse_item_spec(item_spec, item_map)
+        selected_items = [item for item in parse_item_spec(item_spec, item_map) if not item_done[item]]
         action_items_map[action_letter].update(selected_items)
 
     done_items: list[InputT] = []
