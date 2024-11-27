@@ -50,7 +50,7 @@ def cli_item_action_loop(items: list[InputT],
             print()
             user_input = input(f"Actions: {action_list} > ").strip()
             try:
-                done_items = parse_user_input(user_input, actions, item_map, exclusive)
+                done_items = parse_user_input(user_input, actions, item_map, exclusive, item_done)
                 for item in done_items:
                     item_done[item] = True
             except Exception as e:
@@ -62,7 +62,8 @@ def cli_item_action_loop(items: list[InputT],
 def parse_user_input(user_input: str,
                      actions: dict[str, Action],
                      item_map: dict[str, InputT],
-                     exclusive: bool = False) -> list[InputT]:
+                     exclusive: bool = False,
+                     item_done: dict[InputT, bool] = None) -> list[InputT]:
     """
     Parse and execute user input actions on items.
 
