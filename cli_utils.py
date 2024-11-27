@@ -41,7 +41,8 @@ def cli_item_action_loop(items: list[InputT],
 
     action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
     while not all(item_done.values()):
-        print("\nItems remaining:")
+        remaining_count = sum(not done for done in item_done.values())
+        print(f"\nItems remaining ({remaining_count}):")
         for label, item in item_map.items():
             if not item_done[item]:
                 print(f"{label}: {print_func(item)}")
