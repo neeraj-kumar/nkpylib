@@ -29,20 +29,21 @@ def cli_item_action_loop(items: list[InputT],
     :param print_func: Function to convert each item to a string for display.
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
-    max_items_per_chunk = min(max_items if max_items > 0 else len(item_labels), len(item_labels))
+    max_items_per_batch = min(max_items if max_items > 0 else len(item_labels), len(item_labels))
     total_items = len(items)
     start_index = 0
+    batch_num = 1
 
     while start_index < total_items:
-        end_index = min(start_index + max_items_per_chunk, total_items)
-        current_chunk = items[start_index:end_index]
-        item_map = {label: item for label, item in zip(item_labels, current_chunk)}
-        item_done = {item: False for item in current_chunk}
+        end_index = min(start_index + max_items_per_batch, total_items)
+        current_batch = items[start_index:end_index]
+        item_map = {label: item for label, item in zip(item_labels, current_batch)}
+        item_done = {item: False for item in current_batch}
 
         action_list = ', '.join(f"{name}({letter})" for letter, (name, _) in actions.items())
         while not all(item_done.values()):
             remaining_count = sum(not done for done in item_done.values())
-            print(f"\n{remaining_count} items remaining in current chunk:")
+            print(f"\n{remaining_count} items remaining in batch {batch_num} of {total_items//max_items_per_batch+1}")
             for label, item in item_map.items():
                 if not item_done[item]:
                     print(f"{label}: {print_func(item)}")
@@ -55,7 +56,8 @@ def cli_item_action_loop(items: list[InputT],
             except Exception as e:
                 print(f"Error: {e}")
 
-        start_index += max_items_per_chunk
+        start_index += max_items_per_batch
+        batch_num += 1
 
 def parse_user_input(user_input: str,
                      actions: dict[str, Action],
