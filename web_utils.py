@@ -4,6 +4,9 @@ Note that I'm starting over in 2024, as the old webutils.py (no underscore) is m
 web.py, not tornado.
 """
 
+#TODO generic LLM searcher does multiple searches, and runs them (in parallel if possible)
+#TODO   see if it makes sense to have generic search results combiner
+
 from __future__ import annotations
 
 import argparse
