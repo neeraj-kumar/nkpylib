@@ -15,7 +15,7 @@ help:
 	} \
 	{ lastLine = $$0 }' $(MAKEFILE_LIST)
 
-BASE_PY_FILES=chroma.py airtable.py recipes.py web_utils.py web_search.py constants.py state_logger.py thread_utils.py geo.py tasks.py fs_tree.py
+BASE_PY_FILES=chroma.py airtable.py recipes.py web_utils.py web_search.py constants.py state_logger.py thread_utils.py geo.py tasks.py fs_tree.py cli_utils.py
 # utils.py
 PY_FILES=$(BASE_PY_FILES)
 
