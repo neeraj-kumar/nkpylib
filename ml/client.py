@@ -148,8 +148,9 @@ class FunctionWrapper:
         """Batch input synchronous mode, processing a list of inputs"""
         futures = self.batch_futures(inputs, *args, **kwargs)
         if self.progress_msg:
-            futures = list(tqdm(futures, desc=self.progress_msg))
-        return [f.result() for f in futures]
+            return [f.result() for f in tqdm(futures, desc=self.progress_msg)]
+        else:
+            return [f.result() for f in futures]
 
     def __call__(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Call the batch sync function"""
