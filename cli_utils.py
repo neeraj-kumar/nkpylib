@@ -17,7 +17,7 @@ Action = tuple[str, Callable[[list[InputT]], Iterable[InputT] | None]]
 
 def cli_item_action_loop(items: list[InputT],
                          actions: dict[str, Action],
-                         exclusive: bool = False,
+                         exclusive: bool = True,
                          print_func: Callable[[InputT], str] = str,
                          max_items: int = 0) -> None:
     """
