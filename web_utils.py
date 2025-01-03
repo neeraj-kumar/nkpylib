@@ -315,8 +315,8 @@ def default_index() -> str:
     return f'''<!doctype html>
 <html>
   <head>
-    <script src="https://unpkg.com/react/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/react-router-dom@4/umd/react-router-dom.min.js"></script>
     <script src="https://unpkg.com/babel-standalone/babel.js"></script>
     <script src="https://unpkg.com/prop-types/prop-types.min.js"></script>
