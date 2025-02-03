@@ -79,6 +79,8 @@ def update_providers(path=PROVIDERS_PATH):
         providers = json.load(f)
     for name, provider in providers.items():
         logger.info(f'\nUpdating provider {name}')
+        if provider.get('no_model_api'):
+            continue
         models = call_provider(name, '/models')['data']
         logger.debug(f'  {len(models)} models: {models[:10]}')
         provider['models'] = {m['id']: m for m in models}
