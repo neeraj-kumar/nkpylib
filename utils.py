@@ -1,34 +1,6 @@
 #!/usr/bin/env python
 """Lots of small python utilities, written by Neeraj Kumar.
 
-Licensed under the 3-clause BSD License:
-
-Copyright (c) 2010-2014, Neeraj Kumar (http://neerajkumar.org)
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the author nor the
-      names of its contributors may be used to endorse or promote products
-      derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL NEERAJ KUMAR BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
 Table of Contents
 -----------------
 
@@ -52,12 +24,16 @@ Code Starts Now
 -----------------
 """
 
+from __future__ import annotations
+
 import os, sys, random, math, time
 import functools
 
 from math import pi
 from itertools import *
 from threading import Thread
+from typing import Any, Literal, Type, TypeVar, get_args, get_origin
+
 import string
 
 ## DECORATORS
@@ -2849,6 +2825,32 @@ def testurl2fname():
         basedir = os.path.join('Angie Rocks!@()#$%^&*~~.33.jpg', hostdir)
         dir = url2fname(url, basedir=basedir, maxlen=128)
         print(dir)
+
+T = TypeVar("T")
+def is_instance_of_type(value: Any, expected_type: Type[T]) -> bool:
+    """Recursively checks if `value` matches the structure of `expected_type`.
+
+    Supports generic types like list[tuple[float, str]].
+    """
+    origin = get_origin(expected_type)
+    args = get_args(expected_type)
+    if origin is None:  # Base case: non-generic type
+        if expected_type is Any:
+            return True
+        return isinstance(value, expected_type)
+    elif origin is list:
+        if not isinstance(value, list):
+            return False
+        return all(is_instance_of_type(item, args[0]) for item in value)
+    elif origin is tuple:
+        if not isinstance(value, tuple) or len(value) != len(args):
+            return False
+        return all(is_instance_of_type(item, arg) for item, arg in zip(value, args))
+    elif origin is Literal:
+        return value in args
+    else: # If the type isn't handled explicitly
+        raise NotImplementedError(f"Unsupported type: {expected_type}")
+
 
 if __name__ == '__main__':
     import doctest
