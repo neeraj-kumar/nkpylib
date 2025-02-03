@@ -78,3 +78,545 @@ Embedding timings:
   - bge: 1.67 sentences/s for embedding speed, 1 proc
   - bge: If i use the multiprocess version (2 procs * 8 cores), I get 2.05 sentences/s
   - e5: couldn't get working...needs version 2.4.0dev of st but i have 2.2
+
+
+
+2025-01-31 - Otter transcription from 'pdf extraction'
+-----------------------
+Okay, so we want to
+
+think about extracting data from PDFs and also renaming them. So the framework for this I had thought of whatever a year or two ago was roughly two or three stages. So the first stage is we extract from a PDF as much metadata as we can. So this means both actual metadata, like current file name, like MD five or SHA one hashes, and then like author field and title field and things like that.
+
+And then we use
+
+ml models to extract from the content of the document itself, different kinds of structured metadata. And so, you know, when I had thought of this project, that was before kind of llms had really become big.
+
+So now, of course, we have both llms and BLMs, and
+
+there's perhaps some interesting
+
+things that can be done there that I'll get to in a second, but
+
+the basic idea is
+
+we extract a bunch of metadata. And I think this is not just keys and values, or rather, if it is, you can have repeated values, or maybe arrays of values, and maybe even structures and keys might not be totally simple, like, for example, you could imagine, not you could imagine, but I know For sure that PDFs have tables, and so here we basically want the whole contents of the table as
+
+as some sort of,
+
+you know, with the full information. And so very roughly speaking, you have a key, you have a row label and a column label, and then you have the kind of value in the cell. And so in this case, the key is a tuple of row, comma, column, something like that.
+
+But then there's other metadata that's around
+
+that we also kind of want.
+
+And so,
+
+you know, another way to think about this is maybe some sort of hierarchical parsing, where we have different values which might kind of apply to a grouping of hierarchy below them.
+
+So
+
+so that's kind of
+
+the first big step, which is extracting metadata.
+
+The second
+
+is, what do we do with this?
+
+And so I think
+
+one thing we could do is we could rename the files directly, if you provide a pattern or template.
+
+And so here,
+
+you know, the user would just
+
+use something like, you know, Python's formatting style of like
+
+braces
+
+or the old format, style of percent, open parentheses, name of field, close parentheses, s to get the value and say you could just type this like on the command line, and It would rename
+
+one file, or potentially many files.
+
+One piece of kind of Logistics is when you extract the metadata, where you put it.
+
+The two common
+
+answers are
+
+one file per input file or one file for a bunch of inputs. And so if you do one file per input file, then, of course, you have to worry about kind of what do you name them? Where do you put them? A common name type would be prepending a period before the original file name and adding a suffix of dot metadata, JSON or something like that. But then if you move the original you would like to move the kind of metadata file with it. You Another option is to write it directly into the PDF metadata. But first of all, I don't know what the limits on that are, or the both on terms of size as well as format. I think ideally I would like the format to be JSON, so we can always stuff that as a string. But you know, it might be huge, because potentially we have, like, the entire content of the document, maybe even expressed multiple ways. So the other thing is that stuffing it in the metadata will modify the files hash. And so that becomes tricky.
+
+And so
+
+for those reasons, the option of putting the metadata for multiple files into a single metadata file seems more appealing, like a database, basically. And so then the question is, well, what do we key this database off of? And the answer is probably a hash of the file, but modified, but also we keep, let's say, the current file path, and
+
+then the future, we can update the file path needed
+
+now, because the schema inside is going to change quite a bit, I don't know if it makes sense to put all this into
+
+like air table,
+
+probably not, but, you know, we could always think of that in the future, or, you know, potentially some local database. But I don't know if I have much in need of local database anymore. It seems just like, well, let's just shove it in. I mean, I guess the local option could be Chroma,
+
+which is maybe we're thinking about but
+
+So, OK, so that's kind of logistics so
+
+and so, step two is basically renaming A file based on extracted metadata fields. Now one of the potential issues here is that if we're using llms to extract fields, then those extracted field names might be slightly different, and so we might need a kind of schema normalization step. And so this is maybe a more specific instance of the third overall step, which is some sort of joint reasoning over a bunch of extractions, right? And so in particular, if we extract
+
+the current, if we extract
+
+metadata from, let's say, all the files in a directory, then now we can kind of look at them jointly and try to figure out some things in common. So one is we could try to normalize the schema.
+
+The second is, we could
+
+try to
+
+auto extract,
+
+we could try to figure out what the current names are, and the current names might or might not be generated from the current values, but if they Are, then we could get kind of the
+
+current file name.
+
+Could get the current
+
+file name schema, if you will, right? So let's say the file is actually named like, date,
+
+space, title
+
+of the file. Then we want, we would want to get this kind of template string of date, space, title. And then if we do that for a bunch of files, we So, in fact, this step maybe doesn't even need a group of files, although it might be more robust if we do. But the other thing we can do is given a bunch of files with deduced templates,
+
+we could then try to get we
+
+could then basically try to auto suggest a format, like a title, sorry, file name, template for all of them, and then show what those file names would be, and then give the user and for One Click option to rename. The other thing we can do is, so among the like types of metadata we want to extract, we want to get some sort of like type of document, so like, let's say medical lab tests or something like that. And maybe we have, like, a couple different fields, like, we want a generic type, and then we want, like a more specific type,
+
+and we want, like a vendor or something,
+
+and so,
+
+so a couple directions to go with this. One is
+
+maybe we want to
+
+figure out
+
+which ones come from kind of the same template,
+
+like document template, not filing template, and do something like my grammar parse for those to be more robust in extraction,
+
+the
+
+what else I was thinking about, something else but you forgot it.
+
+I So, yeah, so let's say we have, I
+
+Yeah, we might also Want similarity between Google files. And this is where the step three, the joint reasoning, might include. I mean, there might not be part of reasoning in terms of like NLM or a BLM, but it might be as part of some,
+
+you know, like just running embeddings of some sort
+
+that can be used to help organize these things. So
+
+okay, so I think those are kind
+
+of the big steps. And then you know, so what are the actual uses of this? So one is renaming. Second is kind of data extraction. And so in particular, once I have the metadata, it would be nice to be able to take, like to write something where I can extract the values I care about for my health spreadsheets. You know, I'd probably have to inspect them, but I think inspection is still a lot faster than kind of transcribing by hand everything. So, right, so I think those are kind of the three big steps, and obviously the first one is the most involved in tricky. And so here let's think about implementation. And so we have llms and we have vlms, and they both take some text prompts its input. And in fact, they allow for chat
+
+with some sort of,
+
+you know, history.
+
+And the main difference is that the VLM also takes an image as input, and so well, potentially many images.
+
+And so I think
+
+one thing we could
+
+do is, you know, convert the PDF into text. We could either do it as raw text, we could do that HTML, we could do it as markdown. This is maybe more a practical question of just trying out different things and seeing what seems to work better. But in any case, we convert it to text, and then what do we do? So then we pass the text to an LLM and we ask it, you know, various questions, like, what is the title? What is is there an author? Is there a date?
+
+Is there?
+
+Like, what category of document is, what specific type of document is? And then,
+
+you know, to extract
+
+a big list of keys and values.
+
+Now, one of the things here is different types of documents are going to have different types of fields. And so I think there's explicit fields and implicit fields. Explicit fields are those where the keys are listed on the document, and implicit keys are where the key is not listed, but it's kind of, it's not listed explicitly, but it can be inferred.
+
+So, you know, trying to,
+
+trying to get at that might be somewhat tricky.
+
+So anyway, so one option is like we do it like with the normal LLM. The second option is that we pass an image of, let's say, one page at a time, to the VLM and ask it roughly the same set of questions and get back you know the answers. Now, other things we can imagine doing are running it through some sort of like
+
+tagging.
+
+Sorry, not tagging, but segmentation algorithm, so it'll segment kind of different pieces of the document, and then if we can look up what is at those locations, then we can ask,
+
+Well, okay, how do we
+
+how do we get at
+
+those values? Or rather, what? What are those values? What do those values represent? I And so here we could, in fact, do this for both the LLM and the BLM. And so it looks like modern BLM has some notion of like pixel coordinates, either raw pixel coordinates or in terms of percentage, but either way, we can get those. And so you can potentially ask it what is at this given location or within this given class, and to describe it on the LLM side, if we give it as some sort of structured input,
+
+then we
+
+can add an identifier to each little section, and then we can in the chat, we can kind of ask Questions around. So, what does it mean to
+
+have a
+
+what does it mean to have a
+
+like, why? What is the describe the value 2.74
+
+and you know, section number seven.
+
+And then you know, can try to figure out from context what, what it might mean. I Yeah. So, you know, I don't know how these things, how the chat history works with context, in particular, how much it's able to remember, and whether you have to restart the conversation at some point or do something else. So that's something to figure out. I mean, in the worst case, you just do it from scratch each time, right? You give it the image or the original text, and then you ask it the question. But obviously that's kind of expensive, and so it'd be nice to do it without it. Now, ideally, what we want is some sort of like, well, I don't want to call it agent, because that's very overloaded these days, but some sort of, like automatic but,
+
+but kind of divergent
+
+set of questions, right? So like, let's say, for instance, we had a taxonomy of different kinds of
+
+documents. And then for each
+
+type of document, ie, one of the nodes in this taxonomy, we had a list of questions or fields that we knew existed and their data types. And so then what we'd want to do is we'd want to say, Well, what say, Well, what, where in the taxonomy, does this document fit? And then, now, given that taxonomy schema type, we want to ask, well, what is the schema? Or rather, not, what is the schema like? That's something we look up. And then, given the schema, we kind of ask the question, you know, probably in batches of like, okay, given that we know it's, you know, a tax document, or, like, more specifically, at 1090 9b then, like, here are the questions to ask, and then we want to get answers back. So,
+
+so I think that's,
+
+like, ideally, one way to structure this to get the most specific kind of detailed information. Now, that is probably somewhat impractical, because we don't have this full list. And you know, there are a lot of types of documents that either don't have a fixed schema, or it can be too variable or changes too frequently. So you know the another possibility is to kind of look at
+
+is to look at
+
+a grammar parse type thing, where if we have multiple instances of something, then we can try to factor out the pieces that are in common and the pieces that are not and then use that to get at
+
+something about the structure of the document,
+
+but even there, right? So if, like, if I'm looking at, let's say, Uber receipts for me, they're all going to have my name in it. And so my name is going to be factored out as like, part of the quote, unquote background, even though it's actually irrelevant piece of information
+
+and so.
+
+So I think another way to think about this is as
+
+an exhaustive thing, where we have every piece of content in the document and we want to try to identify it so,
+
+so basically, we would exhaustively ask
+
+the model whether it's a VLM or an LLM, we'd ask it, is this, you know, what is this piece of content? Right? Describe this, give it some keys and values. Or is it a key, or is it a value?
+
+But the idea being that, if
+
+we kind of exhaustively label everything, then we know we've covered everything. We might have a lot of spurious stuff in there, but still, but then. So coming back to this earlier idea of like, if you had an explicit schema, how we might do it, I mean, I wonder if there's a more generic kind of routine where we can have it kind of formulate questions and ask them itself, until we kind of have a full, you know knowledge of
+
+what we're looking at. I
+
+and so I don't quite know how this might work. This is probably future, future work. But you know, one way to do it would be to kind of
+
+try to do this explicit
+
+procedure, but not actually having it pre defined. And so basically, would ask it first, like, what kind of document is this?
+
+What are the
+
+expected fields
+
+for this kind of document, and what are the expected names of those fields? What are the expected like under what labels might that exist? Are the labels likely to be implicit or explicit? And then, what are the values for those?
+
+And so? And then,
+
+sorry, not what are the values, but what type of value? How long should the value be? And then we would ask it. You'd basically generate questions based on that. So we would say,
+
+here's a document of type X, and
+
+we're looking to find, you know, one value or multiple values for the key x. The key x is likely to have an explicit label, and the label is likely to be one of these. Now, based on the document, does this exist in the document? And if so, how many times and for each one, please output the value, so something like that, and so we kind of run that in a loop to get kind of a full list of the expected values. So that's kind of a three or four step process. Now, I don't know the best way to kind of coat this up. I mean, I think I can just, we're not talking 20 steps here. I can probably just code this fairly manually in the future. It might be worth looking into, like, whether it makes sense to shove this into D spy or, God forbid, Lang chain or something like that. But that's probably enough to get started with. But I should do this after I do the simpler version of just asking it like give me a list of all keys and values in the in the document. So yeah, and
+
+the other thing is, you know, have to deal with the usual bullshit about context and output length and all of that, so I should try to write code that's somewhat generic.
+
+This is topic for a separate
+
+Voice Note. But also I should look into like
+
+basically abstracting over the different
+
+LMS I have and BLMs and making it generic, since everyone now seems to use the standard API like rest format, which does make it very nice, but I should just standardize that and then make it easy to switch between them. I think the other thing that's missing right now is I need a way to kind of have these chats and kind of keep state, and so I should just look into how to make that happen. I think it should be doable with my current API, my kind of LLM API
+
+abstraction. abstractions, but I need to check.
+
+Transcribed by https://otter.ai
+
+
+2025-02-02 - Otter transcription from 'pdf extraction 2'
+-----------------------
+Okay, so we're talking now about PDF extraction again, and so as a reminder, we have three major steps. One, we have metadata or data structure, data extraction from a PDF, right? So this is the actual tough thing. Second, we have the renaming based on extracted data,
+
+which is easy,
+
+but probably required framework to make it very user friendly, and this might already exist to some degree. And then third, we have reasoning over multiple files. So in a separate thing, I talked about setting up a VLM
+
+and more expanded LLM,
+
+and so I think those are going to be necessary pieces for how this works. So I did a quick test with a sample invoice from like the Microsoft templates library, which I passed as an image to a VLM, something reasonably recent, maybe not the latest and greatest, but close enough. And it was quite good. It had it had no mistakes, from what I could tell, and it was reasonably complete on a admittedly easy example. So I think
+
+the
+
+so that maybe it's my current plan of action is to go the VLM route. And so with the VLM, I want to basically extract different things.
+
+And so
+
+rather than going down the complicated route I talked about yesterday, which was some sort of loop where at first we get the type, and then, based on the type, we ask it various questions. I think let's just try to have a more all inclusive prompt. And so what we want to say are extract all the metadata and data from this document
+
+as a dictionary,
+
+the keys of the database strings should be unique strings, I should say, and
+
+the values
+
+can be any data type, including something hierarchical, like list. It can also be float or numbers.
+
+It can be
+
+a subject
+
+and basically we want to tell it like be as complete as possible. And so then that'll give us something, and we do this page by page. And so then what we end up with is essentially one dict of extracted values per page. And now we have, you know, basically a list of these things, a list of these dicts. And then maybe we have some final stage where We like coalesce these things.
+
+So something do to right?
+
+If something we could do are to say,
+
+well, we could ask the LLM, sorry, Alm or VLM to help with the coalescing stage right. So I think it's nice to be able to run each page independently, and because we can do that in parallel then. And so we end up with all these sticks, and then we need to coalesce them. And so here we might ask an LLM
+
+to say, here are
+
+multiple dicts of data extracted from different pages of a PDF like please coalesce it into a single dict. And the different possibilities are either that you want the you like you might have one field which just repeats and it's identical, so in which case, just keep it. You might have a field which is identical but it's named differently across pages. So pick one name and keep that. Or you might have different values, or it might be paid specific, in which case you should
+
+keep them at sales. And then,
+
+in general you want to keep things
+
+Yeah, so the other thing is, you might have like each page might talk about, might have the same types of values, but referring to a different
+
+subset of ongoing data.
+
+What's an example? So maybe if you have like a
+
+like an anthem
+
+explanation of benefits, then you have, hypothetically, one page per provider. And so let's say, you know, you had a hospital visit, so that's page one, and Page Two is maybe a therapy, therapist set of sessions. And so then what you want is you want a top level dict that says, you know, reimbursements, and that has
+
+a subject, which is like provider.
+
+And then each provider goes to a list of charges or list of lines, and each line has a number of fields like service rendered, diagnostic codes, build price, the amount insurance covers and the amount you owe, right? So I guess that would be the ideal. So I think getting that level of nesting ideally is where maybe some trickiness comes in. Oh, I guess another thing to think about is that, how does our neer kind
+
+of function
+
+given this hierarchical data? So I think there's a few possibilities. One, we can have something like JQ format, where we essentially allow a JQ
+
+input command string
+
+that takes,
+
+you know, the JavaScript, sorry, the JSON struct that's extracted and creates,
+
+creates a
+
+string out of that. And, in fact, go further and have this string itself be generated by another, we can say, given the user template,
+
+and here's The actual data,
+
+generate,
+
+generate the jQuery string, jQuery command, or, for that matter, Python code, I guess. But let's say jQuery, just to keep it simple, to extract the relevant fields
+
+and
+
+right? So that's one possibility. Another possibility is, given the generated data structure from the file, we can have it output.
+
+We can have it output at the top level, or something close to the top level, various other fields, like, you know, let's say we have like, a number of items in a receipt, in ways, then we could have like N underscore items,
+
+which is just like length of that thing.
+
+But, you know, it's hard to know maybe, what are the kinds of things we're going to want, and so
+
+maybe,
+
+maybe, let's go with the first approach, of like some sort of JQ, like
+
+command, string or code.
+
+So that's one set of things. Another set of things is inferring a template, like a naming template from actual file names. And so here again, we want to use an LLM to do this. And so I think the natural thing to do is to say, here is the input data file. Here is the file name that was generated from it,
+
+write a template string that
+
+represents what
+
+that generates that file name? And
+
+so I think we want to explain that this is a Python style format string. I think we also want to give us some examples. And interestingly, I think this is where we could generate these examples programmatically, given that actual data structure. So we want to say, for example, given this data, if the template string was, you know, name, underscore, date, then
+
+the file name would be
+
+that, right? So you actually just run that example. And so maybe we can just write some code to generate, you know, a couple of these things. We're including some delimiters and things like that.
+
+So I think that might actually work quite well.
+
+The other thing is,
+
+can we actually do
+
+I wait the last one to cut so we generate these
+
+examples,
+
+then we have it predict,
+
+I guess one thing we have to be concerned about is like, how expressive the Python template strings can be in particular, can they? Can we have like, functions inside the template specifier? I believe we can, but I don't remember for sure, and part of the problem is that, unfortunately, I don't think we can execute an F style string. Or maybe you can just using eval. So maybe we can, you know, dip down to that if we need to. Oh, yeah. So I think, yeah, I remember. The other thing to think about is, like, the path, and so I think in some cases, we want to be generating part of the path, and so that, I guess, I don't quite know how to do, but I guess we'll have to figure that out.
+
+Transcribed by https://otter.ai
+
+
+2025-01-31 - Otter transcription from 'ml server'
+-----------------------
+OK, so this is about the LLM, or I should really say ml server.
+
+So the ML server that I have in my code. And so currently this, there's this abstraction where there's a function which is actually the implementation, right? And so I have like, a text similarity, like a search similarity, and then I have a like, extract embedding, extract image embedding, and then I give it some parameters, and then I have different ways of calling it. So there's kind of synchronous and async and single versus batch and multi threaded, multi process and so on. So I have these different ways of, kind of instantiating these different functions. And now one of the things I would like is, so, you know, I have, like, a generic LLM completion function. Now this function, first of all, is one off, right? So there's no notion of state or not explicitly, at least. And so I want a chat version, right? And so how should the chat version work? Well, I think it's some sort of like continuation. And so when you call this function, you get back some output, and that output should give you an object. That output should be an object which lets you see the current output or even the past history of outputs, as well as give it more outputs. Give it more inputs. Sorry, and so I think
+
+I should figure out
+
+if I can make that happen. I don't see why not. I mean, I think currently I have kind of two versions of all these functions. One is kind of a raw version, and one is a like, not raw version. And so maybe this is one of the not raw versions, and it's not just, course, to text or image, but to something else, an object problem, which you can call function again. So that's one piece. The second is switching between different providers. And
+
+so currently there's a model name.
+
+But I think more than the model name, maybe I want to have it include, like a model provider, because the same model might be served from different places, and so I want to have different providers, and I don't know if that should go in the function parameters, or should that should go in the instantiation parameters. I mean instantiation parameters are more about how it is called. So it's called, you know, via as a synchronous or asynchronous. So it doesn't really belong there, I think. But then again, I think my raw versus not raw is also an instantiation, so there's a little bit of mixing, and so it could go there. I also want a way to query, kind of a list of models for each service, and for each service, what the pricing is if that's available programmatically. Also one thing that'd be super nice is input and output lines
+
+programmatically, such as look into that.
+
+Transcribed by https://otter.ai
+
+
+2025-02-02 - Otter transcription from 'ml client and server 2'
+-----------------------
+Okay, so we're talking now about PDF extraction again, and so as a reminder, we have three major steps. One, we have metadata or data structure, data extraction from a PDF, right? So this is the actual tough thing. Second, we have the renaming based on extracted data,
+
+which is easy,
+
+but probably required framework to make it very user friendly, and this might already exist to some degree. And then third, we have reasoning over multiple files. So in a separate thing, I talked about setting up a VLM
+
+and more expanded LLM,
+
+and so I think those are going to be necessary pieces for how this works. So I did a quick test with a sample invoice from like the Microsoft templates library, which I passed as an image to a VLM, something reasonably recent, maybe not the latest and greatest, but close enough. And it was quite good. It had it had no mistakes, from what I could tell, and it was reasonably complete on a admittedly easy example. So I think
+
+the
+
+so that maybe it's my current plan of action is to go the VLM route. And so with the VLM, I want to basically extract different things.
+
+And so
+
+rather than going down the complicated route I talked about yesterday, which was some sort of loop where at first we get the type, and then, based on the type, we ask it various questions. I think let's just try to have a more all inclusive prompt. And so what we want to say are extract all the metadata and data from this document
+
+as a dictionary,
+
+the keys of the database strings should be unique strings, I should say, and
+
+the values
+
+can be any data type, including something hierarchical, like list. It can also be float or numbers.
+
+It can be
+
+a subject
+
+and basically we want to tell it like be as complete as possible. And so then that'll give us something, and we do this page by page. And so then what we end up with is essentially one dict of extracted values per page. And now we have, you know, basically a list of these things, a list of these dicts. And then maybe we have some final stage where We like coalesce these things.
+
+So something do to right?
+
+If something we could do are to say,
+
+well, we could ask the LLM, sorry, Alm or VLM to help with the coalescing stage right. So I think it's nice to be able to run each page independently, and because we can do that in parallel then. And so we end up with all these sticks, and then we need to coalesce them. And so here we might ask an LLM
+
+to say, here are
+
+multiple dicts of data extracted from different pages of a PDF like please coalesce it into a single dict. And the different possibilities are either that you want the you like you might have one field which just repeats and it's identical, so in which case, just keep it. You might have a field which is identical but it's named differently across pages. So pick one name and keep that. Or you might have different values, or it might be paid specific, in which case you should
+
+keep them at sales. And then,
+
+in general you want to keep things
+
+Yeah, so the other thing is, you might have like each page might talk about, might have the same types of values, but referring to a different
+
+subset of ongoing data.
+
+What's an example? So maybe if you have like a
+
+like an anthem
+
+explanation of benefits, then you have, hypothetically, one page per provider. And so let's say, you know, you had a hospital visit, so that's page one, and Page Two is maybe a therapy, therapist set of sessions. And so then what you want is you want a top level dict that says, you know, reimbursements, and that has
+
+a subject, which is like provider.
+
+And then each provider goes to a list of charges or list of lines, and each line has a number of fields like service rendered, diagnostic codes, build price, the amount insurance covers and the amount you owe, right? So I guess that would be the ideal. So I think getting that level of nesting ideally is where maybe some trickiness comes in. Oh, I guess another thing to think about is that, how does our neer kind
+
+of function
+
+given this hierarchical data? So I think there's a few possibilities. One, we can have something like JQ format, where we essentially allow a JQ
+
+input command string
+
+that takes,
+
+you know, the JavaScript, sorry, the JSON struct that's extracted and creates,
+
+creates a
+
+string out of that. And, in fact, go further and have this string itself be generated by another, we can say, given the user template,
+
+and here's The actual data,
+
+generate,
+
+generate the jQuery string, jQuery command, or, for that matter, Python code, I guess. But let's say jQuery, just to keep it simple, to extract the relevant fields
+
+and
+
+right? So that's one possibility. Another possibility is, given the generated data structure from the file, we can have it output.
+
+We can have it output at the top level, or something close to the top level, various other fields, like, you know, let's say we have like, a number of items in a receipt, in ways, then we could have like N underscore items,
+
+which is just like length of that thing.
+
+But, you know, it's hard to know maybe, what are the kinds of things we're going to want, and so
+
+maybe,
+
+maybe, let's go with the first approach, of like some sort of JQ, like
+
+command, string or code.
+
+So that's one set of things. Another set of things is inferring a template, like a naming template from actual file names. And so here again, we want to use an LLM to do this. And so I think the natural thing to do is to say, here is the input data file. Here is the file name that was generated from it,
+
+write a template string that
+
+represents what
+
+that generates that file name? And
+
+so I think we want to explain that this is a Python style format string. I think we also want to give us some examples. And interestingly, I think this is where we could generate these examples programmatically, given that actual data structure. So we want to say, for example, given this data, if the template string was, you know, name, underscore, date, then
+
+the file name would be
+
+that, right? So you actually just run that example. And so maybe we can just write some code to generate, you know, a couple of these things. We're including some delimiters and things like that.
+
+So I think that might actually work quite well.
+
+The other thing is,
+
+can we actually do
+
+I wait the last one to cut so we generate these
+
+examples,
+
+then we have it predict,
+
+I guess one thing we have to be concerned about is like, how expressive the Python template strings can be in particular, can they? Can we have like, functions inside the template specifier? I believe we can, but I don't remember for sure, and part of the problem is that, unfortunately, I don't think we can execute an F style string. Or maybe you can just using eval. So maybe we can, you know, dip down to that if we need to. Oh, yeah. So I think, yeah, I remember. The other thing to think about is, like, the path, and so I think in some cases, we want to be generating part of the path, and so that, I guess, I don't quite know how to do, but I guess we'll have to figure that out.
+
+Transcribed by https://otter.ai
+
