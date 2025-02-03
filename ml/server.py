@@ -8,17 +8,18 @@ of the dependencies.
 In the future, I hope to make this more general and more robust, but for now it's a simple fastapi
 server.
 
-In general, functions come in two flavors:
-- raw: These functions return the raw JSON response from the server. These are in
-  openai-compatible format. For now, this is probably not very useful except in niche cases.
-- non-raw (no suffix): These functions return the actual data you want, e.g. the embedding or the
-  completion text.
+To run it:
 
-In both cases, you can optionally provide a model name, but there's always a sensible default.
+    uvicorn server:app --reload --port 8234 --host 0.0.0.0
+
+In general, most functions require a model name, but there's always a sensible default.
 The list of default models (with short names) is in `nkpylib.ml.constants.DEFAULT_MODELS`.
 
 By default, we cache results for each model, but you can turn this off by setting `use_cache=False`
 in your request.
+
+The server always returns "raw" responses (which are typically JSON). The client code has options
+for getting a "processed" version of the response, which is more useful for most cases.
 
 Anywhere a `url` is specified, it can also be a local path on this machine.
 
@@ -46,11 +47,12 @@ Current ML types and models:
 
 
 import functools
+import logging
 import tempfile
 import time
 import uuid
 
-from typing import Any, Optional, Union, Callable
+from typing import Any, Callable, Literal, Optional, Union
 from urllib.request import urlretrieve
 
 import fastapi
@@ -60,8 +62,12 @@ import requests
 from PIL import Image
 from pydantic import BaseModel
 
-from nkpylib.ml.constants import DEFAULT_MODELS
+from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg
+from nkpylib.ml.providers import call_external
 from nkpylib.ml.text import get_text
+from nkpylib.utils import is_instance_of_type
+
+logger = logging.getLogger(__name__)
 
 app = fastapi.FastAPI()
 app.state.models = {}
@@ -110,7 +116,6 @@ def get_clip_image_embedding(img: Union[str, Image.Image]):
     """Gets the clip image embedding for the given `img` (url, path, or image)"""
     clip_image, clip_image = load_clip()
     return clip_image(img).numpy()
-
 
 
 def llama(prompt, methods, model_dir='models', get_embeddings=False):
@@ -163,14 +168,6 @@ def test(prompt = "Summarize the plot of the movie Fight Club."):
     func = llama
     func(prompt, methods)
 
-# setup fastapi completion endpoint
-class CompletionRequest(BaseModel):
-    prompt: str
-    model: Optional[str]='mistral-7b-instruct-v0.2.Q4_K_M.gguf'
-    max_tokens: Optional[int]=128
-    kwargs: Optional[dict]={}
-    use_cache: Optional[bool]=False
-
 
 
 def load_model(model_name: str, load_func: LoadFuncT, **kw) -> tuple[object, dict, bool]:
@@ -205,9 +202,23 @@ def generic_run_model(
         cache_key: Optional[str]=None,
         **kw) -> dict:
     """Generic code for loading and running a model, including caching behavior.
+
+    This is a helper function that loads the model into a global cache using `load_func`, and then
+    runs the model using `run_func`. It also caches the output of `run_func` if `cache_key` is
+    specified.
+
+    The `load_func` calls `load_model(model_name, load_func)` and returns `(model, cache, did_load)`.
+    The 2nd returned arg is the model's own cache dict for caching its outputs, and the 3rd is a bool
+    indicating whether the model was actually loaded or not (i.e., it was already loaded).
+
+    The model is run using `run_func(input, model, **kw)`.
+
+    We return a dict with the output returned from the `run_func`, as well as a key `timing` with
+    various timing information.
     """
     t0 = time.time()
     model, cache, did_load = load_model(model_name, load_func)
+    logger.debug(f'Loaded model {model_name} with cache keys {cache.keys()}, checking cache_key {cache_key}')
     t1 = time.time()
     found_cache = False
     if cache_key in cache:
@@ -226,9 +237,19 @@ def generic_run_model(
     )
     return ret
 
+
+# setup fastapi completion endpoint
+class CompletionRequest(BaseModel):
+    prompt: str
+    model: Optional[str]='mistral-7b-instruct-v0.2.Q4_K_M.gguf'
+    max_tokens: Optional[int]=128
+    kwargs: Optional[dict]={}
+    use_cache: Optional[bool]=False
+
 @app.post("/v1/completions")
 async def completions(req: CompletionRequest):
     """Generates completions for the given prompt using the given model."""
+    # prefer to use the chat endpoint instead
     cache_key = f"{req.max_tokens}:{req.prompt}" if req.use_cache else None
     assert req.model is not None, "Model must be specified for completions request"
     if req.model in DEFAULT_MODELS:
@@ -240,7 +261,7 @@ async def completions(req: CompletionRequest):
             return model
 
         def run_func(input, model, **kw):
-            print(f'Running llama-3 model: {model} on input: {input}')
+            #print(f'Running llama-3 model: {model} on input: {input}')
             if model.startswith('models/'):
                 model = model.split('/', 1)[-1]
             ret = llm_complete(prompt=input, model_name=model, **kw)
@@ -282,6 +303,74 @@ async def completions(req: CompletionRequest):
     ret['prompt'] = req.prompt
     ret['model'] = ret['model'].split('/')[-1]
     ret['max_tokens'] = req.max_tokens
+    return ret
+
+# setup fastapi chat endpoint
+class ChatRequest(BaseModel):
+    prompts: str|list[Msg]
+    model: Optional[str]='chat' # this will get mapped bsaed on DEFAULT_MODELS['chat']
+    max_tokens: Optional[int]=1024
+    kwargs: Optional[dict]={}
+    use_cache: Optional[bool]=False
+    provider: Optional[str]=''
+
+@app.post("/v1/chat")
+async def chat(req: ChatRequest):
+    """Generates chat response for the given prompts using the given model."""
+    cache_key = f"{req.max_tokens}:{str(req.prompts)}" if req.use_cache else None
+    assert req.model is not None, "Model must be specified for chat request"
+    if req.model in DEFAULT_MODELS:
+        req.model = DEFAULT_MODELS[req.model]
+    logger.debug('Chat request:', req, cache_key, req.model in LOCAL_MODELS)
+    if req.model in LOCAL_MODELS:
+        def load_func(model, **kw):
+            from llama_cpp import Llama
+            return Llama(
+              model_path=model,
+              n_ctx=8192,#32768,
+              n_threads=8,
+              n_gpu_layers=35,
+            )
+
+        def run_func(input, model, **kw):
+            return model(
+              input,
+              max_tokens=kw['max_tokens'],
+              echo=False,
+            )
+    else:
+        # run this using external api
+        def load_func(model, **kw):
+            return model
+
+        def run_func(input, model, **kw):
+            logger.debug(f'Running external model: {model} on input: {input} with kw {kw}')
+            if model.startswith('models/'):
+                model = model.split('/', 1)[-1]
+            prompts = input
+            if isinstance(prompts, str):
+                prompts = [('user', prompts)]
+            # check that `prompts` is now a sequence of Msg
+            assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
+            if not kw:
+                kw = {}
+            kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+            ret = call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
+            return ret
+
+    ret = generic_run_model(
+        input=req.prompts,
+        model_name=f'models/{req.model}',
+        load_func=load_func,
+        run_func=run_func,
+        cache_key=cache_key,
+        max_tokens=req.max_tokens,
+    )
+    # the output is already in openai compatible format, just do some cleanup
+    ret['prompts'] = req.prompts
+    ret['model'] = ret.get('model', req.model).split('/', 1)[-1]
+    ret['max_tokens'] = req.max_tokens
+    logger.debug('Chat response:', ret)
     return ret
 
 
@@ -433,4 +522,5 @@ async def get_text_api(req: GetTextRequest, cache={}):
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     test()

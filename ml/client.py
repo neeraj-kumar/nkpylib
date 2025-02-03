@@ -61,6 +61,7 @@ default, but can be disabled by passing `use_cache=False` to any of the function
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import tempfile
 import time
@@ -72,7 +73,9 @@ from typing import Any, Optional, Union, Sequence, Callable, Iterator
 
 import requests
 
-from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION
+from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION, Role, Msg
+
+logger = logging.getLogger(__name__)
 
 def chunked(lst: list[Any], n: int) -> Iterator[list[Any]]:
     """Yield successive n-sized chunks from lst."""
@@ -90,7 +93,12 @@ class FunctionWrapper:
     executor: ThreadPoolExecutor
     progress_msg: str
 
-    def __init__(self, core_func: Callable[..., ResponseT], final_func: Optional[Callable[[ResponseT], Any]] = None, mode: str = 'final', executor: Optional[ThreadPoolExecutor] = None, progress_msg: str = ''):
+    def __init__(self,
+                 core_func: Callable[..., ResponseT],
+                 final_func: Optional[Callable[[ResponseT], Any]] = None,
+                 mode: str = 'final',
+                 executor: Optional[ThreadPoolExecutor] = None,
+                 progress_msg: str = ''):
         """Initialize the FunctionWrapper with the core function and optional final function.
 
         The core function should take the input and any additional arguments and return the raw
@@ -102,7 +110,8 @@ class FunctionWrapper:
         user-friendly output. You can set the mode to 'raw' to return the raw JSON response.
 
         We also allow you to pass in an executor to use for parallel calls. By default, we create a
-        new ThreadPoolExecutor for each FunctionWrapper instance.
+        new `ThreadPoolExecutor` for each `FunctionWrapper` instance.
+
         The core function should take the input and any additional arguments and return the raw
         JSON response from the server. The final function should take the raw response and return
         a more user-friendly output. If no final function is provided, we default to 'raw' mode (and
@@ -232,7 +241,7 @@ def single_call(endpoint: str, model:Optional[str]=None, **kw) -> ResponseT:
     return requests.post(url, json=data).json()
 
 @execution_wrapper(final_func=lambda x: x['choices'][0]['text'])
-def call_llm(prompt: str, max_tokens:int =128, model:Optional[str] =None, use_cache=True, **kw) -> ResponseT:
+def call_llm_completion(prompt: str, max_tokens:int =1024, model:Optional[str] =None, use_cache=True, **kw) -> ResponseT:
     """Calls our local llm server for a completion.
 
     Uses the 'mistral-7b-instruct-v0.2.Q4_K_M.gguf' model by default.
@@ -245,6 +254,51 @@ def call_llm(prompt: str, max_tokens:int =128, model:Optional[str] =None, use_ca
                        model=model,
                        use_cache=use_cache,
                        **kw)
+
+@execution_wrapper(final_func=lambda x: x['choices'][0]['message']['content'])
+def call_llm(prompts: str|list[Msg],
+             max_tokens:int =1024,
+             model:Optional[str] =None,
+             session_id:str ='',
+             use_cache=True,
+             session_cache={},
+             **kw) -> ResponseT:
+    """Calls our local llm server for a chat completion.
+
+    You can either pass in a single prompt (str), or a list of (role, text) tuples.
+
+    By default, this has no memory of previous calls (i.e., you have to keep track of history
+    yourself and pass in the full list of prompts each time). If you want to not have to remember
+    past messages, you can pass in a `session_id` which will be used to keep track of the
+    conversation history. In that case, any `prompts` you pass in, and each response from the
+    server, will be appended to the history indexed by `session_cache[session_id]`.
+
+    Uses the 'chat' model in DEFAULT_MODELS by default.
+
+    Returns the raw json response (as a dict).
+    """
+    if session_id:
+        # we need to append the input prompt(s) to the cached history for this session
+        if session_id in session_cache:
+            lst = session_cache[session_id][:]
+        else:
+            lst = []
+        if isinstance(prompts, str):
+            prompts = [('user', prompts)]
+        lst += prompts
+        prompts = lst
+        logger.debug(f'for session {session_id}, using prompts {prompts}')
+    ret = single_call("chat",
+                      prompts=prompts,
+                      max_tokens=max_tokens,
+                      model=model,
+                      use_cache=use_cache,
+                      **kw)
+    logger.debug(f'chat response: {ret}')
+    if session_id:
+        msg = ret['choices'][0]['message']
+        session_cache[session_id] = prompts + [(msg['role'], msg['content'])]
+    return ret
 
 @execution_wrapper(final_func=lambda x: x['data'][0]['embedding'])
 def embed_text(s: str, model: str='sentence', use_cache=True, **kw) -> ResponseT:
@@ -367,8 +421,17 @@ async def test_all():
                 myprint(f'  Batch future call, {kwargs}:', fs)
                 myprint('    Results', [f.result() for f in fs])
 
+def quick_test():
+    #print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
+    logging.basicConfig(level=logging.DEBUG)
+    kwargs = dict(model='', session_id='a')
+    kwargs['model'] = 'gpt-4o-mini'
+    print(call_llm.single('describe light', **kwargs))
+    print(call_llm.single('summarize that in one sentence', **kwargs))
+    print(call_llm.single('summarize it in 3 sentences', **kwargs))
 
 if __name__ == '__main__':
+    quick_test(); sys.exit();
     # check that we're not importing torch or numpy, etc
     disallowed = ['torch', 'numpy', 'transformers', 'PIL']
     for key in sys.modules.keys():
