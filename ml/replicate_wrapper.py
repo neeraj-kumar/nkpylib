@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import base64
 import logging
-import mimetypes
 import os
 import tempfile
 import time
@@ -21,17 +19,9 @@ import requests
 
 from PIL import Image
 
-from nkpylib.ml.constants import REPLICATE_MODELS
+from nkpylib.ml.constants import REPLICATE_MODELS, data_url_from_file
 
 logger = logging.getLogger(__name__)
-
-
-def data_url_from_file(file_obj, mimetype='') -> str:
-    """Converts a file object to a data URL. You can optionally provide the explicit mimetype"""
-    data = file_obj.read()
-    if not mimetype:
-        mimetype, _ = mimetypes.guess_type(file_obj.name)
-    return f"data:{mimetype or ''};base64,{base64.b64encode(data).decode()}"
 
 
 class Prediction:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 
 from typing import Literal
@@ -20,6 +22,8 @@ DEFAULT_MODELS = dict(
     llama3='meta-llama/Llama-3.3-70B-Instruct',
     chat='meta-llama/Llama-3.3-70B-Instruct-Turbo',
     text='meta-llama/Llama-3.3-70B-Instruct',
+    vlm='meta-llama/Llama-3.2-90B-Vision-Instruct',
+    docimage='accounts/fireworks/models/qwen2-vl-72b-instruct',
 )
 
 LOCAL_MODELS = os.listdir('models/') + ['openai/clip-vit-large-patch14']
@@ -34,3 +38,13 @@ REPLICATE_MODELS = dict(
 # typedefs for message roles and text
 Role = Literal['user', 'assistant', 'system']
 Msg = tuple[Role, str]
+
+
+def data_url_from_file(file_obj, mimetype='') -> str:
+    """Converts a file object to a data URL. You can optionally provide the explicit mimetype"""
+    data = file_obj.read()
+    if not mimetype:
+        mimetype, _ = mimetypes.guess_type(file_obj.name)
+    return f"data:{mimetype or ''};base64,{base64.b64encode(data).decode()}"
+
+
