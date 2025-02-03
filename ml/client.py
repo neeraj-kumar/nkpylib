@@ -27,7 +27,7 @@ In addition, the wrapper allows you to specify the following:
   progress bar.
 
 The core functions and their inputs and other parameters are:
-- `call_llm`: LLM completion with a given input prompt
+- `call_llm`: LLM chat completion with a given input prompt or list of prompts
   - `model`: The model to use. Default is 'mistral-7b-instruct-v0.2.Q4_K_M.gguf'
   - In `final` mode, returns the text of the first choice
 - `embed_text`: Embeds an input string using the specified model
@@ -255,6 +255,47 @@ def call_llm_completion(prompt: str, max_tokens:int =1024, model:Optional[str] =
                        use_cache=use_cache,
                        **kw)
 
+
+def call_llm_impl(prompts: str|list[Msg],
+                  max_tokens:int,
+                  image: str='',
+                  model:Optional[str] =None,
+                  session_id:str ='',
+                  use_cache=True,
+                  session_cache={},
+                  **kw) -> ResponseT:
+    """Implementation for llm and vlm chat completions.
+
+    Returns the raw json response (as a dict).
+    """
+    if session_id:
+        # we need to append the input prompt(s) to the cached history for this session
+        if session_id in session_cache:
+            lst = session_cache[session_id][:]
+        else:
+            lst = []
+        if isinstance(prompts, str):
+            prompts = [('user', prompts)]
+        lst += prompts
+        prompts = lst
+        logger.debug(f'for session {session_id}, using prompts {prompts}')
+    call_kwargs = dict(prompts=prompts, max_tokens=max_tokens, model=model, use_cache=use_cache, **kw)
+    if image:
+        if isinstance(image, str): # it's already an image or url
+            ret = single_call("vlm", image=image, **call_kwargs)
+        else: # it's a PIL Image
+            with tempfile.NamedTemporaryFile(suffix=".png") as f:
+                image.save(f.name)
+                ret = single_call("vlm", image=f.name, **call_kwargs)
+    else:
+        ret = single_call("chat", **call_kwargs)
+    logger.debug(f'chat response: {ret}')
+    if session_id:
+        msg = ret['choices'][0]['message']
+        session_cache[session_id] = prompts + [(msg['role'], msg['content'])]
+    return ret
+
+
 @execution_wrapper(final_func=lambda x: x['choices'][0]['message']['content'])
 def call_llm(prompts: str|list[Msg],
              max_tokens:int =1024,
@@ -277,28 +318,46 @@ def call_llm(prompts: str|list[Msg],
 
     Returns the raw json response (as a dict).
     """
-    if session_id:
-        # we need to append the input prompt(s) to the cached history for this session
-        if session_id in session_cache:
-            lst = session_cache[session_id][:]
-        else:
-            lst = []
-        if isinstance(prompts, str):
-            prompts = [('user', prompts)]
-        lst += prompts
-        prompts = lst
-        logger.debug(f'for session {session_id}, using prompts {prompts}')
-    ret = single_call("chat",
-                      prompts=prompts,
-                      max_tokens=max_tokens,
-                      model=model,
-                      use_cache=use_cache,
-                      **kw)
-    logger.debug(f'chat response: {ret}')
-    if session_id:
-        msg = ret['choices'][0]['message']
-        session_cache[session_id] = prompts + [(msg['role'], msg['content'])]
-    return ret
+    return call_llm_impl(prompts=prompts,
+                         max_tokens=max_tokens,
+                         model=model,
+                         session_id=session_id,
+                         use_cache=use_cache,
+                         session_cache=session_cache)
+
+
+@execution_wrapper(final_func=lambda x: x['choices'][0]['message']['content'])
+def call_vlm(inputs: tuple[str, str|list[Msg]],
+             max_tokens:int =1024,
+             model:Optional[str] =None,
+             session_id:str ='',
+             use_cache=True,
+             session_cache={},
+             **kw) -> ResponseT:
+    """Calls our local vlm server for a VLM chat completion.
+
+    The inputs are a tuple of (image_url, prompts). You can either pass in a single prompt (str), or
+    a list of (role, text) tuples. The image is entered into the first "user" message.
+
+    By default, this has no memory of previous calls (i.e., you have to keep track of history
+    yourself and pass in the full list of prompts each time). If you want to not have to remember
+    past messages, you can pass in a `session_id` which will be used to keep track of the
+    conversation history. In that case, any `prompts` you pass in, and each response from the
+    server, will be appended to the history indexed by `session_cache[session_id]`.
+
+    Uses the 'vlm' model in DEFAULT_MODELS by default.
+
+    Returns the raw json response (as a dict).
+    """
+    image, prompts = inputs
+    return call_llm_impl(prompts=prompts,
+                         max_tokens=max_tokens,
+                         image=image,
+                         model=model,
+                         session_id=session_id,
+                         use_cache=use_cache,
+                         session_cache=session_cache)
+
 
 @execution_wrapper(final_func=lambda x: x['data'][0]['embedding'])
 def embed_text(s: str, model: str='sentence', use_cache=True, **kw) -> ResponseT:
@@ -324,27 +383,20 @@ def strsim(input_: tuple[str, str], model='clip', use_cache=True, **kw) -> Respo
     return single_call("strsim", a=a, b=b, model=model, use_cache=use_cache, **kw)
 
 @execution_wrapper(final_func=lambda x: x['data'][0]['embedding'])
-def embed_image_url(url: str, model='image', use_cache=True, **kw) -> ResponseT:
-    """Embeds an image (url or local path) using the specified model.
+def embed_image(img: str, model='image', use_cache=True, **kw) -> ResponseT:
+    """Embeds an image (url or local path or loaded PIL image) using the specified model.
 
     Uses the 'openai/clip-vit-large-patch14' model by default.
 
     Returns the raw json response (as a dict).
     """
-    return single_call("image_embeddings", url=url, model=model, use_cache=use_cache, **kw)
-
-@execution_wrapper(final_func=lambda x: x['data'][0]['embedding'])
-def embed_image(img, model='image', use_cache=True, **kw) -> ResponseT:
-    """Embeds an image (loaded PIL image) using the specified model.
-
-    Uses the 'openai/clip-vit-large-patch14' model by default.
-
-    Returns the raw json response (as a dict).
-    """
+    # check if it's a url or path
+    if isinstance(img, str):
+        return single_call("image_embeddings", url=img, model=model, use_cache=use_cache, **kw)
+    # else it's an image object, so write to disk temporarily and use that
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         img.save(f.name)
         ret = single_call("image_embeddings", url=f.name, model=model, use_cache=use_cache, **kw)
-    return ret
 
 @execution_wrapper(final_func=lambda x: x['text'])
 def get_text(url: str, use_cache=True, **kw) -> ResponseT:
@@ -422,13 +474,36 @@ async def test_all():
                 myprint('    Results', [f.result() for f in fs])
 
 def quick_test():
-    #print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     logging.basicConfig(level=logging.DEBUG)
-    kwargs = dict(model='', session_id='a')
-    kwargs['model'] = 'gpt-4o-mini'
-    print(call_llm.single('describe light', **kwargs))
-    print(call_llm.single('summarize that in one sentence', **kwargs))
-    print(call_llm.single('summarize it in 3 sentences', **kwargs))
+    test = 'vlm2'
+    if test == 'llm1':
+        print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
+    elif test == 'llm2':
+        kwargs = dict(model='', session_id='a')
+        kwargs['model'] = 'gpt-4o-mini'
+        print(call_llm.single('describe light', **kwargs))
+        print(call_llm.single('summarize that in one sentence', **kwargs))
+        print(call_llm.single('summarize it in 3 sentences', **kwargs))
+    elif test == 'vlm1':
+        image = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
+        prompt = 'Can you describe this image?'
+        print(call_vlm.single((image, prompt)))
+        #print(call_vlm.single((image, prompt), model="accounts/fireworks/models/llama-v3p2-90b-vision-instruct"))
+    elif test == 'vlm2':
+        image = './simple-sales-invoice-modern-simple-1-1-f54b9a4c7ad8.webp'
+        from PIL import Image
+        image = Image.open(image)
+        prompt = 'For the following image, return the following in JSON format: title of document, general category of document, detailed category of document, date, and a list of key-value pairs of other data contained within it. Give no preamble or other text, just the JSON object'
+        for model in [
+            'vlm', 
+            "meta-llama/Llama-Vision-Free",
+            "accounts/fireworks/models/llama-v3p2-90b-vision-instruct",
+            "accounts/fireworks/models/phi-3-vision-128k-instruct",
+            "accounts/fireworks/models/qwen2-vl-72b-instruct",
+            ]:
+            print(f'trying model {model}:', call_vlm.single((image, prompt), model=model))
+
+
 
 if __name__ == '__main__':
     quick_test(); sys.exit();

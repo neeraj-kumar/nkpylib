@@ -62,7 +62,7 @@ import requests
 from PIL import Image
 from pydantic import BaseModel
 
-from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg
+from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
 from nkpylib.ml.providers import call_external
 from nkpylib.ml.text import get_text
 from nkpylib.utils import is_instance_of_type
@@ -371,6 +371,68 @@ async def chat(req: ChatRequest):
     ret['model'] = ret.get('model', req.model).split('/', 1)[-1]
     ret['max_tokens'] = req.max_tokens
     logger.debug('Chat response:', ret)
+    return ret
+
+
+# setup fastapi VLM endpoint
+class VLMRequest(BaseModel):
+    image: str # path/url/image directly?
+    prompts: str|list[Msg]
+    model: Optional[str]='vlm' # this will get mapped bsaed on DEFAULT_MODELS['vlm']
+    max_tokens: Optional[int]=1024
+    kwargs: Optional[dict]={}
+    use_cache: Optional[bool]=False
+    provider: Optional[str]=''
+
+@app.post("/v1/vlm")
+async def vlm(req: VLMRequest):
+    """Generates VLM chat response for the given image and prompts using the given model."""
+    cache_key = f"{req.max_tokens}:{req.image}:{str(req.prompts)}" if req.use_cache else None
+    assert req.model is not None, "Model must be specified for vlm request"
+    if req.model in DEFAULT_MODELS:
+        req.model = DEFAULT_MODELS[req.model]
+    logger.debug('VLM request:', req, cache_key)
+    # run this using external api
+    def load_func(model, **kw):
+        return model
+
+    def run_func(input, model, **kw):
+        logger.debug(f'Running external vlm model: {model} on input: {input} with kw {kw}')
+        image, prompts = input
+        if isinstance(prompts, str):
+            prompts = [('user', prompts)]
+        # check that `prompts` is now a sequence of Msg
+        assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
+        if not kw:
+            kw = {}
+        kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+        # if the image is not a web url, it must be a local path, so convert to a data url
+        if not image.startswith('http'):
+            with open(image, 'rb') as f:
+                image = data_url_from_file(f)
+        # the image goes in the first user message
+        for msg in kw['messages']:
+            if msg['role'] == 'user':
+                cur_text = msg['content']
+                msg['content'] = [{"type": "text", "text": cur_text},
+                                  {"type": "image_url", "image_url": {"url": image}}]
+                break
+        ret = call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
+        return ret
+
+    ret = generic_run_model(
+        input=(req.image, req.prompts),
+        model_name=req.model,
+        load_func=load_func,
+        run_func=run_func,
+        cache_key=cache_key,
+        max_tokens=req.max_tokens,
+    )
+    # the output is already in openai compatible format, just do some cleanup
+    ret['prompts'] = req.prompts
+    ret['model'] = ret.get('model', req.model).split('/', 1)[-1]
+    ret['max_tokens'] = req.max_tokens
+    logger.debug('VLM response:', ret)
     return ret
 
 
