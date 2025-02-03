@@ -20,9 +20,6 @@ The list of default models (with short names) is in `nkpylib.ml.constants.DEFAUL
 By default, we cache results for each model, but you can turn this off by setting `use_cache=False`
 in your request.
 
-We also provide batch versions of the functions, which take a list of inputs and return a list of
-outputs. These typically have pluralized function names (e.g., embed_image_url -> embed_image_urls).
-
 Anywhere a `url` is specified, it can also be a local path on this machine.
 
 Current ML types and models:

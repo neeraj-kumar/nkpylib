@@ -72,6 +72,6 @@ face-retina:
 face-replicate:
 	@python3 faces.py -d replicate radiohead.jpg game.jpg
 
-## copy stuff into our git repo
-git:
-	rsync -avl Makefile models *.txt *.sh *.png *.json *.py *.nginx ~/src/projects/llm/
+## update providers
+update-providers:
+	@python3 providers.py update_providers
