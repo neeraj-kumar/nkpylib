@@ -3,11 +3,36 @@
 #TODO figure out how to match two sets of dicts of data using LLMs/etc
 #TODO   see https://chatgpt.com/share/674361be-3528-8012-9c9b-a83859cdf170
 
+from __future__ import annotations
+import json
 import re
 
-from typing import Iterator, Optional, Sequence
+from typing import Any, Iterator, Optional, Sequence
 
 from nkpylib.ml.client import call_llm, chunked
+
+def load_llm_json(s: str) -> Any:
+    """"Tries to load a cleaned up version of JSON output from an LLM.
+
+    This tries a few common things to clean up JSON and then load it.
+    It might still fail, in which case, it will raise a `ValueError`.
+    """
+    # look for the first { or [
+    delims = '{['
+    endlims = '}]'
+    starts = [(s.index(d), d) for d in delims if d in s]
+    if not starts:
+        raise ValueError("No JSON delimiters found")
+    start, delim = min(starts)
+    # look for the last matching delim
+    end = s.rindex(endlims[delims.index(delim)])
+    # extract the JSON
+    json_str = s[start:end+1]
+    # try to load it
+    try:
+        return json.loads(json_str)
+    except Exception as e:
+        raise ValueError(f"Could not load JSON from {json_str}: {e}")
 
 CHUNKED_PROMPT = """%s
 
