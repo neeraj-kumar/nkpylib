@@ -475,7 +475,7 @@ async def test_all():
 
 def quick_test():
     logging.basicConfig(level=logging.DEBUG)
-    test = 'vlm2'
+    test = 'emb'
     if test == 'llm1':
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     elif test == 'llm2':
@@ -502,7 +502,11 @@ def quick_test():
             "accounts/fireworks/models/qwen2-vl-72b-instruct",
             ]:
             print(f'trying model {model}:', call_vlm.single((image, prompt), model=model))
-
+    elif test == 'emb':
+        s = 'hello'
+        for model in 'clip st llama3 docimage'.split():
+            ret = embed_text.single(s, model=model)
+            print(f'Embedding for model {model} with {len(ret)} dims: {ret[:10]}')
 
 
 if __name__ == '__main__':
