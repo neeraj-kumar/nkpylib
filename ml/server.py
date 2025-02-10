@@ -439,6 +439,7 @@ async def vlm(req: VLMRequest):
 class TextEmbeddingRequest(BaseModel):
     input: str
     model: Optional[str]=DEFAULT_MODELS['st']
+    provider: Optional[str]=''
     use_cache: Optional[bool]=False
 
 
@@ -448,30 +449,48 @@ async def text_embeddings(req: TextEmbeddingRequest):
     assert req.model is not None, "Model must be specified for embeddings request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
+    print('checking against model name', req.model, req.model == DEFAULT_MODELS['clip'], req.model == DEFAULT_MODELS['sentence'])
+    if req.model == DEFAULT_MODELS['clip']:
+        model_type = 'clip'
+    elif req.model == DEFAULT_MODELS['sentence']:
+        model_type = 'sentence'
+    else:
+        model_type = 'external'
+    print('settled on model type', model_type)
+
     def load_func(model, **kw):
         from sentence_transformers import SentenceTransformer # type: ignore
-        if model == DEFAULT_MODELS['clip']:
+        if model_type == 'clip':
             return load_clip(model)[0]
-        else:
+        elif model_type == 'sentence':
             return SentenceTransformer(model)
+        else:
+            return model
 
     def run_func(input, model, **kw):
-        if req.model == DEFAULT_MODELS['clip']:
-            embedding = get_clip_text_embedding(input)
-        else:
-            #embedding = model.encode_multi_process(documents, pool)
-            embedding = model.encode([input], normalize_embeddings=True)[0]
-        return dict(
-            object='list',
-            data=[dict(
-                object='embedding',
-                index=0,
-                embedding=embedding.tolist(),
-            )],
-            model=req.model,
-            n_dims=len(embedding),
-            input=input,
-        )
+        def postprocess(embedding):
+            return dict(
+                object='list',
+                data=[dict(
+                    object='embedding',
+                    index=0,
+                    embedding=embedding.tolist(),
+                )],
+                model=req.model,
+                n_dims=len(embedding),
+            )
+
+        if model_type == 'clip': # get clip text embedding
+            embedding = postprocess(get_clip_text_embedding(input))
+        elif model_type == 'sentence': # sentence transformer
+            #embedding = postprocess(model.encode_multi_process(documents, pool))
+            embedding = postprocess(model.encode([input], normalize_embeddings=True)[0])
+        else: # external api call
+            embedding = call_external(endpoint='/embeddings', provider_name=req.provider, model=model, input=input)
+            print('embedding', embedding)
+        # also add the input to the returned embedding object
+        embedding['input'] = input
+        return embedding
 
     return generic_run_model(
         input=req.input,
