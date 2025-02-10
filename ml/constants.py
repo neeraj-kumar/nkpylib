@@ -6,6 +6,7 @@ import base64
 import mimetypes
 import os
 
+from os.path import dirname, join
 from typing import Literal
 
 SERVER_BASE_URL = "http://aphex.local:8234"
@@ -26,7 +27,7 @@ DEFAULT_MODELS = dict(
     docimage='accounts/fireworks/models/qwen2-vl-72b-instruct',
 )
 
-LOCAL_MODELS = os.listdir('models/') + ['openai/clip-vit-large-patch14']
+LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']
 
 REPLICATE_MODELS = dict(
     face_detection=dict(
