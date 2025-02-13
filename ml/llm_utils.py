@@ -4,12 +4,16 @@
 #TODO   see https://chatgpt.com/share/674361be-3528-8012-9c9b-a83859cdf170
 
 from __future__ import annotations
+
 import json
+import logging
 import re
 
 from typing import Any, Iterator, Optional, Sequence
 
 from nkpylib.ml.client import call_llm, chunked
+
+logger = logging.getLogger(__name__)
 
 def load_llm_json(s: str) -> Any:
     """"Tries to load a cleaned up version of JSON output from an LLM.
@@ -45,10 +49,11 @@ the item number).
 
 def llm_transform_list(base_prompt: str,
                        items: Sequence[str],
-                       max_tokens:int =8000,
+                       max_tokens:int =100000,
                        model:str ='llama3',
                        chunk_size:int = 10,
                        prompt_fmt: str=CHUNKED_PROMPT,
+                       sys_prompt: str='',
                        **kw) -> Iterator[Optional[str]]:
     """Transforms a list of items using an LLM.
 
@@ -84,10 +89,15 @@ def llm_transform_list(base_prompt: str,
     for chunk in chunked(items, chunk_size):
         lst = ''.join(f'{i+1}. {item}\n' for i, item in enumerate(chunk))
         prompt = prompt_fmt % (base_prompt, len(lst), lst)
-        f = call_llm.single_future(prompt, max_tokens=max_tokens, model=model, **kw)
+        if sys_prompt:
+            prompts = [('system', sys_prompt), ('user', prompt)]
+        else:
+            prompts = prompt
+        f = call_llm.single_future(prompts, max_tokens=max_tokens, model=model, **kw)
         futures.append((chunk, f))
     for chunk, future in futures:
         llm_output = future.result()
+        logger.debug(f'for input {chunk} got output {llm_output}')
         lines = [output_re.match(l) for l in llm_output.split('\n')]
         # make a dict from output item number to output text
         out = {int(l.group(1)): l.group(2) for l in lines if l is not None}
