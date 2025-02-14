@@ -96,7 +96,13 @@ def llm_transform_list(base_prompt: str,
         f = call_llm.single_future(prompts, max_tokens=max_tokens, model=model, **kw)
         futures.append((chunk, f))
     for chunk, future in futures:
-        llm_output = future.result()
+        try:
+            llm_output = future.result()
+        except Exception:
+            logger.exception(f'Error processing chunk {chunk}')
+            for _ in chunk:
+                yield None
+            continue
         logger.debug(f'for input {chunk} got output {llm_output}')
         lines = [output_re.match(l) for l in llm_output.split('\n')]
         # make a dict from output item number to output text
