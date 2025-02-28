@@ -25,29 +25,32 @@ CHROMA_LOCK = Lock()
 logger = logging.getLogger(__name__)
 
 
-def load_chroma_client(db_path: str, port: int):
+def load_chroma_client(db_path: str='', port: int=0):
     """Loads chroma client (if not already loaded) and returns it.
 
     This function is thread-safe and will only load the client once.
     It will first try to load the client from the server at the given `port`.
     If that fails, it will try to load the client from the given `db_path`.
     """
+    assert port > 0 or db_path, 'Must pass either a port or a db_path'
     global CHROMA_CLIENT
     if CHROMA_CLIENT is None:
         with CHROMA_LOCK:
             # first try loading from the server
-            try:
-                CHROMA_CLIENT = HttpClient(port=port) # type: ignore # this is a bug in an older version of chromadb
-                logger.info(f'Loaded chromadb client from server at port {port}')
-                return CHROMA_CLIENT
-            except Exception as e:
-                logger.info(f'chromadb client not running: {e}')
-                pass
+            if port > 0:
+                try:
+                    CHROMA_CLIENT = HttpClient(port=port) # type: ignore # this is a bug in an older version of chromadb
+                    logger.info(f'Loaded chromadb client from server at port {port}')
+                    return CHROMA_CLIENT
+                except Exception as e:
+                    logger.info(f'chromadb client not running: {e}')
+                    pass
             # now try loading from disk
-            logger.info(f'Loading chromadb client at {db_path}')
-            t0 = time.time()
-            CHROMA_CLIENT = PersistentClient(path=db_path)
-            logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
+            if db_path:
+                logger.info(f'Loading chromadb client at {db_path}')
+                t0 = time.time()
+                CHROMA_CLIENT = PersistentClient(path=db_path)
+                logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
     return CHROMA_CLIENT
 
 def remove_md_keys(md: dict, patterns: list[str | re.Pattern]) -> dict:
