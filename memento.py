@@ -73,11 +73,9 @@ def get_entries(library_id: str, reset_cache=False, **data) -> list[dict]:
     # first fetch the fields to get the field names
     fields = get_library(library_id, reset_cache=reset_cache)['fields']
     field_mapping = {field['id']: field['name'] for field in fields}
-    print(f'Got field mapping {field_mapping}')
     # now fetch the entries and filter out deleted ones
     entries = _get_entries(library_id, **data)
     entries['entries'] = [e for e in entries['entries'] if e['status'] != 'deleted']
-    print(f'Got raw entries {entries}')
     # remap fields
     for entry in entries['entries']:
         cur = {}
@@ -86,6 +84,15 @@ def get_entries(library_id: str, reset_cache=False, **data) -> list[dict]:
         entry['fields'] = cur
     return entries
 
+def search_entries(q: str, library_id: str, **data) -> list[dict]:
+    """Searches the entries in the library with the given `library_id` for the given query `q`.
+
+    You can pass in any additional query params as `data`.
+    """
+    # first url-encode the query
+    q = requests.utils.quote(q)
+    return memento_api(f'libraries/{library_id}/search', q=q, fields='all', **data)
+
 
 if __name__ == '__main__':
     p = lambda x: print(json.dumps(x, indent=2))
@@ -93,5 +100,7 @@ if __name__ == '__main__':
     p(r)
     info = get_library(r['movies'])
     p(info)
-    entries = get_entries(r['movies'])
-    p(entries[:10])
+    #entries = get_entries(r['movies'])
+    entries = search_entries('tt0140352', r['movies'])
+    p(entries)
+    #p(entries['entries'][:10])
