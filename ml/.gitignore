@@ -3,3 +3,7 @@ old.py
 
 # image outputs
 *.png
+
+# temp files
+spatial_understanding.ipynb
+prompts.sh

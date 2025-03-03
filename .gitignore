@@ -1,5 +1,13 @@
 *.py[co]
 
+# temp/data files
+og.json
+napa.html
+parrots.html
+search?q=parrots
+convert.html
+lafeber.html
+
 # cache
 cache
 
