@@ -54,3 +54,7 @@ search:
 ## run the CLI utility
 cli:
 	python3 cli_utils.py
+
+## tests out the OurGroceries API
+og:
+	python3 our_groceries.py
