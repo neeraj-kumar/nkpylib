@@ -108,13 +108,13 @@ class MementoDB:
                 return lib_id
         raise ValueError(f"Library '{name}' not found.")
 
-    def get_library(self, reset_cache: bool = False) -> dict:
+    def get_library(self) -> dict:
         """Returns the details of the library."""
-        return get_library(self.library_id, reset_cache)
+        return get_library(self.library_id)
 
-    def get_entries(self, reset_cache=False, **data) -> list[dict]:
+    def get_entries(self, **data) -> list[dict]:
         """Returns the entries in the library."""
-        return get_entries(self.library_id, reset_cache, **data)
+        return get_entries(self.library_id, **data)
 
     def search_entries(self, q: str, **data) -> list[dict]:
         """Searches the entries in the library for the given query `q`."""
