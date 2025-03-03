@@ -109,7 +109,6 @@ class MementoDB:
                 return lib_id
         raise ValueError(f"Library '{name}' not found.")
 
-
     def get_entries(self, **data) -> list[dict]:
         """Returns the entries in the library."""
         return get_entries(self.library_id, **data)
