@@ -99,7 +99,7 @@ class MementoDB:
 
     def __init__(self, name: str):
         self.library_id = self._find_library_id(name)
-        self.library_info = get_library(self.library_id)
+        self.info = get_library(self.library_id)
 
     def _find_library_id(self, name: str) -> str:
         """Finds the library ID by name (case-insensitive)."""
