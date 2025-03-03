@@ -98,16 +98,15 @@ class MementoDB:
     """Class to interact with the Memento database API."""
 
     def __init__(self, name: str):
-        self.library_id = self._find_library_id(name)
-        self.info = get_library(self.library_id)
-
-    def _find_library_id(self, name: str) -> str:
-        """Finds the library ID by name (case-insensitive)."""
         libraries = get_libraries()
         for lib_name, lib_id in libraries.items():
             if lib_name.lower() == name.lower():
-                return lib_id
-        raise ValueError(f"Library '{name}' not found.")
+                self.library_id = lib_id
+                break
+        else:
+            raise ValueError(f"Library '{name}' not found.")
+        self.info = get_library(self.library_id)
+
 
     def get_entries(self, **data) -> list[dict]:
         """Returns the entries in the library."""
