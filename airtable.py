@@ -199,6 +199,8 @@ class AirtableUpdater:
                 else:
                     row[field] = kw[field] = [self.mappers[field][v]['id'] for v in value]
         resp = airtable_api_call(endpoint=self.table_name, method='patch', records=[dict(id=row['id'], fields=kw)], typecast=typecast)
+        if 'error' in resp:
+            raise Exception(f'Error in airtable patch with key {key}: {resp}, api call with kw={kw}')
         self._setrow(resp['records'][0])
         return resp
 
