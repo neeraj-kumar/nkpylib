@@ -10,6 +10,8 @@ import os
 
 import requests
 
+MEMENTO_CACHE = {}
+
 from web_utils import make_request
 
 class MementoDB:
