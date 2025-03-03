@@ -58,3 +58,7 @@ cli:
 ## tests out the OurGroceries API
 og:
 	python3 our_groceries.py
+
+## tests out the Memento database integration
+memento:
+	python3 memento.py
