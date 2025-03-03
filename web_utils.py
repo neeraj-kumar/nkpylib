@@ -49,6 +49,12 @@ def make_request(url: str,
                  **kwargs) -> requests.Response:
     """Makes a request to the given `url` with `method` with the given kwargs.
 
+    Note the `kwargs` are passed directly to the requests.request() function, and are NOT the same
+    as JSON post data or query params. In general, you usually want one of the following:
+    - `params`={dict} for query params (in a get request)
+    - `json`={dict} for a JSON post request
+    - `data`={dict or list of tuples} for a form post request
+
     We maintain a mapping from host to last request time in request_times (stored by default as a
     global in this module, but you can pass your own), and we wait `min_delay` seconds before
     contacting the same host again.

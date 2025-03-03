@@ -9,9 +9,8 @@ import shutil
 
 from argparse import ArgumentParser
 
-import requests
-
 from constants import PROVIDERS_PATH
+from nkpylib.web_utils import make_request
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +40,11 @@ def call_provider(provider_name, endpoint, headers_kw=None, **data):
     url = provider['base_url'] + endpoint
     if headers_kw:
         headers.update(headers_kw)
+    req_kw = dict(url=url, headers=headers, min_delay=0)
     if data:
-        ret = requests.post(url, headers=headers, json=data).json()
+        ret = make_request(method='post', json=data, **req_kw).json()
     else:
-        ret = requests.get(url, headers=headers).json()
+        ret = make_request(method='get', **req_kw).json()
     return ret
 
 def call_external(endpoint, headers_kw=None, provider_name='', **data):
