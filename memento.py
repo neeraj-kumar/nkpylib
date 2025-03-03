@@ -12,7 +12,31 @@ import requests
 
 from web_utils import make_request
 
-MEMENTO_CACHE = {}
+class MementoDB:
+    """Class to interact with the Memento database API."""
+
+    def __init__(self, name: str):
+        self.library_id = self._find_library_id(name)
+
+    def _find_library_id(self, name: str) -> str:
+        """Finds the library ID by name (case-insensitive)."""
+        libraries = get_libraries()
+        for lib_name, lib_id in libraries.items():
+            if lib_name.lower() == name.lower():
+                return lib_id
+        raise ValueError(f"Library '{name}' not found.")
+
+    def get_library(self, reset_cache: bool = False) -> dict:
+        """Returns the details of the library."""
+        return get_library(self.library_id, reset_cache)
+
+    def get_entries(self, reset_cache=False, **data) -> list[dict]:
+        """Returns the entries in the library."""
+        return get_entries(self.library_id, reset_cache, **data)
+
+    def search_entries(self, q: str, **data) -> list[dict]:
+        """Searches the entries in the library for the given query `q`."""
+        return search_entries(q, self.library_id, **data)
 
 def memento_api(endpoint: str, method='get', **data):
     """Runs a memento API query to given `endpoint`.
