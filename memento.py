@@ -256,7 +256,6 @@ class MementoDB:
         r = create_entry(self.library_id, library_info=self.info, **kw)
         # map the fields back to our format
         r["fields"] = map_fields(r["fields"], self.info) # type: ignore
-        print(f'From {kw} got {r}')
         self.entries[r["id"]] = r
         return r
 
