@@ -185,7 +185,17 @@ class MementoDB:
         return search_entries(q, self.library_id, **data)
 
 
-if __name__ == '__main__':
+class MovieDB(MementoDB):
+    """Subclass of MementoDB for handling movie databases with IMDb links or title IDs."""
+
+    @classmethod
+    def key_compare(cls, key1: Any, key2: Any) -> bool:
+        """Compares two keys by extracting and comparing IMDb IDs."""
+        imdb_id_pattern = re.compile(r'tt\d+')
+        id1 = imdb_id_pattern.search(key1)
+        id2 = imdb_id_pattern.search(key2)
+        return id1.group() == id2.group() if id1 and id2 else False
+
     p = lambda x: print(json.dumps(x, indent=2))
     if 0:
         r = get_libraries()
