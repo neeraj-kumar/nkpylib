@@ -187,7 +187,8 @@ class MementoDB:
 class MovieDB(MementoDB):
     """Subclass of MementoDB specialized for handling my movie list."""
 
-    def key_compare(self, key1: Any, key2: Any) -> bool:
+    def __init__(self, name: str, update_interval_s=60*60):
+        super().__init__(name, key_field='imdb_link', update_interval_s=update_interval_s)
         """Compares two keys by extracting and comparing IMDb IDs."""
         imdb_id_pattern = re.compile(r'tt\d+')
         id1 = imdb_id_pattern.search(key1)
