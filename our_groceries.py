@@ -17,7 +17,7 @@ import time
 
 from typing import Any
 
-from web_utils import make_request
+from nkpylib.web_utils import make_request
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,11 @@ def parse_list(lst: list[dict], include_deleted:bool=False) -> GroceryList:
             i['quantity'] = 1
     return lst
 
-def _call_our_groceries(command: str, headers: dict=None, method='POST', include_deleted=False, **kw) -> tuple[dict, GroceryList]:
+def our_groceries_api(command: str,
+                        headers: dict|None=None,
+                        method='POST',
+                        include_deleted=False,
+                        **kw) -> tuple[dict, GroceryList]:
     """Call the OurGroceries API with the given `command`, returning (response, cur list of items).
 
     We will automatically add various headers if not given, including the auth token (gotten from
@@ -84,33 +88,31 @@ def _call_our_groceries(command: str, headers: dict=None, method='POST', include
     r = make_request(url=BASE_URL, method=method, headers=actual_headers, json=data)
     #print(r.request.__dict__)
     obj = r.json()
-    if 'list' in obj:
-        items = parse_list(obj.pop('list')['items'], include_deleted=include_deleted)
-    else:
-        items = None
+    assert 'list' in obj, f'No list in response: {obj}'
+    items = parse_list(obj.pop('list')['items'], include_deleted=include_deleted)
     return obj, items
 
 
 # RAW API CALLS
 def add_item(item: str, **kw) -> tuple[dict, GroceryList]:
     """Add the given `item` to the grocery list."""
-    return _call_our_groceries(command='insertItem', value=item, isFromRecipe=False, **kw)
+    return our_groceries_api(command='insertItem', value=item, isFromRecipe=False, **kw)
 
 def check_item(item_id: str, **kw) -> tuple[dict, GroceryList]:
     """Marks the given `item_id` from the grocery list as done (checked-off)."""
-    return _call_our_groceries(command='setItemCrossedOff', crossedOff=True, itemId=item_id, **kw)
+    return our_groceries_api(command='setItemCrossedOff', crossedOff=True, itemId=item_id, **kw)
 
 def uncheck_item(item_id: str, **kw) -> tuple[dict, GroceryList]:
     """Marks the given `item_id` from the grocery list as not done (unchecked)."""
-    return _call_our_groceries(command='setItemCrossedOff', crossedOff=False, itemId=item_id, **kw)
+    return our_groceries_api(command='setItemCrossedOff', crossedOff=False, itemId=item_id, **kw)
 
 def delete_item(item_id: str, **kw) -> tuple[dict, GroceryList]:
     """Deletes the given `item_id` from the grocery list completely."""
-    return _call_our_groceries(command='deleteItem', itemId=item_id, **kw)
+    return our_groceries_api(command='deleteItem', itemId=item_id, **kw)
 
 def change_item(item_id: str, new_item: str, **kw) -> tuple[dict, GroceryList]:
     """Changes the given item to the new item."""
-    return _call_our_groceries(command='changeItemValue', newValue=new_item, itemId=item_id, **kw)
+    return our_groceries_api(command='changeItemValue', newValue=new_item, itemId=item_id, **kw)
 
 
 # HIGHER-LEVEL API CALLS
