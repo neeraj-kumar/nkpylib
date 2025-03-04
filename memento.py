@@ -140,8 +140,7 @@ class MementoDB:
         self.refresh()
         return len(self.entries)
 
-    @classmethod
-    def key_compare(cls, key1: Any, key2: Any) -> bool:
+    def key_compare(self, key1: Any, key2: Any) -> bool:
         """Compares two keys for equality. By default this is just a simple equality check."""
         return key1 == key2
 
@@ -160,7 +159,6 @@ class MementoDB:
         If no matching entry is found, this raises a `KeyError`.
         Note that this first calls `refresh()` to update the entries if needed.
         """
-        #TODO cache the key lookup
         if not self.key_field:
             raise ValueError("You must set a `key_field` in the constructor to use this method.")
         self.refresh()
@@ -188,8 +186,7 @@ class MementoDB:
 class MovieDB(MementoDB):
     """Subclass of MementoDB specialized for handling my movie list."""
 
-    @classmethod
-    def key_compare(cls, key1: Any, key2: Any) -> bool:
+    def key_compare(self, key1: Any, key2: Any) -> bool:
         """Compares two keys by extracting and comparing IMDb IDs."""
         imdb_id_pattern = re.compile(r'tt\d+')
         id1 = imdb_id_pattern.search(key1)
