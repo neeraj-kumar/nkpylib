@@ -1,0 +1,512 @@
+API processing 1 on Mon Mar 3, 2025
+-----------------------------------
+Okay, so we want to think about a few different things. Primarily, we want to think about APIs and so in particular, I have my Memento database. I have our groceries. I have letterboxed
+
+so I have those three specific APIs.
+
+And then within that, I want to think about, actually some generic kind of API caching
+
+extending, kind of what I already have.
+
+And maybe I should also think about the ML APIs, the ones that call llms and embeddings and so on. And then, kind of not super related, but a fuzzy searcher.
+
+So I think those are the things I want to think about.
+
+Okay, so I think
+
+it's becoming clear to me that for
+
+memento,
+
+I want to have
+
+a class to simplify things, and so what are the libraries, or really databases I have within memento?
+
+So the main ones are
+
+my list of movies,
+
+the general to do, list restaurants. So I think those are the three main ones. Now I don't really anticipate needing to do stuff with either to do or with restaurants immediately. So really, at the moment, we're just talking about movies. And with the movies, what do I have? So with the movies, I want to be able to basically
+
+what so
+
+the current, immediate use is within my movies viewer, right? And so within the movies viewer, I want to be able to say for each movie listed whether it's already in my two dB, if so,
+
+then modify some parameters of it,
+
+like change the priority, maybe, or add some notes, things like that.
+
+And then if it's not in there,
+
+then I want to be able to add
+
+it. And so how would this work? So clearly, this has to be on the back end right. And so on the back end I would create
+
+kind of the
+
+so I guess when the movies server starts up, I'll also initialize a memento DB class
+
+with the
+
+movies database as the name as the library to use. And so now I think we can safely assume that the structure stays constant, and then we want to be able to kind of get the list of entries, maybe like do various filtering or whatever on them, and then we probably want to have this thing update over time as we update kind of Other like via the app or via other sources,
+
+and so I'm pretty sure there's some sort of like,
+
+get updates or entries.
+
+Well, I don't know entries or updates since a particular time,
+
+so
+
+so we can set some sort of timer,
+
+or have a method to explicitly call for, like updating our internal list of entries. And then what do we have? So we have our list of entries which we want to cache, and it's actually probably sufficient to just cache stuff in memory. And so maybe we don't need to worry about the API cache for now,
+
+but in any case, so we have
+
+the list of we uh,
+
+entries, and then,
+
+well, no, so we have the structure, we have the fields.
+
+And then, I guess,
+
+either periodically or when the color especially calls for a list of entries. We get it and we cache it locally. And so for each entry we have,
+
+I guess, we have the raw format,
+
+and then we have, maybe
+
+the mapped format. And so what are the kind of access patterns? So one we want to be able to say, like, give me the whole list, right? So that's easy enough. We can kind of iterate Next we want to be able to say, given a particular movie.
+
+So given a particular movie, give me
+
+the info. Well, I have that already.
+
+Since instead, we don't want to say, given a particular movie,
+
+given a particular movie, I
+
+but what do we have? So we update.
+
+Actually, we don't have to worry about delete because, let's just assume we're only going to check stuff off, which is just an update of a movie, right? So when we call update,
+
+we want to essentially
+
+update the local cache and update, obviously the server, ideally together. And so I think we just need to kind of say, like, update entry, you give it the entry ID, and
+
+then you
+
+give it a list of field value pairs.
+
+So I think that
+
+seems straightforward.
+
+So then what is the next thing I
+
+and then there's create an entry. So here also we create the entry on the cloud, and then we create the local version. Now one thing here is that I'm using this memento auto Completer thing that fills in a bunch of fields, and since we're not going to I believe that's not going to run via the API, since this requires interactive kind of feedback.
+
+Instead,
+
+I think I'll just set a
+
+the whatever like key fields I have via IMDb, right so I have, like the name i i have the name of the year, I have the director. I have IMDb ID. And so I guess I'll fill in those things. I
+
+guess fill in some sort of priority thing,
+
+also,
+
+maybe a note that it needs to be filled in, or
+
+maybe that's easy enough to do because search in memento for entries where like the plot is empty, maybe I should have that as a preset search. It's that way I can quickly find them and later on in the app kind of fill in the rest of it.
+
+Okay, so I think that's all this needed.
+
+And so I think, yeah, we don't need anything on disk, so maybe the API cache is not really necessary here. Now, one other question is, we have this kind of generic momento DB class that kind of does, like has these functions, is it worth adding a movie class like NK, movie that does even that's even more specialized to my movie, saying,
+
+maybe, I mean,
+
+I guess in the future, if I were to switch back ends, I could use
+
+I could theoretically switch it out. But
+
+what do I need to say? Oh, wait, one critical thing
+
+is I need a look up. I Up.
+
+okay, so for the lookup, i could use the search function that my mentor offers, but actually, i don't think i need something that's sophisticated or kind of limited in a way. so because i'll have cached everything locally, all the entries and so i'll just need a search function that for the moment can be just exhaustive brute force search and feature can hook into this searcher thing that I also want to think about. about, okay, yeah, so if I think about the movie's specific use case, I need to look up a movie, actually, only by IMDB. So that's a definitive look up. And then
+
+given
+
+a movie I can
+
+given a movie. I want to know the fields. I want to update
+
+the fields.
+
+or I want. to create a new movie.
+
+And so if I define.
+
+i can do dict style access,
+
+but i can say movies
+
+bracket, mdb id,
+
+so i can check if it's in there.
+
+i can get the value,
+
+but then i don't want to set the value. I think I want to just update it. And so it seems to forgot the right thing for that so I don't think it's immutable mapping.
+
+I
+
+think it's
+
+maybe it's a non mutable mapping. But then. there's like an update function.
+
+The one other thing I could imagine wanting is a lookup
+
+of an IMDB IB given a name, because sometimes my
+
+movie server doesn't have
+
+can't find it because it's not in IDB database. But
+
+maybe, actually, never mind, maybe that's not with it.
+
+So I guess
+
+so this particular movie's functionality is like
+
+given a field,
+
+given a field, it's like update.
+
+Well, this is sort of like the air table update that I have, where you have to specify a key field, and then you can use kind of dictionary syntax I
+
+and so
+
+what is the generic version of this if I wanted to do it for all my Mental DB things?
+
+So I think one would be,
+
+I ah, so I think it would, well, let's take some concrete so we have our restaurants, and so for restaurants, maybe you would specify. Let's say there was, like a unique restaurant ID,
+
+not like the internal mental one, but like some
+
+external one, so then you could set
+
+that as Your key,
+
+and then
+
+you could access
+
+that one I could
+
+also bitter with the key. Actually,
+
+I'm not sure there's much word to
+
+this, because I think the ITER should just be
+
+the ITER should just be over entries, not over keys and entries. And so then I think, rather than confusing things, well, okay, wait, hold on, I think one complicating factor is what a checking existence.
+
+So we want to say if
+
+a particular key in database and so here I
+
+so here it might be useful to have
+
+define a key,
+
+because then You could say, you know, does this key exist?
+
+Yeah, so maybe we define an optional key field, and if this is defined, then you can do an in style lookup, and maybe then you can do dictionary style lookup, and then you can, but you still can't do a dictionary Style Set, and you can do a get, and then you can do update via a function. So yeah, I think it's maybe what it's doing.
+
+And then, rather than a movie,
+
+class,
+
+could just have a movie
+
+in it, function that just initializes this class with the right parameters. I
+
+of the Okay, so since we're talking about movies, let's talk about Letterboxd capital.
+
+And so
+
+first of all, it's not assume we're going to have
+
+API access, but instead we just have our dumps. We
+
+And so given a dump, we basically want to have a class that reads it. I
+
+I guess first thing is we do check if
+
+this dump has imbibs.
+
+I guess hopefully it would. I But.
+
+If not, that's the first thing we'd have to do, is augment it.
+
+But let's say it does.
+
+Then that case, I Hmm.
+
+In that case, maybe we want something similar.
+
+IE, a not mutable dictionary, style access where the input is,
+
+input, sorry, MDB ID.
+
+And you can do MDB ID in
+
+the thing again, the letterbox archive, or you can do again, but not
+
+any sort of update. I
+
+So,
+
+and then what we have, we have,
+
+ultimately, well,
+
+so I guess there is another layer of
+
+recursion here, because given
+
+given a movie, I could have seen it multiple times.
+
+Actually, we don't want this kind of interface necessarily.
+
+Or maybe we do. I mean, maybe what you get, if you go into one
+
+it's kind of a list of
+
+matching instances, so
+
+actually maybe it's more like a default dict,
+
+again, and so you look up,
+
+you look up the IP, and you get a list of zero or more viewings. And for each of you in you Have, I
+
+You have.
+
+You it, yes, I guess, given
+
+the ID, you get a list of viewings, and for each viewing, you have fields like, you know whether start or not. You have the tags, you have the review, you have the score. And then, you know, I don't have to parse the comments or anything like that. Oh, probably also, crucially, like the movie metadata. I data, yeah. So rather than just getting a list directly, I think you get the movie info, and then you get,
+
+like a subfield called viewings,
+
+those have dates, okay,
+
+so I think that's think that's all pretty straightforward.
+
+I think the bracket notation is just some syntactical sugar that might or might not want.
+
+Doesn't matter, so
+
+then it's just a question of parsing it.
+
+The final thing is, I think we're going to want a want
+
+search. And so again, we want the generic searcher, I should look up my existing web
+
+searcher not Webster, sorry, this search functionally that I have in like MK photos, to see if it's applicable here, or entities.
+
+Transcribed by https://otter.ai
+
+
+API processing 2 on Mon Mar 3, 2025
+-----------------------------------
+Okay, so continuing the API processing. So
+
+let's think about our groceries and so
+
+maybe let's start with the use case here.
+
+The most track on is within my within cookery.
+
+And so
+
+within Cookery, what do we want to have happen? I
+
+think what we want is, I
+
+for a given recipe, we have a list of ingredients, and so for each ingredient, we kind of want to look up
+
+if it's on the list already or not?
+
+So here there's a little bit of a
+
+mapping question, because we might not know exactly.
+
+There might be a couple options,
+
+but then if it's on the
+
+list, we might want to increase the quantity, decrease the quantity, market checked,
+
+and then if it's not on the list, we want To add it.
+
+And so
+
+how would that work?
+
+So I think we want to have
+
+so let's get the adding. Okay, so we have the ingredient listed,
+
+and then for that ingredient,
+
+for that ingredient, we want to
+
+maybe add it,
+
+so maybe there's like a plus button,
+
+which adds it,
+
+oh, you know, it's also just sinking. It's a little bit of a tangent, but it's worth thinking about. So one of the things in cookery is that right now, some of the ingredient specific functionality, for that matter, step specific functionality, is only in the ingredient list at the top, but most of the time, I'm interacting with ingredients via the short ingredient list next to each step or within each step. And so within a step, I have the ingredients and now, but currently, what happens is you click on an ingredient to mark it done. You click on it to mark it undone. So it's just a simple toggle, but maybe if you long click, and I'll have to see if I could detect that. But if you long click, then maybe we open up a little panel at the bottom of the screen that essentially says, like it has the full ingredient kind of control, and then we can, like, do things like add to shopping list and leave a voice note and blah, blah, blah. Okay, so then, okay, so I think on the adding, it's maybe easier. And then on the checking, let's assume we get perfect checking. So if we get perfect checking, then we can make perfect matching. I mean, right. So then, given the ingredient list, we can match it against the the grocery list, and say, and then maybe we have, like, some icons for, like, is it on there? If so, under what? Name and how many, and then we can add or remove the quantities I
+
+Right?
+
+And so in that case, okay, so now that we have kind of the functionality that we want, I guess we can think about, what is the what uh,
+
+given the functionality,
+
+how do we want the kind of class to be set up?
+
+And so once again, I think we probably want some periodic
+
+checking.
+
+Well, I don't know, maybe not. Maybe in this case, we assume this thing will be very short lived.
+
+Actually, hold on,
+
+in Cookery, I don't know if I have a long lived session
+
+given a recipe that's open, because I think it's all happening on the front end. So, so I guess it might be a point in time thing, and certainly is we can instantiate in our grocery instance,
+
+and then given that instance,
+
+what do we do? So given the instance, I think we make it i
+
+So again, maybe let's assume we're not deleting anything. We're only checking stuff off.
+
+So in this case, the list
+
+really is a
+
+just a list. We don't really need metadata, so
+
+we have a list of items,
+
+and then we can either iterate through the items,
+
+well, so each item has at least a name in a quantity.
+
+So maybe we do want, like a dict. I'm trying to decide between a dict versus a list style interface. And so if I have a dict style interface, and I think the name is the key, and then we can iterate through the things. And
+
+actually we want it maybe sort of like a counter.
+
+Yeah, I think counter makes sense.
+
+So let's ignore things like the notes and photos and so on. And then we say, actually, I don't know if a counter supports like in but maybe we want to have an in interface. And then we only have a plus and a minus, and if you minus down to zero, then we mark it done.
+
+Okay, so
+
+I think that makes sense, that we have this class. I think the other thing is maybe we need to look up from a given like item name, like, let's say tomato, and then it should return a list of
+
+names that exist in the class,
+
+like peas for tomatoes, and returns them, maybe with some score.
+
+So okay,
+
+I think that makes sense.
+
+Maybe here we do some sort of,
+
+well, we'll have to look at our searcher thing. But then, OK, so if we create this once, and then do a search, so given like, we're loading a recipe, and so at the moment, we load the recipe, we may be you.
+
+I also look up
+
+the this
+
+information, I mean, the grocery information, and then,
+
+when
+
+the user updates grossi, we, I mean, I guess we can just instantiate the class again and
+
+update the values
+
+at that point. I
+
+don't see any particular reason to
+
+keep this in memory. I mean, I guess we're making multiple calls to the API, but that's probably OK. I
+
+mean, the other thing is, every time we update something, we're gonna get
+
+a new
+
+an updated list, which is great. Then we don't need to, like, hold on to the class and do updates within it and blah, blah, blah.
+
+Okay, so I think that all makes sense.
+
+I guess the other thing to think about is, on the cookery side, how we deal with this. But that I'll think about separately. I think for right now, all I care about is the class interface, OK. And so then the next topic was around API cache. And so currently the API cache store stuff on disk, the couple of back ends, JSON and pickle should maybe even just remove the pickle one, but maybe we can leave it for now. It's nice for some kinds of binary data, and then it has various functions to like, do caching, sorry, to do like hashing of the parameters and store stuff accordingly,
+
+so that I think is fine,
+
+and it has
+
+like, I believe it has archival, But if not, it definitely has like, cache times. So I think I want to add an in memory component to it, and the simplest thing is just have it be binary. So essentially, you either do in memory caching as well or not. If you do, then you basically read from that first and then from disk and vice versa. So then it becomes like a layered caching system, like in a computer, where you have l1 l2 and each one looks down to all the successive ones.
+
+So that I think it's the simplest.
+
+The other thing to think about is, do we want separate cache timeouts for the in memory one and here? I guess I'm not super sure. The
+
+simplest is obviously not. In
+
+fact, I'm not even sure what it would mean to have a separate time out. So let's say we have a one minute freshness, or one hour freshness on disk, right? So given a particular query like function call with parameters, I um, you, what is the normal flow? So the normal flow is you look up that item on the on this cache and see when the last time was and if the last time was more than an hour ago, then you fetch it from the actual resource and return that. Otherwise, you just save that to disk and then, or otherwise, you just return
+
+the disk version.
+
+So that's how the current system works. And so first of all, in the binary case with the in memory version, what
+
+would you do? So I think you would say,
+
+check the in memory version,
+
+check the cache time and. If the cache time is too much, then maybe you check the disk, or maybe you already know that the disk also is going to be too much.
+
+Well, I think one
+
+constraint we should have is that the disk is always a superset of memory. And in particular, there's nothing in memory that's not in disk, including freshness.
+
+So I think the way this would then work is you would just say,
+
+here is the Yeah, so we do a function call, you check if it's in memory. If it's not in memory, you check if it's in disk. If it's in disk, you load it into the memory cache, and then you return it if it's recent enough. If it's not recent enough,
+
+yeah, I think it, it does make sense for it to be just the same refresh time. I don't think it makes sense to differentiate that now. I think the one thing you could have is you could have a limit on the in memory size, and so this could be by number of entries. It could be by bytes.
+
+That is something you'd have to check
+
+if you could even compute I uh,
+
+probably number of NG. It's the simplest, but you
+
+can just use an LRU cache for that.
+
+Okay, so I think that makes sense for the cacher.
+
+Transcribed by https://otter.ai
