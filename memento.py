@@ -25,7 +25,7 @@ class Entry(TypedDict, total=False):
     """A base class for an entry in a Memento database."""
     id: str
     status: str
-    fields: dict[str, str]
+    fields: dict
 
 
 class EntriesWrapper(TypedDict, total=False):
@@ -82,6 +82,30 @@ def _get_entries(library_id: str, pageSize=10000, fields="all", **data) -> dict[
     return memento_api(f"libraries/{library_id}/entries", pageSize=pageSize, fields=fields, **data)
 
 
+def map_fields(inputs: dict|list, library_info: dict[str, Any]) -> dict | list:
+    """This maps fields either to or from memento format.
+
+    Memento format is a list of dicts with 'id' and 'value' keys.
+    Our format is a dict from field names to values. The mapping is from the `library_info`.
+    """
+    fields = library_info["fields"]
+    field_mapping: dict[str, str]
+    if isinstance(inputs, dict): # map from our format to memento format
+        field_mapping = {field["name"]: field["id"] for field in fields}
+        # we want an output list of tuples with id and value for each field
+        lst = []
+        for key, val in inputs.items():
+            lst.append(dict(id=field_mapping[key], value=val))
+        return lst
+    else: # map from memento format to our format
+        field_mapping = {field["id"]: field["name"] for field in fields}
+        # we want an output dict with field names as keys
+        d = {}
+        for f in inputs:
+            d[field_mapping[f["id"]]] = f["value"]
+        return d
+
+
 def get_entries(library_id: str, library_info=None, **data) -> EntriesWrapper:
     """Returns the entries in the library with the given `library_id`.
 
@@ -93,19 +117,22 @@ def get_entries(library_id: str, library_info=None, **data) -> EntriesWrapper:
     # first fetch the fields to get the field names
     if library_info is None:
         library_info = get_library_info(library_id)
-    fields = library_info["fields"]
-    field_mapping: dict[str, str] = {field["id"]: field["name"] for field in fields}
     # now fetch the entries and filter out deleted ones
     entries = _get_entries(library_id, **data)
     entries["entries"] = [e for e in entries["entries"] if e["status"] != "deleted"]
     # remap fields
     for entry in entries["entries"]:
-        cur = {}
-        for f in entry["fields"]:
-            key = field_mapping[f["id"]]
-            cur[key] = f["value"]
-        entry["fields"] = cur
+        entry["fields"] = map_fields(entry["fields"], library_info)
     return entries # type: ignore
+
+
+def create_entry(library_id: str, library_info=None, **kw) -> Entry:
+    """Creates an entry with given kw, which are mapped using the `library_info`."""
+    if library_info is None:
+        library_info = get_library_info(library_id)
+    fields = map_fields(kw, library_info)
+    return memento_api(f"libraries/{library_id}/entries", method="post", fields=fields)
+
 
 def update_entry(library_id: str, entry_id: str, library_info=None, **kw) -> Entry:
     """Updates an entry with given kw, which are mapped using the `library_info`.
@@ -114,12 +141,7 @@ def update_entry(library_id: str, entry_id: str, library_info=None, **kw) -> Ent
     """
     if library_info is None:
         library_info = get_library_info(library_id)
-    fields = library_info["fields"]
-    field_mapping: dict[str, str] = {field["name"]: field["id"] for field in fields}
-    # we want an output list of tuples with id and value for each field
-    fields = []
-    for key, val in kw.items():
-        fields.append(dict(id=field_mapping[key], value=val))
+    fields = map_fields(kw, library_info)
     return memento_api(f"libraries/{library_id}/entries/{entry_id}", method="patch", fields=fields)
 
 
@@ -224,10 +246,19 @@ class MementoDB:
         return self[key]["id"]
 
     def update(self, entry_id: str, **kw) -> None:
-        """Updates an entry with given kw, which are mapped using the `library_info`."""
+        """Updates an entry with given fields and values."""
         update_entry(self.library_id, entry_id, library_info=self.info, **kw)
         # update our local version
         self.entries[entry_id]['fields'].update(**kw)
+
+    def create(self, **kw) -> Entry:
+        """Creates an entry with given fields and values, returning the new entry."""
+        r = create_entry(self.library_id, library_info=self.info, **kw)
+        # map the fields back to our format
+        r["fields"] = map_fields(r["fields"], self.info) # type: ignore
+        print(f'From {kw} got {r}')
+        self.entries[r["id"]] = r
+        return r
 
 
 class MovieDB(MementoDB):
@@ -267,9 +298,10 @@ class MovieDB(MementoDB):
         movies = MovieDB()
         for i, m in enumerate(movies):
             print(i, m)
-            if i > 5:
+            if i > 2:
                 break
         print(f"Movie stats: {movies.stats()}")
+        #print(movies.create(**{'title': 'Blah blah blah'}))
         return
         movies.update(movies.key_to_id('tt0140352'), **{"imdb score": 8.5})
         print(movies["https://www.imdb.com/title/tt0140352/?ref_=fn_all_ttl_1"])
