@@ -140,7 +140,8 @@ class MementoDB:
         self.refresh()
         return len(self.entries)
 
-    def key_compare(self, key1: Any, key2: Any) -> bool:
+    def __init__(self, name: str, update_interval_s=60*60):
+        super().__init__(name, key_field='imdb_link', update_interval_s=update_interval_s)
         """Compares two keys for equality. By default this is just a simple equality check."""
         return key1 == key2
 
@@ -206,7 +207,7 @@ if __name__ == '__main__':
         p(entries)
         #p(entries['entries'][:10])
     else:
-        movies = MementoDB('movies', key_field='imdb_link')
+        movies = MovieDB('movies')
         print(movies.info)
         movies.refresh()
         for i, m in enumerate(movies.entries[::-1]):
