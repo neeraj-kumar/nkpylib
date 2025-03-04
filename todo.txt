@@ -1,0 +1,5 @@
+- Create functionality for checking off items in the grocery list in Cookery app
+- Develop a way to add, update, and search for ingredients in the grocery list in the Cookery app class
+- Integrate an in-memory caching system for the API cache, with a layered approach for caching data in memory and on disk
+- Ensure that the in-memory cache system is always a superset of the disk cache, and has a limit on the number of entries or bytes stored
+- Consider implementing separate cache timeouts for the in-memory and disk caches, if necessary
