@@ -10,6 +10,7 @@ import os
 import re
 import time
 
+from collections import Counter
 from typing import Any
 
 import requests
@@ -127,12 +128,12 @@ class MementoDB:
         self.key_field = key_field
         self.update_interval_s = update_interval_s
         self.last_update = 0
-        self.entries = []
+        self.entries_by_id = {}
 
     def refresh(self):
         """Refreshes the entries in the library if needed (based on last refresh time)."""
         if time.time() - self.last_update > self.update_interval_s:
-            self.entries = get_entries(self.library_id)['entries']
+            self.entries = {e['id']: e for e in get_entries(self.library_id)['entries']}
         self.last_update = time.time()
 
     def __len__(self) -> int:
@@ -140,19 +141,18 @@ class MementoDB:
         self.refresh()
         return len(self.entries)
 
-    def __init__(self, name: str, update_interval_s=60*60):
-        super().__init__(name, key_field='imdb_link', update_interval_s=update_interval_s)
+    def key_compare(self, key1: Any, key2: Any) -> bool:
         """Compares two keys for equality. By default this is just a simple equality check."""
         return key1 == key2
 
-    def __iter__(self):
+    def __iter__(self) -> iter[dict]:
         """Iterates through the entries in the library.
 
         Note that this first calls `refresh()` to update the entries if needed.
         """
         self.refresh()
         if self.last_update > 0:
-            return iter(self.entries)
+            return iter(self.entries.values())
 
     def __getitem__(self, key: Any) -> dict:
         """Returns the first entry with the given key (based on the `key_field`).
@@ -163,8 +163,8 @@ class MementoDB:
         if not self.key_field:
             raise ValueError("You must set a `key_field` in the constructor to use this method.")
         self.refresh()
-        for entry in self.entries:
-            if self.key_compare(entry.get(self.key_field), key):
+        for entry in self.entries.values():
+            if self.key_compare(entry['fields'].get(self.key_field), key):
                 return entry
         raise KeyError(f"Key '{key}' not found in library.")
 
@@ -187,13 +187,27 @@ class MementoDB:
 class MovieDB(MementoDB):
     """Subclass of MementoDB specialized for handling my movie list."""
 
-    def __init__(self, name: str, update_interval_s=60*60):
-        super().__init__(name, key_field='imdb_link', update_interval_s=update_interval_s)
+    def __init__(self, update_interval_s=60*60):
+        super().__init__(name='movies', key_field='imdb_link', update_interval_s=update_interval_s)
+
+    def key_compare(self, key1: str, key2: str) -> bool:
         """Compares two keys by extracting and comparing IMDb IDs."""
         imdb_id_pattern = re.compile(r'tt\d+')
         id1 = imdb_id_pattern.search(key1)
         id2 = imdb_id_pattern.search(key2)
         return id1.group() == id2.group() if id1 and id2 else False
+
+    def stats(self):
+        """Returns a Counter with various stats"""
+        counts = Counter(total=len(self))
+        for m in self:
+            f = m['fields']
+            seen = 'seen' if f['status'] else 'unseen'
+            pri = 'low pri' if f['low priority'] else 'high pri'
+            counts[f'{seen} {pri}'] += 1
+            counts[seen] += 1
+            counts[pri] += 1
+        return counts
 
 
 if __name__ == '__main__':
@@ -208,11 +222,9 @@ if __name__ == '__main__':
         p(entries)
         #p(entries['entries'][:10])
     else:
-        movies = MovieDB('movies')
-        print(movies.info)
-        movies.refresh()
-        for i, m in enumerate(movies.entries[::-1]):
+        movies = MovieDB()
+        for i, m in enumerate(movies):
             print(i, m)
             if i > 5:
                 break
-
+        print(f'Movie stats: {movies.stats()}')
