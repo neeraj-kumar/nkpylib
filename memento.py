@@ -165,7 +165,7 @@ class MementoDB:
             raise ValueError("You must set a `key_field` in the constructor to use this method.")
         self.refresh()
         for entry in self.entries:
-            if entry.get(self.key_field) == key:
+            if self.key_compare(entry.get(self.key_field), key):
                 return entry
         raise KeyError(f"Key '{key}' not found in library.")
 
@@ -174,7 +174,7 @@ class MementoDB:
         try:
             _ = self[key]
             return True
-        except KeyError:
+        except (KeyError, ValueError):
             return False
 
     def search_entries(self, q: str, **data) -> list[dict]:
