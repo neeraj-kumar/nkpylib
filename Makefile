@@ -26,8 +26,8 @@ mypy:
 ## runs various code cleanup/checking: black, autoimport, mypy and pylint
 lint:
 	#autoimport $(PY_FILES)
-	isort --atomic -q $(PY_FILES)
-	python -m black --line-length=100 -q $(PY_FILES)
+	#isort --atomic -q $(PY_FILES)
+	#python -m black --line-length=100 -q $(PY_FILES)
 	#pylint $(PY_FILES)
 	mypy $(BASE_PY_FILES)
 
