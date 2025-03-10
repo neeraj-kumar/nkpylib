@@ -48,6 +48,7 @@ def airtable_api_call(endpoint: str, method: str='get', api_key: str='', base_id
     }
     url = f"https://api.airtable.com/v0/{base_id}/{endpoint}"
     method = method.lower()
+    logger.debug(f'Calling {method} on {url} with {kwargs} and headers {headers}')
     if method == "get":
         url += "?" + "&".join(f"{key}={value}" for key, value in kwargs.items())
         r = requests.get(url, headers=headers)

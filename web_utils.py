@@ -308,7 +308,7 @@ def run_search(q: str,
             break
     return searcher.search(q=q, **kw)
 
-def default_index() -> str:
+def default_index(static_path='/static') -> str:
     """Returns default HTML index page that loads react etc from CDNs.
 
     This also inlines the nk js utils code.
@@ -334,13 +334,13 @@ def default_index() -> str:
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha512-ZwR1/gSZM3ai6vCdI+LVF1zSq/5HznD3ZSTk7kajkaj4D292NLuduDCO1c/NT8Id+jE58KYLKT7hXnbtryGmMg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="/static/app.css">
+    <link rel="stylesheet" href="{static_path}/app.css">
   </head>
 <body>
   <div id="main" />
 </body>
 <script type="text/babel">{nk_utils_js}</script>
-<script src="/static/app.jsx" type="text/babel"></script>
+<script src="{static_path}/app.jsx" type="text/babel"></script>
 </html>'''
 
 def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,

@@ -62,3 +62,7 @@ og:
 ## tests out the Memento database integration
 memento:
 	python3 memento.py
+
+## tests out the letterboxd integration
+letterboxd:
+	python3 letterboxd.py ~/dp/projects/movies/letterboxd/latest
