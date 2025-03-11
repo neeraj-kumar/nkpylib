@@ -80,7 +80,7 @@ class LetterboxdArchive:
         # read diary
         for row in self.iter_csv("diary.csv"):
             row = cast_row(row)
-            key = (row['Watched Date'], row['Name'])
+            key = (row['Date'], row['Name'])
             self.diary[key] = row
         # read reviews and add them in
         for row in self.iter_csv("reviews.csv"):
