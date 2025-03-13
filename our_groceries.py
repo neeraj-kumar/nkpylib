@@ -38,26 +38,26 @@ class OurGroceries:
     GroceryList = list[Item]
 
     def parse_list(self, lst: list[dict], include_deleted: bool = False) -> GroceryList:
-    """Parses the response JSON data from any OurGroceries API call and returns a list of items.
+        """Parses the response JSON data from any OurGroceries API call and returns a list of items.
 
-    The outputs are dicts that are from the API, except that we extract out the quantity from the name
-    and put it in a separate key 'quantity', replacing the name with the name without the quantity.
-    (The 'value' field is the original name with quantity.)
-    """
-    # go in order, excluding crossed off items
-    if not include_deleted:
-        lst = [i for i in lst if not i.get('crossedOffAt')]
-    for i in lst:
-        if i['name'] != i['value']:
-            logger.warning(f"List name '{i['name']}' != value '{i['value']}'")
-        # also parse out quantities which are appended to the item name as (qty)
-        m = re.match(r'(.+)\s+\((\d+)\)', i['value'])
-        if m:
-            i['name'] = m.group(1)
-            i['quantity'] = int(m.group(2))
-        else:
-            i['quantity'] = 1
-    return lst
+        The outputs are dicts that are from the API, except that we extract out the quantity from the name
+        and put it in a separate key 'quantity', replacing the name with the name without the quantity.
+        (The 'value' field is the original name with quantity.)
+        """
+        # go in order, excluding crossed off items
+        if not include_deleted:
+            lst = [i for i in lst if not i.get('crossedOffAt')]
+        for i in lst:
+            if i['name'] != i['value']:
+                logger.warning(f"List name '{i['name']}' != value '{i['value']}'")
+            # also parse out quantities which are appended to the item name as (qty)
+            m = re.match(r'(.+)\s+\((\d+)\)', i['value'])
+            if m:
+                i['name'] = m.group(1)
+                i['quantity'] = int(m.group(2))
+            else:
+                i['quantity'] = 1
+        return lst
 
     def our_groceries_api(self, command: str,
                           headers: dict | None = None,
