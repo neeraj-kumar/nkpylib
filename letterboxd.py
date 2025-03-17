@@ -39,7 +39,7 @@ class LetterboxdArchive:
         self.diary = {}
         self.diary_by_imdb_id = {}
         self.read_data()
-        print(f'Read {len(self.diary)} diary entries: {json_dumps(sorted(self.diary.items())[:5], indent=2)}')
+        logger.debug(f'Read {len(self.diary)} diary entries: {json_dumps(sorted(self.diary.items())[:5], indent=2)}')
 
     def iter_csv(self, rel_path: str) -> Iterator[dict[str, Any]]:
         """Iterates through the CSV file at `rel_path`.
@@ -115,7 +115,7 @@ class LetterboxdArchive:
                 continue
             queries.append(dict(title=entry['Name'], titles=[entry['Name']], year=entry['Year']))
             to_search.append(entry)
-        print(f'Read {len(imdb_ids)} imdb ids, searching for {len(queries)} missing ones')
+        logger.info(f'Read {len(imdb_ids)} imdb ids, searching for {len(queries)} missing ones')
         if not queries:
             return
         #queries = queries[:15]
@@ -133,8 +133,9 @@ class LetterboxdArchive:
         shutil.move(imdb_ids_path+'.tmp', imdb_ids_path)
 
     def __iter__(self) -> Iterator[Entry]:
-        """Iterates through all our diary entries."""
-        return iter(self.diary.values())
+        """Iterates through all our diary entries (in chronological order)."""
+        for key in sorted(self.diary.keys()):
+            yield self.diary[key]
 
     def __len__(self) -> int:
         """The number of watches (not necessarily unique movies)"""
