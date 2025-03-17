@@ -449,7 +449,7 @@ async def text_embeddings(req: TextEmbeddingRequest):
     assert req.model is not None, "Model must be specified for embeddings request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
-    print('checking against model name', req.model, req.model == DEFAULT_MODELS['clip'], req.model == DEFAULT_MODELS['sentence'])
+    logger.debug('checking embedding req against model name', req.model)
     if req.model == DEFAULT_MODELS['clip']:
         model_type = 'clip'
     elif req.model == DEFAULT_MODELS['sentence']:

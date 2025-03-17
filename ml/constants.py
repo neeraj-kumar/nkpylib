@@ -24,6 +24,8 @@ DEFAULT_MODELS = dict(
     image='openai/clip-vit-large-patch14',
     # llama3 for default good perf on various text tasks
     llama3='meta-llama/Llama-3.3-70B-Instruct',
+    # llama3 turbo
+    llama3_turbo='meta-llama/Llama-3.3-70B-Instruct-Turbo',
     text='meta-llama/Llama-3.3-70B-Instruct',
     # faster llama3 for chat
     chat='meta-llama/Llama-3.3-70B-Instruct-Turbo',
@@ -34,7 +36,9 @@ DEFAULT_MODELS = dict(
     # a fast model for text tasks
     fast='mistralai/Mistral-Small-24B-Instruct-2501',
     # a good model for manipulating json
-    json='Qwen/Qwen2.5-72B-Instruct'
+    json='Qwen/Qwen2.5-72B-Instruct',
+    # nomic is a good model for text embeddings
+    nomic='nomic-ai/nomic-embed-text-v1.5',
 )
 
 LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']
