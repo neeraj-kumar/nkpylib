@@ -17,7 +17,6 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
-from tqdm import tqdm
 
 array1d = np.ndarray | Sequence[float]
 array2d = np.ndarray | Sequence[Sequence[float]]
