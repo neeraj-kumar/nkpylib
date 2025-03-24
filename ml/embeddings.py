@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import logging
+import random
+
 from collections.abc import Mapping
+from collections import Counter
+from typing import Any
 
 import numpy as np
 
 from lmdbm import Lmdb
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering
+from sklearn.linear_model import SGDClassifier
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 from tqdm import tqdm
 
-2darray = np.ndarray
+array2d = np.ndarray
+
+logger = logging.getLogger(__name__)
 
 class Embeddings(Mapping):
     """Wrapper class around embeddings.
@@ -31,7 +41,7 @@ class Embeddings(Mapping):
         for key, value in self.items():
             self.n_dims = len(value)
             break
-        self.cached = dict()
+        self.cached: dict[str, Any] = dict()
 
     def __iter__(self):
         return iter(self._keys)
@@ -43,8 +53,13 @@ class Embeddings(Mapping):
         a = np.frombuffer(self.db[key.encode('utf-8')], dtype=np.float32)
         return a
 
-    def __contains__(self, key: str) -> bool:
-        return key.encode('utf-8') in self.db
+    def __contains__(self, key: object) -> bool:
+        if isinstance(key, str):
+            return key.encode('utf-8') in self.db
+        elif isinstance(key, bytes):
+            return key in self.db
+        else:
+            raise TypeError(f'Key must be str or bytes, not {type(key)}')
 
     def __repr__(self):
         return f'Embeddings({self.path!r})'
@@ -52,13 +67,10 @@ class Embeddings(Mapping):
     def __str__(self):
         return f'Embeddings({self.path!r})'
 
-    def __del__(self):
-        self.db.close()
-
     def get_keys_embeddings(self,
                             normed: bool=False,
                             scale_mean:bool=True,
-                            scale_std:bool=True) -> tuple[list[str], 2darray]:
+                            scale_std:bool=True) -> tuple[list[str], array2d]:
         """Returns a list of string keys and a numpy array of embeddings.
 
         You can optionally set the following flags:
@@ -71,9 +83,9 @@ class Embeddings(Mapping):
         cache_kw = dict(normed=normed, scale_mean=scale_mean, scale_std=scale_std)
         if self.cached and all(self.cached[k] == v for k, v in cache_kw.items()):
             return self.cached['keys'], self.cached['embs']
-        keys, embs = zip(*list(self.items()))
-        keys = list(keys)
-        embs = np.vstack(embs)
+        _keys, _embs = zip(*list(self.items()))
+        keys = list(_keys)
+        embs = np.vstack(_embs)
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
         if scale_mean or scale_std:
@@ -104,7 +116,59 @@ class Embeddings(Mapping):
             raise NotImplementedError(f'Clustering method {method!r} not implemented.')
         labels = clusterer.fit_predict(embs)
         uniques = set(labels)
-        clusters = {i: [] for i in uniques}
+        clusters: dict[int, list[str]] = {i: [] for i in uniques}
         for key, label in zip(keys, labels):
             clusters[label].append(key)
         return sorted(clusters.values(), key=len, reverse=True)
+
+    def similar(self,
+                queries: list[str],
+                weights: list[float]|None,
+                n_neg: int=1000,
+                method: str='rbf',
+                C=10,
+                **kw) -> list[tuple[float, str]]:
+        """Returns the most similar keys and scores to the given `queries` (keys).
+
+        If `weights` is provided, it should be of the same length as `keys` and is a weight for key. These can be negative as well.
+
+        Returns (score, key) tuples in descending order of score.
+        """
+        if weights is not None:
+            assert len(queries) == len(weights), f'Length of weights {len(weights)} must match queries {len(queries)}'
+        assert all(q in self for q in queries), f'All queries must be in the embeddings.'
+        keys, embs = self.get_keys_embeddings(normed=True, scale_mean=False, scale_std=False)
+        pos = [i for i, k in enumerate(keys) if k in queries]
+        if method == 'nn':
+            # use nearest neighbors, summed over all queries
+            nn = NearestNeighbors(n_neighbors=n_neg, metric='cosine')
+            nn.fit(embs)
+            scores, indices = nn.kneighbors(embs[pos], n_neg, return_distance=True)
+            # aggregate scores for each index over all queries
+            score_by_index: Counter = Counter()
+            for i, s in zip(indices, scores):
+                for j, k in zip(i, s): # for each query, add the score to the index
+                    score_by_index[j] += k
+            _ret = [(score, keys[idx]) for idx, score in score_by_index.most_common()]
+        else:
+            # train a classifier with these as positive and some randomly chosen as negative
+            neg = [i for i in range(len(keys)) if i not in pos]
+            neg = random.sample(neg, n_neg)
+            X = embs[pos + neg]
+            y = [1]*len(pos) + [-1]*len(neg)
+            logger.debug(f'training: {pos+neg}, {X.shape}, {X}, {y}')
+            clf_kw = dict(class_weight='balanced', C=C)
+            if method == 'rbf':
+                clf = SVC(kernel='rbf', **clf_kw)
+            elif method == 'linear':
+                clf = SVC(kernel='linear', **clf_kw)
+            elif method == 'sgd':
+                clf = SGDClassifier(**clf_kw)
+            else:
+                raise NotImplementedError(f'Classifier method {method!r} not implemented.')
+            clf.fit(X, y, sample_weight=weights)
+            scores = clf.decision_function(embs)
+            _ret = [(s, k) for s, k in zip(scores, keys) if s > 0]
+        # sort results by score (desc) and filter out queries
+        ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
+        return ret
