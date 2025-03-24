@@ -7,7 +7,7 @@ import random
 
 from collections.abc import Mapping
 from collections import Counter
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -19,7 +19,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from tqdm import tqdm
 
-array2d = np.ndarray
+array1d = np.ndarray | Sequence[float]
+array2d = np.ndarray | Sequence[Sequence[float]]
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ class Embeddings(Mapping):
     def get_keys_embeddings(self,
                             normed: bool=False,
                             scale_mean:bool=True,
-                            scale_std:bool=True) -> tuple[list[str], array2d]:
+                            scale_std:bool=True) -> tuple[list[str], np.ndarray]:
         """Returns a list of string keys and a numpy array of embeddings.
 
         You can optionally set the following flags:
@@ -86,13 +87,14 @@ class Embeddings(Mapping):
         _keys, _embs = zip(*list(self.items()))
         keys = list(_keys)
         embs = np.vstack(_embs)
+        scaler: StandardScaler|None = None
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
         if scale_mean or scale_std:
             scaler = StandardScaler(with_mean=scale_mean, with_std=scale_std)
             embs = scaler.fit_transform(embs)
         # cache these
-        self.cached.update(keys=keys, embs=embs, **cache_kw)
+        self.cached.update(keys=keys, embs=embs, scaler=scaler, **cache_kw)
         return keys, embs
 
     def cluster(self, n_clusters=-1, method='kmeans', **kwargs) -> list[list[str]]:
@@ -122,13 +124,15 @@ class Embeddings(Mapping):
         return sorted(clusters.values(), key=len, reverse=True)
 
     def similar(self,
-                queries: list[str],
+                queries: list[str]|array2d,
                 weights: list[float]|None,
                 n_neg: int=1000,
                 method: str='rbf',
                 C=10,
                 **kw) -> list[tuple[float, str]]:
-        """Returns the most similar keys and scores to the given `queries` (keys).
+        """Returns the most similar keys and scores to the given `queries`.
+
+        The queries can either be keys from this class, or embedding vectors.
 
         If `weights` is provided, it should be of the same length as `keys` and is a weight for key. These can be negative as well.
 
@@ -136,14 +140,22 @@ class Embeddings(Mapping):
         """
         if weights is not None:
             assert len(queries) == len(weights), f'Length of weights {len(weights)} must match queries {len(queries)}'
-        assert all(q in self for q in queries), f'All queries must be in the embeddings.'
+        assert len(queries) > 0, 'Must provide at least one query.'
+        assert len({type(q) for q in queries}) == 1, 'All queries must be of the same type.'
+        if isinstance(queries[0], str):
+            assert all(q in self for q in queries), f'All queries must be in the embeddings.'
         keys, embs = self.get_keys_embeddings(normed=True, scale_mean=False, scale_std=False)
-        pos = [i for i, k in enumerate(keys) if k in queries]
+        pos: Any
         if method == 'nn':
             # use nearest neighbors, summed over all queries
             nn = NearestNeighbors(n_neighbors=n_neg, metric='cosine')
             nn.fit(embs)
-            scores, indices = nn.kneighbors(embs[pos], n_neg, return_distance=True)
+            if isinstance(queries[0], str):
+                _pos = np.array([i for i, k in enumerate(keys) if k in queries])
+                pos = embs[_pos]
+            else:
+                pos = queries
+            scores, indices = nn.kneighbors(pos, n_neg, return_distance=True)
             # aggregate scores for each index over all queries
             score_by_index: Counter = Counter()
             for i, s in zip(indices, scores):
@@ -152,10 +164,17 @@ class Embeddings(Mapping):
             _ret = [(score, keys[idx]) for idx, score in score_by_index.most_common()]
         else:
             # train a classifier with these as positive and some randomly chosen as negative
-            neg = [i for i in range(len(keys)) if i not in pos]
-            neg = random.sample(neg, n_neg)
-            X = embs[pos + neg]
+            if isinstance(queries[0], str):
+                pos = [i for i, k in enumerate(keys) if k in queries]
+                neg = [i for i in range(len(keys)) if i not in pos]
+                neg = random.sample(neg, n_neg)
+                X = embs[pos + neg]
+            else:
+                pos = queries
+                neg = random.sample(range(len(embs)), n_neg)
+                X = np.vstack([queries, embs[neg]])
             y = [1]*len(pos) + [-1]*len(neg)
+            assert len(X) == len(y), f'Length of X {len(X)} must match y {len(y)}'
             logger.debug(f'training: {pos+neg}, {X.shape}, {X}, {y}')
             clf_kw = dict(class_weight='balanced', C=C)
             if method == 'rbf':
