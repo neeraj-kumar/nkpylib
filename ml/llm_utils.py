@@ -113,3 +113,50 @@ def llm_transform_list(base_prompt: str,
                 yield out[i+1]
             else:
                 yield None
+
+def clean_html_for_llm(s: str, max_length=200000, **kw) -> str:
+    """Cleans up html for LLM input, primarily for length.
+
+    - `max_length`: truncate the string to this length
+
+    Pass in some `kw` else we do all of them. These are:
+    - `image_data=True`: replace b64 image data with a placeholder
+    - `quoted_image_data=True`: replace quoted b64 image data with a placeholder
+    - `remove_svg=True`: remove all SVG elements
+    - `remove_links=True`: remove all <link> elements (not actual <a> links)
+    """
+    orig_len = len(s)
+    default_kw = dict(image_data=True,
+                      quoted_image_data=True,
+                      remove_svg=True,
+                      remove_links=True,
+                      remove_style=True,
+                      remove_script=True,
+                      )
+    if not kw:
+        kw = default_kw
+    img_exts = ['png', 'jpg', 'jpeg', 'gif']
+    img_data_prefix = 'data:image/(' + '|'.join(img_exts) + ')'
+    def remove_tag(tag, s):
+        # note that tags can be nested
+        return re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', s, flags=re.DOTALL)
+
+    for key, value in kw.items():
+        if key == 'image_data' and value:
+            data_re = re.compile(img_data_prefix + r';base64,[^"]+')
+            s = data_re.sub('data:image/png;base64,PLACEHOLDER', s)
+        if key == 'quoted_image_data' and value:
+            quoted_data_re = re.compile(r'data:image/png%3bbase64%2c[^"]+')
+            s = quoted_data_re.sub('data:image/png%3bbase64%2cPLACEHOLDER', s)
+        if key == 'remove_links' and value:
+            s = re.sub(r'<link [^>]*>', '', s)
+        if key == 'remove_svg' and value:
+            s = remove_tag('svg', s)
+        if key == 'remove_style' and value:
+            s = remove_tag('style', s)
+        if key == 'remove_script' and value:
+            s = remove_tag('script', s)
+
+    s = s[:max_length]
+    logger.info(f'Got input string type {type(s)}, len {orig_len} -> {len(s)}, {s[-100:]}')
+    return s
