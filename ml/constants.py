@@ -37,8 +37,12 @@ DEFAULT_MODELS = dict(
     fast='mistralai/Mistral-Small-24B-Instruct-2501',
     # a good model for manipulating json
     json='Qwen/Qwen2.5-72B-Instruct',
+    # a good model for manipulating html (llama3)
+    html='meta-llama/Llama-3.3-70B-Instruct',
     # nomic is a good model for text embeddings
     nomic='nomic-ai/nomic-embed-text-v1.5',
+    # suitable for generating code
+    code='Qwen/Qwen2.5-Coder-32B-Instruct',
 )
 
 LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']
