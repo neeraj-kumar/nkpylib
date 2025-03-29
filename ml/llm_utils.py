@@ -157,6 +157,8 @@ def clean_html_for_llm(s: str, max_length=200000, **kw) -> str:
         if key == 'remove_script' and value:
             s = remove_tag('script', s)
 
+    msg = f'Got input string type {type(s)}, len {orig_len} -> {len(s)}'
     s = s[:max_length]
-    logger.info(f'Got input string type {type(s)}, len {orig_len} -> {len(s)}, {s[-100:]}')
+    msg += f' -> {len(s)}, {s[-100:]}'
+    logger.info(msg)
     return s
