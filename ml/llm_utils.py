@@ -11,6 +11,8 @@ import re
 
 from typing import Any, Iterator, Optional, Sequence
 
+import tiktoken
+
 from nkpylib.ml.client import call_llm, chunked
 
 logger = logging.getLogger(__name__)
@@ -162,3 +164,38 @@ def clean_html_for_llm(s: str, max_length=200000, **kw) -> str:
     msg += f' -> {len(s)}, {s[-100:]}'
     logger.info(msg)
     return s
+
+def get_tiktoken_encoder(enc_or_model_name: str|tiktoken.core.Encoding=None) -> tiktoken.core.Encoding:
+    """Returns a tiktoken encoding object.
+
+    You can either pass in a tiktoken encoding directly, or a model name that tiktoken knows how to
+    get the encoding for. Or if you leave it as `None`, we use the encoding for the 'gpt-4o' model.
+    """
+    if enc_or_model_name is None:
+        enc_or_model_name = 'gpt-4o'
+    if isinstance(enc_or_model_name, str):
+        return tiktoken.encoding_for_model(enc_or_model_name)
+    else:
+        return enc_or_model_name
+
+def count_tokens(s: str, enc_or_model_name: str|tiktoken.core.Encoding=None):
+    """Counts the number of tokens in a string.
+
+    You can either pass in a tiktoken encoding directly, or a model name that tiktoken knows how to
+    get the encoding for. Or if you leave it as `None`, we use the encoding for the 'gpt-4o' model.
+    """
+    enc = get_tiktoken_encoder(enc_or_model_name)
+    return len(enc.encode(s))
+
+def show_tokenized_str(s: str,
+                       enc_or_model_name: str|tiktoken.core.Encoding=None,
+                       dlm: bytes=b'|') -> bytes:
+    """Shows you what the tokenized version of `s` looks like.
+
+    You can either pass in a tiktoken encoding directly, or a model name that tiktoken knows how to
+    get the encoding for. Or if you leave it as `None`, we use the encoding for the 'gpt-4o' model.
+
+    You can also pass in a delimiter to use between tokens in the output (make sure it's bytes!)
+    """
+    enc = get_tiktoken_encoder(enc_or_model_name)
+    return dlm.join([enc.decode_single_token_bytes(t) for t in enc.encode(s)])
