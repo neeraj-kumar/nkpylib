@@ -105,14 +105,18 @@ class AirtableUpdater:
     Then you can simply use it like a dict to read/write updates to the table, keyed by the given
     field name.
     """
-    def __init__(self, table_name: str, key_name: str, map_tables: Optional[list[str]]=None) -> None:
+    def __init__(self, table_name: str, key_name: str, map_tables: Optional[list[str]]=None, needs_review:bool = True) -> None:
         """This is an updater for given table and key name.
 
         You can optionally specify a list of tables that are referenced in this one, and we will
         preload them.
+        
+        If you set `needs_review` to True (default), then we will automatically set the 'needs
+        review' field on all updates.
         """
         self.table_name = table_name
         self.key_name = key_name
+        self.needs_review = needs_review
         # load any mappers
         self.mappers: defaultdict[str, dict] = defaultdict(dict)
         pool = ThreadPoolExecutor()
@@ -189,7 +193,7 @@ class AirtableUpdater:
     def update(self, key: str, typecast=False, **kw) -> Any:
         """Updates the row with the given key"""
         row = self.data[key]
-        if 'needs review' not in kw:
+        if self.needs_review and 'needs review' not in kw:
             kw['needs review'] = True
         row.update(**kw)
         # do mapping
