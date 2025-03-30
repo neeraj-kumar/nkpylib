@@ -1377,6 +1377,20 @@ def specialize(v):
                 pass
     return v
 
+def get_nested(field, obj):
+    """Accesses a nested field value in given dict or list.
+
+    E.g. get_nested('a.0.3', obj) -> obj['a'][0][3]
+    """
+    fields = field.split('.')
+    for f in fields:
+        try:
+            obj = obj[int(f)]
+        except:
+            pass
+        obj = obj[f]
+    return obj
+
 def getDictValues(d, fields, defaults=None):
     """Returns a list of values from a dictionary using the given seq of `fields`.
     If `defaults` is given, it should be same length as `fields`."""
