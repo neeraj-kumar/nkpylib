@@ -51,7 +51,7 @@ the item number).
 
 def llm_transform_list(base_prompt: str,
                        items: Sequence[str],
-                       max_tokens:int =100000,
+                       max_tokens:int =128000,
                        model:str ='llama3',
                        chunk_size:int = 10,
                        prompt_fmt: str=CHUNKED_PROMPT,
@@ -199,3 +199,64 @@ def show_tokenized_str(s: str,
     """
     enc = get_tiktoken_encoder(enc_or_model_name)
     return dlm.join([enc.decode_single_token_bytes(t) for t in enc.encode(s)])
+
+def match_airtable_schema(objs: dict, airtable_schema: list[dict], allow_new_selects:bool=False, **kw) -> Iterator[dict]:
+    """Given `objs` and an `airtable schema`, runs a query to map the objects.
+
+    You can get the schema for a given table by calling my `get_base_schema` function, which returns
+    the schema for the entire base (all tables and views), and then picking the table you want to
+    add the object to.
+
+    This function will use the 'name', 'type', and 'description' (if present) fields in the schema
+    to prompt the LLM. In addition, for single- or multi-select fields, we list the existing options.
+
+    If `allow_new_selects` is `True`, we allow the LLM to generate new options for selects, else not.
+
+    A practical tip: in airtable, add a description only to those fields that you want to map into
+    (skipping primary keys, formulae, notes, etc), and then only include fields with descriptions in
+    the target schema.
+    """
+    sys_prompt = f'''You are an intelligent data mapper. Given a target airtable table
+    schema and a list of objects, you try to map as many of each object's fields into the schema as possible.
+    Output only the JSON object as described in the main prompt, no other text or explanations.'''
+
+    prompt = f'''You will be given a target schema and a list of objects in JSON format. Your task
+    is to map each object into the target schema. The target schema has field names, types, and
+    descriptions.
+    
+    If the field is of type singleSelect or multipleSelects, then you will also be given the current
+    list of option values. In the former case, you can choose at most one of the options; in the
+    latter case, you can choose as many of the options that match.
+
+    For this run, you are {'' if allow_new_selects else 'NOT '}allowed to generate new options for
+    single- or multi-select fields.
+
+    The input object might have nested data structures, and sometimes the target schema might need a
+    value that is nested. In other cases, a target value might need a simple combination of multiple
+    input field values.
+
+    You might not be able to map all fields of an object, or fill all target fields, that is fine.
+    If you are unsure of a field mapping, it is better to skip it.
+
+    For each input object, output a single JSON object with the following top-level fields:
+    - 'target': The mapped target object, with field names as keys and the object's values as values.
+    - 'unmapped': A list of field names from the object that you could not map to the target schema.
+    - 'unfilled': A list of field names from the target schema that you could not fill from the object.
+
+    TARGET SCHEMA:
+    '''
+    for field, data in airtable_schema.items():
+        prompt += f"- {field} ({data['type']})"
+        if 'description' in data:
+            prompt += f': {data["description"]}'
+        if data['type'] in ('singleSelect', 'multipleSelects'):
+            opts = [o['name'] for o in data['options']['choices']]
+            prompt += f', Options: {"; ".join(opts)}'
+        prompt += '\n'
+    prompt += '\n\n'
+    logger.info(f'Template matcher prompt: {prompt}')
+    for output in llm_transform_list(prompt, [json.dumps(o) for o in objs], sys_prompt=sys_prompt, **kw):
+        if output is not None:
+            yield json.loads(output)
+        else:
+            yield {}
