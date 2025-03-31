@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 AIRTABLE_LOG_FILE = 'airtable_log.jsonl'
 
 
-def airtable_api_call(endpoint: str, method: str='get', api_key: str='', base_id: str='', **kwargs) -> Any:
+def airtable_api_call(endpoint: str, method: str='get', api_key: str='', base_id: str='', is_meta:bool=False, **kwargs) -> Any:
     """Makes an API call to airtable and returns the JSON response.
 
     Uses the given `endpoint` and `method` (GET, POST, PATCH, DELETE). Any additional keyword args
@@ -40,6 +40,9 @@ def airtable_api_call(endpoint: str, method: str='get', api_key: str='', base_id
 
     If you don't pass in `api_key` or `base_id`, then this reads the environment variables
     `AIRTABLE_API_KEY` or `AIRTABLE_BASE_ID`, respectively.
+
+    If `is_meta` is True, then this will call the meta endpoint instead of the normal one.
+    In that case, we don't use `base_id`.
     """
     api_key = api_key or os.environ.get('AIRTABLE_API_KEY', '')
     base_id = base_id or os.environ.get('AIRTABLE_BASE_ID', '')
@@ -47,6 +50,8 @@ def airtable_api_call(endpoint: str, method: str='get', api_key: str='', base_id
         "Authorization": f"Bearer {api_key}",
     }
     url = f"https://api.airtable.com/v0/{base_id}/{endpoint}"
+    if is_meta:
+        url = f"https://api.airtable.com/v0/meta/{endpoint}"
     method = method.lower()
     logger.debug(f'Calling {method} on {url} with {kwargs} and headers {headers}')
     if method == "get":
@@ -74,6 +79,11 @@ def airtable_api_call(endpoint: str, method: str='get', api_key: str='', base_id
             #print(f'trying to call {func} with url={url} and json={kwargs} and headers {headers}')
             r = func(url, json=kwargs, headers=headers)
     return r.json()
+
+def get_base_schema(base_id: str='', **kw):
+    """Returns the metadata for the schema of all tables in a particular base"""
+    base_id = base_id or os.environ.get('AIRTABLE_BASE_ID', '')
+    return airtable_api_call(f'bases/{base_id}/tables', is_meta=True, **kw)
 
 def airtable_api_gen(**kw) -> Any:
     """A generator for Airtable API calls.
@@ -132,6 +142,8 @@ class AirtableUpdater:
                 for row in f.result():
                     self.add_map_value(mt_name, row)
             futures = futures[:1]
+        # placeholder for the schema
+        self._schema = {}
         # load the entire table
         self.data = {}
         logger.info(f'Reading main data for {table_name}')
@@ -145,6 +157,17 @@ class AirtableUpdater:
                 self.data[value] = row['fields']
                 self.data[value]['id'] = row['id']
         logger.info(f'Read {len(self.data)} rows from {table_name}, key={key_name}')
+
+    @property
+    def schema(self) -> dict:
+        """Returns the schema for the table"""
+        if not self._schema:
+            schema = get_base_schema()
+            for table in schema['tables']:
+                if table['name'] == self.table_name:
+                    self._schema = table
+                    break
+        return self._schema
 
     def _setrow(self, row: dict) -> None:
         """Sets a given row in the data"""
