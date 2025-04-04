@@ -1,5 +1,10 @@
 """Utilities to deal with embeddings"""
 
+#TODO overall metadata
+#TODO metadata for each embedding
+#TODO sparse
+#TODO in-memory
+
 from __future__ import annotations
 
 import logging
@@ -12,11 +17,13 @@ from typing import Any, Sequence
 import numpy as np
 
 from lmdbm import Lmdb
+from sklearn.base import BaseEstimator
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans
 from sklearn.linear_model import SGDClassifier
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
+from tqdm import tqdm
 
 nparray1d = np.ndarray
 nparray2d = np.ndarray
@@ -31,10 +38,15 @@ class Embeddings(Mapping):
 
     This functions as a read-only Mapping.
     """
-    def __init__(self, path: str, mode: str='r'):
+    def __init__(self, path: str='', mode: str='r'):
         """Loads embeddings from given `path`.
 
         This must be LMDB format for now.
+        The mode is one of:
+        - 'r': read-only, existing
+        - 'w': read and write, existing
+        - 'c': read and write, create if not exists
+        - 'n': read and write, overwrite
         """
         self.path = path
         self.db = Lmdb.open(path, mode)
@@ -126,7 +138,7 @@ class Embeddings(Mapping):
         return sorted(clusters.values(), key=len, reverse=True)
 
     def similar(self,
-                queries: list[str]|array2d,
+                queries: list[str]|array2d|BaseEstimator,
                 weights: list[float]|None=None,
                 n_neg: int=1000,
                 method: str='rbf',
@@ -140,14 +152,15 @@ class Embeddings(Mapping):
 
         Returns (score, key) tuples in descending order of score.
         """
-        assert len(queries) > 0, 'Must provide at least one query.'
-        assert len({type(q) for q in queries}) == 1, 'All queries must be of the same type.'
-        if isinstance(queries[0], str):
-            assert all(q in self for q in queries), f'All queries must be in the embeddings.'
+        if not isinstance(queries, BaseEstimator):
+            assert len(queries) > 0, 'Must provide at least one query.'
+            assert len({type(q) for q in queries}) == 1, 'All queries must be of the same type.'
+            if isinstance(queries[0], str):
+                assert all(q in self for q in queries), f'All queries must be in the embeddings.'
         #TODO normalize queries if not in dataset
         keys, embs = self.get_keys_embeddings(normed=True, scale_mean=False, scale_std=True)
         pos: Any
-        if method == 'nn':
+        if method == 'nn': # queries must not be estimator
             if isinstance(queries[0], str):
                 _pos = np.array([i for i, k in enumerate(keys) if k in queries])
                 pos = embs[_pos]
@@ -155,18 +168,21 @@ class Embeddings(Mapping):
                 pos = queries
             _ret = self.nearest_neighbors(pos, n_neighbors=n_neg, **kw)
         else:
-            # train a classifier with these as positive and some randomly chosen as negative
-            if isinstance(queries[0], str):
-                pos = [i for i, k in enumerate(keys) if k in queries]
-                neg = [i for i in range(len(keys)) if i not in pos]
-                neg = random.sample(neg, n_neg)
-                X = embs[pos + neg]
+            if isinstance(queries, BaseEstimator):
+                clf = queries
             else:
-                pos = queries
-                neg = random.sample(range(len(embs)), n_neg)
-                X = np.vstack([queries, embs[neg]])
-            y = [1]*len(pos) + [-1]*len(neg)
-            clf = self.make_classifier(X, y, method=method, **kw)
+                # train a classifier with these as positive and some randomly chosen as negative
+                if isinstance(queries[0], str):
+                    pos = [i for i, k in enumerate(keys) if k in queries]
+                    neg = [i for i in range(len(keys)) if i not in pos]
+                    neg = random.sample(neg, n_neg)
+                    X = embs[pos + neg]
+                else:
+                    pos = queries
+                    neg = random.sample(range(len(embs)), n_neg)
+                    X = np.vstack([queries, embs[neg]])
+                y = [1]*len(pos) + [-1]*len(neg)
+                clf = self.make_classifier(X, y, method=method, **kw)
             scores = clf.decision_function(embs)
             logger.debug(f'Got scores {scores.shape}: {scores}')
             _ret = [(s, k) for s, k in zip(scores, keys) if s > min_score]
@@ -218,3 +234,27 @@ class Embeddings(Mapping):
             raise NotImplementedError(f'Classifier method {method!r} not implemented.')
         clf.fit(X, y, sample_weight=weights)
         return clf
+
+    @classmethod
+    def concat_multiple(cls, paths: list[str], output_path: str, mode: str='r') -> None:
+        """Loads ands concatenates multiple embeddings from given `paths`, writing to `output_path`.
+
+        This writes a single lmdb with only those keys that are in all embeddings.
+        """
+        embs = {}
+        for i, path in tqdm(enumerate(paths)):
+            cur = Embeddings(path, mode)
+            if i == 0:
+                embs = dict(cur.items())
+            else:
+                cur_keys = set(cur.keys())
+                # remove keys that are not in all embeddings
+                to_del = set(embs.keys()) - cur_keys
+                for k in to_del:
+                    del embs[k]
+                # now concatenate
+                for k, existing in embs.items():
+                    embs[k] = np.hstack([existing, cur[k]])
+        # make a new embeddings object
+        with Lmdb.open(output_path, 'c') as db:
+            db.update({key: emb.tobytes() for key, emb in embs.items()})
