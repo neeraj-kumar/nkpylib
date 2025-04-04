@@ -187,8 +187,11 @@ class Embeddings(Mapping):
             logger.debug(f'Got scores {scores.shape}: {scores}')
             _ret = [(s, k) for s, k in zip(scores, keys) if s > min_score]
             logger.debug(f'got _ret: {len(_ret)}: {_ret[:10]}')
-        # sort results by score (desc) and filter out queries
-        ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
+        # sort results by score (desc) and filter out queries (if applicable)
+        if isinstance(queries, BaseEstimator):
+            ret = sorted([(float(s), k) for s, k in _ret], reverse=True)
+        else:
+            ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
         return ret
 
     def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='cosine', **kw):
