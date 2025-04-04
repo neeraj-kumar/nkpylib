@@ -77,7 +77,7 @@ from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION, Role, Msg
 
 logger = logging.getLogger(__name__)
 
-def chunked(lst: list[Any], n: int) -> Iterator[list[Any]]:
+def chunked(lst: Sequence[Any], n: int) -> Iterator[list[Any]]:
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]

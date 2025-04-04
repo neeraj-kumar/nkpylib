@@ -9,9 +9,14 @@ import json
 import logging
 import re
 
+from collections import Counter
+from pprint import pformat
 from typing import Any, Iterator, Optional, Sequence
 
 import tiktoken
+
+from bs4 import BeautifulSoup, Comment
+from bs4.element import NavigableString
 
 from nkpylib.ml.client import call_llm, chunked
 
@@ -91,6 +96,7 @@ def llm_transform_list(base_prompt: str,
     for chunk in chunked(items, chunk_size):
         lst = ''.join(f'{i+1}. {item}\n' for i, item in enumerate(chunk))
         prompt = prompt_fmt % (base_prompt, len(lst), lst)
+        prompts: list[tuple[str, str]] | str
         if sys_prompt:
             prompts = [('system', sys_prompt), ('user', prompt)]
         else:
@@ -165,7 +171,9 @@ def clean_html_for_llm(s: str, max_length=200000, **kw) -> str:
     logger.info(msg)
     return s
 
-def get_tiktoken_encoder(enc_or_model_name: str|tiktoken.core.Encoding=None) -> tiktoken.core.Encoding:
+EncOrNameT = str|tiktoken.core.Encoding
+
+def get_tiktoken_encoder(enc_or_model_name: EncOrNameT|None=None) -> tiktoken.core.Encoding:
     """Returns a tiktoken encoding object.
 
     You can either pass in a tiktoken encoding directly, or a model name that tiktoken knows how to
@@ -178,7 +186,7 @@ def get_tiktoken_encoder(enc_or_model_name: str|tiktoken.core.Encoding=None) -> 
     else:
         return enc_or_model_name
 
-def count_tokens(s: str, enc_or_model_name: str|tiktoken.core.Encoding=None):
+def count_tokens(s: str, enc_or_model_name: EncOrNameT|None=None):
     """Counts the number of tokens in a string.
 
     You can either pass in a tiktoken encoding directly, or a model name that tiktoken knows how to
@@ -188,7 +196,7 @@ def count_tokens(s: str, enc_or_model_name: str|tiktoken.core.Encoding=None):
     return len(enc.encode(s))
 
 def show_tokenized_str(s: str,
-                       enc_or_model_name: str|tiktoken.core.Encoding=None,
+                       enc_or_model_name: EncOrNameT|None=None,
                        dlm: bytes=b'|') -> bytes:
     """Shows you what the tokenized version of `s` looks like.
 
@@ -200,7 +208,7 @@ def show_tokenized_str(s: str,
     enc = get_tiktoken_encoder(enc_or_model_name)
     return dlm.join([enc.decode_single_token_bytes(t) for t in enc.encode(s)])
 
-def match_airtable_schema(objs: dict, airtable_schema: list[dict], allow_new_selects:bool=False, **kw) -> Iterator[dict]:
+def match_airtable_schema(objs: dict, airtable_schema: dict[str, Any], allow_new_selects:bool=False, **kw) -> Iterator[dict]:
     """Given `objs` and an `airtable schema`, runs a query to map the objects.
 
     You can get the schema for a given table by calling my `get_base_schema` function, which returns
@@ -223,7 +231,7 @@ def match_airtable_schema(objs: dict, airtable_schema: list[dict], allow_new_sel
     prompt = f'''You will be given a target schema and a list of objects in JSON format. Your task
     is to map each object into the target schema. The target schema has field names, types, and
     descriptions.
-    
+
     If the field is of type singleSelect or multipleSelects, then you will also be given the current
     list of option values. In the former case, you can choose at most one of the options; in the
     latter case, you can choose as many of the options that match.
@@ -260,3 +268,75 @@ def match_airtable_schema(objs: dict, airtable_schema: list[dict], allow_new_sel
             yield json.loads(output)
         else:
             yield {}
+
+def simplify_html(html: str, idx: int|None=None) -> str:
+    """Simplifies htmls by checking against text content.
+
+    For each node, if the node has no text content, we remove it.
+    Or, if it has the exact same text content as one of its children, we remove it.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    orig_clean = soup.prettify()
+    counts: Counter[str] = Counter()
+    for node in soup.find_all():
+        counts['total'] += 1
+        if isinstance(node, Comment):
+            #print(f"  Killing comment node with {len(node.text)} bytes: {node.text[:100]}...")
+            counts['comment'] += 1
+            counts['killed'] += 1
+            node.extract()
+#       elif node.name in ['img']:
+#           counts['img'] += 1
+#           counts['alive'] += 1
+        elif node.name in ['style', 'script', 'footer']:
+            #print(f"  Killing {node.name} node with {len(node.text)} bytes: {node.text[:100]}...")
+            counts[node.name] += 1
+            counts['killed'] += 1
+            node.extract()
+        elif not node.text.strip():
+            #print(f'    Killing {node.name} node with no text content: {str(node)[:100]}...')
+            node.extract()
+            counts['empty'] += 1
+            counts['killed'] += 1
+        # check for any nodes with a style attribute that contains 'display: none' or 'visibility: hidden'
+        elif node.has_attr('style') and ('display: none' in node['style'] or 'visibility: hidden' in node['style']):
+            #print(f'    Killing {node.name} node with hidden style: {str(node)[:100]}...')
+            node.extract()
+            counts['hidden'] += 1
+            counts['killed'] += 1
+        else:
+            counts['alive'] += 1
+            #counts[f'type-{node.name}'] += 1
+
+    def simplify_node(node):
+        """Recursive function to check if a node can be simplified.
+
+        If this node has a single child with text content identical to this node itself, then we can
+        remove this node and replace it with the child.
+        """
+        if not hasattr(node, 'children'):
+            return
+        if not node.children:
+            return
+        children = list(node.children)
+        if len(children) == 1:
+            child = children[0]
+            if child.text == node.text:
+                #print(f"  Simplifying node {node.name} with {len(node.text)} bytes: {node.text[:100]}...")
+                node.replace_with(child)
+                counts['simplified'] += 1
+        for child in children:
+            simplify_node(child)
+
+    first = str(soup)
+    C = lambda s: f'{len(s)}b/{count_tokens(s)}t ({100.0*count_tokens(s) / len(s):.0f}%)'
+    simplify_node(soup)
+    ret = str(soup)
+    logger.info(f"Simplified html from {C(html)} -> {C(first)} -> {C(ret)}, {pformat(counts)}")
+    # write versions to disk if we were given an idx
+    if idx is not None:
+        with open(f'streeteasy_raw_{idx}.html', 'w') as f:
+            f.write(orig_clean)
+        with open(f'streeteasy_clean_{idx}.html', 'w') as f:
+            f.write(soup.prettify())
+    return ret
