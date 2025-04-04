@@ -208,14 +208,23 @@ def show_tokenized_str(s: str,
     enc = get_tiktoken_encoder(enc_or_model_name)
     return dlm.join([enc.decode_single_token_bytes(t) for t in enc.encode(s)])
 
-def match_airtable_schema(objs: dict, airtable_schema: dict[str, Any], allow_new_selects:bool=False, **kw) -> Iterator[dict]:
-    """Given `objs` and an `airtable schema`, runs a query to map the objects.
+def match_obj_schema(objs: list[dict],
+                     schema: dict[str, Any],
+                     allow_new_selects:bool=False,
+                     **kw) -> Iterator[dict]:
+    """Given `objs` and an `schema`, runs a query to map the objects.
 
-    You can get the schema for a given table by calling my `get_base_schema` function, which returns
-    the schema for the entire base (all tables and views), and then picking the table you want to
-    add the object to.
+    This was original written for Airtable, but it should work for any schema that has a similar
+    structure. In airtable, you can get the schema for a given table by calling my `get_base_schema`
+    function, which returns the schema for the entire base (all tables and views), and then picking
+    the table you want to add the object to.
 
-    This function will use the 'name', 'type', and 'description' (if present) fields in the schema
+    The schema is a dict of field names to field data. The field data is a dict:
+    - 'type': the field type (e.g. 'singleSelect', 'multipleSelects', etc)
+    - 'description': the field description (optional)
+    - 'options': the field options (optional, only for singleSelect and multipleSelects)
+
+    This function will use the name, 'type', and 'description' (if present) fields in the schema
     to prompt the LLM. In addition, for single- or multi-select fields, we list the existing options.
 
     If `allow_new_selects` is `True`, we allow the LLM to generate new options for selects, else not.
@@ -224,13 +233,13 @@ def match_airtable_schema(objs: dict, airtable_schema: dict[str, Any], allow_new
     (skipping primary keys, formulae, notes, etc), and then only include fields with descriptions in
     the target schema.
     """
-    sys_prompt = f'''You are an intelligent data mapper. Given a target airtable table
+    sys_prompt = f'''You are an intelligent data mapper. Given a target table
     schema and a list of objects, you try to map as many of each object's fields into the schema as possible.
     Output only the JSON object as described in the main prompt, no other text or explanations.'''
 
     prompt = f'''You will be given a target schema and a list of objects in JSON format. Your task
     is to map each object into the target schema. The target schema has field names, types, and
-    descriptions.
+    descriptions (where present).
 
     If the field is of type singleSelect or multipleSelects, then you will also be given the current
     list of option values. In the former case, you can choose at most one of the options; in the
@@ -253,7 +262,7 @@ def match_airtable_schema(objs: dict, airtable_schema: dict[str, Any], allow_new
 
     TARGET SCHEMA:
     '''
-    for field, data in airtable_schema.items():
+    for field, data in schema.items():
         prompt += f"- {field} ({data['type']})"
         if 'description' in data:
             prompt += f': {data["description"]}'
