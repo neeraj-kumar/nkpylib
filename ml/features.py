@@ -8,6 +8,7 @@ import os
 import time
 
 from abc import ABC
+from collections.abc import Mapping
 from os.path import dirname
 from typing import Any, Sequence, TypeVar, Generic, Callable
 
@@ -37,8 +38,11 @@ class Feature(ABC):
         return self.name
 
     def _len(self) -> int:
-        """Returns the length of the feature (implementation)"""
-        raise NotImplementedError()
+        """Returns the length of the feature (implementation).
+
+        By default this actually gets the feature and then returns its length.
+        """
+        return len(self.get())
 
     def __len__(self) -> int:
         """Returns the length of the feature"""
@@ -66,17 +70,16 @@ class Feature(ABC):
         return ret
 
     def validate(self, arr, feat):
-        """Validates the feature array"""
+        """Validates the feature `arr` obtained from feature `feat`."""
         try:
             assert len(arr) > 0, f"Feature {feat} has length 0"
         except Exception as e:
             assert False, f"{type(e)} with feature {feat}: value {arr}"
 
-
-
     def update(self, **kw):
         """Updates the feature"""
         raise NotImplementedError()
+
 
 class ConstantFeature(Feature):
     """A constant feature (could be many dims)"""
@@ -95,13 +98,18 @@ class ConstantFeature(Feature):
 T = TypeVar('T')
 
 class PairwiseMax(Feature, Generic[T]):
+    """Computes max over two sets of keys that can be compared pairwise.
+
+    You can use this to compute the max similarity between two sets of keys.
+    Each set of keys is a sequence of objects of type T, and is compared using a similarity function
+    that returns a float, of which we take the maximum.
+    """
     def __init__(self,
                  keys1: Sequence[T],
                  keys2: Sequence[T],
                  sim_func: Callable[[T, T], float],
                  default: float=-1.0,
                  **kw):
-        """Computes max over two sets of keys that can be compared pairwise using `sim_func`"""
         super().__init__(**kw)
         self.keys1 = keys1
         self.keys2 = keys2
@@ -127,10 +135,18 @@ class PairwiseMax(Feature, Generic[T]):
 class TimeContext(Feature):
     """Computes some features based on the time context"""
     def __init__(self, ts: float|str, fields=['dow', 'hour'], **kw):
-        """Initializes the feature with a timestamp"""
+        """Initializes the feature with a timestamp.
+
+        The types of fields that we populate are:
+        - 'dow': day of week (0-6)
+        - 'hour': hour of day (0-23)
+        """
         super().__init__(**kw)
         self.ts = parse_ts(ts)
         self.fields = fields
+        for field in fields:
+            if field not in ['dow', 'hour']:
+                raise NotImplementedError(f"Unknown field {field}")
 
     def _get(self) -> np.ndarray:
         """Returns the feature as a numpy array"""
@@ -143,6 +159,7 @@ class TimeContext(Feature):
             else:
                 raise ValueError(f"Unknown field {field}")
         return np.array(ret)
+
 
 class Recency(Feature):
     """Computes the recency between two timestamps"""
@@ -175,6 +192,40 @@ class Recency(Feature):
     def _len(self) -> int:
         """Returns the length of the feature"""
         return 1
+
+
+class MappingFeature(Feature, Generic[T]):
+    """A feature that is stored in a Mapping (dict-like) object.
+
+    The generic type T is the type of the key in the mapping.
+    """
+    def __init__(self, d: Mapping, key: T, **kw):
+        """Initializes the feature with a mapping object `d` and a `key`."""
+        super().__init__(**kw)
+        self.d = d
+        self.key = key
+
+    def _get(self) -> np.ndarray:
+        """Returns the feature as a numpy array"""
+        return np.array(self.d[self.key])
+
+
+class FunctionFeature(Feature):
+    """A feature that is computed by a function."""
+    def __init__(self,
+                 func: Callable,
+                 func_args: Sequence[Any]=(),
+                 func_kwargs: Mapping[str, Any]={},
+                 **kw):
+        """Initializes the feature with a function `func` and the args and kwargs to call it with."""
+        super().__init__(**kw)
+        self.func = func
+        self.func_args = func_args
+        self.func_kwargs = func_kwargs
+
+    def _get(self) -> np.ndarray:
+        """Returns the feature as a numpy array"""
+        return self.func(*self.func_args, **self.func_kwargs)
 
 
 def save_as_image(path: str, arr: np.ndarray, n_cols=100, cmap='viridis'):

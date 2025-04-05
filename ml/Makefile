@@ -75,3 +75,7 @@ face-replicate:
 ## update providers
 update-providers:
 	@python3 providers.py update_providers
+
+## tests out embeddings main code
+embeddings:
+	@python3 embeddings.py ~/db/nkmovies/embeddings/movie-embeddings.lmdb

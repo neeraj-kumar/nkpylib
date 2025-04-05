@@ -33,6 +33,73 @@ array2d = nparray2d | Sequence[Sequence[float]]
 
 logger = logging.getLogger(__name__)
 
+
+class NumpyLmdb(Lmdb):
+    """Subclass of LMDB database that stores numpy arrays with utf-8 encoded string keys.
+    """
+    @classmethod
+    def open(cls, file: str, mode: str='r', dtype=np.float32, **kw) -> NumpyLmdb:
+        """Opens the LMDB database at given `file` path.
+
+        The mode is one of:
+        - 'r': read-only, existing
+        - 'w': read and write, existing
+        - 'c': read and write, create if not exists
+        - 'n': read and write, overwrite
+
+        We enforce that all np array values will be of `dtype` type.
+        """
+        if 'map_size' not in kw:
+            kw['map_size'] = 2 ** 25 # lmdbm only grows up to 12 factors, and defaults to 2e20
+        ret = super().open(file, mode, **kw)
+        ret.dtype = dtype
+        ret.path = file
+        return ret
+
+    def _pre_key(self, key: str) -> bytes:
+        return key.encode('utf-8', 'ignore')
+
+    def _post_key(self, key: bytes) -> str:
+        return key.decode('utf-8', 'ignore')
+
+    def _pre_value(self, value: np.ndarray) -> bytes:
+        assert isinstance(value, np.ndarray), f'Value must be a numpy array, not {type(value)}'
+        assert value.dtype == self.dtype, f'Value must be of type {self.dtype}, not {value.dtype}'
+        return value.tobytes()
+
+    def _post_value(self, value: bytes) -> np.ndarray:
+        a = np.frombuffer(value, dtype=self.dtype)
+        return a
+
+    def __repr__(self):
+        return f'NumpyLmdb<{self.path}>'
+
+
+    @classmethod
+    def concat_multiple(cls, paths: list[str], output_path: str, dtype=np.float32) -> None:
+        """Loads ands concatenates multiple lmdbs from given `paths`, writing to `output_path`.
+
+        This writes a single lmdb with only those keys that are in all files.
+        """
+        vecs = {}
+        for i, path in tqdm(enumerate(paths)):
+            cur = cls(path, mode='r', dtype=dtype)
+            if i == 0:
+                vecs = dict(cur.items())
+            else:
+                cur_keys = set(cur.keys())
+                # remove keys that are not in all veceddings
+                to_del = set(vecs.keys()) - cur_keys
+                for k in to_del:
+                    del vecs[k]
+                # now concatenate
+                for k, existing in vecs.items():
+                    vecs[k] = np.hstack([existing, cur[k]])
+        # make a new veceddings object
+        with cls.open(output_path, 'c', dtype=dtype) as db:
+            db.update({key: vec for key, vec in vecs.items()})
+
+
 class Embeddings(Mapping):
     """Wrapper class around embeddings.
 
@@ -238,26 +305,11 @@ class Embeddings(Mapping):
         clf.fit(X, y, sample_weight=weights)
         return clf
 
-    @classmethod
-    def concat_multiple(cls, paths: list[str], output_path: str, mode: str='r') -> None:
-        """Loads ands concatenates multiple embeddings from given `paths`, writing to `output_path`.
 
-        This writes a single lmdb with only those keys that are in all embeddings.
-        """
-        embs = {}
-        for i, path in tqdm(enumerate(paths)):
-            cur = Embeddings(path, mode)
-            if i == 0:
-                embs = dict(cur.items())
-            else:
-                cur_keys = set(cur.keys())
-                # remove keys that are not in all embeddings
-                to_del = set(embs.keys()) - cur_keys
-                for k in to_del:
-                    del embs[k]
-                # now concatenate
-                for k, existing in embs.items():
-                    embs[k] = np.hstack([existing, cur[k]])
-        # make a new embeddings object
-        with Lmdb.open(output_path, 'c') as db:
-            db.update({key: emb.tobytes() for key, emb in embs.items()})
+if __name__ == '__main__':
+    import sys, time
+    db = NumpyLmdb.open(sys.argv[1])
+    print(f'Opened {db}, {len(db)} items, {db.dtype} dtype, {db.map_size} map size.')
+    for key, value in db.items():
+        print(f'Key: {key}, Value: {value}')
+        break
