@@ -78,4 +78,4 @@ update-providers:
 
 ## tests out embeddings main code
 embeddings:
-	@python3 embeddings.py ~/db/nkmovies/embeddings/movie-embeddings.lmdb
+	@python3 embeddings.py ~/db/nkmovies/embeddings/movie-scalars.lmdb

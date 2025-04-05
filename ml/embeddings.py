@@ -95,30 +95,18 @@ class NumpyLmdb(Lmdb):
                 # now concatenate
                 for k, existing in vecs.items():
                     vecs[k] = np.hstack([existing, cur[k]])
-        # make a new veceddings object
+        # write to output path
         with cls.open(output_path, 'c', dtype=dtype) as db:
             db.update({key: vec for key, vec in vecs.items()})
 
 
-class Embeddings(Mapping):
-    """Wrapper class around embeddings.
-
-    This functions as a read-only Mapping.
-    """
-    def __init__(self, path: str='', mode: str='r'):
-        """Loads embeddings from given `path`.
-
-        This must be LMDB format for now.
-        The mode is one of:
-        - 'r': read-only, existing
-        - 'w': read and write, existing
-        - 'c': read and write, create if not exists
-        - 'n': read and write, overwrite
-        """
-        self.path = path
-        self.db = Lmdb.open(path, mode)
+class FeatureSet(Mapping):
+    """A set of features that you can do stuff with."""
+    def __init__(self, path: str=''):
+        """Loads features from given `path` (lmdbm format)."""
+        self.db = NumpyLmdb.open(path)
         # we cache the order of our keys
-        self._keys = [k.decode('utf-8') for k in self.db.keys()]
+        self._keys = [k for k in self.db.keys()]
         self.n_dims = 0
         for key, value in self.items():
             self.n_dims = len(value)
@@ -129,25 +117,13 @@ class Embeddings(Mapping):
         return iter(self._keys)
 
     def __len__(self):
-        return len(self.db)
+        return len(self._keys)
 
     def __getitem__(self, key: str) -> np.ndarray:
-        a = np.frombuffer(self.db[key.encode('utf-8')], dtype=np.float32)
-        return a
+        return self.db[key]
 
     def __contains__(self, key: object) -> bool:
-        if isinstance(key, str):
-            return key.encode('utf-8') in self.db
-        elif isinstance(key, bytes):
-            return key in self.db
-        else:
-            raise TypeError(f'Key must be str or bytes, not {type(key)}')
-
-    def __repr__(self):
-        return f'Embeddings({self.path!r})'
-
-    def __str__(self):
-        return f'Embeddings({self.path!r})'
+        return key in self.db
 
     def get_keys_embeddings(self,
                             normed: bool=False,
