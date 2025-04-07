@@ -42,10 +42,9 @@ Current ML types and models:
 """
 
 #TODO have some kind of context manager for deciding where to run llm functions from? (local, replicate, openai)
-#TODO Add VQA model
 #TODO some way to turn an LLM query into an embeddings + code query (e.g. recipe pdf name correction)
 
-
+import asyncio
 import functools
 import logging
 import tempfile
@@ -164,13 +163,11 @@ def llama(prompt, methods, model_dir='models', get_embeddings=False):
 def test(prompt = "Summarize the plot of the movie Fight Club."):
     methods = ['greedy', 'sample', 'beam']
     #methods = ['beam'] # 1.7 tokens/s
-
     func = llama
     func(prompt, methods)
 
 
-
-def load_model(model_name: str, load_func: LoadFuncT, **kw) -> tuple[object, dict, bool]:
+async def load_model(model_name: str, load_func: LoadFuncT, **kw) -> tuple[object, dict, bool]:
     """Loads given `model_name` using the given `load_func`.
 
     Returns `(model, model-specific-cache, did_load)`, where:
@@ -183,7 +180,7 @@ def load_model(model_name: str, load_func: LoadFuncT, **kw) -> tuple[object, dic
     """
     if model_name not in app.state.models:
         t0 = time.time()
-        model = load_func(model_name, **kw)
+        model = await asyncio.to_thread(load_func, model_name, **kw)
         t1 = time.time()
         app.state.models[model_name] = model
         app.state.cache[model_name] = {}
@@ -194,7 +191,7 @@ def load_model(model_name: str, load_func: LoadFuncT, **kw) -> tuple[object, dic
         did_load = False
     return model, app.state.cache[model_name], did_load
 
-def generic_run_model(
+async def generic_run_model(
         input: Any,
         model_name: str,
         load_func: LoadFuncT,
@@ -217,7 +214,7 @@ def generic_run_model(
     various timing information.
     """
     t0 = time.time()
-    model, cache, did_load = load_model(model_name, load_func)
+    model, cache, did_load = await load_model(model_name, load_func)
     logger.debug(f'Loaded model {model_name} with cache keys {cache.keys()}, checking cache_key {cache_key}')
     t1 = time.time()
     found_cache = False
@@ -225,7 +222,7 @@ def generic_run_model(
         ret = cache[cache_key]
         found_cache = True
     else:
-        ret = run_func(input, model, **kw)
+        ret = await asyncio.to_thread(run_func, input, model, **kw)
         if cache_key is not None:
             cache[cache_key] = ret
     t2 = time.time()
@@ -291,7 +288,7 @@ async def completions(req: CompletionRequest):
               echo=False,
             )
 
-    ret = generic_run_model(
+    ret = await generic_run_model(
         input=req.prompt,
         model_name=f'models/{req.model}',
         load_func=load_func,
@@ -358,7 +355,7 @@ async def chat(req: ChatRequest):
             ret = call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
             return ret
 
-    ret = generic_run_model(
+    ret = await generic_run_model(
         input=req.prompts,
         model_name=f'models/{req.model}',
         load_func=load_func,
@@ -420,7 +417,7 @@ async def vlm(req: VLMRequest):
         ret = call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
         return ret
 
-    ret = generic_run_model(
+    ret = await generic_run_model(
         input=(req.image, req.prompts),
         model_name=req.model,
         load_func=load_func,
@@ -492,7 +489,7 @@ async def text_embeddings(req: TextEmbeddingRequest):
         embedding['input'] = input
         return embedding
 
-    return generic_run_model(
+    return await generic_run_model(
         input=req.input,
         model_name=req.model,
         load_func=load_func,
@@ -527,7 +524,7 @@ async def image_embeddings(req: ImageEmbeddingRequest):
             url=input,
         )
 
-    return generic_run_model(
+    return await generic_run_model(
         input=req.url,
         model_name=req.model,
         load_func=lambda model, **kw: load_clip(model)[1],
@@ -592,14 +589,20 @@ async def get_text_api(req: GetTextRequest, cache={}):
         if req.url.startswith('data:'):
             ext = req.url.split(';')[0].split('/')[-1]
         with tempfile.NamedTemporaryFile(delete=True, suffix=f'.{ext}') as f:
-            urlretrieve(req.url, f.name)
+            await asyncio.to_thread(urlretrieve, req.url, f.name)
             ret = get_text(f.name, **kw)
     else:
-        ret = get_text(req.url, **kw)
+        ret = await asyncio.to_thread(get_text, req.url, **kw)
     ret = dict(url=req.url, text=ret)
     if cache_key is not None:
         cache[cache_key] = ret
     return ret
+
+@app.get("/test")
+async def test_api():
+    print(f'got request for test: {time.time()}')
+    #await asyncio.sleep(10)
+    return "Hello world\n"
 
 
 if __name__ == '__main__':
