@@ -25,6 +25,7 @@ def cli_item_action_loop(items: list[InputT],
 
     :param items: List of items to perform actions on.
     :param actions: Dictionary mapping action letters to (action_name, action_func).
+    The action functions should accept a list of items and return a list of items that have been marked as done.
     :param exclusive: If True, prevents multiple different actions on the same item.
     :param print_func: Function to convert each item to a string for display.
     """

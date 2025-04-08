@@ -24,9 +24,10 @@ DEFAULT_MODELS = dict(
     image='openai/clip-vit-large-patch14',
     # llama3 for default good perf on various text tasks
     llama3='meta-llama/Llama-3.3-70B-Instruct',
-    # llama3 turbo
-    llama3_turbo='meta-llama/Llama-3.3-70B-Instruct-Turbo',
     text='meta-llama/Llama-3.3-70B-Instruct',
+    # llama3 turbo as all-purpose default fast model
+    llama3_turbo='meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    turbo='meta-llama/Llama-3.3-70B-Instruct-Turbo',
     # faster llama3 for chat
     chat='meta-llama/Llama-3.3-70B-Instruct-Turbo',
     # generic vlm model for vision+language tasks
