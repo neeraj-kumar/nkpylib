@@ -6,11 +6,13 @@ and most of it is outdated.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 import os
 import threading
 import time
+import typing
 
 from os.path import abspath, basename, dirname, exists, join, relpath
 from queue import Queue, Empty
@@ -196,3 +198,15 @@ if __name__ == "__main__":
     # Start the chained producer-consumer processing
     for final_result in chained_producer_consumers(functions, sleep_interval=0.1):
         logger.debug(f"Final output: {final_result}")
+
+
+
+
+def is_async_callable(obj: typing.Any) -> bool:
+    """Checks if the given `obj` is an async callable."""
+    while isinstance(obj, functools.partial):
+        obj = obj.func
+
+    return asyncio.iscoroutinefunction(obj) or (
+        callable(obj) and asyncio.iscoroutinefunction(obj.__call__)
+    )
