@@ -6,7 +6,7 @@ import mimetypes
 
 from subprocess import check_output
 
-import pytesseract
+import pytesseract # type: ignore
 
 def get_pdf_text(path: str, *args) -> str:
     """Returns raw text from a pdf.
@@ -15,8 +15,8 @@ def get_pdf_text(path: str, *args) -> str:
     We call it with the path to the pdf and the `-` argument to write to stdout.
     You can pass additional arguments to `pdftotext` as additional arguments to this function.
     """
-    args = ["pdftotext", path, "-", ]
-    out = check_output(args).decode("utf-8", "replace")
+    run_args = ["pdftotext", path, "-", *args]
+    out = check_output(run_args).decode("utf-8", "replace")
     return out
 
 def get_ocr_text(path: str, **kw) -> str:
@@ -39,9 +39,9 @@ def get_text(path: str, *args, **kw) -> str:
     """
     type, enc = mimetypes.guess_type(path)
     print(f'path={path}, type={type}, enc={enc}')
-    if type.endswith('/pdf'):
+    if type and type.endswith('/pdf'):
         out = get_pdf_text(path, *args)
-    elif type.startswith('image'):
+    elif type and type.startswith('image'):
         out = get_ocr_text(path, **kw)
     else:
         # open in unicode mode

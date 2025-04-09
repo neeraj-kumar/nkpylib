@@ -14,7 +14,7 @@ from os.path import dirname, exists
 from typing import NamedTuple, Optional, Iterable, Sequence, Any
 from urllib.request import urlretrieve
 
-import replicate
+import replicate # type: ignore
 import requests
 
 from PIL import Image
@@ -101,7 +101,8 @@ def face_detection(img: str) -> dict[str, Any]:
         blur_amount=1,
         output_transparent_image=False,
     )
-    prediction = run_replicate_model(**REPLICATE_MODELS['face_detection'], **model_inputs)
+    all_kw = dict(**REPLICATE_MODELS['face_detection'], **model_inputs)
+    prediction = run_replicate_model(**all_kw) # type: ignore[arg-type]
     logger.debug(f'Facedet output: {dict(prediction)}')
     # parse out the bounding boxes from the logs, which look like:
     #  '(137, 162, 232, 232)\n(260, 361, 216, 215)\n'

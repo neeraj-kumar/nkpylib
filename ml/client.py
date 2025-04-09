@@ -77,7 +77,7 @@ from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION, Role, Msg
 
 logger = logging.getLogger(__name__)
 
-def chunked(lst: Sequence[Any], n: int) -> Iterator[list[Any]]:
+def chunked(lst: Sequence[Any], n: int) -> Iterator[Sequence[Any]]:
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
@@ -89,7 +89,6 @@ class FunctionWrapper:
     """Wrapper for a function to make it executable in various ways."""
     core_func: Callable[..., ResponseT]
     final_func: Optional[Callable[[ResponseT], Any]]
-    mode: str
     executor: ThreadPoolExecutor
     progress_msg: str
 
@@ -204,6 +203,7 @@ class FunctionWrapper:
         if self.mode == "raw":
             return result
         elif self.mode == "final":
+            assert self.final_func is not None
             return self.final_func(result)
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
@@ -292,6 +292,7 @@ def call_llm_impl(prompts: str|list[Msg],
     logger.debug(f'chat response: {ret}')
     if session_id:
         msg = ret['choices'][0]['message']
+        assert isinstance(prompts, list)
         session_cache[session_id] = prompts + [(msg['role'], msg['content'])]
     return ret
 

@@ -352,7 +352,7 @@ async def chat(req: ChatRequest):
             if not kw:
                 kw = {}
             kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
-            ret = call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
+            ret = asyncio.to_thread(call_external, endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
             return ret
 
     ret = await generic_run_model(
@@ -593,10 +593,10 @@ async def get_text_api(req: GetTextRequest, cache={}):
             ret = get_text(f.name, **kw)
     else:
         ret = await asyncio.to_thread(get_text, req.url, **kw)
-    ret = dict(url=req.url, text=ret)
+    _ret = dict(url=req.url, text=ret)
     if cache_key is not None:
-        cache[cache_key] = ret
-    return ret
+        cache[cache_key] = _ret
+    return _ret
 
 @app.get("/test")
 async def test_api():

@@ -12,17 +12,17 @@ import random
 
 from collections.abc import Mapping
 from collections import Counter
-from typing import Any, Sequence
+from typing import Any, cast, Sequence
 
 import numpy as np
 
 from lmdbm import Lmdb
-from sklearn.base import BaseEstimator
-from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans
-from sklearn.linear_model import SGDClassifier
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
+from sklearn.base import BaseEstimator # type: ignore
+from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
+from sklearn.linear_model import SGDClassifier # type: ignore
+from sklearn.neighbors import NearestNeighbors # type: ignore
+from sklearn.preprocessing import StandardScaler # type: ignore
+from sklearn.svm import SVC # type: ignore
 from tqdm import tqdm
 
 nparray1d = np.ndarray
@@ -37,8 +37,11 @@ logger = logging.getLogger(__name__)
 class NumpyLmdb(Lmdb):
     """Subclass of LMDB database that stores numpy arrays with utf-8 encoded string keys.
     """
+    dtype: Any
+    path: str
+
     @classmethod
-    def open(cls, file: str, mode: str='r', dtype=np.float32, **kw) -> NumpyLmdb:
+    def open(cls, file: str, mode: str='r', dtype=np.float32, **kw) -> NumpyLmdb: # type: ignore[override]
         """Opens the LMDB database at given `file` path.
 
         The mode is one of:
@@ -51,7 +54,7 @@ class NumpyLmdb(Lmdb):
         """
         if 'map_size' not in kw:
             kw['map_size'] = 2 ** 25 # lmdbm only grows up to 12 factors, and defaults to 2e20
-        ret = super().open(file, mode, **kw)
+        ret = cast(NumpyLmdb, super().open(file, mode, **kw))
         ret.dtype = dtype
         ret.path = file
         return ret
@@ -83,7 +86,7 @@ class NumpyLmdb(Lmdb):
         """
         vecs = {}
         for i, path in tqdm(enumerate(paths)):
-            cur = cls(path, mode='r', dtype=dtype)
+            cur = NumpyLmdb.open(path, mode='r', dtype=dtype)
             if i == 0:
                 vecs = dict(cur.items())
             else:

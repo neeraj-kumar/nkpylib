@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -9,7 +10,7 @@ import shutil
 
 from argparse import ArgumentParser
 
-from constants import PROVIDERS_PATH
+from nkpylib.ml.constants import PROVIDERS_PATH
 from nkpylib.web_utils import make_request
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ def iter_providers():
         yield name, provider
 
 
-def call_provider(provider_name, endpoint, headers_kw=None, **data):
+async def call_provider(provider_name, endpoint, headers_kw=None, **data):
     """Call a provider's API at given `endpoint`.
 
     If `data` is provided, then we make a POST request, else GET.
@@ -42,12 +43,12 @@ def call_provider(provider_name, endpoint, headers_kw=None, **data):
         headers.update(headers_kw)
     req_kw = dict(url=url, headers=headers, min_delay=0)
     if data:
-        ret = make_request(method='post', json=data, **req_kw).json()
+        ret = await make_request(method='post', json=data, **req_kw).json()
     else:
-        ret = make_request(method='get', **req_kw).json()
+        ret = await make_request(method='get', **req_kw).json()
     return ret
 
-def call_external(endpoint, headers_kw=None, provider_name='', **data):
+async def call_external(endpoint, headers_kw=None, provider_name='', **data):
     """Call an external API at given `endpoint`.
 
     If you give a `provider_name`, we use that provider (with no checking of model name validity).
@@ -70,7 +71,8 @@ def call_external(endpoint, headers_kw=None, provider_name='', **data):
                 break
         else:
             raise ValueError(f'No provider found for model {model}')
-    return call_provider(provider_name, endpoint, headers_kw, **data)
+    ret = await call_provider(provider_name, endpoint, headers_kw, **data)
+    return ret
 
 
 def update_providers(path=PROVIDERS_PATH):

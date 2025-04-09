@@ -15,19 +15,23 @@ help:
 	} \
 	{ lastLine = $$0 }' $(MAKEFILE_LIST)
 
-BASE_PY_FILES=faces.py
-#async.py client.py faces.py llm_constants.py replicate_wrapper.py server.py
+BASE_PY_FILES=faces.py features.py embeddings.py llm_utils.py bpm.py server.py
+OTHER_PY_FILES=client.py constants.py replicate_wrapper.py providers.py text.py
 PY_FILES=$(BASE_PY_FILES)
 
 ## runs various code cleanup/checking: black, autoimport, mypy and pylint
-lint:
+lint: mypy
 	#autoimport $(PY_FILES)
 	#isort --atomic -q $(PY_FILES)
 	#isort --atomic --om --df -c ~/isort.cfg $(PY_FILES)
 	#isort --atomic -c ~/isort.cfg $(PY_FILES)
 	#python -m black --line-length=100 -q $(PY_FILES)
 	#pylint $(PY_FILES)
-	mypy $(BASE_PY_FILES)
+
+## runs mypy on files
+mypy:
+	mypy --explicit-package-bases $(BASE_PY_FILES)
+	mypy $(OTHER_PY_FILES)
 
 ## runs the llm sample code
 llm:

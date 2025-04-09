@@ -7,7 +7,7 @@ import json
 
 from argparse import ArgumentParser
 
-import essentia.standard as es
+import essentia.standard as es # type: ignore
 
 
 if __name__ == '__main__':

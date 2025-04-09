@@ -10,6 +10,7 @@ web.py, not tornado.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import functools
 import inspect
 import json
@@ -32,6 +33,7 @@ from tornado.web import Application, RequestHandler
 from nkpylib.constants import USER_AGENT
 from nkpylib.utils import specialize
 from nkpylib.ml.client import call_llm
+from nkpylib.thread_utils import sync_or_async
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,8 @@ DEFAULT_LLM_MODEL = 'llama3'
 
 REQUEST_TIMES: dict[str, float] = {}
 
-def make_request(url: str,
+@sync_or_async
+async def make_request(url: str,
                  method='get',
                  min_delay=1,
                  request_times=REQUEST_TIMES,
@@ -67,7 +70,8 @@ def make_request(url: str,
     _headers = {'User-Agent': USER_AGENT}
     if headers is not None:
         _headers.update(headers)
-    return requests.request(method, url, headers=_headers, **kwargs)
+    resp = await asyncio.to_thread(requests.request, method, url, headers=_headers, **kwargs)
+    return resp
 
 def resolve_url(url: str, method='head', **kwargs) -> str:
     """Follows the url through all redirects and returns the ultimate url"""

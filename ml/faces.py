@@ -310,7 +310,7 @@ class ReplicateFaceSystem(FaceSystem):
     def _detect_face(self, img: ImageT, output_fmts: Optional[dict[str, str]]=None) -> FaceDetectionResult:
         """Actual face processing for a single face `img`."""
         from nkpylib.ml.replicate_wrapper import face_detection
-        assert isinstance(img, str), f'Expected string, got {type(img)}'
+        assert isinstance(img, str), f'Expected string, got {type(img)}' # type: ignore[operator]
         logger.info(f'Starting detect face with {img}, {output_fmts}')
         t0 = time.time()
         input = self.preprocess_image(img)
@@ -422,7 +422,7 @@ class RetinaFaceSystem(FaceSystem):
 
     def _detect_face(self, img: ImageT, output_fmts: Optional[dict[str, str]]=None) -> FaceDetectionResult:
         """Actual face processing for a single face `img`."""
-        assert isinstance(img, str), f'Expected string, got {type(img)}'
+        assert isinstance(img, str), f'Expected string, got {type(img)}' # type: ignore[operator]
         logger.debug(f'Starting detect face with {img}, {output_fmts}')
         t0 = time.time()
         input = self.preprocess_image(img)
