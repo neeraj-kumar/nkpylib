@@ -43,10 +43,10 @@ async def call_provider(provider_name, endpoint, headers_kw=None, **data):
         headers.update(headers_kw)
     req_kw = dict(url=url, headers=headers, min_delay=0)
     if data:
-        ret = await make_request(method='post', json=data, **req_kw).json()
+        ret = await make_request(method='post', json=data, **req_kw)
     else:
-        ret = await make_request(method='get', **req_kw).json()
-    return ret
+        ret = await make_request(method='get', **req_kw)
+    return ret.json()
 
 async def call_external(endpoint, headers_kw=None, provider_name='', **data):
     """Call an external API at given `endpoint`.

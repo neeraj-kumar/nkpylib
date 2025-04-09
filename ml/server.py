@@ -215,7 +215,7 @@ async def generic_run_model(
     """
     t0 = time.time()
     model, cache, did_load = await load_model(model_name, load_func)
-    logger.debug(f'Loaded model {model_name} with cache keys {cache.keys()}, checking cache_key {cache_key}')
+    #logger.debug(f'Loaded model {model_name} with cache keys {cache.keys()}, checking cache_key {cache_key}')
     t1 = time.time()
     found_cache = False
     if cache_key in cache:
@@ -352,8 +352,9 @@ async def chat(req: ChatRequest):
             if not kw:
                 kw = {}
             kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
-            ret = asyncio.to_thread(call_external, endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
+            ret = asyncio.run(call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw))
             return ret
+
 
     ret = await generic_run_model(
         input=req.prompts,
@@ -414,7 +415,7 @@ async def vlm(req: VLMRequest):
                 msg['content'] = [{"type": "text", "text": cur_text},
                                   {"type": "image_url", "image_url": {"url": image}}]
                 break
-        ret = call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw)
+        ret = asyncio.run(call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw))
         return ret
 
     ret = await generic_run_model(
@@ -483,7 +484,7 @@ async def text_embeddings(req: TextEmbeddingRequest):
             #embedding = postprocess(model.encode_multi_process(documents, pool))
             embedding = postprocess(model.encode([input], normalize_embeddings=True)[0])
         else: # external api call
-            embedding = call_external(endpoint='/embeddings', provider_name=req.provider, model=model, input=input)
+            embedding = asyncio.run(call_external(endpoint='/embeddings', provider_name=req.provider, model=model, input=input))
             print('embedding', embedding)
         # also add the input to the returned embedding object
         embedding['input'] = input
