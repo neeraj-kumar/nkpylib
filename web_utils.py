@@ -33,7 +33,7 @@ from tornado.web import Application, RequestHandler
 from nkpylib.constants import USER_AGENT
 from nkpylib.utils import specialize
 from nkpylib.ml.client import call_llm
-from nkpylib.thread_utils import sync_or_async
+from nkpylib.thread_utils import sync_or_async, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +43,13 @@ DEFAULT_LLM_MODEL = 'llama3'
 
 REQUEST_TIMES: dict[str, float] = {}
 
-@sync_or_async
-async def make_request(url: str,
-                 method='get',
-                 min_delay=1,
-                 request_times=REQUEST_TIMES,
-                 headers=None,
-                 **kwargs) -> requests.Response:
-    """Makes a request to the given `url` with `method` with the given kwargs.
+async def make_request_async(url: str,
+                             method='get',
+                             min_delay=1,
+                             request_times=REQUEST_TIMES,
+                             headers=None,
+                             **kwargs) -> requests.Response:
+    """Makes an (async) request to the given `url` with `method` with the given kwargs.
 
     Note the `kwargs` are passed directly to the requests.request() function, and are NOT the same
     as JSON post data or query params. In general, you usually want one of the following:
@@ -72,6 +71,37 @@ async def make_request(url: str,
         _headers.update(headers)
     resp = await asyncio.to_thread(requests.request, method, url, headers=_headers, **kwargs)
     return resp
+
+def make_request(url: str,
+                 method='get',
+                 min_delay=1,
+                 request_times=REQUEST_TIMES,
+                 headers=None,
+                 **kwargs) -> requests.Response:
+    """Makes a (synchronous) request to the given `url` with `method` with the given kwargs.
+
+    Note the `kwargs` are passed directly to the requests.request() function, and are NOT the same
+    as JSON post data or query params. In general, you usually want one of the following:
+    - `params`={dict} for query params (in a get request)
+    - `json`={dict} for a JSON post request
+    - `data`={dict or list of tuples} for a form post request
+
+    We maintain a mapping from host to last request time in request_times (stored by default as a
+    global in this module, but you can pass your own), and we wait `min_delay` seconds before
+    contacting the same host again.
+    """
+    #FIXME figure out if we can just use the async version here, robustly
+    host = urlparse(url).hostname
+    elapsed = time.time() - request_times.get(host, 0)
+    if elapsed < min_delay:
+        time.sleep(min_delay - elapsed)
+    request_times[host] = time.time()
+    _headers = {'User-Agent': USER_AGENT}
+    if headers is not None:
+        _headers.update(headers)
+    resp = requests.request(method, url, headers=_headers, **kwargs)
+    return resp
+
 
 def resolve_url(url: str, method='head', **kwargs) -> str:
     """Follows the url through all redirects and returns the ultimate url"""

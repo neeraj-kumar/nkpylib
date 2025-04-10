@@ -176,6 +176,51 @@ def ensure_singleton(max_delay):
         return inner
     return decorator
 
+def is_async_callable(obj: typing.Any) -> bool:
+    """Checks if the given `obj` is an async callable."""
+    while isinstance(obj, functools.partial):
+        obj = obj.func
+
+    return asyncio.iscoroutinefunction(obj) or (
+        callable(obj) and asyncio.iscoroutinefunction(obj.__call__)
+    )
+
+def run_async(coroutine):
+    """Runs given async `coroutine` synchronously."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop, safe to create one
+        return asyncio.run(coroutine)
+    else:
+        # Already running, create a new task and wait for result
+        future = asyncio.ensure_future(coroutine)
+        done, _ = loop.run_until_complete(asyncio.wait([future]))
+        return future.result()
+
+def sync_or_async(async_func):
+    """Decorator that turns an async function into either sync or async depending on the caller.
+
+    In particular, you can call the wrapped function either with `await` in an async context, or
+    just directly in a normal sync context.
+    """
+    @functools.wraps(async_func)
+    def wrapper(*args, **kwargs):
+        if is_async_callable(async_func):
+            try:
+                loop = asyncio.get_running_loop()
+                # We're already inside an event loop: return coroutine for the caller to await
+                return async_func(*args, **kwargs)
+            except RuntimeError:
+                # No running loop (i.e., from synchronous code): run and block
+                return asyncio.run(async_func(*args, **kwargs))
+        else:
+            # If someone passes a sync func (rare case), just call it
+            return async_func(*args, **kwargs)
+
+    return wrapper
+
+
 
 if __name__ == "__main__":
     # example usage
@@ -200,33 +245,3 @@ if __name__ == "__main__":
     for final_result in chained_producer_consumers(functions, sleep_interval=0.1):
         logger.debug(f"Final output: {final_result}")
 
-def is_async_callable(obj: typing.Any) -> bool:
-    """Checks if the given `obj` is an async callable."""
-    while isinstance(obj, functools.partial):
-        obj = obj.func
-
-    return asyncio.iscoroutinefunction(obj) or (
-        callable(obj) and asyncio.iscoroutinefunction(obj.__call__)
-    )
-
-def sync_or_async(async_func):
-    """Decorator that turns an async function into either sync or async depending on the caller.
-
-    In particular, you can call the wrapped function either with `await` in an async context, or
-    just directly in a normal sync context.
-    """
-    @functools.wraps(async_func)
-    def wrapper(*args, **kwargs):
-        if is_async_callable(async_func):
-            try:
-                loop = asyncio.get_running_loop()
-                # We're already inside an event loop: return coroutine for the caller to await
-                return async_func(*args, **kwargs)
-            except RuntimeError:
-                # No running loop (i.e., from synchronous code): run and block
-                return asyncio.run(async_func(*args, **kwargs))
-        else:
-            # If someone passes a sync func (rare case), just call it
-            return async_func(*args, **kwargs)
-
-    return wrapper
