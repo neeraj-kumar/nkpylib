@@ -57,7 +57,7 @@ cli:
 
 ## tests out the OurGroceries API
 og:
-	python3 our_groceries.py
+	python3 our_groceries.py tomatoes tomato Tomatoes "beefsteak tomatoes" "3 tomatoes"
 
 ## tests out the Memento database integration
 memento:

@@ -13,11 +13,15 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 
 from typing import Any
 
+from scipy.spatial.distance import cdist
+
 from nkpylib.web_utils import make_request
+from nkpylib.ml.client import embed_text
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +43,8 @@ class OurGroceries:
 
     def __init__(self):
         """Reads our list and maintains it"""
-        self.items = self.get_list()
+        self.embeddings = {}
+        self.items = self.get_list(include_deleted=True)
 
     def _api(self, command: str,
                    headers: dict | None = None,
@@ -75,7 +80,14 @@ class OurGroceries:
         obj = r.json()
         assert 'list' in obj, f'No list in response: {obj}'
         self.items = self.parse_list(obj.pop('list')['items'], include_deleted=include_deleted)
+        self.update_embeddings()
         return obj
+
+    def update_embeddings(self):
+        """Updates our embeddings for the items in the list."""
+        todo = [el['name'] for el in self.items if el['name'] not in self.embeddings]
+        embeddings = embed_text.batch(todo)
+        self.embeddings.update(dict(zip(todo, embeddings)))
 
     def parse_list(self, lst: list[dict], include_deleted: bool = False) -> GroceryList:
         """Parses the response JSON data from any OurGroceries API call and returns a list of items.
@@ -121,31 +133,81 @@ class OurGroceries:
         return self._api(command='changeItemValue', newValue=new_item, itemId=item_id, **kw)
 
 
+    # PROPERTIES (computed)
+    @property
+    def active(self) -> GroceryList:
+        """List of active items in the grocery list (not checked off)."""
+        return [i for i in self.items if not i.get('crossedOffAt')]
+
+
     # HIGHER-LEVEL API CALLS
     def get_list(self, include_deleted=False) -> GroceryList:
         """Get the current grocery list.
 
         Note that I haven't figured out a clean way to do this, so we add a dummy item then remove it.
         """
-        obj, _lst = self.add_item(f'nk-dummy')
-        _obj, lst = self.delete_item(obj['itemId'], include_deleted=include_deleted)
-        return lst
+        obj = self.add_item(f'nk-dummy')
+        #print(f'Added dummy item: {obj}')
+        self.delete_item(obj['itemId'], include_deleted=include_deleted)
+        return self.items
 
     def item_id_by_name(self, item: str) -> str | None:
         """Returns the item ID of the item with the given name (possibly excluding quantity), or None if not found."""
         lst = self.get_list(include_deleted=True)
-        print(f'Got lst with {len(lst)} items: {lst[:5]}')
+        print(f'Got lst with {len(lst)} items: {lst[:5]}...{lst[-5:]}')
         for i in lst:
             if i['name'] == item or i['value'] == item:
                 return i['id']
         return None
 
     def __contains__(self, item: str) -> bool:
-        """Returns True if the given item is in the list and not checked off."""
-        return item_id_by_name(item) is not None
+        """Returns True if the given `item` (name) is in the list and not checked off."""
+        return self.item_id_by_name(item) is not None
 
+    def get_closest(self, name: str, k: int=10) -> list[tuple[float, str]]:
+        """Returns the closest items to the given `name`.
+
+        This first checks if the `name` is an exact match to any of the items in the list, and if
+        so returns that. Else, computes distances using our embeddings and returns the top `k`.
+
+        Returns pairs of (distance, name).
+        """
+        if name in self:
+            return [(0.0, name)]
+        name_emb = embed_text.single(name)
+        items, embs = zip(*self.embeddings.items())
+        dists = cdist([name_emb], embs, 'cosine')[0]
+        # sort by distance
+        idxs = dists.argsort()[:k]
+        ret = [(dists[i], items[i]) for i in idxs]
+        return ret
+
+    def add_closest(self, name: str, threshold: float=0.1) -> Item:
+        """Adds the closest item to the given `name` to the list if it is not already in the list.
+
+        If it's already there and checked off, we uncheck it.
+        If it's already there and not checked off, we do nothing.
+        """
+        dist, match = self.get_closest(name, k=1)[0]
+        logger.info(f'Adding closest item to {name}: {dist} {match}')
+        if dist <= threshold:
+            item_id = self.item_id_by_name(match)
+            if item_id:
+                [item] = [el for el in self.items if el['id'] == item_id]
+                if item['crossedOffAt']:
+                    self.uncheck_item(item_id)
+                return item
+        else: # just add it
+            itemId = self.add_item(name)
+        [item] = [item for item in self.items if item['id'] == itemId]
+        return item
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(funcName)s:%(lineno)d: %(message)s')
     og = OurGroceries()
-    print(og.items)
+    print(og.items[:5], og.items[-5:])  # print first and last 5 items
+    for arg in sys.argv[1:]:
+        close = og.get_closest(arg)
+        print(f'Finding similar to "{arg}": {json.dumps(close, indent=2)}')
+    og.add_item('Flonase')
+    og.add_item('tofu')
