@@ -11,7 +11,7 @@ import shutil
 from argparse import ArgumentParser
 
 from nkpylib.ml.constants import PROVIDERS_PATH
-from nkpylib.web_utils import make_request
+from nkpylib.web_utils import make_request_async
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,9 @@ async def call_provider(provider_name, endpoint, headers_kw=None, **data):
         headers.update(headers_kw)
     req_kw = dict(url=url, headers=headers, min_delay=0)
     if data:
-        ret = await make_request(method='post', json=data, **req_kw)
+        ret = await make_request_async(method='post', json=data, **req_kw)
     else:
-        ret = await make_request(method='get', **req_kw)
+        ret = await make_request_async(method='get', **req_kw)
     return ret.json()
 
 async def call_external(endpoint, headers_kw=None, provider_name='', **data):

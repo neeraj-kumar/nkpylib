@@ -271,10 +271,10 @@ def match_obj_schema(objs: list[dict],
             prompt += f', Options: {"; ".join(opts)}'
         prompt += '\n'
     prompt += '\n\n'
-    logger.info(f'Template matcher prompt: {prompt}')
+    logger.debug(f'Template matcher prompt: {prompt}')
     for output in llm_transform_list(prompt, [json.dumps(o) for o in objs], sys_prompt=sys_prompt, **kw):
         if output is not None:
-            yield json.loads(output)
+            yield load_llm_json(output)
         else:
             yield {}
 
