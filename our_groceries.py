@@ -18,7 +18,7 @@ import time
 
 from typing import Any
 
-from scipy.spatial.distance import cdist
+from scipy.spatial.distance import cdist # type: ignore
 
 from nkpylib.web_utils import make_request
 from nkpylib.ml.client import embed_text

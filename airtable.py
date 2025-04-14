@@ -143,7 +143,7 @@ class AirtableUpdater:
                     self.add_map_value(mt_name, row)
             futures = futures[:1]
         # placeholder for the schema
-        self._schema = {}
+        self._schema: dict = {}
         # load the entire table
         self.data = {}
         logger.info(f'Reading main data for {table_name}')

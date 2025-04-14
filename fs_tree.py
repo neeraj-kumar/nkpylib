@@ -188,7 +188,7 @@ class Tree(ABC):
         for key, hash in zip(other_keys, other_hashes):
             after_by_hash[hash][key].append(key)
         # now we can do the comparison
-        for hash, keys in after_by_hash.items():
+        for hash, keys in after_by_hash.items(): # type: ignore[assignment]
             if hash in before_by_hash:
                 # moves and copies
                 before_key = before_by_hash[hash]
@@ -445,7 +445,7 @@ class AirtableTree(Tree):
                 resp = airtable_api_call(method='post', endpoint=self.table_name, records=to_add, **self.airtable_kw)
                 #print(resp)
 
-        hashes = other.hash_function([d.b for d in diffs])
+        hashes = other.hash_function([d.b for d in diffs if d.b])
         rows = [dict(fields={self.key_field: d.b, self.hash_field: hashes[i]}) for i, d in
                 enumerate(diffs)]
         list(incr_iter(tqdm(rows), func=do_add, incr=self.incr))

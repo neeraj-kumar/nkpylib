@@ -46,7 +46,7 @@ class Searcher(ABC):
 
 class BingWebSearch(Searcher):
     """Does bing web searches"""
-    def search(self, query: str, resolve_urls: bool=True) -> Iterable[dict]:
+    def search(self, query: str, resolve_urls: bool=True) -> Iterable[dict]: # type: ignore[override]
         """Search bing for the given query"""
         url = "https://www.bing.com/search"
         params = {'q': query}

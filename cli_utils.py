@@ -64,7 +64,7 @@ def parse_user_input(user_input: str,
                      actions: dict[str, Action],
                      item_map: dict[str, InputT],
                      exclusive: bool = False,
-                     item_done: dict[InputT, bool] = None) -> list[InputT]:
+                     item_done: dict[InputT, bool]|None = None) -> list[InputT]:
     """
     Parse and execute user input actions on items.
 
@@ -72,12 +72,13 @@ def parse_user_input(user_input: str,
     :param actions: Dictionary mapping action letters to (action_name, action_func).
     :param item_map: Dictionary mapping item labels to items.
     :param exclusive: If True, prevents multiple different actions on the same item.
+    :param item_done: Dictionary mapping items to their done status.
     :return: List of items that have been marked as done.
     """
     action_items_map: dict[str, set[InputT]] = {action: set() for action in actions}
-
     item_action_map = {item: None for item in item_map.values()}
-
+    if item_done is None:
+        item_done = {item: False for item in item_map.values()}
     for action_spec in re.split(r'[,\s;]+', user_input.strip()):
         action_letter = action_spec[0]
         item_spec = action_spec[2:] if action_spec[1] == ':' else action_spec[1:]
@@ -145,11 +146,10 @@ def generate_test_data() -> tuple[list[str], dict[str, Action]]:
             done.append(item)
         return done
 
-    actions = {
+    actions: dict[str, Action] = {
         'p': ('print', print_items),
         'u': ('uppercase', uppercase_items),
     }
-
     return items, actions
 
 def test_cli_with_random_inputs(items: list[InputT],
