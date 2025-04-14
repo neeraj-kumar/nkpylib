@@ -12,7 +12,7 @@ import random
 
 from collections.abc import Mapping
 from collections import Counter
-from typing import Any, cast, Sequence
+from typing import Any, cast, Sequence, Generic, TypeVar, Union, Iterator
 
 import numpy as np
 
@@ -102,37 +102,78 @@ class NumpyLmdb(Lmdb):
         with cls.open(output_path, 'c', dtype=dtype) as db:
             db.update({key: vec for key, vec in vecs.items()})
 
+KeyT = TypeVar('KeyT')
 
-class FeatureSet(Mapping):
-    """A set of features that you can do stuff with."""
-    def __init__(self, path: str=''):
-        """Loads features from given `path` (lmdbm format)."""
-        self.db = NumpyLmdb.open(path)
-        # we cache the order of our keys
-        self._keys = [k for k in self.db.keys()]
+def is_mapping(obj):
+    """Returns True if the given `obj` is a mapping (dict-like).
+
+    This checks for various methods, including __getitem__, __iter__, and __len__, keys(), items(),
+    values(), etc.
+    """
+    to_check = ['__getitem__', '__iter__', '__len__', 'keys', 'items', 'values']
+    for method in to_check:
+        if not hasattr(obj, method):
+            return False
+    return True
+
+
+class FeatureSet(Mapping, Generic[KeyT]):
+    """A set of features that you can do stuff with.
+
+    It is accessible as a mapping of `KeyT` to `np.ndarray`.
+
+    The inputs should be a list of mapping-like objects, or paths to numpy-encoded lmdb files.
+    """
+    def __init__(self, inputs: list[Any], dtype=np.float32, **kw):
+        """Loads features from given list of `inputs`.
+
+        The inputs should either be mapping-like objects, or paths to numpy-encoded lmdb files.
+        We compute the intersection of the keys in all inputs, and use that as our list of _keys.
+        """
+        # remap any path inputs to NumpyLmdb objects
+        self.inputs = [
+            inp if is_mapping(inp) else NumpyLmdb.open(inp, mode='r', dtype=dtype)
+            for inp in inputs
+        ]
+        self._keys = self.get_keys()
         self.n_dims = 0
         for key, value in self.items():
             self.n_dims = len(value)
             break
         self.cached: dict[str, Any] = dict()
 
-    def __iter__(self):
+    def get_keys(self) -> list[KeyT]:
+        """Gets the intersection of all keys by reading all our inputs again.
+
+        Useful if the underlying databases might change over time.
+        Note that we make no guarantees on correctness due to changing databases!
+        """
+        keys = []
+        for i, inp in enumerate(self.inputs):
+            if i == 0:
+                keys = list(inp.keys())
+            else:
+                cur_keys = set(inp.keys())
+                keys = [k for k in keys if k in cur_keys]
+        return keys
+
+    def __iter__(self) -> Iterator[KeyT]:
         return iter(self._keys)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._keys)
 
-    def __getitem__(self, key: str) -> np.ndarray:
-        return self.db[key]
-
     def __contains__(self, key: object) -> bool:
-        return key in self.db
+        return key in self._keys
+
+    def __getitem__(self, key: KeyT) -> np.ndarray:
+        return np.hstack([inp[key] for inp in self.inputs])
 
     def get_keys_embeddings(self,
                             normed: bool=False,
                             scale_mean:bool=True,
-                            scale_std:bool=True) -> tuple[list[str], np.ndarray]:
-        """Returns a list of string keys and a numpy array of embeddings.
+                            scale_std:bool=True) -> tuple[list[KeyT], np.ndarray]:
+        """Returns a list of keys and a numpy array of embeddings.
 
         You can optionally set the following flags:
         - `normed`: Normalize embeddings to unit length.
@@ -157,7 +198,7 @@ class FeatureSet(Mapping):
         self.cached.update(keys=keys, embs=embs, scaler=scaler, **cache_kw)
         return keys, embs
 
-    def cluster(self, n_clusters=-1, method='kmeans', **kwargs) -> list[list[str]]:
+    def cluster(self, n_clusters=-1, method='kmeans', **kwargs) -> list[list[KeyT]]:
         """Clusters our embeddings.
 
         If `n_clusters` is not positive (default), we set it to the sqrt of the number of
@@ -178,18 +219,18 @@ class FeatureSet(Mapping):
             raise NotImplementedError(f'Clustering method {method!r} not implemented.')
         labels = clusterer.fit_predict(embs)
         uniques = set(labels)
-        clusters: dict[int, list[str]] = {i: [] for i in uniques}
+        clusters: dict[int, list[KeyT]] = {i: [] for i in uniques}
         for key, label in zip(keys, labels):
             clusters[label].append(key)
         return sorted(clusters.values(), key=len, reverse=True)
 
     def similar(self,
-                queries: list[str]|array2d|BaseEstimator,
+                queries: list[KeyT]|array2d|BaseEstimator,
                 weights: list[float]|None=None,
                 n_neg: int=1000,
                 method: str='rbf',
                 min_score: float=-0.1,
-                **kw) -> list[tuple[float, str]]:
+                **kw) -> list[tuple[float, KeyT]]:
         """Returns the most similar keys and scores to the given `queries`.
 
         This is a wrapper on top of `nearest_neighbors()` and `make_classifier()`.
@@ -201,13 +242,13 @@ class FeatureSet(Mapping):
         if not isinstance(queries, BaseEstimator):
             assert len(queries) > 0, 'Must provide at least one query.'
             assert len({type(q) for q in queries}) == 1, 'All queries must be of the same type.'
-            if isinstance(queries[0], str):
+            if queries[0] in self:
                 assert all(q in self for q in queries), f'All queries must be in the embeddings.'
         #TODO normalize queries if not in dataset
         keys, embs = self.get_keys_embeddings(normed=True, scale_mean=False, scale_std=True)
         pos: Any
         if method == 'nn': # queries must not be estimator
-            if isinstance(queries[0], str):
+            if queries[0] in self:
                 _pos = np.array([i for i, k in enumerate(keys) if k in queries])
                 pos = embs[_pos]
             else:
@@ -218,15 +259,16 @@ class FeatureSet(Mapping):
                 clf = queries
             else:
                 # train a classifier with these as positive and some randomly chosen as negative
-                if isinstance(queries[0], str):
+                if queries[0] in self:
                     pos = [i for i, k in enumerate(keys) if k in queries]
                     neg = [i for i in range(len(keys)) if i not in pos]
                     neg = random.sample(neg, n_neg)
                     X = embs[pos + neg]
                 else:
+                    # at this point, we know queries is a 2d array
                     pos = queries
                     neg = random.sample(range(len(embs)), n_neg)
-                    X = np.vstack([queries, embs[neg]])
+                    X = np.vstack([queries, embs[neg]]) # type: ignore[list-item]
                 y = [1]*len(pos) + [-1]*len(neg)
                 clf = self.make_classifier(X, y, method=method, **kw)
             scores = clf.decision_function(embs)

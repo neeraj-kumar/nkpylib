@@ -8,9 +8,9 @@ import os
 import time
 
 from abc import ABC
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from os.path import dirname
-from typing import Any, Sequence, TypeVar, Generic, Callable
+from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator
 
 import numpy as np
 
@@ -240,3 +240,29 @@ def save_as_image(path: str, arr: np.ndarray, n_cols=100, cmap='viridis'):
     except Exception as e:
         pass
     imsave(path, arr, cmap=cmap)
+
+
+KeyT = TypeVar('KeyT')
+class FeatureMap(Mapping, Generic[KeyT]):
+    """A map from keys to Feature objects, that returns feature vectors."""
+    def __init__(self, d: dict[KeyT, Feature]|None=None):
+        """Initializes the feature map with a dictionary of features."""
+        if d is None:
+            d = {}
+        self._d = d
+
+    def __getitem__(self, key: KeyT) -> np.ndarray:
+        """Returns the feature for the given key."""
+        return self._d[key].get()
+
+    def __iter__(self) -> Iterator[KeyT]:
+        """Returns an iterator over the keys of the map."""
+        return iter(self._d)
+
+    def __len__(self) -> int:
+        """Returns the number of features in the map."""
+        return len(self._d)
+
+    def __contains__(self, key: object) -> bool:
+        """Checks if the map contains the given key."""
+        return key in self._d
