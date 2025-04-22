@@ -22,13 +22,14 @@ import traceback
 
 from abc import ABC, abstractmethod
 from collections import Counter
+from os.path import dirname
 from typing import Any, Optional, Callable
 from urllib.parse import urlparse
 
 import requests
 
 from tornado.ioloop import IOLoop
-from tornado.web import Application, RequestHandler
+from tornado.web import Application, RequestHandler, StaticFileHandler
 
 from nkpylib.constants import USER_AGENT
 from nkpylib.utils import specialize
@@ -342,12 +343,16 @@ def run_search(q: str,
             break
     return searcher.search(q=q, **kw)
 
-def default_index(static_path='/static') -> str:
+def default_index(static_path='/static',
+                  js_filename='app.jsx',
+                  css_filename='app.css',
+                  ) -> str:
     """Returns default HTML index page that loads react etc from CDNs.
 
     This also inlines the nk js utils code.
 
-    Your jsx and css code should be at /static/app.{jsx,css}
+    Your jsx and css code should be at /static/app.{jsx,css} by default, but you can change all of
+    these by passing in the `static_path`, `js_filename`, and `css_filename` args.
     """
     # load 'nk-utils.js' from the same directory as this file
     with open(f'{os.path.dirname(__file__)}/nk-utils.js') as f:
@@ -368,24 +373,27 @@ def default_index(static_path='/static') -> str:
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha512-ZwR1/gSZM3ai6vCdI+LVF1zSq/5HznD3ZSTk7kajkaj4D292NLuduDCO1c/NT8Id+jE58KYLKT7hXnbtryGmMg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{static_path}/app.css">
+    <link rel="stylesheet" href="{static_path}/{css_filename}">
   </head>
 <body>
   <div id="main" />
 </body>
 <script type="text/babel">{nk_utils_js}</script>
-<script src="{static_path}/app.jsx" type="text/babel"></script>
+<script src="{static_path}/{js_filename}" type="text/babel"></script>
 </html>'''
 
 def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
                          make_app: Callable[[], Application]=lambda: Application(),
-                         default_port: int=8000) -> None:
+                         default_port: int=8000,
+                         post_parse_fn: Callable[dict,None]|None=None) -> None:
     """Creates a web server and runs it.
 
     We create an `Application` instance using the `make_app` callable (by default just
     `Application()`), and then parse the command line arguments using the `parser` (we create a
     standard parser if not given). We then start the server on the port specified in the arguments
     (or `default_port` if not specified, which is added to the arg parser).
+
+    You can also set a `post_parse_fn` which is called with the `args` object after arg parsing.
 
     We also setup logging.
     """
@@ -395,7 +403,68 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
         parser = argparse.ArgumentParser(description='Web server')
     parser.add_argument('-p', '--port', type=int, default=default_port, help='Port to listen on')
     args = parser.parse_args()
-    logger.info(f'starting server on port {args.port}')
+    if post_parse_fn:
+        post_parse_fn(args)
+    logger.info(f'Starting server on port {args.port}')
     app = make_app()
     app.listen(args.port)
     IOLoop.current().start()
+
+def simple_react_tornado_server(jsx_path: str,
+                                port: int,
+                                more_handlers: list[tuple[str, Callable[[], StaticFileHandler]]]|None=None,
+                                parser: argparse.ArgumentParser|None=None,
+                                post_parse_fn: Callable[dict,None]|None=None,
+                                **kw):
+    """Call this to start a tornado server to serve a single page react app from.
+
+    Starts the server on `port` and serves the index page at / , which is a basic html page which
+    loads react and other common libs from unpkg. The tornado server sets the static path to be the
+    parent dir of `jsx_path`, and the index page will then load the jsx file from there.
+
+    It also sets the current directory as the static path for /data/ requests, so you can load up
+    data files relative to this dir.
+
+    You can also pass in additional handlers to add to the tornado server using the `more_handlers`
+    arg, which should be a list of tuples where the first element is the path spec (i.e., with
+    regexps) and the second element is the handler class. This is useful for having an API.
+
+    Any **kw you pass in are stored as instance variables on the application class. Your handlers
+    can access these via `self.application.<varname>`.
+
+
+    You probably want to call this function something like this from your main() function:
+
+        simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/state_logger.jsx', port=11555)
+
+    And then run it from a directory containing the data file care about.
+    """
+    parent, basename = os.path.split(jsx_path)
+    print(f'Setting parent to {parent} and base to {basename}')
+    class DefaultIndexHandler(RequestHandler):
+        def get(self):
+            self.write(default_index(js_filename=basename))
+
+    class DefaultApplication(Application):
+        def __init__(self):
+            handlers = [
+                (r"/", DefaultIndexHandler),
+                # make /data/ a static handler to the current directory
+                (r"/data/(.*)", StaticFileHandler, {'path': '.'}),
+            ]
+            if more_handlers:
+                for path, handler in more_handlers:
+                    handlers.append((path, handler))
+            settings = {
+                "debug": True,
+                "static_path": parent,
+                "compress_response": True,
+            }
+            for k, v in kw.items():
+                setattr(self, k, v)
+            Application.__init__(self, handlers, **settings)
+
+    setup_and_run_server(parser=parser,
+                         make_app=DefaultApplication,
+                         default_port=port,
+                         post_parse_fn=post_parse_fn)
