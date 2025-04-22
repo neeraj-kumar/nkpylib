@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import time
 
 from argparse import ArgumentParser
@@ -17,6 +18,11 @@ from queue import Queue, Empty
 from threading import Thread
 
 import termcolor
+import tornado.web
+
+from tornado.web import RequestHandler
+
+from nkpylib.web_utils import simple_react_tornado_server
 
 logger = logging.getLogger(__name__)
 
@@ -219,10 +225,41 @@ class StateLogReader:
                 print(f"Unknown command: {cmd}")
 
 
-if __name__ == '__main__':
-    # setup driver for log reader
+def cli_main():
+    """CLI state log reader"""
     parser = ArgumentParser(description="Step through a state log file")
     parser.add_argument('log_path', help="The path to the log file")
     args = parser.parse_args()
     reader = StateLogReader(args.log_path)
     reader.cli()
+
+class BaseHandler(RequestHandler):
+    @property
+    def reader(self):
+        """Returns the state log reader"""
+        return self.application.more_kw['reader']
+
+class TestHandler(BaseHandler):
+    def get(self):
+        self.write(f'Our state log reader has {len(self.reader)} entries')
+
+def web_main():
+    # load the data file from first arg
+    parser = ArgumentParser(description="Web state log reader")
+    parser.add_argument('data_path', help="The path to the data file")
+    kw = {}
+    def post_parse_fn(args):
+        reader = StateLogReader(args.data_path)
+        kw['reader'] = reader
+
+    simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/state_logger.jsx',
+                                port=11555,
+                                more_handlers=[(r'/test/', TestHandler)],
+                                parser=parser,
+                                post_parse_fn=post_parse_fn,
+                                more_kw=kw)
+
+
+if __name__ == '__main__':
+    #cli_main()
+    web_main()
