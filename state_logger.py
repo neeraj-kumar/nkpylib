@@ -180,12 +180,22 @@ class StateLogReader:
         with open(self.log_path) as f:
             for line in f:
                 obj = json.loads(line)
+                # do some filtering
+                # no event name
+                if '_name' not in obj:
+                    continue
+                name = obj['_name'].lower()
+                # log handler writing is not interesting
+                if name == 'write-loghandler':
+                    continue
+                # main handler with / uri is not interesting
+                if name == 'init-mainhandler' and obj.get('uri') == '/':
+                    continue
+                # skip audio events for now (both client and server)
+                if 'audio' in name or 'voice' in name:
+                    continue
                 self.idx_by_ts[obj['_ts']] = len(self.history)
-                if obj['_ts'] > 1728278062 and obj['_ts'] < 1728278063:
-                    print(f'   XXX Reading {obj}')
                 self.history.append(obj)
-            print(list(self.idx_by_ts.items())[:10])
-            print(self.idx_by_ts[1728278243.3046024])
 
     def __len__(self):
         return len(self.history)
@@ -196,11 +206,9 @@ class StateLogReader:
             # this is a copy, so get the original
             old_ts = ret['_copy_of']
             idx = self.idx_by_ts.get(old_ts, -1)
-            print(f'  looking up {old_ts} ({type(old_ts)}): {idx}')
             if idx >= 0:
                 prev = self.history[idx]
                 # update the ret with the fields from this
-                print(f'    cur: {ret.keys()} vs prev: {prev.keys()}')
                 ret.update({k:v for k, v in prev.items() if k not in ret})
         return ret
 

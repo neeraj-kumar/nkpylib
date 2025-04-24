@@ -1182,6 +1182,7 @@ def parse_num_spec(s: str) -> list[int]:
     """
     els = s.split(',')
     ret = []
+    done = set()
     for el in els:
         el = el.strip()
         if '-' in el:
@@ -1189,12 +1190,14 @@ def parse_num_spec(s: str) -> list[int]:
             start = int(start)
             end = int(end)
             for i in range(start, end+1):
-                if i not in ret:
+                if i not in done:
                     ret.append(i)
+                    done.add(i)
         else:
             el = int(el)
-            if el not in ret:
+            if el not in done:
                 ret.append(el)
+                done.add(el)
     return ret
 
 

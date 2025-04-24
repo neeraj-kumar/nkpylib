@@ -1,5 +1,5 @@
-const MAIN_FIELDS = ['idx', '_name', '_loc', '_id', '_ts', '_human_ts', '_copy_of'];
-const COLORED_FIELDS = ['_name', '_loc', '_ts', '_id', '_copy_of'];
+const MAIN_FIELDS = ['idx', '_name', 'sessionId', '_human_ts', '_ts', '_copy_of',];
+const COLORED_FIELDS = ['_name', '_loc', '_ts', '_id', 'sessionId', '_copy_of'];
 
 const RestField = ({data, ...props}) => {
   const style = {
@@ -16,7 +16,7 @@ const ColoredField = ({data, ...props}) => {
   if (!content) return null;
   const hash = hashString(''+content);
   const color = numberToColor(hash);
-  console.log('hashed', field, content, hash, color);
+  //console.log('hashed', field, content, hash, color);
   // style for the small rect
   const style = {
     backgroundColor: color,
@@ -42,7 +42,7 @@ const StateLogger = () => {
   React.useEffect(() => {
     document.title = 'State Logger';
     // fetch events from the server
-    fetch('/get/0-10000')
+    fetch('/get/9000-100000')
       .then((response) => response.json())
       .then((data) => {
         // data.items is a dict from idx to item -> convert to array, sorted by idx
@@ -72,13 +72,14 @@ const StateLogger = () => {
       if (COLORED_FIELDS.includes(field)) {
         ret.cellRenderer = ColoredField;
       }
+      if (field === 'idx') {
+        ret.width = 90;
+      }
       return ret;
     });
     columns.push({field: 'rest', flex: 1, cellRenderer: RestField});
     setCols(columns);
   }, [log]);
-
-  console.log('got log', log);
 
   // AG Grid will use this to set up the grid once rendered
   const onGridReady = (params) => {
