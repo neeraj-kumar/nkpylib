@@ -451,7 +451,7 @@ def simple_react_tornado_server(jsx_path: str,
     And then run it from a directory containing the data file care about.
     """
     parent, basename = os.path.split(jsx_path)
-    print(f'Setting parent to {parent} and base to {basename}')
+    logger.debug(f'Setting parent to {parent} and base to {basename}')
     class DefaultIndexHandler(RequestHandler):
         def get(self):
             self.write(default_index(js_filename=basename))
