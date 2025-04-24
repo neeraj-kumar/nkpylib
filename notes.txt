@@ -510,3 +510,201 @@ can just use an LRU cache for that.
 Okay, so I think that makes sense for the cacher.
 
 Transcribed by https://otter.ai
+
+
+
+State logger 1 on Tue Apr 22, 2025
+-----------------------------------
+OK, so I want to think about the state, logger viewer
+
+in my react single page app. So we have a bunch of events, and I think I want to understand better how to trim them and so on, and so it'd be nice to do this sort of interactively.
+
+And so
+
+maybe one thing I can do well. So the first thing, simple thing, is to have a simple viewer part, right? And so the first thing is that we have all these we have all these copy of events.
+
+And so I think I want to
+
+use this by
+
+making
+
+by hashing them into colors. And so you just figure out, what is the am I doing a transitive thing where a refers to B, which refers to C, or do a and b both refer to C directly, in any case, so I need to figure out that, and I can just use the time stamp of the original event as the ID, And then I have a color based on that,
+
+also from past itself and
+
+annoying to have the whole text box be that color. And so instead, it's better to make a little icon, like just a little blank square with the background color set to that color. I So and then, given that the back end get it, yeah, it should return.
+
+Should return, just the
+
+which return, the full kind of event.
+
+And then I guess
+
+there should be like an ID virtual field, which is either the timestamp or the
+
+copy of
+
+original 10 step, and then that idea is what gets turned into a hash on the front end.
+
+So that's one thing. Now what?
+
+What are the kinds of things we have? So we have whether it was server or client, we have the name of the event.
+
+We have the
+
+function, maybe
+
+we have a timestamp, we have an index.
+
+Oh, I should make sure the index is also in the the event returned, or, yeah, think return from the server, that also probably simplified some sorting code on the front end.
+
+Yeah, so we have all these fields,
+
+and I want some sort of i
+
+i want some sort of
+
+easytian system.
+
+So so I should figure out I
+
+and so this is where my searcher thing I think would be helpful,
+
+although, in this case, yes, it would be nice to do it just in JavaScript. I think I have, I forget what the number was on the order of 150,000 events, which is not that many. I
+
+so
+
+the direct way of doing it
+
+would be to have a field where I
+
+can enter some
+
+js code and I eval it.
+
+So js code will probably be something like
+
+e, dot,
+
+E, dot, name equals
+
+something for e.ts,
+
+greater than x and Less y.
+
+If I also want a time stamp, I
+
+and then I want
+
+diffs.
+
+And so the diffs contract
+
+should just be
+
+exactly the same as the get contract, and
+
+we just assume that it's the diff
+
+of the given thing to The next thing,
+
+maybe to the previous is better. So
+
+it. And so actually, I'm wondering if I'm
+
+wondering if the best viewer might just be a table,
+
+and so I can think about making it like a React grid,
+
+actually, then I get a bunch of the filters for free.
+
+Yeah, maybe I should try that
+
+for now, not worry about writing a whole filter system. But then I guess I don't get diffs in a easy way.
+
+Well, it could just be another,
+
+yeah, maybe I don't worry about this at the moment.
+
+So what do I want? Because,
+
+yeah, I see maybe I want the diss be more complicated. Maybe I want
+
+so I think
+
+what I actually should do first is
+
+get a list of
+
+so the front end should have like a window that's looking at,
+
+which is like start and end, or start and page size and page number. So that way I can look at some number of things and then scroll through them.
+
+But more importantly, i
+
+i When I create the filters.
+
+So I want to create filters on the front end
+
+and then send them to the back end.
+
+Then eval and
+
+so let's see I have like a text area on the front end. I just write Python code directly in there and click update or submit or Whatever. Then that updates it,
+
+and what that does
+
+is
+
+basically,
+
+I guess it'll operate on get
+
+rich. Trying to exact same thing that get does, but
+
+filter it out so the indexes stay as the original index is.
+
+Yeah, I think that's helpful. I'll see how much I can pet it down. I.
+
+Okay, so
+
+the goal is to cut this down until we only have relevant stuff. I
+
+so that's job one. Job two is then to look at the diff and understand better what's happening.
+
+And so this is where actually maybe we do Want to have
+
+the diffs come down as Well. I
+
+so if I get the originals and the depths, I mean the depths are literally a subset, and they're the exact same fields as the original so in that sense, it it totally makes sense to have them. I can display them in the same table and just color them differently.
+
+So I think that part is straightforward. I
+
+guess. The other thing is, I might just need a custom viewer for
+
+the actual
+
+JSON follow up, or the state
+
+for at least the original rows, and still can take the full recipe state at each time point. So that's just something in the viewer I'll need to build in, but
+
+I can progressively add that in. I
+
+i guess while I'm thinking, I'm wondering
+
+if it could come up with other filters
+
+automatically. I
+
+like you said, I I'm
+
+it's probably not worth it for this. I'll deal with that in a future thing.
+
+So at this point, I have
+
+done some hopefully effective filtering. I also
+
+want to be doing, splitting,
+
+Transcribed by https://otter.ai
