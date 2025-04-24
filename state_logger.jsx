@@ -1,3 +1,6 @@
+const MAIN_FIELDS = ['idx', '_name', '_loc', '_id', '_ts', '_human_ts', '_copy_of'];
+const COLORED_FIELDS = ['_name', '_loc', '_ts', '_id', '_copy_of'];
+
 const RestField = ({data, ...props}) => {
   const style = {
     maxHeight: '100px',
@@ -6,7 +9,30 @@ const RestField = ({data, ...props}) => {
   return <div style={style}>{JSON.stringify(data.rest, null, ' ')}</div>
 }
 
-const MAIN_FIELDS = ['idx', '_name', '_loc', '_ts', '_human_ts'];
+/* A field which includes a small rect colored by the hash of the contents */
+const ColoredField = ({data, ...props}) => {
+  const field = props.column.colId;
+  const content = data[field];
+  if (!content) return null;
+  const hash = hashString(''+content);
+  const color = numberToColor(hash);
+  console.log('hashed', field, content, hash, color);
+  // style for the small rect
+  const style = {
+    backgroundColor: color,
+    marginRight: 5,
+    borderRadius: 5,
+    width: 10,
+    height: 10,
+    display: 'inline-block',
+  };
+  return (
+    <div>
+      <div style={style}></div>
+      <span>{content}</span>
+    </div>
+  );
+}
 
 const StateLogger = () => {
   const [gridApi, setGridApi] = React.useState(null);
@@ -41,7 +67,13 @@ const StateLogger = () => {
 
   // when data changes, update the columns
   React.useEffect(() => {
-    const columns = MAIN_FIELDS.map((field) => ({field}));
+    const columns = MAIN_FIELDS.map((field) => {
+      const ret = {field};
+      if (COLORED_FIELDS.includes(field)) {
+        ret.cellRenderer = ColoredField;
+      }
+      return ret;
+    });
     columns.push({field: 'rest', flex: 1, cellRenderer: RestField});
     setCols(columns);
   }, [log]);

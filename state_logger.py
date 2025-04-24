@@ -172,19 +172,37 @@ class StateLogReader:
         self.log_path = log_path
         self.history = []
         self.idx = 0
+        self.idx_by_ts = {}
         self.load()
 
     def load(self):
         """Loads the log file"""
         with open(self.log_path) as f:
             for line in f:
-                self.history.append(json.loads(line))
+                obj = json.loads(line)
+                self.idx_by_ts[obj['_ts']] = len(self.history)
+                if obj['_ts'] > 1728278062 and obj['_ts'] < 1728278063:
+                    print(f'   XXX Reading {obj}')
+                self.history.append(obj)
+            print(list(self.idx_by_ts.items())[:10])
+            print(self.idx_by_ts[1728278243.3046024])
 
     def __len__(self):
         return len(self.history)
 
     def __getitem__(self, idx):
-        return self.history[idx]
+        ret = dict(**self.history[idx])
+        if '_copy_of' in ret:
+            # this is a copy, so get the original
+            old_ts = ret['_copy_of']
+            idx = self.idx_by_ts.get(old_ts, -1)
+            print(f'  looking up {old_ts} ({type(old_ts)}): {idx}')
+            if idx >= 0:
+                prev = self.history[idx]
+                # update the ret with the fields from this
+                print(f'    cur: {ret.keys()} vs prev: {prev.keys()}')
+                ret.update({k:v for k, v in prev.items() if k not in ret})
+        return ret
 
     def __iter__(self):
         return self
