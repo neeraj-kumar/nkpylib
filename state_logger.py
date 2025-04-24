@@ -22,6 +22,7 @@ import tornado.web
 
 from tornado.web import RequestHandler
 
+from nkpylib.stringutils import parse_num_spec
 from nkpylib.web_utils import simple_react_tornado_server
 
 logger = logging.getLogger(__name__)
@@ -239,9 +240,12 @@ class BaseHandler(RequestHandler):
         """Returns the state log reader"""
         return self.application.more_kw['reader']
 
-class TestHandler(BaseHandler):
-    def get(self):
-        self.write(f'Our state log reader has {len(self.reader)} entries')
+class GetHandler(BaseHandler):
+    def get(self, indices):
+        nums = sorted(parse_num_spec(indices))
+        items = {i: self.reader[i] for i in nums if i < len(self.reader)}
+        msg = f'Our state log reader has {len(self.reader)} entries, reading {nums}'
+        self.write(dict(msg=msg, items=items, length=len(self.reader)))
 
 def web_main():
     # load the data file from first arg
@@ -254,7 +258,7 @@ def web_main():
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/state_logger.jsx',
                                 port=11555,
-                                more_handlers=[(r'/test/', TestHandler)],
+                                more_handlers=[(r'/get/(.*)', GetHandler)],
                                 parser=parser,
                                 post_parse_fn=post_parse_fn,
                                 more_kw=kw)
