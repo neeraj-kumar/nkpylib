@@ -102,7 +102,7 @@ def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]
     """
     Parse the item specification and return the corresponding items.
 
-    :param item_spec: String specifying items, e.g., '1-3a'.
+    :param item_spec: String specifying items, e.g., '1-3'.
     :param item_map: Dictionary mapping item labels to items.
     :return: List of items corresponding to the specification.
     """

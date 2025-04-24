@@ -1174,6 +1174,30 @@ class FileLock(object):
         """Release a lock at the end of the 'with' statement"""
         self.release()
 
+def parse_num_spec(s: str) -> list[int]:
+    """Parses a list of numbers from a number specification string (like a printer's page range).
+
+    This splits on commas, strips each el, and then looks for either single numbers or ranges like
+    3-5. We remove duplicates.
+    """
+    els = s.split(',')
+    ret = []
+    for el in els:
+        el = el.strip()
+        if '-' in el:
+            start, end = el.split('-')
+            start = int(start)
+            end = int(end)
+            for i in range(start, end+1):
+                if i not in ret:
+                    ret.append(i)
+        else:
+            el = int(el)
+            if el not in ret:
+                ret.append(el)
+    return ret
+
+
 if __name__ == "__main__":
     parser = FilenameParser()
     examples = [
