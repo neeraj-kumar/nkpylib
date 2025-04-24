@@ -343,6 +343,17 @@ def run_search(q: str,
             break
     return searcher.search(q=q, **kw)
 
+class BaseHandler(RequestHandler):
+    """A base tornado handler that sets up some common functionality.
+    - CORS headers
+    """
+    def set_default_headers(self):
+        """allow CORS"""
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+
+
 def default_index(static_path='/static',
                   js_filename='app.jsx',
                   css_filename='app.css',
