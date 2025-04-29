@@ -42,7 +42,7 @@ const StateLogger = () => {
   React.useEffect(() => {
     document.title = 'State Logger';
     // fetch events from the server
-    fetch('/get/9000-100000')
+    fetch('/get/0-100000')
       .then((response) => response.json())
       .then((data) => {
         // data.items is a dict from idx to item -> convert to array, sorted by idx
