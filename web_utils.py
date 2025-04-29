@@ -423,9 +423,10 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
 
 def simple_react_tornado_server(jsx_path: str,
                                 port: int,
-                                more_handlers: list[tuple[str, Callable[[], StaticFileHandler]]]|None=None,
+                                more_handlers: list|None=None,
                                 parser: argparse.ArgumentParser|None=None,
                                 post_parse_fn: Callable[dict,None]|None=None,
+                                data_dir: str|None='.',
                                 **kw):
     """Call this to start a tornado server to serve a single page react app from.
 
@@ -433,12 +434,14 @@ def simple_react_tornado_server(jsx_path: str,
     loads react and other common libs from unpkg. The tornado server sets the static path to be the
     parent dir of `jsx_path`, and the index page will then load the jsx file from there.
 
-    It also sets the current directory as the static path for /data/ requests, so you can load up
-    data files relative to this dir.
+    It also sets the `data_dir` (default: cur dir) as the static path for /data/ requests, so you
+    can load up data files relative to this dir. If you set `data_dir` to None, it won't add a /data/
+    handler.
 
     You can also pass in additional handlers to add to the tornado server using the `more_handlers`
-    arg, which should be a list of tuples where the first element is the path spec (i.e., with
-    regexps) and the second element is the handler class. This is useful for having an API.
+    arg, which should be a list of tuples where the 1st element is the path spec (i.e., with
+    regexps), 2nd element is the handler class, and 3rd (optional) one is params. This is useful for
+    having an API.
 
     Any **kw you pass in are stored as instance variables on the application class. Your handlers
     can access these via `self.application.<varname>`.
@@ -460,12 +463,11 @@ def simple_react_tornado_server(jsx_path: str,
         def __init__(self):
             handlers = [
                 (r"/", DefaultIndexHandler),
-                # make /data/ a static handler to the current directory
-                (r"/data/(.*)", StaticFileHandler, {'path': '.'}),
             ]
+            if data_dir is not None:
+                handlers.append((r"/data/(.*)", StaticFileHandler, {'path': data_dir}))
             if more_handlers:
-                for path, handler in more_handlers:
-                    handlers.append((path, handler))
+                handlers.extend(more_handlers)
             settings = {
                 "debug": True,
                 "static_path": parent,
