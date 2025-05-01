@@ -481,3 +481,14 @@ def simple_react_tornado_server(jsx_path: str,
                          make_app=DefaultApplication,
                          default_port=port,
                          post_parse_fn=post_parse_fn)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Simple react web server (default port 13000)')
+    parser.add_argument('jsx_path', help='Path to jsx file to load')
+    parser.add_argument('-d', '--data_dir', default='.', help='Path to data dir [.]')
+    args = parser.parse_args()
+    simple_react_tornado_server(jsx_path=args.jsx_path,
+                                port=13000,
+                                parser=parser,
+                                data_dir=args.data_dir)

@@ -66,3 +66,7 @@ memento:
 ## tests out the letterboxd integration
 letterboxd:
 	python3 letterboxd.py ~/dp/projects/movies/letterboxd/latest
+
+## tests out the indent writer
+indent:
+	python3 indent_writer.py
