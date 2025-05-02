@@ -22,7 +22,7 @@ import traceback
 
 from abc import ABC, abstractmethod
 from collections import Counter
-from os.path import dirname
+from os.path import dirname, splitext
 from typing import Any, Optional, Callable
 from urllib.parse import urlparse
 
@@ -353,22 +353,7 @@ class BaseHandler(RequestHandler):
         self.set_header("Access-Control-Allow-Headers", "x-requested-with")
         self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
 
-
-def default_index(static_path='/static',
-                  js_filename='app.jsx',
-                  css_filename='app.css',
-                  ) -> str:
-    """Returns default HTML index page that loads react etc from CDNs.
-
-    This also inlines the nk js utils code.
-
-    Your jsx and css code should be at /static/app.{jsx,css} by default, but you can change all of
-    these by passing in the `static_path`, `js_filename`, and `css_filename` args.
-    """
-    # load 'nk-utils.js' from the same directory as this file
-    with open(f'{os.path.dirname(__file__)}/nk-utils.js') as f:
-        nk_utils_js = f.read()
-    return f'''<!doctype html>
+INDEX_HTML_FMT = '''<!doctype html>
 <html>
   <head>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -384,6 +369,7 @@ def default_index(static_path='/static',
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha512-ZwR1/gSZM3ai6vCdI+LVF1zSq/5HznD3ZSTk7kajkaj4D292NLuduDCO1c/NT8Id+jE58KYLKT7hXnbtryGmMg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
     <link rel="stylesheet" href="{static_path}/{css_filename}">
   </head>
 <body>
@@ -392,6 +378,26 @@ def default_index(static_path='/static',
 <script type="text/babel">{nk_utils_js}</script>
 <script src="{static_path}/{js_filename}" type="text/babel"></script>
 </html>'''
+
+def default_index(static_path='/static',
+                  js_filename='app.jsx',
+                  css_filename='app.css',
+                  ) -> str:
+    """Returns default HTML index page that loads react etc from CDNs.
+
+    This also inlines the nk js utils code.
+
+    Your jsx and css code should be at /static/app.{jsx,css} by default, but you can change all of
+    these by passing in the `static_path`, `js_filename`, and `css_filename` args.
+    """
+    # load 'nk-utils.js' from the same directory as this file
+    with open(f'{dirname(__file__)}/nk-utils.js') as f:
+        nk_utils_js = f.read()
+    ret = INDEX_HTML_FMT.format(static_path=static_path,
+                               js_filename=js_filename,
+                               css_filename=css_filename,
+                               nk_utils_js=nk_utils_js)
+    return ret
 
 def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
                          make_app: Callable[[], Application]=lambda: Application(),
@@ -482,13 +488,53 @@ def simple_react_tornado_server(jsx_path: str,
                          default_port=port,
                          post_parse_fn=post_parse_fn)
 
+def bundle_js(js_path: str, css_path: str|None=None) -> str:
+    """Bundles standard html index given js & css files into a single html file.
+
+    This inlines the given js inside the html. Note that the output still contains CDN references to
+    react, etc.
+
+    If `css_path` is none, we look for it at the same location as the `js_path` just with the
+    extension changed to css.
+
+    This is useful for creating a standalone html file that can be opened in a browser without
+    needing to run a server.
+    """
+    if css_path is None:
+        css_path = splitext(js_path)[0] + '.css'
+    with open(js_path) as f:
+        js = f.read()
+    try:
+        with open(css_path) as f:
+            css = f.read()
+    except Exception:
+        css = ''
+    ret = default_index(static_path='XXX', js_filename='XXX', css_filename='XXX')
+    # replace the stylesheet line with our css code
+    ret = re.sub(r'<link rel="stylesheet" href=".*?">', f'<style>{css}</style>', ret)
+    # replace the js line with our js code
+    ret = re.sub(r'<script src=".*?" type="text/babel"></script>', f'<script type="text/babel">{js}</script>', ret)
+    # convert all instances of text/babel with text/javascript
+    #ret = re.sub(r'text/babel', 'text/javascript', ret)
+    return ret
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Simple react web server (default port 13000)')
     parser.add_argument('jsx_path', help='Path to jsx file to load')
     parser.add_argument('-d', '--data_dir', default='.', help='Path to data dir [.]')
+    parser.add_argument('-b', '--bundle_path', help='Bundle the html jsx file to this filename (no serving in that case)')
     args = parser.parse_args()
-    simple_react_tornado_server(jsx_path=args.jsx_path,
-                                port=13000,
-                                parser=parser,
-                                data_dir=args.data_dir)
+    if args.bundle_path:
+        bundled = bundle_js(args.jsx_path)
+        try:
+            os.makedirs(dirname(args.bundle_path), exist_ok=True)
+        except Exception:
+            pass
+        with open(args.bundle_path, 'w') as f:
+            f.write(bundled)
+    else:
+        simple_react_tornado_server(jsx_path=args.jsx_path,
+                                    port=13000,
+                                    parser=parser,
+                                    data_dir=args.data_dir)
