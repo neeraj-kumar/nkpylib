@@ -8,6 +8,7 @@ import logging
 import re
 import time
 
+from argparse import ArgumentParser
 from threading import Lock
 from typing import Any, Callable, NamedTuple
 
@@ -18,12 +19,11 @@ from tqdm import tqdm
 
 from nkpylib.thread_utils import chained_producer_consumers
 
-CHROMA_CLIENT: Any | None = None
-
-CHROMA_LOCK = Lock()
-
 logger = logging.getLogger(__name__)
 
+CHROMA_CLIENTS = {}
+
+CHROMA_LOCK = Lock()
 
 def load_chroma_client(db_path: str='', port: int=0):
     """Loads chroma client (if not already loaded) and returns it.
@@ -33,15 +33,15 @@ def load_chroma_client(db_path: str='', port: int=0):
     If that fails, it will try to load the client from the given `db_path`.
     """
     assert port > 0 or db_path, 'Must pass either a port or a db_path'
-    global CHROMA_CLIENT
-    if CHROMA_CLIENT is None:
+    global CHROMA_CLIENTS
+    key = (db_path, port)
+    if key not in CHROMA_CLIENTS:
         with CHROMA_LOCK:
             # first try loading from the server
             if port > 0:
                 try:
-                    CHROMA_CLIENT = HttpClient(port=port) # type: ignore # this is a bug in an older version of chromadb
+                    CHROMA_CLIENTS[key] = HttpClient(port=port) # type: ignore # this is a bug in an older version of chromadb
                     logger.info(f'Loaded chromadb client from server at port {port}')
-                    return CHROMA_CLIENT
                 except Exception as e:
                     logger.info(f'chromadb client not running: {e}')
                     pass
@@ -49,9 +49,9 @@ def load_chroma_client(db_path: str='', port: int=0):
             if db_path:
                 logger.info(f'Loading chromadb client at {db_path}')
                 t0 = time.time()
-                CHROMA_CLIENT = PersistentClient(path=db_path)
+                CHROMA_CLIENTS[key] = PersistentClient(path=db_path)
                 logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
-    return CHROMA_CLIENT
+    return CHROMA_CLIENTS[key]
 
 def remove_md_keys(md: dict, patterns: list[str | re.Pattern]) -> dict:
     """Removes keys from the metadata dict that match any of the given patterns.
@@ -182,3 +182,65 @@ def extract_features(feature_func: Callable[[Any], np.ndarray | FeatureLabel | N
     else:
         labels = None
     return ids, np.array(features), labels
+
+def copy_collection(src_db_port: int, dst_db_port: int, src_col_name: str, dst_col_name: str='', incr: int=100) -> None:
+    """Copies `src_col_name` from chroma at `src_db_port` into `dst_col_name` at `dst_db_port`.
+
+    If you don't give a `dst_col_name`, it will use the same name as `src_col_name`.
+    """
+    src_db = load_chroma_client(port=src_db_port)
+    dst_db = load_chroma_client(port=dst_db_port)
+    print(src_db.list_collections())
+    print(dst_db.list_collections())
+    src_col = src_db.get_collection(src_col_name)
+    print(src_col, src_col.metadata)
+    if not dst_col_name:
+        dst_col_name = src_col_name
+    try:
+        dst_col = dst_db.get_collection(dst_col_name)
+    except Exception:
+        # create the collection, with the same metadata
+        md = dict(**src_col.metadata)
+        if 'hnsw:space' not in md:
+            md['hnsw:space'] = 'cosine'
+        dst_col = dst_db.create_collection(dst_col_name, metadata=md)
+    done_ids = set(dst_col.get(include=[])['ids'])
+    print(f'Copying to {dst_col} ({dst_col.metadata}) with {len(done_ids)} already done')
+    # now copy the collection
+    pbar = tqdm(desc='Copying collection')
+    offset = 0
+    while True:
+        try:
+            resp = src_col.get(offset=offset, limit=incr, include=['embeddings', 'metadatas', 'documents'])
+        except Exception as e:
+            if 'IndexError' in str(e):
+                print(f'Index error?? {e}')
+                continue
+            raise
+        # now add the embeddings to the new collection
+        ids = resp['ids']
+        if not ids:
+            break
+        pbar.update(incr)
+        offset += incr
+        # filter out done ids, then add the rest
+        indices = [idx for idx, id in enumerate(ids) if id not in done_ids]
+        if not indices:
+            continue
+        dst_col.add(
+            ids=[resp['ids'][i] for i in indices],
+            embeddings=[resp['embeddings'][i] for i in indices],
+            metadatas=[resp['metadatas'][i] for i in indices],
+            documents=[resp['documents'][i] for i in indices],
+        )
+
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser(description='Copy a collection from one chroma database to another')
+    parser.add_argument('src_db_port', type=int, help='Port of the source chroma database')
+    parser.add_argument('dst_db_port', type=int, help='Port of the destination chroma database')
+    parser.add_argument('src_col_name', type=str, help='Name of the source collection')
+    parser.add_argument('dst_col_name', type=str, nargs='?', default='', help='Name of the destination collection')
+    args = parser.parse_args()
+    copy_collection(args.src_db_port, args.dst_db_port, args.src_col_name, args.dst_col_name)

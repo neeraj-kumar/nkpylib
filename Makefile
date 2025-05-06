@@ -70,3 +70,10 @@ letterboxd:
 ## tests out the indent writer
 indent:
 	python3 indent_writer.py
+
+## copies chroma collections
+copy-chroma:
+	python3 chroma.py 8102 8103 places
+	#python3 chroma.py 8102 8103 clip-images
+	#python3 chroma.py 8102 8103 clip-faces
+	#python3 chroma.py 8102 8103 images-text
