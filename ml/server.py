@@ -67,7 +67,14 @@ from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
 from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
-from nkpylib.ml.newserver import ExternalChatModel, LocalChatModel, VLMModel, ClipEmbeddingModel, SentenceTransformerModel, ExternalEmbeddingModel
+from nkpylib.ml.newserver import (
+    ClipEmbeddingModel,
+    ExternalChatModel,
+    ExternalEmbeddingModel,
+    LocalChatModel,
+    SentenceTransformerModel,
+    VLMModel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +91,6 @@ def load_clip(model_name=DEFAULT_MODELS['clip']):
     """Loads clip and returns two embedding functions: one for text, one for images"""
     import torch
     from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = CLIPModel.from_pretrained(model_name)
     processor = CLIPProcessor.from_pretrained(model_name)
 
@@ -295,16 +301,16 @@ class TextEmbeddingRequest(BaseModel):
 @app.post("/v1/embeddings")
 async def text_embeddings(req: TextEmbeddingRequest):
     """Generates embeddings for the given text using the given model."""
-    assert req.model is not None, "Model must be specified for embeddings request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
     model_class_by_name = {
-        DEFAULT_MODELS['clip']: ClipEmbeddingModel,
+        DEFAULT_MODELS['clip']: lambda **kw: ClipEmbeddingModel(mode='text', **kw),
         DEFAULT_MODELS['sentence']: SentenceTransformerModel,
     }
     ModelClass = model_class_by_name.get(req.model, ExternalEmbeddingModel)
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
-    ret = await model.run(input=req.input, provider=req.provider)
+    with dl_temp_file(req.input) as path:
+        ret = await model.run(input=path, provider=req.provider)
     return ret
 
 
@@ -317,30 +323,9 @@ class ImageEmbeddingRequest(BaseModel):
 @app.post("/v1/image_embeddings")
 async def image_embeddings(req: ImageEmbeddingRequest):
     """Generates embeddings for the given image url (or local path) using the given model."""
-    assert req.model is not None, "Model must be specified for image embeddings request"
-    if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
-    def run_func(input, model, **kw):
-        embedding = get_clip_image_embedding(input)
-        return dict(
-            object='list',
-            data=[dict(
-                object='embedding',
-                index=0,
-                embedding=embedding.tolist(),
-            )],
-            model=req.model,
-            n_dims=len(embedding),
-            url=input,
-        )
-
-    return await generic_run_model(
-        input=req.url,
-        model_name=req.model,
-        load_func=lambda model, **kw: load_clip(model)[1],
-        run_func=run_func,
-        cache_key=req.url if req.use_cache else None,
-    )
+    model = ClipEmbeddingModel(model_name=req.model, mode='image', use_cache=req.use_cache)
+    ret = await model.run(input=req.url)
+    return ret
 
 
 class StrSimRequest(BaseModel):

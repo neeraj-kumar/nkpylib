@@ -180,7 +180,7 @@ class VLMModel(ChatModel):
         self.postprocess(input, ret, **kw)
         return ret
 
-class TextEmbeddingModel(Model):
+class EmbeddingModel(Model):
     """Base class for text embeddings.
 
     This includes a postprocess() function.
@@ -202,40 +202,30 @@ class TextEmbeddingModel(Model):
         )
 
 
-class ClipEmbeddingModel(TextEmbeddingModel):
-    """Model subclass for handling CLIP text embeddings."""
+class ClipEmbeddingModel(EmbeddingModel):
+    """Model subclass for handling CLIP text/image embeddings."""
     def __init__(self, mode='text', model_name: str=None, use_cache: bool=True, **kw):
         super().__init__(model_name=model_name, use_cache=use_cache, **kw)
+        assert mode in ('text', 'image')
+        assert self.model_name == DEFAULT_MODELS['clip']
         self.mode = mode
 
     async def _load(self, **kw) -> Any:
-        from transformers import CLIPProcessor, CLIPModel
-        model = CLIPModel.from_pretrained(self.model_name)
-        processor = CLIPProcessor.from_pretrained(self.model_name)
-        return model, processor
+        from nkpylib.ml.server import load_clip
+        get_text_features, get_image_features = load_clip()
+        if self.mode == 'text':
+            return get_text_features
+        elif self.mode == 'image':
+            return get_image_features
+        raise NotImplementedError(f"Unsupported mode: {self.mode}")
 
     async def _run(self, input: Any, **kw) -> dict:
-        import torch
-        model, processor = self.model
-        if self.mode == 'text':
-            with torch.no_grad():
-                embedding = model.get_text_features(**processor(text=input, return_tensors="pt"))[0]
-        elif self.mode == 'image':
-            if isinstance(input, str):
-                if input.startswith('http'):
-                    from PIL import Image
-                    import requests
-                    input = Image.open(requests.get(input, stream=True).raw)
-                else:
-                    from PIL import Image
-                    input = Image.open(input)
-            with torch.no_grad():
-                embedding = model.get_image_features(**processor(images=input, return_tensors="pt"))[0]
-        else:
-            raise ValueError(f"Unsupported mode: {self.mode}")
-        return self.postprocess(embedding)
+        ret = await asyncio.to_thread(self.model, input) # clip doesn't use any kw
+        ret = ret.numpy()
+        return self.postprocess(ret)
 
-class SentenceTransformerModel(TextEmbeddingModel):
+
+class SentenceTransformerModel(EmbeddingModel):
     """Model subclass for handling SentenceTransformer embeddings."""
     async def _load(self, **kw) -> Any:
         from sentence_transformers import SentenceTransformer
@@ -246,8 +236,8 @@ class SentenceTransformerModel(TextEmbeddingModel):
         return self.postprocess(embedding)
 
 
-class ExternalEmbeddingModel(TextEmbeddingModel):
-    """Model subclass for handling external API embeddings."""
+class ExternalEmbeddingModel(EmbeddingModel):
+    """Model subclass for handling external API text embeddings."""
     async def _run(self, input: Any, **kw) -> dict:
         ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
         ret['input'] = input
