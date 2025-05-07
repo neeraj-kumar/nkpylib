@@ -309,7 +309,7 @@ async def text_embeddings(req: TextEmbeddingRequest):
     }
     ModelClass = model_class_by_name.get(req.model, ExternalEmbeddingModel)
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
-    with dl_temp_file(req.input) as path:
+    async with dl_temp_file(req.input) as path:
         ret = await model.run(input=path, provider=req.provider)
     return ret
 
@@ -347,7 +347,7 @@ async def strsim(req: StrSimRequest):
         for k, v in ret['timing'].items():
             if isinstance(v, bool):
                 timings[k] = timings.get(k, False) or v
-            else:
+            elif isinstance(v, (int, float)):
                 timings[k] = timings.get(k, 0) + v
         return np.array(ret['data'][0]['embedding'])
 
