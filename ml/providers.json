@@ -139,6 +139,10 @@
         "root": "mistralai/Mistral-Nemo-Instruct-2407",
         "parent": null
       },
+      "intfloat/e5-large-v2": {
+        "id": "intfloat/e5-large-v2",
+        "object": "model"
+      },
       "Austism/chronos-hermes-13b-v2": {
         "id": "Austism/chronos-hermes-13b-v2",
         "object": "model",

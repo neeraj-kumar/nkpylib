@@ -48,6 +48,10 @@ DEFAULT_MODELS = dict(
     whisper='openai/whisper-large-v3',
     speech='openai/whisper-large-v3',
     transcription='openai/whisper-large-v3',
+    # small fast ada text embedding model
+    ada='text-embedding-ada-002',
+    # e5 embeddings with 1024 output dims
+    e5='intfloat/e5-large-v2',
 )
 
 LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']

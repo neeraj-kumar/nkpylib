@@ -238,7 +238,6 @@ class ExternalEmbeddingModel(TextEmbeddingModel):
     async def _run(self, input: Any, **kw) -> dict:
         ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
         ret['input'] = input
-        print(f'got ret: {ret}')
         return ret
 
 
