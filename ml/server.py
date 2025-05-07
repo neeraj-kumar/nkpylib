@@ -68,6 +68,7 @@ from nkpylib.ml.text import get_text
 from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
 from nkpylib.ml.newserver import (
+    TextExtractionModel,
     ClipEmbeddingModel,
     ExternalChatModel,
     ExternalEmbeddingModel,
@@ -373,18 +374,11 @@ class GetTextRequest(BaseModel):
 @app.post("/v1/get_text")
 async def get_text_api(req: GetTextRequest, cache={}):
     """Gets the text from the given URL or path of pdf, image, or text."""
-    # check cache
-    cache_key = req.url if req.use_cache else None
-    if cache_key in cache:
-        return cache[cache_key]
-    # if it's a url or data url, download it
-    kw = req.kw or {}
-    async with dl_temp_file(req.url) as path:
-        ret = await asyncio.to_thread(get_text, path, **kw)
-    _ret = dict(url=req.url, text=ret)
-    if cache_key is not None:
-        cache[cache_key] = _ret
-    return _ret
+    model = TextExtractionModel(model_name=req.url, use_cache=req.use_cache)
+    ret = await model.run(input=req.url, **(req.kw or {}))
+    if req.use_cache:
+        cache[req.url] = ret
+    return ret
 
 
 class TranscriptionRequest(BaseModel):

@@ -244,7 +244,12 @@ class ExternalEmbeddingModel(EmbeddingModel):
         return ret
 
 
-async def test():
+class TextExtractionModel(Model):
+    """Model subclass for extracting text from URLs or file paths."""
+    async def _run(self, input: Any, **kw) -> dict:
+        from nkpylib.ml.text import get_text
+        ret = await asyncio.to_thread(get_text, input, **kw)
+        return dict(url=input, text=ret)
     if 0:
         for i in range(2):
             m = ExternalChatModel('chat')
