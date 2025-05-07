@@ -51,6 +51,7 @@ import tempfile
 import time
 import uuid
 
+from hashlib import sha256
 from typing import Any, Callable, Literal, Optional, Union
 from urllib.request import urlretrieve
 
@@ -62,8 +63,9 @@ from PIL import Image
 from pydantic import BaseModel
 
 from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
-from nkpylib.ml.providers import call_external
+from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
+from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
 
 logger = logging.getLogger(__name__)
@@ -234,73 +236,6 @@ async def generic_run_model(
     )
     return ret
 
-
-# setup fastapi completion endpoint
-class CompletionRequest(BaseModel):
-    prompt: str
-    model: Optional[str]='mistral-7b-instruct-v0.2.Q4_K_M.gguf'
-    max_tokens: Optional[int]=128
-    kwargs: Optional[dict]={}
-    use_cache: Optional[bool]=False
-
-@app.post("/v1/completions")
-async def completions(req: CompletionRequest):
-    """Generates completions for the given prompt using the given model."""
-    # prefer to use the chat endpoint instead
-    cache_key = f"{req.max_tokens}:{req.prompt}" if req.use_cache else None
-    assert req.model is not None, "Model must be specified for completions request"
-    if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
-    if 'llama-3' in req.model or 'llama3' in req.model:
-        # run this using replicate
-        from nkpylib.ml.replicate_wrapper import llm_complete
-        def load_func(model, **kw):
-            return model
-
-        def run_func(input, model, **kw):
-            #print(f'Running llama-3 model: {model} on input: {input}')
-            if model.startswith('models/'):
-                model = model.split('/', 1)[-1]
-            ret = llm_complete(prompt=input, model_name=model, **kw)
-            # convert the returned string to a standard openai-compatible response
-            ret = dict(
-                object='text',
-                model=model,
-                choices=[dict(text=ret)],
-            )
-            return ret
-
-    else:
-        def load_func(model, **kw):
-            from llama_cpp import Llama
-            return Llama(
-              model_path=model,
-              n_ctx=8192,#32768,
-              n_threads=8,
-              n_gpu_layers=35,
-            )
-
-        def run_func(input, model, **kw):
-            return model(
-              f"<s>[INST] {input} [/INST]",
-              max_tokens=kw['max_tokens'],
-              stop=["</s>"],
-              echo=False,
-            )
-
-    ret = await generic_run_model(
-        input=req.prompt,
-        model_name=f'models/{req.model}',
-        load_func=load_func,
-        run_func=run_func,
-        cache_key=cache_key,
-        max_tokens=req.max_tokens,
-    )
-    # the output is already in openai compatible format, just do some cleanup
-    ret['prompt'] = req.prompt
-    ret['model'] = ret['model'].split('/')[-1]
-    ret['max_tokens'] = req.max_tokens
-    return ret
 
 # setup fastapi chat endpoint
 class ChatRequest(BaseModel):
@@ -585,19 +520,70 @@ async def get_text_api(req: GetTextRequest, cache={}):
         return cache[cache_key]
     # if it's a url or data url, download it
     kw = req.kw or {}
-    if req.url.startswith('http') or req.url.startswith('data:'):
-        ext = req.url.split('.')[-1]
-        if req.url.startswith('data:'):
-            ext = req.url.split(';')[0].split('/')[-1]
-        with tempfile.NamedTemporaryFile(delete=True, suffix=f'.{ext}') as f:
-            await asyncio.to_thread(urlretrieve, req.url, f.name)
-            ret = get_text(f.name, **kw)
-    else:
-        ret = await asyncio.to_thread(get_text, req.url, **kw)
+    async with dl_temp_file(req.url) as path:
+        ret = await asyncio.to_thread(get_text, path, **kw)
     _ret = dict(url=req.url, text=ret)
     if cache_key is not None:
         cache[cache_key] = _ret
     return _ret
+
+
+class TranscriptionRequest(BaseModel):
+    url: str|bytes # path/url to file or audio bytes
+    model: Optional[str]='transcription' # this will get mapped bsaed on DEFAULT_MODELS['Transcription']
+    language: Optional[str]='en'
+    chunk_level: Optional[str]='segment'
+    kwargs: Optional[dict]={}
+    use_cache: Optional[bool]=False
+    provider: Optional[str]='deepinfra'
+
+@app.post("/v1/transcription")
+async def speech_transcription(req: TranscriptionRequest):
+    """Generates a transcription object for the given audio (path, url, or bytes)."""
+    assert req.model is not None, "Model must be specified for speech transcription request"
+    if req.model in DEFAULT_MODELS:
+        req.model = DEFAULT_MODELS[req.model]
+    audio = req.url
+    if isinstance(req.url, str): # it's a url/path; download it
+        async with dl_temp_file(req.url) as path:
+            with open(path, 'rb') as f:
+                audio = f.read()
+    # at this point `audio` is a bytes object
+    sha = sha256(audio).hexdigest()
+    cache_key = f'{sha}:{req.language}:{req.chunk_level}' if req.use_cache else None
+    kw = req.kwargs or {}
+    kw.update(
+        language=req.language,
+        chunk_level=req.chunk_level,
+    )
+    logger.debug(f'Speech request: {req}, {cache_key}, {kw}')
+    # run this using external api
+    def load_func(model, **kw):
+        return model
+
+    def run_func(input, model, **kw):
+        logger.debug(f'Running external transcription model: {model} with {kw}')
+        audio = input
+        loop = asyncio.get_event_loop()
+        ret = loop.run_until_complete(call_provider(req.provider,
+                                  endpoint=f'https://api.deepinfra.com/v1/inference/{model}',
+                                  data=audio,
+                                  **kw))
+        return ret
+
+    ret = await generic_run_model(
+        input=audio,
+        model_name=req.model,
+        load_func=load_func,
+        run_func=run_func,
+        cache_key=cache_key,
+        **kw,
+    )
+    # the output is already in openai compatible format, just do some cleanup
+    ret['model'] = ret.get('model', req.model).split('/', 1)[-1]
+    logger.debug('Speech response:', ret)
+    return ret
+
 
 @app.get("/test")
 async def test_api():
