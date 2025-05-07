@@ -135,7 +135,41 @@ class LocalChatModel(ChatModel):
         return self.augment_output(input, result, **kw)
 
 
-class ExternalChatModel(ChatModel):
+class VLMModel(Model):
+    """Model subclass for handling VLM models."""
+    def update_kw(self, input: Any, **kw) -> dict:
+        """Updates the `kw` input dict with default parameters, etc."""
+        if 'max_tokens' not in kw:
+            kw['max_tokens'] = 1024
+        return kw
+
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        image, prompts = input
+        return f"{kw['max_tokens']}:{image}:{str(prompts)}"
+
+    async def _run(self, input: Any, **kw) -> dict:
+        logger.debug(f'Running VLM model: {self.model_name} on input: {input} with kw {kw}')
+        image, prompts = input
+        if isinstance(prompts, str):
+            prompts = [('user', prompts)]
+        assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
+        if not kw:
+            kw = {}
+        kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+        if not image.startswith('http'):
+            with open(image, 'rb') as f:
+                image = data_url_from_file(f)
+        for msg in kw['messages']:
+            if msg['role'] == 'user':
+                cur_text = msg['content']
+                msg['content'] = [{"type": "text", "text": cur_text},
+                                  {"type": "image_url", "image_url": {"url": image}}]
+                break
+        ret = await call_external(endpoint='/chat/completions', provider_name=kw.get('provider', ''), model=self.model_name, **kw)
+        ret['prompts'] = prompts
+        ret['model'] = self.model_name.split('/', 1)[-1]
+        ret['max_tokens'] = kw['max_tokens']
+        return ret
     """Model subclass for handling external chat models."""
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running external model: {self.model_name} on input: {input} with kw {kw}')
