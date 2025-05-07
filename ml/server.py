@@ -396,45 +396,21 @@ async def speech_transcription(req: TranscriptionRequest):
     assert req.model is not None, "Model must be specified for speech transcription request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
-    audio = req.url
-    if isinstance(req.url, str): # it's a url/path; download it
+    model = TranscriptionModel(model_name=req.model, use_cache=req.use_cache)
+    if isinstance(req.url, str):  # it's a url/path; download it
         async with dl_temp_file(req.url) as path:
             with open(path, 'rb') as f:
                 audio = f.read()
-    # at this point `audio` is a bytes object
-    sha = sha256(audio).hexdigest()
-    cache_key = f'{sha}:{req.language}:{req.chunk_level}' if req.use_cache else None
+    else:
+        audio = req.url  # assume it's already bytes
+
     kw = req.kwargs or {}
     kw.update(
         language=req.language,
         chunk_level=req.chunk_level,
+        provider=req.provider,
     )
-    logger.debug(f'Speech request: {req}, {cache_key}, {kw}')
-    # run this using external api
-    def load_func(model, **kw):
-        return model
-
-    def run_func(input, model, **kw):
-        logger.debug(f'Running external transcription model: {model} with {kw}')
-        audio = input
-        loop = asyncio.get_event_loop()
-        ret = loop.run_until_complete(call_provider(req.provider,
-                                  endpoint=f'https://api.deepinfra.com/v1/inference/{model}',
-                                  data=audio,
-                                  **kw))
-        return ret
-
-    ret = await generic_run_model(
-        input=audio,
-        model_name=req.model,
-        load_func=load_func,
-        run_func=run_func,
-        cache_key=cache_key,
-        **kw,
-    )
-    # the output is already in openai compatible format, just do some cleanup
-    ret['model'] = ret.get('model', req.model).split('/', 1)[-1]
-    logger.debug('Speech response:', ret)
+    ret = await model.run(input=audio, **kw)
     return ret
 
 

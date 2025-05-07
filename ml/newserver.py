@@ -256,7 +256,21 @@ class TextExtractionModel(Model):
         return dict(url=input, text=ret)
 
 
-async def test():
+class TranscriptionModel(Model):
+    """Model subclass for handling speech transcription."""
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        sha = sha256(input).hexdigest()
+        return f"{sha}:{kw.get('language', 'en')}:{kw.get('chunk_level', 'segment')}"
+
+    async def _run(self, input: Any, **kw) -> dict:
+        logger.debug(f'Running transcription model: {self.model_name} with {kw}')
+        ret = await call_external(
+            endpoint=f'https://api.deepinfra.com/v1/inference/{self.model_name}',
+            data=input,
+            **kw
+        )
+        ret['input'] = input
+        return ret
     if 0:
         for i in range(2):
             m = ExternalChatModel('chat')
