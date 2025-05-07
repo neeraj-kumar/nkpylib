@@ -1,31 +1,54 @@
 import asyncio
+import logging
 import time
+
+from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 
-class Model:
-    def __init__(self, model_name: str):
+logger = logging.getLogger(__name__)
+
+ModelCache = {}
+ResultsCache = {}
+
+class Model(ABC):
+    """Base class for models, providing a common interface for loading and running models."""
+    def __init__(self, model_name: str, use_cache: bool=True, **kw):
         self.model_name = model_name
+        self.use_cache = use_cache
         self.model = None
-        self.cache = {}
-        self.did_load = False
+        self.cache = ResultsCache.get(self.__class__, {})
+
+    async def _load(self, **kw) -> Any:
+        """Load implementation.
+
+        This version just returns the model name as the model itself (useful for external APIs).
+        """
+        return self.model_name
 
     async def load(self, **kw) -> None:
-        """Loads the model using the provided load function."""
+        """Loads our model if not already loaded"""
         if self.model is None:
             t0 = time.time()
-            self.model = await asyncio.to_thread(self.load_model, self.model_name, **kw)
+            self.model = await self._load(**kw)
             t1 = time.time()
-            self.did_load = True
-            print(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
+            logger.debug(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
         else:
             print(f"Model {self.model_name} already loaded")
 
-    async def run(self, input: Any, cache_key: Optional[str] = None, **kw) -> dict:
-        """Runs the model using the provided run function, with optional caching."""
-        if cache_key and cache_key in self.cache:
-            print(f"Using cached result for {cache_key}")
-            return self.cache[cache_key]
+    @abstractmethod
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        """Returns the cache key for a given input and kw. Override this in your subclass"""
+        ...
 
+    @abstractmethod
+    async def _run(self, input: Any, **kw) -> dict:
+        """Run implementation. Override this in your subclass"""
+        ...
+
+    async def run(self, input: Any, **kw) -> dict:
+        """Runs the model with given `input`"""
+        if self.use_cache:
+            cache_key = await self._get_cache_key(input, **kw)
         if self.model is None:
             await self.load(**kw)
 
@@ -64,5 +87,6 @@ class LlamaModel(Model):
         # Implement the specific running logic for the llama model
         pass
 
-# Additional subclasses can be created for other models as needed
+if __name__ == '__main__':
+    m = Model('test')
 
