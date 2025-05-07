@@ -44,6 +44,10 @@ DEFAULT_MODELS = dict(
     nomic='nomic-ai/nomic-embed-text-v1.5',
     # suitable for generating code
     code='Qwen/Qwen2.5-Coder-32B-Instruct',
+    # speech transcription
+    whisper='openai/whisper-large-v3',
+    speech='openai/whisper-large-v3',
+    transcription='openai/whisper-large-v3',
 )
 
 LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']
@@ -66,5 +70,3 @@ def data_url_from_file(file_obj, mimetype='') -> str:
     if not mimetype:
         mimetype, _ = mimetypes.guess_type(file_obj.name)
     return f"data:{mimetype or ''};base64,{base64.b64encode(data).decode()}"
-
-

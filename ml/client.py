@@ -61,6 +61,7 @@ default, but can be disabled by passing `use_cache=False` to any of the function
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sys
 import tempfile
@@ -68,6 +69,7 @@ import time
 
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
+from os.path import join
 from tqdm import tqdm
 from typing import Any, Optional, Union, Sequence, Callable, Iterator
 
@@ -407,6 +409,18 @@ def get_text(url: str, use_cache=True, **kw) -> ResponseT:
     """
     return single_call("get_text", url=url, use_cache=use_cache, **kw)
 
+@execution_wrapper()
+def transcribe_speech(audio: str|bytes,
+                      model:Optional[str]=None,
+                      use_cache=True,
+                      **kw) -> ResponseT:
+    """Runs speech transcription with given `audio` (local path, url, or bytes)."""
+    return single_call("transcription",
+                       url=audio,
+                       model=model,
+                       use_cache=use_cache,
+                       **kw)
+
 
 async def test_all():
     """Test all client functions"""
@@ -476,7 +490,7 @@ async def test_all():
 
 def quick_test():
     logging.basicConfig(level=logging.DEBUG)
-    test = 'emb'
+    test = 'speech'
     if test == 'llm1':
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     elif test == 'llm2':
@@ -496,7 +510,7 @@ def quick_test():
         image = Image.open(image)
         prompt = 'For the following image, return the following in JSON format: title of document, general category of document, detailed category of document, date, and a list of key-value pairs of other data contained within it. Give no preamble or other text, just the JSON object'
         for model in [
-            'vlm', 
+            'vlm',
             "meta-llama/Llama-Vision-Free",
             "accounts/fireworks/models/llama-v3p2-90b-vision-instruct",
             "accounts/fireworks/models/phi-3-vision-128k-instruct",
@@ -508,6 +522,12 @@ def quick_test():
         for model in 'clip st llama3 docimage'.split():
             ret = embed_text.single(s, model=model)
             print(f'Embedding for model {model} with {len(ret)} dims: {ret[:10]}')
+    elif test == 'speech':
+        dir = '/home/neeraj/dp/podcasts/audio/Chapo Trap House/'
+        fname = '2022-09-28 - 666 - Chapo Goes To Hell (9-27-22).mp3'
+        print(f'testing speech transcription for {fname}')
+        ret = transcribe_speech.single(join(dir, fname))
+        print(json.dumps(ret, indent=2))
 
 
 if __name__ == '__main__':
