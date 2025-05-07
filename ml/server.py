@@ -67,7 +67,7 @@ from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
 from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
-from nkpylib.ml.newserver import ExternalChatModel, LocalChatModel, VLMModel
+from nkpylib.ml.newserver import ExternalChatModel, LocalChatModel, VLMModel, ClipEmbeddingModel, SentenceTransformerModel, ExternalEmbeddingModel
 
 logger = logging.getLogger(__name__)
 
@@ -300,54 +300,14 @@ async def text_embeddings(req: TextEmbeddingRequest):
         req.model = DEFAULT_MODELS[req.model]
     logger.debug('checking embedding req against model name', req.model)
     if req.model == DEFAULT_MODELS['clip']:
-        model_type = 'clip'
+        model = ClipEmbeddingModel(model_name=req.model, use_cache=req.use_cache)
     elif req.model == DEFAULT_MODELS['sentence']:
-        model_type = 'sentence'
+        model = SentenceTransformerModel(model_name=req.model, use_cache=req.use_cache)
     else:
-        model_type = 'external'
-    print('settled on model type', model_type)
+        model = ExternalEmbeddingModel(model_name=req.model, use_cache=req.use_cache)
 
-    def load_func(model, **kw):
-        from sentence_transformers import SentenceTransformer # type: ignore
-        if model_type == 'clip':
-            return load_clip(model)[0]
-        elif model_type == 'sentence':
-            return SentenceTransformer(model)
-        else:
-            return model
-
-    def run_func(input, model, **kw):
-        def postprocess(embedding):
-            return dict(
-                object='list',
-                data=[dict(
-                    object='embedding',
-                    index=0,
-                    embedding=embedding.tolist(),
-                )],
-                model=req.model,
-                n_dims=len(embedding),
-            )
-
-        if model_type == 'clip': # get clip text embedding
-            embedding = postprocess(get_clip_text_embedding(input))
-        elif model_type == 'sentence': # sentence transformer
-            #embedding = postprocess(model.encode_multi_process(documents, pool))
-            embedding = postprocess(model.encode([input], normalize_embeddings=True)[0])
-        else: # external api call
-            embedding = asyncio.run(call_external(endpoint='/embeddings', provider_name=req.provider, model=model, input=input))
-            print('embedding', embedding)
-        # also add the input to the returned embedding object
-        embedding['input'] = input
-        return embedding
-
-    return await generic_run_model(
-        input=req.input,
-        model_name=req.model,
-        load_func=load_func,
-        run_func=run_func,
-        cache_key=req.input if req.use_cache else None,
-    )
+    ret = await model.run(input=req.input, provider=req.provider)
+    return ret
 
 
 class ImageEmbeddingRequest(BaseModel):

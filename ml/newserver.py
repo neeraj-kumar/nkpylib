@@ -181,7 +181,56 @@ class VLMModel(ChatModel):
         return ret
 
 
-async def test():
+class ClipEmbeddingModel(Model):
+    """Model subclass for handling CLIP text embeddings."""
+    async def _load(self, **kw) -> Any:
+        from transformers import CLIPProcessor, CLIPModel
+        model = CLIPModel.from_pretrained(self.model_name)
+        processor = CLIPProcessor.from_pretrained(self.model_name)
+        return model, processor
+
+    async def _run(self, input: Any, **kw) -> dict:
+        model, processor = self.model
+        with torch.no_grad():
+            embedding = model.get_text_features(**processor(text=input, return_tensors="pt"))[0]
+        return dict(
+            object='list',
+            data=[dict(
+                object='embedding',
+                index=0,
+                embedding=embedding.tolist(),
+            )],
+            model=self.model_name,
+            n_dims=len(embedding),
+            input=input,
+        )
+
+class SentenceTransformerModel(Model):
+    """Model subclass for handling SentenceTransformer embeddings."""
+    async def _load(self, **kw) -> Any:
+        from sentence_transformers import SentenceTransformer
+        return SentenceTransformer(self.model_name)
+
+    async def _run(self, input: Any, **kw) -> dict:
+        embedding = self.model.encode([input], normalize_embeddings=True)[0]
+        return dict(
+            object='list',
+            data=[dict(
+                object='embedding',
+                index=0,
+                embedding=embedding.tolist(),
+            )],
+            model=self.model_name,
+            n_dims=len(embedding),
+            input=input,
+        )
+
+class ExternalEmbeddingModel(Model):
+    """Model subclass for handling external API embeddings."""
+    async def _run(self, input: Any, **kw) -> dict:
+        embedding = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
+        embedding['input'] = input
+        return embedding
     if 0:
         for i in range(2):
             m = ExternalChatModel('chat')
