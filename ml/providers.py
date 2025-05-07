@@ -24,7 +24,7 @@ def iter_providers():
 
 
 async def call_provider(provider_name, endpoint, headers_kw=None, **data):
-    """Call a provider's API at given `endpoint`.
+    """Call a provider's openai-compatible API at given `endpoint`.
 
     If `data` is provided, then we make a POST request, else GET.
     By default, we set a content type of application/json in the header and set the BEARER token
@@ -38,7 +38,10 @@ async def call_provider(provider_name, endpoint, headers_kw=None, **data):
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
     }
-    url = provider['base_url'] + endpoint
+    if endpoint.startswith('http'): # it's the full url, so don't add the base_url
+        url = endpoint
+    else:
+        url = provider['base_url'] + endpoint
     if headers_kw:
         headers.update(headers_kw)
     req_kw = dict(url=url, headers=headers, min_delay=0)
