@@ -494,24 +494,24 @@ def quick_test():
     from PIL import Image
     image = Image.open(image_path)
     test = ['speech']
-    if test == 'llm1':
+    if 'llm1' in test:
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
-    elif test == 'llm2':
+    elif 'llm2' in test:
         kwargs = dict(model='', session_id='a')
         kwargs['model'] = 'gpt-4o-mini'
         print(call_llm.single('describe light', **kwargs))
         print(call_llm.single('summarize that in one sentence', **kwargs))
         print(call_llm.single('summarize it in 3 sentences', **kwargs))
-    elif test == 'imgemb':
+    elif 'imgemb' in test:
         for url in [image_url, image_path, image]:
             ret = embed_image.single(url)
             print(f'Embedding for {url} with {len(ret)} dims: {ret[:10]}')
-    elif test == 'vlm1':
+    elif 'vlm1' in test:
         image_url = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
         prompt = 'Can you describe this image?'
         print(call_vlm.single((image_url, prompt)))
         #print(call_vlm.single((image_url, prompt), model="accounts/fireworks/models/llama-v3p2-90b-vision-instruct"))
-    elif test == 'vlm2':
+    elif 'vlm2' in test:
         prompt = 'For the following image, return the following in JSON format: title of document, general category of document, detailed category of document, date, and a list of key-value pairs of other data contained within it. Give no preamble or other text, just the JSON object'
         for model in [
             'vlm',
@@ -521,21 +521,21 @@ def quick_test():
             "accounts/fireworks/models/qwen2-vl-72b-instruct",
             ]:
             print(f'trying model {model}:', call_vlm.single((image, prompt), model=model))
-    elif test == 'emb':
+    elif 'emb' in test:
         s = 'hello'
         for model in 'e5 ada clip st'.split():
             ret = embed_text.single(s, model=model)
             print(f'Embedding for model {model} with {len(ret)} dims: {ret[:10]}')
-    elif test == 'strsim':
+    elif 'strsim' in test:
         for model in 'ada clip st'.split():
             inputs = [('dog', 'cat'), ('dog', 'rocket')]
             ret = strsim.batch(inputs, model=model)
             print(f'Similarity using {model} for {inputs}: {ret}')
-    elif test == 'text':
+    elif 'text' in test:
         for input in [image_path, 'client.py']:
             ret = get_text.single(input)
             print(f'Extracted text from {input} of len {len(ret)}: {ret[:100]}')
-    elif test == 'speech':
+    elif 'speech' in test:
         dir = '/home/neeraj/dp/podcasts/audio/Chapo Trap House/'
         fname = '2022-09-28 - 666 - Chapo Goes To Hell (9-27-22).mp3'
         fname = '327 Teaser - We Have a Real Shot.mp3'
