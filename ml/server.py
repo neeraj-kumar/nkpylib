@@ -246,65 +246,6 @@ class ChatRequest(BaseModel):
     use_cache: Optional[bool]=False
     provider: Optional[str]=''
 
-@app.post("/v1/chat")
-async def chat(req: ChatRequest):
-    """Generates chat response for the given prompts using the given model."""
-    cache_key = f"{req.max_tokens}:{str(req.prompts)}" if req.use_cache else None
-    assert req.model is not None, "Model must be specified for chat request"
-    if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
-    logger.debug('Chat request:', req, cache_key, req.model in LOCAL_MODELS)
-    if req.model in LOCAL_MODELS:
-        def load_func(model, **kw):
-            from llama_cpp import Llama
-            return Llama(
-              model_path=model,
-              n_ctx=8192,#32768,
-              n_threads=8,
-              n_gpu_layers=35,
-            )
-
-        def run_func(input, model, **kw):
-            return model(
-              input,
-              max_tokens=kw['max_tokens'],
-              echo=False,
-            )
-    else:
-        # run this using external api
-        def load_func(model, **kw):
-            return model
-
-        def run_func(input, model, **kw):
-            logger.debug(f'Running external model: {model} on input: {input} with kw {kw}')
-            if model.startswith('models/'):
-                model = model.split('/', 1)[-1]
-            prompts = input
-            if isinstance(prompts, str):
-                prompts = [('user', prompts)]
-            # check that `prompts` is now a sequence of Msg
-            assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
-            if not kw:
-                kw = {}
-            kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
-            ret = asyncio.run(call_external(endpoint='/chat/completions', provider_name=req.provider, model=model, **kw))
-            return ret
-
-
-    ret = await generic_run_model(
-        input=req.prompts,
-        model_name=f'models/{req.model}',
-        load_func=load_func,
-        run_func=run_func,
-        cache_key=cache_key,
-        max_tokens=req.max_tokens,
-    )
-    # the output is already in openai compatible format, just do some cleanup
-    ret['prompts'] = req.prompts
-    ret['model'] = ret.get('model', req.model).split('/', 1)[-1]
-    ret['max_tokens'] = req.max_tokens
-    logger.debug('Chat response:', ret)
-    return ret
 
 
 # setup fastapi VLM endpoint

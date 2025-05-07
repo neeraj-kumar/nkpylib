@@ -83,3 +83,52 @@ class Model(ABC):
 if __name__ == '__main__':
     m = Model('test')
 
+class LocalChatModel(Model):
+    """Model subclass for handling local chat models."""
+    
+    async def _load(self, **kw) -> Any:
+        from llama_cpp import Llama
+        return Llama(
+            model_path=self.model_name,
+            n_ctx=8192,
+            n_threads=8,
+            n_gpu_layers=35,
+        )
+
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        return f"{kw.get('max_tokens', 1024)}:{str(input)}"
+
+    async def _run(self, input: Any, **kw) -> dict:
+        model = self.model
+        result = model(
+            input,
+            max_tokens=kw.get('max_tokens', 1024),
+            echo=False,
+        )
+        return result
+
+
+class ExternalChatModel(Model):
+    """Model subclass for handling external chat models."""
+    
+    async def _load(self, **kw) -> Any:
+        return self.model_name
+
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        return f"{kw.get('max_tokens', 1024)}:{str(input)}"
+
+    async def _run(self, input: Any, **kw) -> dict:
+        logger.debug(f'Running external model: {self.model_name} on input: {input} with kw {kw}')
+        if self.model_name.startswith('models/'):
+            model = self.model_name.split('/', 1)[-1]
+        else:
+            model = self.model_name
+        prompts = input
+        if isinstance(prompts, str):
+            prompts = [('user', prompts)]
+        assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
+        if not kw:
+            kw = {}
+        kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+        ret = await call_external(endpoint='/chat/completions', provider_name=kw.get('provider', ''), model=model, **kw)
+        return ret
