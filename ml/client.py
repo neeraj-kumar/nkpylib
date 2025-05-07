@@ -36,11 +36,9 @@ The core functions and their inputs and other parameters are:
 - `strsim`: Computes the similarity between two strings (passed as a tuple)
   - `model`: The model to use. Default is 'clip', which maps to 'openai/clip-vit-large-patch14'
   - In `final` mode, returns the similarity score
-- `embed_image_url`: Embeds an image from a URL or local path using the specified model
+- `embed_image`: Embeds an image (local path, URL, or loaded PIL image) using the specified model
   - `model`: The model to use. Default is 'image', which maps to 'openai/clip-vit-large-patch14'
   - In `final` mode, returns the embedding directly
-- `embed_image`: Embeds an image (loaded PIL image) using the specified model
-  - Exactly the same as `embed_image_url`, but takes a PIL image as input
 - `get_text`: Extracts text from a file (pdf using pdftotext, image using ocr, or text)
   - In `final` mode, returns the extracted text
 
@@ -495,7 +493,7 @@ def quick_test():
     image_path = './simple-sales-invoice-modern-simple-1-1-f54b9a4c7ad8.webp'
     from PIL import Image
     image = Image.open(image_path)
-    test = 'imgemb'
+    test = ['speech']
     if test == 'llm1':
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     elif test == 'llm2':
@@ -528,9 +526,19 @@ def quick_test():
         for model in 'e5 ada clip st'.split():
             ret = embed_text.single(s, model=model)
             print(f'Embedding for model {model} with {len(ret)} dims: {ret[:10]}')
+    elif test == 'strsim':
+        for model in 'ada clip st'.split():
+            inputs = [('dog', 'cat'), ('dog', 'rocket')]
+            ret = strsim.batch(inputs, model=model)
+            print(f'Similarity using {model} for {inputs}: {ret}')
+    elif test == 'text':
+        for input in [image_path, 'client.py']:
+            ret = get_text.single(input)
+            print(f'Extracted text from {input} of len {len(ret)}: {ret[:100]}')
     elif test == 'speech':
         dir = '/home/neeraj/dp/podcasts/audio/Chapo Trap House/'
         fname = '2022-09-28 - 666 - Chapo Goes To Hell (9-27-22).mp3'
+        fname = '327 Teaser - We Have a Real Shot.mp3'
         print(f'testing speech transcription for {fname}')
         ret = transcribe_speech.single(join(dir, fname))
         print(json.dumps(ret, indent=2))
