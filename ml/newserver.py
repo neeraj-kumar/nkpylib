@@ -3,10 +3,8 @@ import time
 from typing import Any, Callable, Optional
 
 class Model:
-    def __init__(self, model_name: str, load_func: Callable[[str], Any], run_func: Callable[[Any, Any], dict]):
+    def __init__(self, model_name: str):
         self.model_name = model_name
-        self.load_func = load_func
-        self.run_func = run_func
         self.model = None
         self.cache = {}
         self.did_load = False
@@ -15,7 +13,7 @@ class Model:
         """Loads the model using the provided load function."""
         if self.model is None:
             t0 = time.time()
-            self.model = await asyncio.to_thread(self.load_func, self.model_name, **kw)
+            self.model = await asyncio.to_thread(self.load_model, self.model_name, **kw)
             t1 = time.time()
             self.did_load = True
             print(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
@@ -32,7 +30,7 @@ class Model:
             await self.load(**kw)
 
         t0 = time.time()
-        result = await asyncio.to_thread(self.run_func, input, self.model, **kw)
+        result = await asyncio.to_thread(self.run_model, input, self.model, **kw)
         t1 = time.time()
         print(f"Model {self.model_name} run in {t1-t0:.2f}s")
 
