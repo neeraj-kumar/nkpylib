@@ -17,11 +17,13 @@ import json
 import logging
 import os
 import re
+import tempfile
 import time
 import traceback
 
 from abc import ABC, abstractmethod
 from collections import Counter
+from contextlib import asynccontextmanager
 from os.path import dirname, splitext
 from typing import Any, Optional, Callable
 from urllib.parse import urlparse
@@ -110,6 +112,38 @@ def resolve_url(url: str, method='head', **kwargs) -> str:
     r.raise_for_status()
     return r.url
 
+@asynccontextmanager
+async def dl_temp_file(url_or_path):
+    """Makes the given `url_or_path` available as a temporary file in a context manager.
+
+    Use as:
+        with dl_temp_file(url_or_path) as path:
+            # do something with path
+
+    This will download the file at `url_or_path` to a temporary file (with proper extension), and
+    yield the path to that file. The file will be deleted when the context manager exits.
+
+    The url can be a data url, normal url, or a local file (in which case, this just yields the
+    path to that file).
+    """
+    if url_or_path.startswith('http') or url_or_path.startswith('data:'):
+        if url_or_path.startswith('data:'):
+            ext = url_or_path.split(';')[0].split('/')[-1]
+        else:
+            ext = url_or_path.split('.')[-1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}') as f:
+            temp_path = f.name
+        try:
+            resp = await make_request_async(url_or_path, method='get', stream=True)
+            resp.raise_for_status()
+            with open(temp_path, 'wb') as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            yield temp_path
+        finally:
+            os.remove(temp_path)
+    else: # local file
+        yield url_or_path
 
 class BaseSearcher(ABC):
     """Searcher base class.
