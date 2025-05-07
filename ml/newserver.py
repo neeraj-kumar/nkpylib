@@ -220,6 +220,19 @@ class ClipEmbeddingModel(TextEmbeddingModel):
         if self.mode == 'text':
             with torch.no_grad():
                 embedding = model.get_text_features(**processor(text=input, return_tensors="pt"))[0]
+        elif self.mode == 'image':
+            if isinstance(input, str):
+                if input.startswith('http'):
+                    from PIL import Image
+                    import requests
+                    input = Image.open(requests.get(input, stream=True).raw)
+                else:
+                    from PIL import Image
+                    input = Image.open(input)
+            with torch.no_grad():
+                embedding = model.get_image_features(**processor(images=input, return_tensors="pt"))[0]
+        else:
+            raise ValueError(f"Unsupported mode: {self.mode}")
         return self.postprocess(embedding)
 
 class SentenceTransformerModel(TextEmbeddingModel):
