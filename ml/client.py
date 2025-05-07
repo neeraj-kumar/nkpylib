@@ -489,8 +489,9 @@ async def test_all():
                 myprint('    Results', [f.result() for f in fs])
 
 def quick_test():
-    logging.basicConfig(level=logging.DEBUG)
-    test = 'llm1'
+    # setup logging to include filename, function name, and line number as well
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
+    test = 'vlm2'
     if test == 'llm1':
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     elif test == 'llm2':

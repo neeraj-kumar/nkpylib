@@ -275,8 +275,6 @@ class VLMRequest(BaseModel):
 @app.post("/v1/vlm")
 async def vlm(req: VLMRequest):
     """Generates VLM chat response for the given image and prompts using the given model."""
-    if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
     model = VLMModel(model_name=req.model, use_cache=req.use_cache)
     ret = await model.run(
         input=(req.image, req.prompts),
@@ -511,5 +509,5 @@ async def test_api():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
     test()
