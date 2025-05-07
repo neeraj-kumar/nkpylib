@@ -47,10 +47,12 @@ class Model(ABC):
 
     async def run(self, input: Any, **kw) -> dict:
         """Runs the model with given `input`"""
-        if self.use_cache:
-            cache_key = await self._get_cache_key(input, **kw)
-        if self.model is None:
-            await self.load(**kw)
+        cache_key = None
+        if self.use_cache or self.model is None:
+            cache_key, _ = await asyncio.gather(
+                self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
+                self.load(**kw) if self.model is None else asyncio.sleep(0)
+            )
 
         t0 = time.time()
         result = await asyncio.to_thread(self.run_model, input, self.model, **kw)
