@@ -154,7 +154,6 @@ class ExternalChatModel(ChatModel):
         return self.augment_output(input, ret, **kw)
 
 
-
 class VLMModel(ChatModel):
     """Model subclass for handling VLM models."""
     async def _get_cache_key(self, input: Any, **kw) -> str:
@@ -181,18 +180,20 @@ class VLMModel(ChatModel):
         self.augment_output(input, ret, **kw)
         return ret
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    async def test():
-        if 0:
-            for i in range(2):
-                m = ExternalChatModel('chat')
-                r = await m.run('what is the capital of france?')
-                print(json.dumps(r, indent=2))
+
+async def test():
+    if 0:
+        for i in range(2):
             m = ExternalChatModel('chat')
-            r = await m.run('what is the capital of india?')
+            r = await m.run('what is the capital of france?')
             print(json.dumps(r, indent=2))
-        m = VLMModel('vlm')
-        r = await m.run(('./radiohead.jpg', 'what is this?'))
+        m = ExternalChatModel('chat')
+        r = await m.run('what is the capital of india?')
         print(json.dumps(r, indent=2))
-    asyncio.run(test())
+    m = VLMModel('vlm')
+    r = await m.run(('./radiohead.jpg', 'what is this?'))
+    print(json.dumps(r, indent=2))
+
+
+logging.basicConfig(level=logging.INFO)
+asyncio.run(test())
