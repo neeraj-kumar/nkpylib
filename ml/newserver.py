@@ -55,7 +55,7 @@ class Model(ABC):
 
     def update_kw(self, input, **kw) -> dict:
         """Updates the `kw` input dict with default parameters, etc."""
-        ...
+        return kw
 
     @abstractmethod
     async def _get_cache_key(self, input: Any, **kw) -> str:
@@ -107,7 +107,7 @@ class ChatModel(Model):
     async def _get_cache_key(self, input: Any, **kw) -> str:
         return f"{kw['max_tokens']}:{str(input)}"
 
-    def augment_output(self, input, ret, **kw) -> dict:
+    def postprocess(self, input, ret, **kw) -> dict:
         """Augments the output with additional information."""
         ret['prompts'] = input
         ret['model'] = self.model_name.split('/', 1)[-1]
@@ -132,7 +132,7 @@ class LocalChatModel(ChatModel):
             max_tokens=kw['max_tokens'],
             echo=False,
         )
-        return self.augment_output(input, result, **kw)
+        return self.postprocess(input, result, **kw)
 
 
 class ExternalChatModel(ChatModel):
@@ -151,7 +151,7 @@ class ExternalChatModel(ChatModel):
             kw = {}
         kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
         ret = await call_external(endpoint='/chat/completions', provider_name=kw.pop('provider', ''), model=model, **kw)
-        return self.augment_output(input, ret, **kw)
+        return self.postprocess(input, ret, **kw)
 
 
 class VLMModel(ChatModel):
@@ -177,12 +177,37 @@ class VLMModel(ChatModel):
                                   {"type": "image_url", "image_url": {"url": image}}]
                 break
         ret = await call_external(endpoint='/chat/completions', provider_name=kw.get('provider', ''), model=self.model_name, **kw)
-        self.augment_output(input, ret, **kw)
+        self.postprocess(input, ret, **kw)
         return ret
 
+class TextEmbeddingModel(Model):
+    """Base class for text embeddings.
 
-class ClipEmbeddingModel(Model):
+    This includes a postprocess() function.
+    """
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        assert isinstance(input, str)
+        return input
+
+    def postprocess(self, embedding) -> dict:
+        return dict(
+            object='list',
+            data=[dict(
+                object='embedding',
+                index=0,
+                embedding=embedding.tolist(),
+            )],
+            model=self.model_name,
+            n_dims=len(embedding),
+        )
+
+
+class ClipEmbeddingModel(TextEmbeddingModel):
     """Model subclass for handling CLIP text embeddings."""
+    def __init__(self, mode='text', model_name: str=None, use_cache: bool=True, **kw):
+        super().__init__(model_name=model_name, use_cache=use_cache, **kw)
+        self.mode = mode
+
     async def _load(self, **kw) -> Any:
         from transformers import CLIPProcessor, CLIPModel
         model = CLIPModel.from_pretrained(self.model_name)
@@ -190,22 +215,14 @@ class ClipEmbeddingModel(Model):
         return model, processor
 
     async def _run(self, input: Any, **kw) -> dict:
+        import torch
         model, processor = self.model
-        with torch.no_grad():
-            embedding = model.get_text_features(**processor(text=input, return_tensors="pt"))[0]
-        return dict(
-            object='list',
-            data=[dict(
-                object='embedding',
-                index=0,
-                embedding=embedding.tolist(),
-            )],
-            model=self.model_name,
-            n_dims=len(embedding),
-            input=input,
-        )
+        if self.mode == 'text':
+            with torch.no_grad():
+                embedding = model.get_text_features(**processor(text=input, return_tensors="pt"))[0]
+        return self.postprocess(embedding)
 
-class SentenceTransformerModel(Model):
+class SentenceTransformerModel(TextEmbeddingModel):
     """Model subclass for handling SentenceTransformer embeddings."""
     async def _load(self, **kw) -> Any:
         from sentence_transformers import SentenceTransformer
@@ -213,24 +230,19 @@ class SentenceTransformerModel(Model):
 
     async def _run(self, input: Any, **kw) -> dict:
         embedding = self.model.encode([input], normalize_embeddings=True)[0]
-        return dict(
-            object='list',
-            data=[dict(
-                object='embedding',
-                index=0,
-                embedding=embedding.tolist(),
-            )],
-            model=self.model_name,
-            n_dims=len(embedding),
-            input=input,
-        )
+        return self.postprocess(embedding)
 
-class ExternalEmbeddingModel(Model):
+
+class ExternalEmbeddingModel(TextEmbeddingModel):
     """Model subclass for handling external API embeddings."""
     async def _run(self, input: Any, **kw) -> dict:
-        embedding = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
-        embedding['input'] = input
-        return embedding
+        ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
+        ret['input'] = input
+        print(f'got ret: {ret}')
+        return ret
+
+
+async def test():
     if 0:
         for i in range(2):
             m = ExternalChatModel('chat')
@@ -245,4 +257,4 @@ class ExternalEmbeddingModel(Model):
 
 
 logging.basicConfig(level=logging.INFO)
-asyncio.run(test())
+#asyncio.run(test())

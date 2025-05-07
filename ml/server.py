@@ -298,14 +298,12 @@ async def text_embeddings(req: TextEmbeddingRequest):
     assert req.model is not None, "Model must be specified for embeddings request"
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
-    logger.debug('checking embedding req against model name', req.model)
-    if req.model == DEFAULT_MODELS['clip']:
-        model = ClipEmbeddingModel(model_name=req.model, use_cache=req.use_cache)
-    elif req.model == DEFAULT_MODELS['sentence']:
-        model = SentenceTransformerModel(model_name=req.model, use_cache=req.use_cache)
-    else:
-        model = ExternalEmbeddingModel(model_name=req.model, use_cache=req.use_cache)
-
+    model_class_by_name = {
+        DEFAULT_MODELS['clip']: ClipEmbeddingModel,
+        DEFAULT_MODELS['sentence']: SentenceTransformerModel,
+    }
+    ModelClass = model_class_by_name.get(req.model, ExternalEmbeddingModel)
+    model = ModelClass(model_name=req.model, use_cache=req.use_cache)
     ret = await model.run(input=req.input, provider=req.provider)
     return ret
 

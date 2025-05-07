@@ -491,7 +491,7 @@ async def test_all():
 def quick_test():
     # setup logging to include filename, function name, and line number as well
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
-    test = 'vlm2'
+    test = 'emb'
     if test == 'llm1':
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     elif test == 'llm2':
@@ -520,7 +520,7 @@ def quick_test():
             print(f'trying model {model}:', call_vlm.single((image, prompt), model=model))
     elif test == 'emb':
         s = 'hello'
-        for model in 'clip st llama3 docimage'.split():
+        for model in 'clip st'.split():
             ret = embed_text.single(s, model=model)
             print(f'Embedding for model {model} with {len(ret)} dims: {ret[:10]}')
     elif test == 'speech':
