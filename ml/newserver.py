@@ -17,6 +17,7 @@ class Model(ABC):
         self.use_cache = use_cache
         self.model = None
         self.cache = ResultsCache.get(self.__class__, {})
+        self.timing = {}
 
     async def _load(self, **kw) -> Any:
         """Load implementation.
@@ -25,15 +26,23 @@ class Model(ABC):
         """
         return self.model_name
 
-    async def load(self, **kw) -> None:
-        """Loads our model if not already loaded"""
+    async def load(self, **kw) -> bool:
+        """Loads our model if not already loaded, returning if we actually loaded it"""
+        model_cache_key = (self.__class__, self.model_name)
         if self.model is None:
+            # first check if we have a cached version
+            if self.model_name in ModelCache:
+                self.model = ModelCache[model_cache_key]
+                logger.debug(f"Model {self.model_name} loaded from cache")
+                return False
             t0 = time.time()
             self.model = await self._load(**kw)
             t1 = time.time()
+            ModelCache[model_cache_key] = self.model
+            self.timing['load'] = t1 - t0
             logger.debug(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
-        else:
-            print(f"Model {self.model_name} already loaded")
+            return True
+        return False
 
     @abstractmethod
     async def _get_cache_key(self, input: Any, **kw) -> str:
@@ -49,45 +58,25 @@ class Model(ABC):
         """Runs the model with given `input`"""
         cache_key = None
         if self.use_cache or self.model is None:
-            cache_key, _ = await asyncio.gather(
+            cache_key, self.timing['did_load'] = await asyncio.gather(
                 self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
                 self.load(**kw) if self.model is None else asyncio.sleep(0)
             )
-
+            assert cache_key is not None
         t0 = time.time()
-        result = await asyncio.to_thread(self.run_model, input, self.model, **kw)
+        if cache_key in self.cache:
+            ret = self.cache[cache_key]
+            self.cache[cache_key] = ret
+            self.found_cache = True
+        else:
+            ret = await self._run(input, **kw)
+            self.found_cache = False
         t1 = time.time()
-        print(f"Model {self.model_name} run in {t1-t0:.2f}s")
+        self.timing['generate'] = t1 - t0
+        ret.timing = dict(self.timing)
+        logger.debug(f"Model {self.model_name} run in {t1-t0:.2f}s")
+        return ret
 
-        if cache_key:
-            self.cache[cache_key] = result
-
-        return result
-
-# Example subclasses for each function in server.py
-class ClipModel(Model):
-    def __init__(self):
-        super().__init__("clip", self.load_clip, self.run_clip)
-
-    def load_clip(self, model_name: str, **kw) -> Any:
-        # Implement the specific loading logic for the clip model
-        pass
-
-    def run_clip(self, input: Any, model: Any, **kw) -> dict:
-        # Implement the specific running logic for the clip model
-        pass
-
-class LlamaModel(Model):
-    def __init__(self):
-        super().__init__("llama", self.load_llama, self.run_llama)
-
-    def load_llama(self, model_name: str, **kw) -> Any:
-        # Implement the specific loading logic for the llama model
-        pass
-
-    def run_llama(self, input: Any, model: Any, **kw) -> dict:
-        # Implement the specific running logic for the llama model
-        pass
 
 if __name__ == '__main__':
     m = Model('test')
