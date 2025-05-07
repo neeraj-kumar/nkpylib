@@ -68,12 +68,12 @@ from nkpylib.ml.text import get_text
 from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
 from nkpylib.ml.newserver import (
-    TextExtractionModel,
     ClipEmbeddingModel,
     ExternalChatModel,
     ExternalEmbeddingModel,
     LocalChatModel,
     SentenceTransformerModel,
+    TextExtractionModel,
     VLMModel,
 )
 
