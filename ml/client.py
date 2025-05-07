@@ -490,7 +490,7 @@ async def test_all():
 
 def quick_test():
     logging.basicConfig(level=logging.DEBUG)
-    test = 'speech'
+    test = 'llm1'
     if test == 'llm1':
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     elif test == 'llm2':

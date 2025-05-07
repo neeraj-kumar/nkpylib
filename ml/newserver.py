@@ -1,28 +1,32 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 from nkpylib.utils import is_instance_of_type
-from nkpylib.ml.constants import Msg
 from nkpylib.ml.providers import call_external
+from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
 
 logger = logging.getLogger(__name__)
 
-ModelCache: dict = {}
-ResultsCache: dict = {}
+MODEL_CACHE: dict = {}
+RESULTS_CACHE: dict = {}
 
 class Model(ABC):
     """Base class for models, providing a common interface for loading and running models."""
-    def __init__(self, model_name: str, use_cache: bool=True, **kw):
+    def __init__(self, model_name: str=None, use_cache: bool=True, **kw):
+        if model_name in DEFAULT_MODELS:
+            model_name = DEFAULT_MODELS[model_name]
         self.model_name = model_name
         self.use_cache = use_cache
         self.model = None
-        self.cache = ResultsCache.get(self.__class__, {})
-        self.timing: dict[str, Any] = {}
+        self.cache = RESULTS_CACHE.setdefault(self.__class__, {})
+        self.timing: dict[str, Any] = dict(model=model_name)
+
 
     async def _load(self, **kw) -> Any:
         """Load implementation.
@@ -36,18 +40,22 @@ class Model(ABC):
         model_cache_key = (self.__class__, self.model_name)
         if self.model is None:
             # first check if we have a cached version
-            if self.model_name in ModelCache:
-                self.model = ModelCache[model_cache_key]
+            if model_cache_key in MODEL_CACHE:
+                self.model = MODEL_CACHE[model_cache_key]
                 logger.debug(f"Model {self.model_name} loaded from cache")
                 return False
             t0 = time.time()
             self.model = await self._load(**kw)
             t1 = time.time()
-            ModelCache[model_cache_key] = self.model
-            self.timing['load'] = t1 - t0
+            MODEL_CACHE[model_cache_key] = self.model
+            self.timing['load_time'] = t1 - t0
             logger.debug(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
             return True
         return False
+
+    def update_kw(self, input, **kw) -> dict:
+        """Updates the `kw` input dict with default parameters, etc."""
+        ...
 
     @abstractmethod
     async def _get_cache_key(self, input: Any, **kw) -> str:
@@ -62,6 +70,7 @@ class Model(ABC):
     async def run(self, input: Any, **kw) -> dict:
         """Runs the model with given `input`"""
         cache_key = None
+        kw = self.update_kw(input, **kw)
         if self.use_cache or self.model is None:
             cache_key, self.timing['did_load'] = await asyncio.gather(
                 self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
@@ -72,23 +81,42 @@ class Model(ABC):
         if cache_key in self.cache:
             ret = self.cache[cache_key]
             self.cache[cache_key] = ret
-            self.found_cache = True
+            self.timing['found_cache'] = True
         else:
             ret = await self._run(input, **kw)
-            self.found_cache = False
+            self.cache[cache_key] = ret
+            self.timing['found_cache'] = False
         t1 = time.time()
         self.timing['generate'] = t1 - t0
-        ret.timing = dict(self.timing)
+        ret['timing'] = dict(self.timing)
         logger.debug(f"Model {self.model_name} run in {t1-t0:.2f}s")
         return ret
 
+class ChatModel(Model):
+    """Base class for chat models.
 
-if __name__ == '__main__':
-    m = Model('test')
+    This currently just sets a default value for `max_tokens`, and defines the cache key as
+    the `max_tokens` and the input string(s).
+    """
+    def update_kw(self, input: Any, **kw) -> dict:
+        """Updates the `kw` input dict with default parameters, etc."""
+        if 'max_tokens' not in kw:
+            kw['max_tokens'] = 1024
+        return kw
 
-class LocalChatModel(Model):
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        return f"{kw['max_tokens']}:{str(input)}"
+
+    def augment_output(self, input, ret, **kw) -> dict:
+        """Augments the output with additional information."""
+        ret['prompts'] = input
+        ret['model'] = self.model_name.split('/', 1)[-1]
+        ret['max_tokens'] = kw['max_tokens']
+        return ret
+
+
+class LocalChatModel(ChatModel):
     """Model subclass for handling local chat models."""
-    
     async def _load(self, **kw) -> Any:
         from llama_cpp import Llama
         return Llama(
@@ -98,28 +126,17 @@ class LocalChatModel(Model):
             n_gpu_layers=35,
         )
 
-    async def _get_cache_key(self, input: Any, **kw) -> str:
-        return f"{kw.get('max_tokens', 1024)}:{str(input)}"
-
     async def _run(self, input: Any, **kw) -> dict:
-        model = self.model
-        result = model(
+        result = self.model(
             input,
-            max_tokens=kw.get('max_tokens', 1024),
+            max_tokens=kw['max_tokens'],
             echo=False,
         )
-        return result
+        return self.augment_output(input, result, **kw)
 
 
-class ExternalChatModel(Model):
+class ExternalChatModel(ChatModel):
     """Model subclass for handling external chat models."""
-    
-    async def _load(self, **kw) -> Any:
-        return self.model_name
-
-    async def _get_cache_key(self, input: Any, **kw) -> str:
-        return f"{kw.get('max_tokens', 1024)}:{str(input)}"
-
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running external model: {self.model_name} on input: {input} with kw {kw}')
         if self.model_name.startswith('models/'):
@@ -134,4 +151,17 @@ class ExternalChatModel(Model):
             kw = {}
         kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
         ret = await call_external(endpoint='/chat/completions', provider_name=kw.get('provider', ''), model=model, **kw)
-        return ret
+        return self.augment_output(input, ret, **kw)
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    async def test():
+        for i in range(2):
+            m = ExternalChatModel('chat')
+            r = await m.run('what is the capital of france?')
+            print(json.dumps(r, indent=2))
+        m2 = ExternalChatModel('chat')
+        r2 = await m2.run('what is the capital of india?')
+        print(json.dumps(r2, indent=2))
+    asyncio.run(test())

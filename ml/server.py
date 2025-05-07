@@ -67,14 +67,13 @@ from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
 from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
+from nkpylib.ml.newserver import ExternalChatModel, LocalChatModel
 
 logger = logging.getLogger(__name__)
 
 app = fastapi.FastAPI()
 app.state.models = {}
 app.state.cache = {}
-
-device = 'cpu'
 
 # load func takes model name and **kw, and returns the loaded model
 LoadFuncT = Callable[[Any], Any]
@@ -246,7 +245,22 @@ class ChatRequest(BaseModel):
     use_cache: Optional[bool]=False
     provider: Optional[str]=''
 
-
+@app.post("/v1/chat")
+async def chat(req: ChatRequest):
+    """Generates chat response for the given prompts using the given model."""
+    if req.model in DEFAULT_MODELS:
+        req.model = DEFAULT_MODELS[req.model]
+    if req.model in LOCAL_MODELS:
+        model = LocalChatModel(model_name=req.model, device='cpu', use_cache=req.use_cache)
+    else:
+        model = ExternalChatModel(model_name=req.model, use_cache=req.use_cache)
+    ret = await model.run(
+        input=req.prompts,
+        max_tokens=req.max_tokens,
+        provider=req.provider,
+        **req.kwargs
+    )
+    return ret
 
 # setup fastapi VLM endpoint
 class VLMRequest(BaseModel):
