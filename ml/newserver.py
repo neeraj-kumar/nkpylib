@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
@@ -7,8 +9,8 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-ModelCache = {}
-ResultsCache = {}
+ModelCache: dict = {}
+ResultsCache: dict = {}
 
 class Model(ABC):
     """Base class for models, providing a common interface for loading and running models."""
@@ -17,7 +19,7 @@ class Model(ABC):
         self.use_cache = use_cache
         self.model = None
         self.cache = ResultsCache.get(self.__class__, {})
-        self.timing = {}
+        self.timing: dict[str, Any] = {}
 
     async def _load(self, **kw) -> Any:
         """Load implementation.
