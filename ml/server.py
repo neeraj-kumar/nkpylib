@@ -65,6 +65,7 @@ import requests
 
 from PIL import Image
 from pydantic import BaseModel
+from tqdm import tqdm
 
 from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
 from nkpylib.ml.providers import call_external, call_provider
@@ -409,26 +410,51 @@ class TextExtractionModel(Model):
         ret = await asyncio.to_thread(get_text, input, **kw)
         return dict(url=input, text=ret)
 
-
 class TranscriptionModel(Model):
-    """Model subclass for handling speech transcription."""
+    """Base class for transcription models.
+
+    This checks that the input is a valid path, and uses the hash of the path as the cache key"""
     async def _get_cache_key(self, input: Any, **kw) -> str:
         with open(input, 'rb') as f:
             sha = sha256(f.read()).hexdigest()
         return f"{sha}:{kw.get('language', 'en')}:{kw.get('chunk_level', 'segment')}"
 
+
+class LocalTranscriptionModel(TranscriptionModel):
+    """A local transcription model using faster-whisper."""
+    async def load(self, n_threads=12, **kw) -> dict[str, any]:
+        from faster_whisper import WhisperModel
+        model_name = 'large-v3'
+        logger.debug(f'Loading model {model_name} with {n_threads} threads')
+        self.model = WhisperModel(model_name, device="cpu", compute_type='int8', cpu_threads=n_threads)
+
+    async def _run(self, input: Any, language='en', beam_size=5, **kw) -> dict:
+        assert isinstance(input, str)
+        segments, info = self.model.transcribe(input, beam_size=beam_size, language=language)
+        ret = dict(**info._asdict())
+        ret['transcription_options'] = info.transcription_options._asdict()
+        ret['segments'] = []
+        # info and segments are both named tuples, and segments contain 'words' which is a list of named tuples
+        for segment in tqdm(segments):
+            seg = segment._asdict()
+            if seg['words'] is not None:
+                seg['words'] = [word._asdict() for word in seg['words']]
+            ret['segments'].append(seg)
+        ret['text'] = ''.join([seg['text'] for seg in ret['segments']])
+        return ret
+
+
+class ExternalTranscriptionModel(TranscriptionModel):
+    """Model subclass for handling speech transcription."""
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running transcription model: {self.model_name} with {input}, {kw}')
-        # input is a path
         ret = await call_provider(
             provider_name='deepinfra',
             endpoint=f'https://api.deepinfra.com/v1/inference/{self.model_name}',
             files=dict(audio=open(input, 'rb')),
-            #headers_kw=headers_kw,
             **kw
         )
         return ret
-
 
 
 # setup fastapi chat endpoint
@@ -581,7 +607,8 @@ class TranscriptionRequest(BaseModel):
 @app.post("/v1/transcription")
 async def speech_transcription(req: TranscriptionRequest):
     """Generates a transcription object for the given audio (path, url, or bytes)."""
-    model = TranscriptionModel(model_name=req.model, use_cache=req.use_cache)
+    ModelClass = LocalTranscriptionModel if req.model == 'local-transcription' else ExternalTranscriptionModel
+    model = ModelClass(model_name=req.model, use_cache=req.use_cache)
     async with dl_temp_file(req.url) as path:
         kw = req.kwargs or {}
         kw.update(

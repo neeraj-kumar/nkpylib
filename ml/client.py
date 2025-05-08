@@ -553,6 +553,9 @@ def quick_test():
         transcribe_speech.mode = 'raw'
         ret = transcribe_speech.single(join(dir, fname))
         print(json.dumps(ret, indent=2))
+        if 0: # test local transcription too
+            ret = transcribe_speech.single(join(dir, fname), model='local-transcription')
+            print(json.dumps(ret, indent=2))
 
 
 if __name__ == '__main__':
