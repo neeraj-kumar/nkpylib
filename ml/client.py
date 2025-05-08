@@ -59,6 +59,7 @@ default, but can be disabled by passing `use_cache=False` to any of the function
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import sys
@@ -413,6 +414,10 @@ def transcribe_speech(audio: str|bytes,
                       use_cache=True,
                       **kw) -> ResponseT:
     """Runs speech transcription with given `audio` (local path, url, or bytes)."""
+    if isinstance(audio, bytes):
+        # convert bytes to base64
+        audio = base64.b64encode(audio).decode()
+        print(f'Beginning of b64 audio: {audio[:20]}')
     return single_call("transcription",
                        url=audio,
                        model=model,
@@ -440,16 +445,18 @@ async def test_all():
     s = "Once upon a time, "
     s2 = "The city of New York has "
     from PIL import Image
-    img = Image.open("512px-Ichthyotitan_Size_Comparison.svg.png")
+    img_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Ichthyotitan_Size_Comparison.svg/512px-Ichthyotitan_Size_Comparison.svg.png"
+    img_path = "512px-Ichthyotitan_Size_Comparison.svg.png"
+    pdf_url = 'https://www.adobe.com/support/products/enterprise/knowledgecenter/media/c4611_sample_explain.pdf'
+    img = Image.open(img_path)
     inputs_by_func = {
         call_llm: ([s, s2], dict(model='llama3')),
         embed_text: ([s, s2], dict(model='clip')),
         strsim: ([("dog", "cat"), ("dog", "philosophy")], dict(model='sentence')),
-        embed_image_url: (["https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Ichthyotitan_Size_Comparison.svg/512px-Ichthyotitan_Size_Comparison.svg.png", "512px-Ichthyotitan_Size_Comparison.svg.png"], None),
-        embed_image: ([img, img], None),
-        get_text: (['512px-Ichthyotitan_Size_Comparison.svg.png', 'https://www.adobe.com/support/products/enterprise/knowledgecenter/media/c4611_sample_explain.pdf'], None),
+        embed_image: ([img, img, img_url, img_path], None),
+        get_text: ([image_path, pdf_url], None),
     }
-    #for func in [call_llm, embed_text, strsim, embed_image_url, embed_image]:
+    #for func in [call_llm, embed_text, strsim, embed_image]:
     for func in [get_text]:
         inputs, kwargs = inputs_by_func[func]
         myprint(f'\nTesting function {func.__name__} with inputs {inputs}, kwargs {kwargs}')
@@ -493,49 +500,49 @@ def quick_test():
     image_path = './simple-sales-invoice-modern-simple-1-1-f54b9a4c7ad8.webp'
     from PIL import Image
     image = Image.open(image_path)
-    test = ['speech']
+    test = ['llm1', 'llm2', 'imgemb', 'vlm1', 'vlm2', 'emb', 'strsim', 'text', 'speech']
     if 'llm1' in test:
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
-    elif 'llm2' in test:
+    if 'llm2' in test:
         kwargs = dict(model='', session_id='a')
         kwargs['model'] = 'gpt-4o-mini'
         print(call_llm.single('describe light', **kwargs))
         print(call_llm.single('summarize that in one sentence', **kwargs))
         print(call_llm.single('summarize it in 3 sentences', **kwargs))
-    elif 'imgemb' in test:
+    if 'imgemb' in test:
         for url in [image_url, image_path, image]:
             ret = embed_image.single(url)
             print(f'Embedding for {url} with {len(ret)} dims: {ret[:10]}')
-    elif 'vlm1' in test:
+    if 'vlm1' in test:
         image_url = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
         prompt = 'Can you describe this image?'
         print(call_vlm.single((image_url, prompt)))
         #print(call_vlm.single((image_url, prompt), model="accounts/fireworks/models/llama-v3p2-90b-vision-instruct"))
-    elif 'vlm2' in test:
+    if 'vlm2' in test:
         prompt = 'For the following image, return the following in JSON format: title of document, general category of document, detailed category of document, date, and a list of key-value pairs of other data contained within it. Give no preamble or other text, just the JSON object'
         for model in [
             'vlm',
-            "meta-llama/Llama-Vision-Free",
-            "accounts/fireworks/models/llama-v3p2-90b-vision-instruct",
-            "accounts/fireworks/models/phi-3-vision-128k-instruct",
-            "accounts/fireworks/models/qwen2-vl-72b-instruct",
+            #"meta-llama/Llama-Vision-Free",
+            #"accounts/fireworks/models/llama-v3p2-90b-vision-instruct",
+            #"accounts/fireworks/models/phi-3-vision-128k-instruct",
+            #"accounts/fireworks/models/qwen2-vl-72b-instruct",
             ]:
             print(f'trying model {model}:', call_vlm.single((image, prompt), model=model))
-    elif 'emb' in test:
+    if 'emb' in test:
         s = 'hello'
         for model in 'e5 ada clip st'.split():
             ret = embed_text.single(s, model=model)
             print(f'Embedding for model {model} with {len(ret)} dims: {ret[:10]}')
-    elif 'strsim' in test:
+    if 'strsim' in test:
         for model in 'ada clip st'.split():
             inputs = [('dog', 'cat'), ('dog', 'rocket')]
             ret = strsim.batch(inputs, model=model)
             print(f'Similarity using {model} for {inputs}: {ret}')
-    elif 'text' in test:
+    if 'text' in test:
         for input in [image_path, 'client.py']:
             ret = get_text.single(input)
             print(f'Extracted text from {input} of len {len(ret)}: {ret[:100]}')
-    elif 'speech' in test:
+    if 'speech' in test:
         dir = '/home/neeraj/dp/podcasts/audio/Chapo Trap House/'
         fname = '2022-09-28 - 666 - Chapo Goes To Hell (9-27-22).mp3'
         fname = '327 Teaser - We Have a Real Shot.mp3'

@@ -41,16 +41,20 @@ Current ML types and models:
   - `clip`: The OpenAI CLIP model, which can embed both text and images (in the same space).
 """
 
+from __future__ import annotations
+
 #TODO have some kind of context manager for deciding where to run llm functions from? (local, replicate, openai)
 #TODO some way to turn an LLM query into an embeddings + code query (e.g. recipe pdf name correction)
 
 import asyncio
 import functools
+import json
 import logging
 import tempfile
 import time
 import uuid
 
+from abc import ABC, abstractmethod
 from hashlib import sha256
 from typing import Any, Callable, Literal, Optional, Union
 from urllib.request import urlretrieve
@@ -67,21 +71,13 @@ from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
 from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
-from nkpylib.ml.newserver import (
-    ClipEmbeddingModel,
-    ExternalChatModel,
-    ExternalEmbeddingModel,
-    LocalChatModel,
-    SentenceTransformerModel,
-    TextExtractionModel,
-    VLMModel,
-)
 
 logger = logging.getLogger(__name__)
 
 app = fastapi.FastAPI()
-app.state.models = {}
-app.state.cache = {}
+
+MODEL_CACHE: dict = {}
+RESULTS_CACHE: dict = {}
 
 # load func takes model name and **kw, and returns the loaded model
 LoadFuncT = Callable[[Any], Any]
@@ -175,72 +171,264 @@ def test(prompt = "Summarize the plot of the movie Fight Club."):
     func(prompt, methods)
 
 
-async def load_model(model_name: str, load_func: LoadFuncT, **kw) -> tuple[object, dict, bool]:
-    """Loads given `model_name` using the given `load_func`.
+class Model(ABC):
+    """Base class for models, providing a common interface for loading and running models."""
+    def __init__(self, model_name: str=None, use_cache: bool=True, **kw):
+        if model_name in DEFAULT_MODELS:
+            model_name = DEFAULT_MODELS[model_name]
+        self.model_name = model_name
+        self.use_cache = use_cache
+        self.model = None
+        self.cache = RESULTS_CACHE.setdefault(self.__class__, {})
+        self.timing: dict[str, Any] = dict(model=model_name)
 
-    Returns `(model, model-specific-cache, did_load)`, where:
-    - `model` is the loaded model
-    - `model-specific-cache` is a cache for the model (a dict)
-    - `did_load` is a boolean indicating whether the model was loaded or not
 
-    This caches the model in `app.state.models` and creates a cache for the model in
-    `app.state.cache[model_name]` if it doesn't exist.
-    """
-    if model_name not in app.state.models:
+    async def _load(self, **kw) -> Any:
+        """Load implementation.
+
+        This version just returns the model name as the model itself (useful for external APIs).
+        """
+        return self.model_name
+
+    async def load(self, **kw) -> bool:
+        """Loads our model if not already loaded, returning if we actually loaded it"""
+        model_cache_key = (self.__class__, self.model_name)
+        if self.model is None:
+            # first check if we have a cached version
+            if model_cache_key in MODEL_CACHE:
+                self.model = MODEL_CACHE[model_cache_key]
+                logger.debug(f"Model {self.model_name} loaded from cache")
+                return False
+            t0 = time.time()
+            self.model = await self._load(**kw)
+            t1 = time.time()
+            MODEL_CACHE[model_cache_key] = self.model
+            self.timing['load_time'] = t1 - t0
+            logger.debug(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
+            return True
+        return False
+
+    def update_kw(self, input, **kw) -> dict:
+        """Updates the `kw` input dict with default parameters, etc."""
+        return kw
+
+    @abstractmethod
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        """Returns the cache key for a given input and kw. Override this in your subclass"""
+        ...
+
+    @abstractmethod
+    async def _run(self, input: Any, **kw) -> dict:
+        """Run implementation. Override this in your subclass"""
+        ...
+
+    async def run(self, input: Any, **kw) -> dict:
+        """Runs the model with given `input`"""
+        cache_key = None
+        kw = self.update_kw(input, **kw)
+        if self.use_cache or self.model is None:
+            cache_key, self.timing['did_load'] = await asyncio.gather(
+                self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
+                self.load(**kw) if self.model is None else asyncio.sleep(0)
+            )
+            assert cache_key is not None
         t0 = time.time()
-        model = await asyncio.to_thread(load_func, model_name, **kw)
+        if cache_key in self.cache:
+            ret = self.cache[cache_key]
+            self.cache[cache_key] = ret
+            self.timing['found_cache'] = True
+        else:
+            ret = await self._run(input, **kw)
+            self.cache[cache_key] = ret
+            self.timing['found_cache'] = False
         t1 = time.time()
-        app.state.models[model_name] = model
-        app.state.cache[model_name] = {}
-        app.state.load_time = t1-t0
-        did_load = True
-    else:
-        model = app.state.models[model_name]
-        did_load = False
-    return model, app.state.cache[model_name], did_load
+        self.timing['generate'] = t1 - t0
+        ret['timing'] = dict(self.timing)
+        logger.debug(f"Model {self.model_name} run in {t1-t0:.2f}s")
+        return ret
 
-async def generic_run_model(
-        input: Any,
-        model_name: str,
-        load_func: LoadFuncT,
-        run_func: RunFuncT,
-        cache_key: Optional[str]=None,
-        **kw) -> dict:
-    """Generic code for loading and running a model, including caching behavior.
+class ChatModel(Model):
+    """Base class for chat models.
 
-    This is a helper function that loads the model into a global cache using `load_func`, and then
-    runs the model using `run_func`. It also caches the output of `run_func` if `cache_key` is
-    specified.
-
-    The `load_func` calls `load_model(model_name, load_func)` and returns `(model, cache, did_load)`.
-    The 2nd returned arg is the model's own cache dict for caching its outputs, and the 3rd is a bool
-    indicating whether the model was actually loaded or not (i.e., it was already loaded).
-
-    The model is run using `run_func(input, model, **kw)`.
-
-    We return a dict with the output returned from the `run_func`, as well as a key `timing` with
-    various timing information.
+    This currently just sets a default value for `max_tokens`, and defines the cache key as
+    the `max_tokens` and the input string(s).
     """
-    t0 = time.time()
-    model, cache, did_load = await load_model(model_name, load_func)
-    #logger.debug(f'Loaded model {model_name} with cache keys {cache.keys()}, checking cache_key {cache_key}')
-    t1 = time.time()
-    found_cache = False
-    if cache_key in cache:
-        ret = cache[cache_key]
-        found_cache = True
-    else:
-        ret = await asyncio.to_thread(run_func, input, model, **kw)
-        if cache_key is not None:
-            cache[cache_key] = ret
-    t2 = time.time()
-    ret['timing'] = dict(
-        load_time=t1-t0 if did_load else 0,
-        generate=t2-t1,
-        did_load=did_load,
-        found_cache=found_cache,
-    )
-    return ret
+    def update_kw(self, input: Any, **kw) -> dict:
+        """Updates the `kw` input dict with default parameters, etc."""
+        if 'max_tokens' not in kw:
+            kw['max_tokens'] = 1024
+        return kw
+
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        return f"{kw['max_tokens']}:{str(input)}"
+
+    def postprocess(self, input, ret, **kw) -> dict:
+        """Augments the output with additional information."""
+        ret['prompts'] = input
+        ret['model'] = self.model_name.split('/', 1)[-1]
+        ret['max_tokens'] = kw['max_tokens']
+        return ret
+
+
+class LocalChatModel(ChatModel):
+    """Model subclass for handling local chat models."""
+    async def _load(self, **kw) -> Any:
+        from llama_cpp import Llama
+        return Llama(
+            model_path=self.model_name,
+            n_ctx=8192,
+            n_threads=8,
+            n_gpu_layers=35,
+        )
+
+    async def _run(self, input: Any, **kw) -> dict:
+        result = self.model(
+            input,
+            max_tokens=kw['max_tokens'],
+            echo=False,
+        )
+        return self.postprocess(input, result, **kw)
+
+
+class ExternalChatModel(ChatModel):
+    """Model subclass for handling external chat models."""
+    async def _run(self, input: Any, **kw) -> dict:
+        logger.debug(f'Running external model: {self.model_name} on input: {input} with kw {kw}')
+        if self.model_name.startswith('models/'):
+            model = self.model_name.split('/', 1)[-1]
+        else:
+            model = self.model_name
+        prompts = input
+        if isinstance(prompts, str):
+            prompts = [('user', prompts)]
+        assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
+        if not kw:
+            kw = {}
+        kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+        ret = await call_external(endpoint='/chat/completions', provider_name=kw.pop('provider', ''), model=model, **kw)
+        return self.postprocess(input, ret, **kw)
+
+
+class VLMModel(ChatModel):
+    """Model subclass for handling VLM models."""
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        image, prompts = input
+        return f"{kw['max_tokens']}:{image}:{str(prompts)}"
+
+    async def _run(self, input: Any, **kw) -> dict:
+        logger.debug(f'Running VLM model: {self.model_name} on input: {input} with kw {kw}')
+        image, prompts = input
+        if isinstance(prompts, str):
+            prompts = [('user', prompts)]
+        assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
+        kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+        if not image.startswith('http') and not image.startswith('data:'):
+            with open(image, 'rb') as f:
+                image = data_url_from_file(f)
+        for msg in kw['messages']:
+            if msg['role'] == 'user':
+                cur_text = msg['content']
+                msg['content'] = [{"type": "text", "text": cur_text},
+                                  {"type": "image_url", "image_url": {"url": image}}]
+                break
+        ret = await call_external(endpoint='/chat/completions', provider_name=kw.get('provider', ''), model=self.model_name, **kw)
+        self.postprocess(input, ret, **kw)
+        return ret
+
+class EmbeddingModel(Model):
+    """Base class for text embeddings.
+
+    This includes a postprocess() function.
+    """
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        assert isinstance(input, str)
+        return input
+
+    def postprocess(self, embedding) -> dict:
+        return dict(
+            object='list',
+            data=[dict(
+                object='embedding',
+                index=0,
+                embedding=embedding.tolist(),
+            )],
+            model=self.model_name,
+            n_dims=len(embedding),
+        )
+
+
+class ClipEmbeddingModel(EmbeddingModel):
+    """Model subclass for handling CLIP text/image embeddings."""
+    def __init__(self, mode='text', model_name: str=None, use_cache: bool=True, **kw):
+        super().__init__(model_name=model_name, use_cache=use_cache, **kw)
+        assert mode in ('text', 'image')
+        assert self.model_name == DEFAULT_MODELS['clip']
+        self.mode = mode
+
+    async def _load(self, **kw) -> Any:
+        get_text_features, get_image_features = load_clip()
+        if self.mode == 'text':
+            return get_text_features
+        elif self.mode == 'image':
+            return get_image_features
+        raise NotImplementedError(f"Unsupported mode: {self.mode}")
+
+    async def _run(self, input: Any, **kw) -> dict:
+        ret = await asyncio.to_thread(self.model, input) # clip doesn't use any kw
+        ret = ret.numpy()
+        return self.postprocess(ret)
+
+
+class SentenceTransformerModel(EmbeddingModel):
+    """Model subclass for handling SentenceTransformer embeddings."""
+    async def _load(self, **kw) -> Any:
+        from sentence_transformers import SentenceTransformer
+        return SentenceTransformer(self.model_name)
+
+    async def _run(self, input: Any, **kw) -> dict:
+        embedding = self.model.encode([input], normalize_embeddings=True)[0]
+        return self.postprocess(embedding)
+
+
+class ExternalEmbeddingModel(EmbeddingModel):
+    """Model subclass for handling external API text embeddings."""
+    async def _run(self, input: Any, **kw) -> dict:
+        ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
+        ret['input'] = input
+        return ret
+
+
+class TextExtractionModel(Model):
+    """Model subclass for extracting text from URLs or file paths."""
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        assert isinstance(input, str)
+        return input
+
+    async def _run(self, input: Any, **kw) -> dict:
+        from nkpylib.ml.text import get_text
+        ret = await asyncio.to_thread(get_text, input, **kw)
+        return dict(url=input, text=ret)
+
+
+class TranscriptionModel(Model):
+    """Model subclass for handling speech transcription."""
+    async def _get_cache_key(self, input: Any, **kw) -> str:
+        with open(input, 'rb') as f:
+            sha = sha256(f.read()).hexdigest()
+        return f"{sha}:{kw.get('language', 'en')}:{kw.get('chunk_level', 'segment')}"
+
+    async def _run(self, input: Any, **kw) -> dict:
+        logger.debug(f'Running transcription model: {self.model_name} with {input}, {kw}')
+        # input is a path
+        ret = await call_provider(
+            provider_name='deepinfra',
+            endpoint=f'https://api.deepinfra.com/v1/inference/{self.model_name}',
+            files=dict(audio=open(input, 'rb')),
+            #headers_kw=headers_kw,
+            **kw
+        )
+        return ret
+
 
 
 # setup fastapi chat endpoint
@@ -382,8 +570,8 @@ async def get_text_api(req: GetTextRequest, cache={}):
 
 
 class TranscriptionRequest(BaseModel):
-    url: str|bytes # path/url to file or audio bytes
-    model: Optional[str]='transcription' # this will get mapped bsaed on DEFAULT_MODELS['Transcription']
+    url: str # path/url to file or base64 encoded audio bytes
+    model: Optional[str]='transcription' # this will get mapped based on DEFAULT_MODELS['Transcription']
     language: Optional[str]='en'
     chunk_level: Optional[str]='segment'
     kwargs: Optional[dict]={}
@@ -393,24 +581,15 @@ class TranscriptionRequest(BaseModel):
 @app.post("/v1/transcription")
 async def speech_transcription(req: TranscriptionRequest):
     """Generates a transcription object for the given audio (path, url, or bytes)."""
-    assert req.model is not None, "Model must be specified for speech transcription request"
-    if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
     model = TranscriptionModel(model_name=req.model, use_cache=req.use_cache)
-    if isinstance(req.url, str):  # it's a url/path; download it
-        async with dl_temp_file(req.url) as path:
-            with open(path, 'rb') as f:
-                audio = f.read()
-    else:
-        audio = req.url  # assume it's already bytes
-
-    kw = req.kwargs or {}
-    kw.update(
-        language=req.language,
-        chunk_level=req.chunk_level,
-        provider=req.provider,
-    )
-    ret = await model.run(input=audio, **kw)
+    async with dl_temp_file(req.url) as path:
+        kw = req.kwargs or {}
+        kw.update(
+            language=req.language,
+            chunk_level=req.chunk_level,
+            provider=req.provider,
+        )
+        ret = await model.run(input=path, **kw)
     return ret
 
 

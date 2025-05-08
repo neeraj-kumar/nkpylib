@@ -23,30 +23,40 @@ def iter_providers():
         yield name, provider
 
 
-async def call_provider(provider_name, endpoint, headers_kw=None, **data):
+async def call_provider(provider_name, endpoint, headers_kw=None, files=None, **data):
     """Call a provider's openai-compatible API at given `endpoint`.
 
     If `data` is provided, then we make a POST request, else GET.
     By default, we set a content type of application/json in the header and set the BEARER token
     appropriate for the provider. If you provide your own `headers_kw`, we add to those, unless they
     have one of these keys, in which case we use the provided value.
+
+    You can optionally provide `files` to upload files to the provider. In that case, we don't
+    explicitly set a content-type.
     """
     provider = {name: provider for name, provider in iter_providers()}[provider_name]
     logger.debug(f'Calling {provider_name} at {endpoint}')
     token = os.environ.get(provider['api_key_var'])
     headers = {
-        "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
     }
+    if not files:
+        headers["Content-Type"] = "application/json"
     if endpoint.startswith('http'): # it's the full url, so don't add the base_url
         url = endpoint
     else:
         url = provider['base_url'] + endpoint
     if headers_kw:
         headers.update(headers_kw)
+    headers = {k: v for k, v in headers.items() if v}
     req_kw = dict(url=url, headers=headers, min_delay=0)
     if data:
-        ret = await make_request_async(method='post', json=data, **req_kw)
+        if files:
+            ret = await make_request_async(method='post', files=files, **req_kw)
+        elif 'json' in headers.get('Content-Type', ''):
+            ret = await make_request_async(method='post', json=data, **req_kw)
+        else:
+            ret = await make_request_async(method='post', data=data, **req_kw)
     else:
         ret = await make_request_async(method='get', **req_kw)
     return ret.json()

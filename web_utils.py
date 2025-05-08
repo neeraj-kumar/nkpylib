@@ -51,6 +51,7 @@ async def make_request_async(url: str,
                              min_delay=1,
                              request_times=REQUEST_TIMES,
                              headers=None,
+                             files=None,
                              **kwargs) -> requests.Response:
     """Makes an (async) request to the given `url` with `method` with the given kwargs.
 
@@ -72,7 +73,7 @@ async def make_request_async(url: str,
     _headers = {'User-Agent': USER_AGENT}
     if headers is not None:
         _headers.update(headers)
-    resp = await asyncio.to_thread(requests.request, method, url, headers=_headers, **kwargs)
+    resp = await asyncio.to_thread(requests.request, method, url, headers=_headers, files=files, **kwargs)
     return resp
 
 def make_request(url: str,
@@ -80,6 +81,7 @@ def make_request(url: str,
                  min_delay=1,
                  request_times=REQUEST_TIMES,
                  headers=None,
+                 files=None,
                  **kwargs) -> requests.Response:
     """Makes a (synchronous) request to the given `url` with `method` with the given kwargs.
 
@@ -102,7 +104,7 @@ def make_request(url: str,
     _headers = {'User-Agent': USER_AGENT}
     if headers is not None:
         _headers.update(headers)
-    resp = requests.request(method, url, headers=_headers, **kwargs)
+    resp = requests.request(method, url, headers=_headers, files=files, **kwargs)
     return resp
 
 
@@ -126,24 +128,33 @@ async def dl_temp_file(url_or_path):
     The url can be a data url, normal url, or a local file (in which case, this just yields the
     path to that file).
     """
-    if url_or_path.startswith('http') or url_or_path.startswith('data:'):
-        if url_or_path.startswith('data:'):
-            ext = url_or_path.split(';')[0].split('/')[-1]
-        else:
-            ext = url_or_path.split('.')[-1]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}') as f:
+    if isinstance(url_or_path, bytes): # bytes -> actual file
+        with tempfile.NamedTemporaryFile(delete=False) as f:
             temp_path = f.name
-        try:
-            resp = await make_request_async(url_or_path, method='get', stream=True)
-            resp.raise_for_status()
-            with open(temp_path, 'wb') as f:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            yield temp_path
-        finally:
-            os.remove(temp_path)
-    else: # local file
-        yield url_or_path
+            f.write(url_or_path)
+            try:
+                yield temp_path
+            finally:
+                os.remove(temp_path)
+    else: # string -> path or url
+        if url_or_path.startswith('http') or url_or_path.startswith('data:'):
+            if url_or_path.startswith('data:'):
+                ext = url_or_path.split(';')[0].split('/')[-1]
+            else:
+                ext = url_or_path.split('.')[-1]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{ext}') as f:
+                temp_path = f.name
+            try:
+                resp = await make_request_async(url_or_path, method='get', stream=True)
+                resp.raise_for_status()
+                with open(temp_path, 'wb') as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                yield temp_path
+            finally:
+                os.remove(temp_path)
+        else: # local file
+            yield url_or_path
 
 class BaseSearcher(ABC):
     """Searcher base class.

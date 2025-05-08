@@ -39,6 +39,8 @@ def get_text(path: str, *args, **kw) -> str:
     """
     type, enc = mimetypes.guess_type(path)
     print(f'path={path}, type={type}, enc={enc}')
+    if path.endswith('.webp'):
+        type = 'image/webp'
     if type and type.endswith('/pdf'):
         out = get_pdf_text(path, *args)
     elif type and type.startswith('image'):
