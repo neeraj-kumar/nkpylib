@@ -59,6 +59,7 @@ from hashlib import sha256
 from typing import Any, Callable, Literal, Optional, Union
 from urllib.request import urlretrieve
 
+import anyio
 import fastapi
 import numpy as np
 import requests
@@ -435,13 +436,25 @@ class LocalTranscriptionModel(TranscriptionModel):
         ret['transcription_options'] = info.transcription_options._asdict()
         ret['segments'] = []
         # info and segments are both named tuples, and segments contain 'words' which is a list of named tuples
-        for segment in tqdm(segments):
+        def process_segment(segment):
             seg = segment._asdict()
             if seg['words'] is not None:
                 seg['words'] = [word._asdict() for word in seg['words']]
             ret['segments'].append(seg)
             # let other threads continue, since typically we're waiting a while per segment
             await asyncio.sleep(sleep_time)
+
+        if 0: # sync version (manual sleeps)
+            for segment in tqdm(segments):
+                process_segment(segment)
+        else: # async version
+            it = iter(segments)
+            while True:
+                try:
+                    segment = await anyio.to_thread.run_sync(next, it)
+                    process_segment(segment)
+                except StopIteration:
+                    break
         ret['text'] = ''.join([seg['text'] for seg in ret['segments']])
         return ret
 
