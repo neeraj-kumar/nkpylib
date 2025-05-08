@@ -408,7 +408,7 @@ def get_text(url: str, use_cache=True, **kw) -> ResponseT:
     """
     return single_call("get_text", url=url, use_cache=use_cache, **kw)
 
-@execution_wrapper()
+@execution_wrapper(final_func=lambda x: x['text'])
 def transcribe_speech(audio: str|bytes,
                       model:Optional[str]=None,
                       use_cache=True,
@@ -501,6 +501,7 @@ def quick_test():
     from PIL import Image
     image = Image.open(image_path)
     test = ['llm1', 'llm2', 'imgemb', 'vlm1', 'vlm2', 'emb', 'strsim', 'text', 'speech']
+    test = ['speech']
     if 'llm1' in test:
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     if 'llm2' in test:
@@ -547,6 +548,9 @@ def quick_test():
         fname = '2022-09-28 - 666 - Chapo Goes To Hell (9-27-22).mp3'
         fname = '327 Teaser - We Have a Real Shot.mp3'
         print(f'testing speech transcription for {fname}')
+        ret = transcribe_speech.single(join(dir, fname))
+        print(json.dumps(ret, indent=2))
+        transcribe_speech.mode = 'raw'
         ret = transcribe_speech.single(join(dir, fname))
         print(json.dumps(ret, indent=2))
 
