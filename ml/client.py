@@ -493,15 +493,19 @@ async def test_all():
                 myprint('    Results', [f.result() for f in fs])
 
 def quick_test():
-    # setup logging to include filename, function name, and line number as well
+    try:
+        test = sys.argv[1:]
+    except Exception:
+        test = []
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
     image_url = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
     image_path = './simple-sales-invoice-modern-simple-1-1-f54b9a4c7ad8.webp'
     from PIL import Image
     image = Image.open(image_path)
-    test = ['llm1', 'llm2', 'imgemb', 'vlm1', 'vlm2', 'emb', 'strsim', 'text', 'speech']
-    test = ['speech']
-    test = ['llm1']
+    if not test:
+        test = ['llm1', 'llm2', 'imgemb', 'vlm1', 'vlm2', 'emb', 'strsim', 'text', 'speech']
+        test = ['speech']
+        test = ['llm2']
     if 'llm1' in test:
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     if 'llm2' in test:
