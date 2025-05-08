@@ -175,12 +175,12 @@ def test(prompt = "Summarize the plot of the movie Fight Club."):
 
 class Model(ABC):
     """Base class for models, providing a common interface for loading and running models."""
-    def __init__(self, model_name: str=None, use_cache: bool=True, **kw):
+    def __init__(self, model_name: str='', use_cache: bool=True, **kw):
         if model_name in DEFAULT_MODELS:
             model_name = DEFAULT_MODELS[model_name]
         self.model_name = model_name
         self.use_cache = use_cache
-        self.model = None
+        self.model: Any = None
         self.cache = RESULTS_CACHE.setdefault(self.__class__, {})
         self.timing: dict[str, Any] = dict(model=model_name)
 
@@ -361,7 +361,7 @@ class EmbeddingModel(Model):
 
 class ClipEmbeddingModel(EmbeddingModel):
     """Model subclass for handling CLIP text/image embeddings."""
-    def __init__(self, mode='text', model_name: str=None, use_cache: bool=True, **kw):
+    def __init__(self, mode='text', model_name: str='', use_cache: bool=True, **kw):
         super().__init__(model_name=model_name, use_cache=use_cache, **kw)
         assert mode in ('text', 'image')
         assert self.model_name == DEFAULT_MODELS['clip']
@@ -384,7 +384,7 @@ class ClipEmbeddingModel(EmbeddingModel):
 class SentenceTransformerModel(EmbeddingModel):
     """Model subclass for handling SentenceTransformer embeddings."""
     async def _load(self, **kw) -> Any:
-        from sentence_transformers import SentenceTransformer
+        from sentence_transformers import SentenceTransformer # type: ignore
         return SentenceTransformer(self.model_name)
 
     async def _run(self, input: Any, **kw) -> dict:
@@ -423,20 +423,21 @@ class TranscriptionModel(Model):
 
 class LocalTranscriptionModel(TranscriptionModel):
     """A local transcription model using faster-whisper."""
-    async def load(self, n_threads=12, **kw) -> dict[str, any]:
-        from faster_whisper import WhisperModel
+    async def load(self, n_threads=12, **kw) -> Any: # type: ignore[override]
+        from faster_whisper import WhisperModel # type: ignore
         model_name = 'large-v3'
         logger.debug(f'Loading model {model_name} with {n_threads} threads')
-        self.model = WhisperModel(model_name, device="cpu", compute_type='int8', cpu_threads=n_threads)
+        return WhisperModel(model_name, device="cpu", compute_type='int8', cpu_threads=n_threads)
 
-    async def _run(self, input: Any, language='en', beam_size=5, sleep_time=10, **kw) -> dict:
+    async def _run(self, input: Any, language='en', beam_size=5, sleep_time=5, **kw) -> dict:
         assert isinstance(input, str)
         segments, info = self.model.transcribe(input, beam_size=beam_size, language=language)
         ret = dict(**info._asdict())
         ret['transcription_options'] = info.transcription_options._asdict()
         ret['segments'] = []
-        # info and segments are both named tuples, and segments contain 'words' which is a list of named tuples
-        def process_segment(segment):
+        # info and segments are both named tuples
+        async def process_segment(segment):
+            # segments contain 'words' which is a list of named tuples
             seg = segment._asdict()
             if seg['words'] is not None:
                 seg['words'] = [word._asdict() for word in seg['words']]
@@ -446,7 +447,7 @@ class LocalTranscriptionModel(TranscriptionModel):
 
         if 0: # sync version (manual sleeps)
             for segment in tqdm(segments):
-                process_segment(segment)
+                await process_segment(segment)
         else: # async version
             it = iter(segments)
             while True:
@@ -475,17 +476,18 @@ class ExternalTranscriptionModel(TranscriptionModel):
 # setup fastapi chat endpoint
 class ChatRequest(BaseModel):
     prompts: str|list[Msg]
-    model: Optional[str]='chat' # this will get mapped bsaed on DEFAULT_MODELS['chat']
-    max_tokens: Optional[int]=1024
-    kwargs: Optional[dict]={}
-    use_cache: Optional[bool]=False
-    provider: Optional[str]=''
+    model: str='chat' # this will get mapped bsaed on DEFAULT_MODELS['chat']
+    max_tokens: int=1024
+    kwargs: dict={}
+    use_cache: bool=False
+    provider: str=''
 
 @app.post("/v1/chat")
 async def chat(req: ChatRequest):
     """Generates chat response for the given prompts using the given model."""
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
+    model: ChatModel
     if req.model in LOCAL_MODELS:
         model = LocalChatModel(model_name=req.model, device='cpu', use_cache=req.use_cache)
     else:
@@ -502,11 +504,11 @@ async def chat(req: ChatRequest):
 class VLMRequest(BaseModel):
     image: str # path/url/image directly?
     prompts: str|list[Msg]
-    model: Optional[str]='vlm' # this will get mapped bsaed on DEFAULT_MODELS['vlm']
-    max_tokens: Optional[int]=1024
-    kwargs: Optional[dict]={}
-    use_cache: Optional[bool]=False
-    provider: Optional[str]=''
+    model: str='vlm' # this will get mapped bsaed on DEFAULT_MODELS['vlm']
+    max_tokens: int=1024
+    kwargs: dict={}
+    use_cache: bool=False
+    provider: str=''
 
 @app.post("/v1/vlm")
 async def vlm(req: VLMRequest):
@@ -523,9 +525,9 @@ async def vlm(req: VLMRequest):
 
 class TextEmbeddingRequest(BaseModel):
     input: str
-    model: Optional[str]=DEFAULT_MODELS['st']
-    provider: Optional[str]=''
-    use_cache: Optional[bool]=False
+    model: str=DEFAULT_MODELS['st']
+    provider: str=''
+    use_cache: bool=False
 
 
 @app.post("/v1/embeddings")
@@ -537,7 +539,7 @@ async def text_embeddings(req: TextEmbeddingRequest):
         DEFAULT_MODELS['clip']: lambda **kw: ClipEmbeddingModel(mode='text', **kw),
         DEFAULT_MODELS['sentence']: SentenceTransformerModel,
     }
-    ModelClass = model_class_by_name.get(req.model, ExternalEmbeddingModel)
+    ModelClass: Any = model_class_by_name.get(req.model, ExternalEmbeddingModel)
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
     async with dl_temp_file(req.input) as path:
         ret = await model.run(input=path, provider=req.provider)
@@ -546,8 +548,8 @@ async def text_embeddings(req: TextEmbeddingRequest):
 
 class ImageEmbeddingRequest(BaseModel):
     url: str
-    model: Optional[str]=DEFAULT_MODELS['image']
-    use_cache: Optional[bool]=False
+    model: str=DEFAULT_MODELS['image']
+    use_cache: bool=False
 
 
 @app.post("/v1/image_embeddings")
@@ -561,8 +563,8 @@ async def image_embeddings(req: ImageEmbeddingRequest):
 class StrSimRequest(BaseModel):
     a: str
     b: str
-    model: Optional[str]=DEFAULT_MODELS['clip']
-    use_cache: Optional[bool]=False
+    model: str=DEFAULT_MODELS['clip']
+    use_cache: bool=False
 
 @app.post("/v1/strsim")
 async def strsim(req: StrSimRequest):
@@ -597,7 +599,7 @@ async def strsim(req: StrSimRequest):
 
 class GetTextRequest(BaseModel):
     url: str
-    use_cache: Optional[bool]=False
+    use_cache: bool=False
     kw: Any=None
 
 @app.post("/v1/get_text")
@@ -612,12 +614,12 @@ async def get_text_api(req: GetTextRequest, cache={}):
 
 class TranscriptionRequest(BaseModel):
     url: str # path/url to file or base64 encoded audio bytes
-    model: Optional[str]='transcription' # this will get mapped based on DEFAULT_MODELS['Transcription']
-    language: Optional[str]='en'
-    chunk_level: Optional[str]='segment'
-    kwargs: Optional[dict]={}
-    use_cache: Optional[bool]=False
-    provider: Optional[str]='deepinfra'
+    model: str='transcription' # this will get mapped based on DEFAULT_MODELS['Transcription']
+    language: str='en'
+    chunk_level: str='segment'
+    kwargs: dict={}
+    use_cache: bool=False
+    provider: str='deepinfra'
 
 @app.post("/v1/transcription")
 async def speech_transcription(req: TranscriptionRequest):

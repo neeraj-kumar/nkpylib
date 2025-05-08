@@ -501,6 +501,7 @@ def quick_test():
     image = Image.open(image_path)
     test = ['llm1', 'llm2', 'imgemb', 'vlm1', 'vlm2', 'emb', 'strsim', 'text', 'speech']
     test = ['speech']
+    test = ['llm1']
     if 'llm1' in test:
         print(call_llm.single([('system', 'you are a very terse answering bot'), ('user', "What is the capital of italy?")]))
     if 'llm2' in test:
