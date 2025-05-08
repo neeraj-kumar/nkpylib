@@ -56,6 +56,7 @@ import uuid
 
 from abc import ABC, abstractmethod
 from hashlib import sha256
+from pprint import pformat
 from typing import Any, Callable, Literal, Optional, Union
 from urllib.request import urlretrieve
 
@@ -481,6 +482,16 @@ class ChatRequest(BaseModel):
     kwargs: dict={}
     use_cache: bool=False
     provider: str=''
+
+@app.get("/v1/status")
+async def status():
+    """Returns various kinds of status"""
+    ret = dict(
+        ts=time.time(),
+        MODEL_CACHE=[str(k) for k in MODEL_CACHE],
+        RESULTS_CACHE={str(k): len(v) for k, v, in RESULTS_CACHE.items()},
+    )
+    return ret
 
 @app.post("/v1/chat")
 async def chat(req: ChatRequest):
