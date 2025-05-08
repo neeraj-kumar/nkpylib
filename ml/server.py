@@ -428,7 +428,7 @@ class LocalTranscriptionModel(TranscriptionModel):
         logger.debug(f'Loading model {model_name} with {n_threads} threads')
         self.model = WhisperModel(model_name, device="cpu", compute_type='int8', cpu_threads=n_threads)
 
-    async def _run(self, input: Any, language='en', beam_size=5, **kw) -> dict:
+    async def _run(self, input: Any, language='en', beam_size=5, sleep_time=10, **kw) -> dict:
         assert isinstance(input, str)
         segments, info = self.model.transcribe(input, beam_size=beam_size, language=language)
         ret = dict(**info._asdict())
@@ -440,6 +440,8 @@ class LocalTranscriptionModel(TranscriptionModel):
             if seg['words'] is not None:
                 seg['words'] = [word._asdict() for word in seg['words']]
             ret['segments'].append(seg)
+            # let other threads continue, since typically we're waiting a while per segment
+            await asyncio.sleep(sleep_time)
         ret['text'] = ''.join([seg['text'] for seg in ret['segments']])
         return ret
 
@@ -608,6 +610,7 @@ class TranscriptionRequest(BaseModel):
 async def speech_transcription(req: TranscriptionRequest):
     """Generates a transcription object for the given audio (path, url, or bytes)."""
     ModelClass = LocalTranscriptionModel if req.model == 'local-transcription' else ExternalTranscriptionModel
+    print(f'In speech transcription, got model {req.model} and cls {ModelClass}')
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
     async with dl_temp_file(req.url) as path:
         kw = req.kwargs or {}

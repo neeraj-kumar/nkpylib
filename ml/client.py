@@ -424,7 +424,6 @@ def transcribe_speech(audio: str|bytes,
                        use_cache=use_cache,
                        **kw)
 
-
 async def test_all():
     """Test all client functions"""
     # import library to make colored output
