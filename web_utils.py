@@ -447,7 +447,7 @@ def default_index(static_path='/static',
 def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
                          make_app: Callable[[], Application]=lambda: Application(),
                          default_port: int=8000,
-                         post_parse_fn: Callable[dict,None]|None=None) -> None:
+                         post_parse_fn: Callable[[dict],None]|None=None) -> None:
     """Creates a web server and runs it.
 
     We create an `Application` instance using the `make_app` callable (by default just
@@ -466,7 +466,7 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
     parser.add_argument('-p', '--port', type=int, default=default_port, help='Port to listen on')
     args = parser.parse_args()
     if post_parse_fn:
-        post_parse_fn(args)
+        post_parse_fn(vars(args))
     logger.info(f'Starting server on port {args.port}')
     app = make_app()
     app.listen(args.port)
@@ -476,7 +476,7 @@ def simple_react_tornado_server(jsx_path: str,
                                 port: int,
                                 more_handlers: list|None=None,
                                 parser: argparse.ArgumentParser|None=None,
-                                post_parse_fn: Callable[dict,None]|None=None,
+                                post_parse_fn: Callable[[dict],None]|None=None,
                                 data_dir: str|None='.',
                                 **kw):
     """Call this to start a tornado server to serve a single page react app from.

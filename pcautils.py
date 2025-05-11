@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 """This module allows for easy use of PCA
 """
-import os, sys, time
+import os
+import sys
+import time
+
+from queue import Queue
+
+import numpy as np
+
 from PIL import Image
-from numpy import *
 
 # SIMPLE MATRIX MANIPULATION
 def clamp(x):
@@ -48,7 +54,7 @@ def mat2file(mat, fname):
     f.close()
 
 # CORE PCA FUNCTIONS
-def sortedeigs(m, dtype=float64):
+def sortedeigs(m, dtype=np.float64):
     """Returns sorted eigenvalues and -vectors"""
     log('    Starting eigendecomposition on matrix of shape %s now' % (m.shape,))
     t1 = time.time()
@@ -61,8 +67,8 @@ def sortedeigs(m, dtype=float64):
 
 def sparseeigs(m, ndims):
     """Does a sparse eigenvalue problem, with the given number of dimensions"""
-    import cvxopt
-    import cvxopt.lapack as lp
+    import cvxopt # type: ignore
+    import cvxopt.lapack as lp # type: ignore
 
     log('    Starting sparse eigendecomposition on matrix of shape %s now using %d dims' % (m.shape, ndims))
     t1 = time.time()
@@ -178,7 +184,7 @@ def pca(data, submeans=0, keep=-1, flip=1, sparse=0):
         sys.stdout.flush()
         return prunedims(values, v2, keep)
 
-def ipca_unthreaded(means, datacallback, keep=-1, dtype=float64, init=None, sonly=0, sparse=0):
+def ipca_unthreaded(means, datacallback, keep=-1, dtype=np.float64, init=None, sonly=0, sparse=0):
     """Iterative PCA, which builds up the scatter matrix iteratively.
     This iterates over datacallback repeatedly to get chunks of data.
     Each chunk C should be of size ndims X chunk_size (where chunk_size 
@@ -226,7 +232,7 @@ def ipca_unthreaded(means, datacallback, keep=-1, dtype=float64, init=None, sonl
         values, vecs = sortedeigs(s, dtype=dtype)
     return prunedims(values, vecs, keep)
 
-def ipca_threaded(means, datacallback, keep=-1, dtype=float64, init=None, sonly=0, sparse=0):
+def ipca_threaded(means, datacallback, keep=-1, dtype=np.float64, init=None, sonly=0, sparse=0):
     """Iterative PCA, which builds up the scatter matrix iteratively.
     This is a threaded version, which is faster if the datacallback takes some time...
     This iterates over datacallback repeatedly to get chunks of data.
@@ -260,10 +266,9 @@ def ipca_threaded(means, datacallback, keep=-1, dtype=float64, init=None, sonly=
     log('    Done initializing S matrix of shape %s in %0.3f secs...' % (s.shape, t2-t1))
     tot = 0
     num = 0
-    from Queue import Queue
     qsize=5
     q = Queue(qsize)
-    from threadutils import spawnWorkers
+    from threadutils import spawnWorkers # type: ignore
     def loadq(q, callback):
         for d in callback:
             d -= means
@@ -328,7 +333,7 @@ def evec2im(arr, mask):
     im.putdata(dat)
     return im
 
-def distances2im(m, func=lambda a: clamp(int(log(a+1)*128/log(2))), fac=25):
+def distances2im(m, func=lambda a: np.clamp(int(np.log(a+1)*128/np.log(2))), fac=25):
     """Returns a distance matrix as an image.
     The given function is used to map matrix values to numbers from 0-255.
     These numbers are then converted to a spectrum from red to blue.

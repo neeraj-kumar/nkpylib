@@ -11,7 +11,8 @@ leading to artifacts in the generated atlases. It's also fairly slow.
 import time
 
 import cv2
-import imutils
+# pip install imutils
+import imutils # type: ignore
 import numpy as np
 
 from argparse import ArgumentParser

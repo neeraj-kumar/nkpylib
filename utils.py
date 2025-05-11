@@ -26,15 +26,37 @@ Code Starts Now
 
 from __future__ import annotations
 
-import os, sys, random, math, time
+import code
 import functools
+import inspect
+import math
+import os
+import traceback
+import json
+import pickle
+import re
+import random
+import string
+import smtplib
+import sys
+import tempfile
+import threading
+import time
+import readline
+import rlcompleter
 
-from math import pi
+from calendar import timegm
+from datetime import date, datetime
+from email.mime.image import MIMEImage
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from urllib.request import urlopen
 from itertools import *
+from math import pi, exp, sqrt, sin, cos, radians, atan2, acos
 from threading import Thread
 from typing import Any, Literal, Type, TypeVar, get_args, get_origin
-
-import string
+from random import choice, shuffle
+from subprocess import Popen, PIPE
 
 ## DECORATORS
 def tracefunc(fn):
@@ -126,7 +148,6 @@ def threadedmemoize(fn):
     .. warning::
        Not tested very much.
     """
-    import threading
     cache = {}
     def newfn(*args):
         now = time.time()
@@ -159,8 +180,6 @@ def picklecache(name, incr=0, protocol=-1):
     """
     def actualret(fn):
         def retfunc(*args, **kw):
-            import cPickle as pickle
-            import tempfile
             if incr:
                 key = (tuple(args), tuple(sorted(kw.items())))
                 pickname = name+str(key)+'.pickle'
@@ -202,11 +221,9 @@ def incrpicklecache(pickname, protocol=-1, interval=-1):
             Something similar, except it saves different args to different pickles.
     """
     def actualret(fn):
-        import cPickle as pickle
         cache = [None]
         lasttime = [time.time()]
         def retfunc(*args, **kw):
-            import cPickle as pickle
             key = (tuple(args), tuple(sorted(kw.items())))
             if cache[0] is None:
                 try:
@@ -223,7 +240,6 @@ def incrpicklecache(pickname, protocol=-1, interval=-1):
                 now = time.time()
                 if now - lasttime[0] > interval:
                     # save to temp file and atomically rename
-                    import tempfile
                     f = tempfile.NamedTemporaryFile(prefix='.'+os.path.basename(pickname), dir=os.path.dirname(pickname), delete=0)
                     pickle.dump(cache[0], f, protocol)
                     tempname = f.name
@@ -466,7 +482,6 @@ def getTimeDiffs(times, timenames=None, fmt='%0.4f', percs=0):
 def getSqlTimeStr(t=None):
     """Returns a sqlite-compatible time string for the given time value
     (in secs since epoch), or :func:`now()` if it's `None` or negative"""
-    from datetime import datetime
     if not t or t < 0:
         t = time.time()
     d = datetime.fromtimestamp(t).replace(microsecond=0) # since sql cannot handle this
@@ -480,7 +495,6 @@ def iso2secs(t, retdatetime=0):
 
     .. _RFC3339: http://www.ietf.org/rfc/rfc3339.txt
     """
-    from datetime import datetime
     from calendar import timegm
     if not isinstance(t, basestring): return t
     fmt = '%Y'
@@ -539,8 +553,6 @@ def makesecs(t):
     Can also deal with full times with fractional seconds and timezones like this:
         2010-08-18 19:33:41.383751+00:00
     """
-    from calendar import timegm
-    from datetime import datetime
     if isinstance(t, datetime):
         return timegm(t.timetuple())
     if not isinstance(t, (str, unicode)): return t
@@ -606,9 +618,8 @@ def fmtunits(t):
 
 def utcnow():
     """Returns the current time as a :class:`datetime` obj, with ordinary precision, and in GMT"""
-    from datetime import datetime
     try:
-        import pytz
+        import pytz # type: ignore
         d = datetime.now(pytz.utc)
     except ImportError:
         d = datetime.utcnow()
@@ -617,7 +628,6 @@ def utcnow():
 
 def now():
     """Returns the current time as a :class:`datetime` obj, with ordinary precision, in localtime"""
-    from datetime import datetime
     d = datetime.now()
     #d.microsecond = 0 #FIXME this is not writable...is it needed?
     return d
@@ -644,7 +654,6 @@ def localizeTime(t, loc, tzlookup=None):
 
     If `loc` is not given or is invalid, returns an un-normalized :class:`datetime` object.
     """
-    from datetime import datetime
     import pytz
     # convert to datetime
     if not isinstance(t, datetime):
@@ -688,7 +697,6 @@ def time2names(t, thresh=0, gps=None):
         daytime (usually one of: morning, afternoon, evening, night)
         isweekend (usually one of: weekday, weekend)
     """
-    from datetime import date, datetime
     # normalize
     if not isinstance(t, datetime) and t > 10000000000:
         t /= 1000.0
@@ -740,7 +748,6 @@ def memstr2bytes(s):
     """Converts a memory string like '1249 MB' to number of bytes.
     If it can't be converted, raises a :class:`ValueError`."""
     try:
-        import re
         g = re.search(r'(\d+)\s*(\S+)', s).groups()
         num, units = int(g[0]), g[1]
         ret = num * MEMORY_UNITS[units]
@@ -937,8 +944,7 @@ def log(s, f=sys.stderr, funcindent=-1):
         f.write('\n')
         s = s[1:]
     if funcindent >= 0:
-        from inspect import stack
-        s = '  ' * max(len(stack())-funcindent, 0) + s
+        s = '  ' * max(len(inspect.stack())-funcindent, 0) + s
     if '\r' in s:
         f.write(s)
     else:
@@ -987,8 +993,6 @@ class repl(Thread):
         Because this class inherits from :class:`Thread`, you should call
         :func:`start()` instead of :func:`run()`
         """
-        import code
-        import readline, rlcompleter
         readline.parse_and_bind('tab: complete')
         readline.parse_and_bind('"\e[A": history-search-backward')
         readline.parse_and_bind('"\e[B": history-search-forward')
@@ -1009,7 +1013,7 @@ def spark(vals, wrap=0, scale=None, f=sys.stdout):
     Right now, this needs a `spark` executable to run through :func:`subprocess.Popen`
     """
     from subprocess import PIPE, Popen
-    from StringIO import StringIO
+    from io import StringIO
     if wrap > 0:
         groups = nkgrouper(wrap, vals)
     else:
@@ -1647,7 +1651,6 @@ def sigmoid(x):
     The input can be any number.
     Results are in the range 0 to 1, with ``x=0 -> y=0.5``
     """
-    from math import exp
     return 1.0/(1+exp(-x))
 
 def lpdist(x, y, p=2):
@@ -1658,7 +1661,6 @@ def lpdist(x, y, p=2):
         :func:`linfdist`
             The function for computing :math:`L_\infty` distances.
     """
-    from math import sqrt
     if p == 0:
         return sum(a!=b for a, b in zip(x, y))
     elif p == 1:
@@ -1737,7 +1739,7 @@ def rankedpeaks(a, minorder, fac=0.9):
     What this means is that the peaks that are furthest from other peaks are
     returned first.
     """
-    from scipy.signal import find_peaks_cwt, argrelmax
+    from scipy.signal import find_peaks_cwt, argrelmax # type: ignore
     import numpy as np
     a = np.array(a)
     #peaki = find_peaks_cwt(np.array(vals), np.arange(1,100))
@@ -1966,442 +1968,6 @@ def filternnresults(dists, k=None, r=None, sort=1):
     return ret
 
 
-## GEOMETRY UTILS
-# All triangle functions take (x,y) pairs as inputs for points
-def getDistance(pt1, pt2):
-    """Returns euclidean distance between two points"""
-    return lpdist(pt1, pt2, 2)
-
-def ptLineDist(pt, line):
-    """Returns distance between `pt` ``(x,y)`` to `line` ``((x0,y0), (x1,y1))``, and the closest point on the line.
-
-    Adapted from http://paulbourke.net/geometry/pointlineplane/
-
-    Example::
-        >>> ptLineDist((0.5, 1.0), [(0,0), (1, 0)])
-        (1.0, (0.5, 0.0))
-        >>> ptLineDist((0.0, 0.0), [(0,0), (1, 0)])
-        (0.0, (0.0, 0.0))
-        >>> ptLineDist((1.0, 0.0), [(0,0), (1, 1)])
-        (0.70710678118654757, (0.5, 0.5))
-        >>> ptLineDist((-5, 0.0), [(0,0), (1, 0)])
-        (5.0, (0.0, 0.0))
-    """
-    x, y = pt
-    (x0, y0), (x1, y1) = line
-    dx, dy = x1-x0, y1-y0
-    t = ((x-x0)*dx + (y-y0)*dy)/(dx**2 + dy**2)
-    t = clamp(t, 0.0, 1.0)
-    intersection = intx, inty = (x0+t*dx, y0+t*dy)
-    d = getDistance(pt, intersection)
-    return (d, intersection)
-
-def distAlong(d, pt1, pt2):
-    """Returns the coordinate going distance `d` from `pt1` to `pt2`.
-    Works for any dimensionalities.
-    """
-    dist = getDistance(pt1, pt2)
-    ret = [(d/dist * (pt2[dim]-pt1[dim])) + pt1[dim] for dim in range(len(pt1))]
-    return ret
-
-def expandBox(box, facs):
-    """Expands a `box` about its center by the factors ``(x-factor, y-factor)``.
-    The box is given as ``(x0, y0, x1, y1)``"""
-    w, h = box[2]-box[0], box[3]-box[1]
-    cen = cx, cy = (box[2]+box[0])/2.0, (box[1]+box[3])/2.0
-    nw2 = w*facs[0]/2.0
-    nh2 = h*facs[1]/2.0
-    box = [cx-nw2, cy-nh2, cx+nw2, cy+nh2]
-    return box
-
-def rectarea(r, incborder=1):
-    """Returns the area of the given ``(x0, y0, x1, y1)`` rect.
-    If `incborder` is true (default) then includes that in calc. Otherwise doesn't.
-    If either width or height is not positive, returns 0."""
-    w = r[2]-r[0] + incborder
-    h = r[3]-r[1] + incborder
-    if w <= 0 or h <= 0: return 0
-    return w * h
-
-def rectcenter(rect, cast=float):
-    """Returns the center ``[x,y]`` of the given `rect`.
-    Applies the given `cast` function to each coordinate."""
-    return [cast((rect[0]+rect[2]-1)/2.0), cast((rect[1]+rect[3]-1)/2.0)]
-
-def rectintersection(r1, r2):
-    """Returns the rect corresponding to the intersection between two rects.
-    Returns `None` if non-overlapping.
-    """
-    if r1[0] > r2[2] or r1[2] < r2[0] or r1[1] > r2[3] or r1[3] < r2[1]: return None
-    ret = [max(r1[0], r2[0]), max(r1[1], r2[1]), min(r1[2], r2[2]), min(r1[3], r2[3])]
-    return ret
-
-def rectoverlap(r1, r2, meth='min'):
-    """Returns how much the two rects overlap, using different criteria:
-
-        - 'min': ``intersection/min(a1, a2)``
-        - 'max': ``intersection/max(a1, a2)``
-    """
-    a1 = rectarea(r1)
-    a2 = rectarea(r2)
-    i = rectintersection(r1, r2)
-    if not i: return 0
-    ai = float(rectarea(i))
-    if meth == 'min':
-        return ai/min(a1, a2)
-    if meth == 'max':
-        return ai/max(a1, a2)
-
-def rectAt(cen, size):
-    """Returns a rectangle of the given `size` centered at the given location.
-    The coordinates are inclusive of borders."""
-    x, y = cen[:2]
-    w, h = size[:2]
-    return [x-w//2, y-h//2, x-w//2+w-1, y-h//2+h-1]
-
-def trilengths(pt1, pt2, pt3):
-    """Returns the lengths of the sides opposite each corner"""
-    d1 = getDistance(pt2, pt3)
-    d2 = getDistance(pt1, pt3)
-    d3 = getDistance(pt1, pt2)
-    ret = [d1, d2, d3]
-    return ret
-
-def triarea(pt1, pt2, pt3):
-    """Returns the area of the triangle.
-    Uses `Heron's formula <http://en.wikipedia.org/wiki/Heron%27s_formula>`_
-    """
-    a, b, c = trilengths(pt1, pt2, pt3)
-    s = (a+b+c)/2.0
-    return math.sqrt(s*(s-a)*(s-b)*(s-c))
-
-def getTriAngles(pt1, pt2, pt3):
-    """Returns the angles (in rads) of each corner"""
-    from math import acos
-    lens = l1, l2, l3 = trilengths(pt1, pt2, pt3)
-    a1 = acos((l2**2 + l3**2 - l1**2)/(2 * l2 * l3))
-    a2 = acos((l1**2 + l3**2 - l2**2)/(2 * l1 * l3))
-    a3 = acos((l1**2 + l2**2 - l3**2)/(2 * l1 * l2))
-    angles = [a1, a2, a3]
-    return angles
-
-def trialtitude(pt1, pt2, pt3):
-    """Returns the coordinates of the other end of the altitude starting at `p1`."""
-    from math import cos
-    lens = l1, l2, l3 = trilengths(pt1, pt2, pt3)
-    angles = a1, a2, a3 = getTriAngles(pt1, pt2, pt3)
-    dfrom2 = cos(a2)*l3
-    return distAlong(dfrom2, pt2, pt3)
-
-def haversinedist(loc1, loc2):
-    """Returns the haversine great circle distance (in meters) between two locations.
-    The input locations must be given as ``(lat, long)`` pairs (decimal values).
-
-    See http://en.wikipedia.org/wiki/Haversine_formula
-    """
-    from math import sin, cos, radians, atan2, sqrt
-    lat1, lon1 = loc1
-    lat2, lon2 = loc2
-    R = 6378100.0 # mean radius of earth, in meters
-    dlat = radians(lat2-lat1)
-    dlon = radians(lon2-lon1)
-    sdlat2 = sin(dlat/2)
-    sdlon2 = sin(dlon/2)
-    a = sdlat2*sdlat2 + cos(radians(lat1))*cos(radians(lat2))*sdlon2*sdlon2
-    d = R * 2 * atan2(sqrt(a), sqrt(1-a))
-    return d
-
-def polyarea(poly):
-    """Returns the signed area of the given polygon.
-    The polygon is given as a list of ``(x, y)`` pairs.
-    Counter-clockwise polys have positive area, and vice-versa.
-    """
-    area = 0.0
-    p = poly[:]
-    # close the polygon
-    if p[0] != p[-1]:
-        p.append(p[0])
-    for (x1, y1), (x2, y2) in zip(p, p[1:]):
-        area += x1*y2 - y1*x2
-    area /= 2.0
-    return area
-
-def pointInPolygon(pt, poly, bbox=None):
-    """Returns `True` if the point is inside the polygon.
-    If `bbox` is passed in (as ``(x0,y0,x1,y1)``), that's used for a quick check first.
-    Main code adapted from http://www.ecse.rpi.edu/Homepages/wrf/Research/Short_Notes/pnpoly.html
-    """
-    x, y = pt
-    if bbox:
-        x0, y0, x1, y1 = bbox
-        if not (x0 <= x <= x1) or not (y0 <= y <= y1): return 0
-    c = 0
-    i = 0
-    nvert = len(poly)
-    j = nvert-1
-    while i < nvert:
-        if (((poly[i][1]>y) != (poly[j][1]>y)) and (x < (poly[j][0]-poly[i][0]) * (y-poly[i][1]) / (poly[j][1]-poly[i][1]) + poly[i][0])):
-            c = not c
-        j = i
-        i += 1
-    return c
-
-def pointPolygonDist(pt, poly, bbox=None):
-    """Returns the distance from a given point to a polygon, and the closest point.
-    If the point is inside the polygon, returns a distance of 0.0, and the point itself.
-    The point should be ``(x,y)``, and the poly should be a series of ``(x,y)`` pairs.
-    You can optionally pass-in a bounding box ``[x0,y0,x1,y1]`` to run a quick check first.
-    (If you don't, it's computed and checked.)
-
-    Returns ``(distance, (x,y))`` of the closest point on the polygon (if outside), else `pt` itself.
-    If the polygon is degenerate, then returns ``(0.0, pt)``
-
-    .. note::
-        This is not the most efficient function (linear in number of edges of the `poly`).
-    """
-    if not bbox:
-        xs, ys = zip(*poly)
-        bbox = [min(xs), min(ys), max(xs), max(ys)]
-    x, y = pt
-    inside = pointInPolygon(pt, poly, bbox=bbox)
-    if inside: return (0.0, pt)
-    # else, it's outside, so compute distance
-    lines = zip(poly, poly[1:]+[poly[0]])
-    lines = [(p1, p2) for p1, p2 in lines if p1 != p2]
-    dists = [ptLineDist(pt, l) for l in lines]
-    if not dists: return (0.0, pt)
-    return min(dists)
-
-def distInMeters(dist):
-    """Converts distances to a numeric distance in meters.
-    If the input is a string, then it can have the following suffixes:
-        - 'm': meters
-        - 'meter': meters
-        - 'meters': meters
-        - 'metre': meters
-        - 'metres': meters
-        - 'km': kilometers
-        - 'kilometer': kilometers
-        - 'kilometers': kilometers
-        - 'kilometre': kilometers
-        - 'kilometres': kilometers
-        - 'mi': miles
-        - 'mile': miles
-        - 'miles': miles
-        - 'ft': feet
-        - 'feet': feet
-        - 'foot': feet
-
-    Assumes the string is in the form of a number, optional spaces (of any sort), then the suffix.
-    Else, assumes it's numeric and returns it as is.
-    """
-    import re
-    if not isinstance(dist, basestring): return dist
-    # else, it's a string, so map it
-    mPerMile = 1609.34
-    mPerFoot = 0.3048
-    UNITS = dict(m=1.0, meter=1.0, meters=1.0, metre=1.0, metres=1.0,
-        km=1000.0, kilometer=1000.0, kilometers=1000.0, kilometre=1000.0, kilometres=1000.0,
-        mi=mPerMile, mile=mPerMile, miles=mPerMile,
-        ft=mPerFoot, feet=mPerFoot, foot=mPerFoot,
-    )
-    # has units, so parse
-    match = re.match(r'([-+]?\d*\.\d+|\d+)\s*([a-zA-Z]*)', dist.lower().strip())
-    val, unit = match.group(1, 2)
-    val = float(val)*UNITS[unit]
-    return val
-
-def boxAroundGPS(loc, dist):
-    """Returns a bounding box around the given GPS location, within the given distance.
-    The location is ``(latitude, longitude)`` and the distance is either a
-    single value, or a pair of values ``(lat_dist, lon_dist)``.
-    These can be floats (i.e., degrees), or strings, which are assumed to be
-    degrees if there is no suffix, or mapped to meters using
-    :func:`distInMeters()` if there is a suffix.
-
-    .. note::
-        If you give no units, then the returned bbox will be symmetrical in
-        degrees around the center, but this is NOT symmetrical in terms of
-        distance, since longitudinal distance varies with latitude.
-
-    In contrast, giving units should give symmetric (in terms of distance) bounds.
-
-    For reference:
-        - 1 degree latitude = 111.319 km = 69.170 miles.
-        - 1 degree longitude = 69.170 miles * cos(`lat`)
-
-    Returns ``[lat0, lon0, lat1, lon1]``
-    """
-    import re
-    assert len(loc) == 2
-    try:
-        xdist, ydist = dist
-    except (ValueError, TypeError):
-        xdist = ydist = dist
-    ret = []
-    mPerDeg = 111318.845 # meters per degree
-    for i, (cen, d) in enumerate(zip(loc, [xdist, ydist])):
-        try:
-            d = float(d)
-            # no units -- is degrees
-            # easy to calculate ret
-            ret.extend([cen-d, cen+d])
-        except ValueError:
-            # has units, so parse
-            val = distInMeters(d)/mPerDeg
-            #print 'd %s: Val %s, unit %s' % (d.lower().strip(), val, unit)
-            if i == 0:
-                # latitude just needs equal increments
-                ret.extend([cen-val, cen+val])
-            else:
-                # longitude needs special computation
-                minlat, maxlat = ret # get min and max latitudes
-                minlon = val/math.cos(math.radians(minlat))
-                maxlon = val/math.cos(math.radians(maxlat))
-                #print minlat, maxlat, minlon, maxlon
-                ret.extend([cen-minlon, cen+maxlon])
-    # permute into right order
-    ret = [ret[0], ret[2], ret[1], ret[3]]
-    return ret
-
-def getBoxProjection(loc, dist, imsize):
-    """Creates a box around the given location and projects points to it.
-    The loc is (latitude, longitude).
-    The dist is a string that is interpretable by boxAroundGPS().
-    The imsize is the size of the images created.
-
-    Returns (project, polyim), which are both functions:
-        project(loc): takes a (lat, lon) pair and returns an image (x,y) pair.
-        polyim(coords): takes a project()-ed set of coordinates and returns a
-                        1-channel image with the polygon drawn in it.
-    """
-    from PIL import Image, ImageDraw
-    from nkpylib.utils import boxAroundGPS, lerp, timed, polyarea, uniqueize
-    lat, lon = loc
-    box = boxAroundGPS(loc, dist)
-    w, h = imsize
-    lon2x = lambda lon: int(lerp(lon, (box[1], 0), (box[3], w)))
-    lat2y = lambda lat: int(lerp(lat, (box[0], 0), (box[2], h)))
-    project = lambda loc: (lon2x(loc[1]), lat2y(loc[0]))
-    def polyim(coords):
-        """Returns a single channel image for this polygon (already projected)"""
-        im = Image.new('L', (w, h), 0)
-        if coords:
-            draw = ImageDraw.Draw(im)
-            draw.polygon(coords, outline=255, fill=255)
-        return im
-
-    return (project, polyim)
-
-def createNearMask(imsize):
-    """Cached and memoized "near" mask generation.
-    This is simply a wrapper on createRadialMask().
-    Note that we invert the mask, so that later on we can simply paste(),
-    rather than have to composite() with a black image.
-    """
-    from nkpylib.imageutils import createRadialMask
-    from PIL import Image, ImageChops
-    fname = 'mask-%d-%d.png' % (imsize[0], imsize[1])
-    try:
-        return Image.open(fname)
-    except Exception:
-        mask = createRadialMask(imsize)
-        mask = ImageChops.invert(mask)
-        mask.save(fname)
-    return mask
-
-def projectAndGetExtrema(p, project, polyim, fname=None, mask=None):
-    """Takes a polygon and projects it and gets extrema.
-    Uses project() to project the coordinates,
-    polyim() to get the polygon image.
-    If mask is given, then composites the image with the mask.
-    If fname is given, then saves the (possibly composited) image to that name.
-    Finally, computes the extrema.
-    Returns (max value, polygon image, projected coordinates).
-    """
-    from PIL import Image
-    coords = map(project, p)
-    pim = polyim(coords)
-    if mask:
-        pim.paste(0, (0,0), mask)
-    if fname:
-        pass #pim.save(fname) #FIXME this takes too long...
-    m, M = pim.getextrema()
-    return (M, pim, coords)
-
-def locateGPS(loc, objs, imsize=(1000,1000), indist='50 meters', neardist='1 km', imdir=None):
-    """Figures out what objects this location is "in" and "near".
-    'loc' is a (latitude, longitude) pair.
-    'objs' is a list of (objkey, polygon) tuples.
-    For both "in" and "near", projects a box around the given location to an image.
-    This image has size 'imsize'. Also projects all given object polygons to this image.
-
-    For "in", checks for any objects that intersect a box within distance
-    "indist" from the given location.
-
-    For "near", computes distance from loc to any objects within 'neardist'
-    (that were not 'in').
-
-    Returns (objsin, objsnear), where each is a sorted list of (objkey, score) pairs.
-    For "in", the score is 1.0. [Should it be (area of intersection)/(area of obj)?]
-    The objects are sorted from least area to greatest area.
-    For "near", the score is minimum distance between location and obj
-    boundaries as a fraction of 'indist', squared to get a faster fall-off.
-
-    If imdir is given, then saves debugging images within that directory.
-    """
-    #TODO check if done?
-    from PIL import Image
-    from nkpylib.utils import polyarea, uniqueize
-    from nkpylib.imageutils import combineImages
-    #log('Trying to locate %s with %d objs, imsize %s, dists %s, %s, imdir %s: %s' % (loc, len(objs), imsize, indist, neardist, imdir, objs[:2]))
-    # init
-    # create imdir if needed
-    if imdir:
-        try:
-            os.makedirs(imdir)
-        except OSError:
-            pass
-    # setup projection for "in" and run on all objects
-    project, polyim = getBoxProjection(loc, indist, imsize)
-    objsin = []
-    for objkey, p in objs:
-        fname = os.path.join(imdir, 'in-%s.png' % (objkey.rsplit(':', 1)[-1])) if imdir else ''
-        M, pim, coords = projectAndGetExtrema(p, project, polyim, fname=fname)
-        if M == 0: continue # ignore things that don't match at all
-        objsin.append([objkey, abs(polyarea(coords)), pim])
-    # sort "in" objects by area
-    objsin.sort(key=lambda o: o[1])
-    if imdir:
-        comb = combineImages([o[2] for o in objsin])
-        if comb:
-            comb.transpose(Image.FLIP_TOP_BOTTOM).save(os.path.join(imdir, 'in-poly.png'))
-    # remap to get scores instead of areas and pims
-    objsin = [(o[0], 1.0) for o in objsin]
-    log('    Got %d objects "in": %s' % (len(objsin), objsin[:5]))
-    # now do "near"
-    project, polyim = getBoxProjection(loc, neardist, imsize)
-    mask = createNearMask(imsize)
-    doneobjs = set([o for o, s in objsin])
-    objsnear = []
-    for objkey, p in objs:
-        if objkey in doneobjs: continue # skip objects we're in
-        fname = os.path.join(imdir, 'near-%s.png' % (objkey.rsplit(':', 1)[-1])) if imdir else ''
-        M, pim, coords = projectAndGetExtrema(p, project, polyim, fname=fname, mask=mask)
-        if M == 0: continue # ignore things that weren't close enough
-        objsnear.append([objkey, M/255.0, pim])
-    # sort "near" objects by closevalue
-    objsnear.sort(key=lambda o: o[1], reverse=1)
-    if imdir:
-        comb = combineImages([o[2] for o in objsnear])
-        if comb:
-            comb.transpose(Image.FLIP_TOP_BOTTOM).save(os.path.join(imdir, 'near-poly.png'))
-    # remap to get final scores
-    objsnear = [(o[0], o[1]*o[1]) for o in objsnear] # we square the score to get a steeper falloff
-    log('    Got %d objects "near": %s' % (len(objsnear), objsnear[:5]))
-    return objsin, objsnear
-
-
 ## PROBABILITY AND SAMPLING UTILS
 def minsample(population, k, randomize=1):
     """Samples upto `k` elements from `population`, without replacement.
@@ -2447,7 +2013,6 @@ def sampleWithReplacement(population, k):
     """Samples `k` elements, with replacement, from the `population`.
     Just calls :func:`random.choice` `k` times.
     """
-    from random import choice
     return [choice(population) for i in xrange(k)]
 
 def estimateGaussian(data, unbiased=1):
@@ -2470,7 +2035,6 @@ def gaussian(x, mean, var):
 
     .. math:: \\frac{1}{\\sigma\\sqrt{2\\pi}}e^{-\\frac{1}{2}(\\frac{x-\\mu}{\\sigma})^2}
     """
-    from math import sqrt, exp, pi
     denom = sqrt(2*pi*var)
     num = exp(-((x-mean)**2)/(2*var))
     ret = num/float(denom)
@@ -2482,7 +2046,6 @@ def gaussian2d(x, y, sigma):
 
     .. math:: \\frac{1}{2\\pi\\sigma^2}e^{\\frac{x^2 + y^2}{2\\sigma^2}}
     """
-    from math import exp, pi
     s2 = sigma * sigma
     ret = exp(-0.5 * (x*x + y*y)/s2) / (2 * pi * s2)
     return ret
@@ -2496,7 +2059,6 @@ def randomizedPartition(data, probs, randomize=1):
     Returns a list of same length as `probs`, with each entry as a list of
     non-overlapping elements from `data`.
     """
-    from random import shuffle
     probs = freqs2probs(probs)
     indices = []
     for i, p in enumerate(probs):
@@ -2517,7 +2079,6 @@ def expweight(lst, fromt=None, fac=1.0):
     If `fromt` is not `None`, then subtracts it from each time first.
     Each time is multiplied by the given factor, prior to exponentiation (default 1.0).
     """
-    from math import exp
     ret = 0.0
     tot = 0.0
     for v, t in lst:
@@ -2534,7 +2095,6 @@ def expweight(lst, fromt=None, fac=1.0):
 def spawnWorkers(num, target, name=None, args=(), kwargs={}, daemon=1, interval=0):
     """Spawns the given number of workers, by default daemon, and returns a list of them.
     'interval' determines the time delay between each launching"""
-    from threading import Thread
     threads = []
     for i in range(num):
         if name and '%d' in name:
@@ -2559,7 +2119,6 @@ def gpsdeg2dec(lat, lon):
 
 def getGeoName(gpsloc):
     """Returns the closest city/neighborhood name for a given latitude, longitude pair, or '' on error"""
-    from urllib import urlopen
     url = 'http://ws.geonames.org/findNearbyPlaceNameJSON?lat=%s&lng=%s' % (gpsloc[0], gpsloc[1])
     try:
         s = urlopen(url).read()
@@ -2575,7 +2134,6 @@ def sendemail(toaddress, subject, body, images=[], username=None, password=None,
     If fromaddress is not given, it is set as the toaddress.
     If replaytoaddress is not given, it is set as the fromaddress.
     If images is not None, then sends in HTML format with embedded images."""
-    import smtplib
     conn = smtplib.SMTP(server)
     if ssl:
         #from ssmtplib import SMTP_SSL
@@ -2592,9 +2150,6 @@ def sendemail(toaddress, subject, body, images=[], username=None, password=None,
 
     # This part from http://docs.python.org/library/email-examples.html
     # Here are the email package modules we'll need
-    from email.mime.image import MIMEImage
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
 
     COMMASPACE = ', '
 
@@ -2621,17 +2176,6 @@ def sendemail(toaddress, subject, body, images=[], username=None, password=None,
     # ...but here, the from address is actually checked by the smtp server, so we have to use something real
     conn.sendmail(fromaddress, toaddress, msg.as_string())
     conn.quit()
-
-def httpresponse(url):
-    """Returns the http response code (code, reason) associated with the given url"""
-    import httplib
-    from urlparse import urlparse
-    p = urlparse(url)
-    conn = httplib.HTTPConnection(p.netloc)
-    rest = url.split(p.netloc, 1)[-1]
-    conn.request('GET', rest)
-    r = conn.getresponse()
-    return r.status, r.reason
 
 def _memtest():
     """Tests the various mem utils"""
@@ -2664,7 +2208,6 @@ def getConsoleSize():
     If there is some error, returns (-1, -1).
     Only tested on linux.
     """
-    from subprocess import Popen, PIPE
     try:
         if 0:
             # Taken from http://stackoverflow.com/questions/566746/how-to-get-console-window-width-in-python/943921#943921
@@ -2753,11 +2296,6 @@ def genericWorkerLoop(funcgetter='eval', globals=None, locals=None):
     The loop exits if the input is empty or closed.
     If the input was invalid, an error string is printed to stderr, and just "error" to stdout.
     """
-    import traceback
-    try:
-        import simplejson as json
-    except Exception:
-        import json
     if not globals:
         globals = globals()
     if not locals:

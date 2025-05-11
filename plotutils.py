@@ -28,13 +28,15 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-from utils import *
+from nkpylib.utils import *
+
 import matplotlib
 try:
     matplotlib.use('Agg')
 except UserWarning: pass
+
 from matplotlib import rc
-from pylab import *
+from pylab import * # type: ignore
 from matplotlib.ticker import *
 from PIL import Image
 
@@ -104,6 +106,6 @@ def rearrangeim(im, ndivs=4):
     out = Image.new('RGB', size)
     for i in range(ndivs):
         out.paste(im.crop((xincr*i, 0, (xincr*(i+1)-1), yincr-1)), (0, yincr*i))
-    print 'Converted image of size %s to size %s' % (im.size, out.size)
+    print('Converted image of size %s to size %s' % (im.size, out.size))
     return out
 

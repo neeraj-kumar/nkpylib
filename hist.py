@@ -2,7 +2,7 @@
 
 """
 import os, sys
-from utils import specialize
+from .utils import specialize
 
 def optimalBinSize(vals):
     """Returns "optimal" bin size for a histogram using Scott's Rule:
@@ -10,7 +10,7 @@ def optimalBinSize(vals):
     stdev = standard deviation of the N descriptor values.
     From D. Scott - On optimal and data-based histograms.
     """
-    from utils import getStdDev
+    from .utils import getStdDev
     n = len(vals)
     sd = getStdDev(vals)
     return 3.49 * sd*(n**(-1/3))
@@ -95,7 +95,7 @@ def multhist(hists, asone=1):
     toret = []
     for i in hists:
         toret.append({})
-    for k, vals in ret.iteritems():
+    for k, vals in ret.items():
         for i, v in enumerate(vals):
             toret[i][k] = v
     return toret
@@ -123,4 +123,4 @@ if __name__ == '__main__':
     args = [specialize(a) for a in sys.argv[1:]]
     hist = histogram(lines, *args)
     for k in sorted(hist):
-        print '%s %s' % (k, hist[k])
+        print('%s %s' % (k, hist[k]))

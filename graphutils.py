@@ -35,7 +35,7 @@ import logging
 import os
 import sys
 from collections import defaultdict
-from typing import Callable, Iterator, Any, Optional, TypeAlias, TypeVar
+from typing import Callable, Iterator, Any, Optional, TypeAlias, TypeVar, Hashable
 from queue import Empty, Queue
 
 import numpy as np
@@ -81,7 +81,7 @@ def dijkstras_shortest_path(graph: GraphT, src: Any) -> tuple[dict[Any, Any], di
         neighbors_by_node[b].add(a)
         todo.add(a)
         todo.add(b)
-    shortest_path = {}
+    shortest_path: dict[Any, float] = {}
     for node in todo:
         shortest_path[node] = sys.maxsize
     assert src in todo
@@ -122,7 +122,7 @@ def bipartite_matching(a: list[A], b: list[B], score_func: ScoreFunc[A, B], symm
     for i, x in enumerate(a):
         for j, y in enumerate(b):
             scores[i, j] = score_func(x, y)
-    inds = np.unravel_index(np.argsort(scores, axis=None), scores.shape)
+    inds: Any = np.unravel_index(np.argsort(scores, axis=None), scores.shape)
     inds = np.array([x[::-1] for x in inds])
     i_left = set(range(na))
     j_left = set(range(nb))
@@ -164,14 +164,20 @@ class PathNotFoundError(Exception):
     pass
 
 
+NodeT = TypeVar('NodeT', bound='Hashable')
 class Router:
     """A routing class to find paths matching certain criteria in graphs"""
 
-    def __init__(self, nn_func: Callable[[Any], Iterator[tuple[Any, float]]], nn_pred: Optional[Callable[[Any, float], bool]] = None):
+    def __init__(self, nn_func: Callable[[Any], Iterator[tuple[NodeT, float]]],
+                 nn_pred: Optional[Callable[[NodeT, float], bool]] = None):
+        """Initializes the router with a function to get neighbors.
+        `nn_func(node)` should take a node and return an iterator of (neighbor, distance) tuples.
+        `nn_pred(node, distance) -> valid` is an optional function to filter neighbors based on distance.
+        """
         self._nn_func = nn_func
         self._nn_pred = nn_pred
 
-    def find_path(self, a: Any, b: Any) -> tuple[list[Any], float]:
+    def find_path(self, a: NodeT, b: NodeT) -> tuple[list[NodeT], float]:
         """Finds a path from `a` to `b` matching our criteria.
 
         Returns `(path, cost)`, where the path is a list of node ids, and cost is total cost.
@@ -179,7 +185,7 @@ class Router:
         If no path is found, then raises `PathNotFoundError`.
         """
         logging.info(f"Trying to find a path from {a} to {b}")
-        q = Queue()
+        q: Queue[Any] = Queue()
         dists = {}
         done = set()
 

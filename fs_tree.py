@@ -446,7 +446,7 @@ class AirtableTree(Tree):
                 #print(resp)
 
         hashes = other.hash_function([d.b for d in diffs if d.b])
-        rows = [dict(fields={self.key_field: d.b, self.hash_field: hashes[i]}) for i, d in
+        rows = [dict(fields={self.key_field: d.b, self.hash_field: hashes[i]}) for i, d in # type: ignore[index]
                 enumerate(diffs)]
         list(incr_iter(tqdm(rows), func=do_add, incr=self.incr))
 

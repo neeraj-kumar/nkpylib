@@ -17,7 +17,7 @@ from csv import DictReader
 from os.path import dirname, join, exists
 from typing import Any, Iterator
 
-from movies.imdb import search_movies
+from movies.imdb import search_movies # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,8 @@ class LetterboxdArchive:
     """Interface to a letterboxd archive."""
     def __init__(self, path: str):
         self.path = path
-        self.diary = {}
-        self.diary_by_imdb_id = {}
+        self.diary: dict[tuple[str, str], dict[str, Any]] = {}
+        self.diary_by_imdb_id: dict[str, list[dict[str, Any]]] = {}
         self.read_data()
         logger.debug(f'Read {len(self.diary)} diary entries: {json_dumps(sorted(self.diary.items())[:5], indent=2)}')
 

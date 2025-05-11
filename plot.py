@@ -1,7 +1,11 @@
-import pylab
-import sys, os
+import os
+import sys
+
 from math import *
+
 import matplotlib
+
+from matplotlib import pylab # type: ignore
 
 COLORS = 'rbgcmyk'
 MARKERS = 'oxvs+D1'
@@ -28,7 +32,7 @@ def grouper(n, iterable, padvalue=None):
 
 def barGraph(data, **kw):
     """Draws a bar graph for the given data"""
-    from pylab import bar
+    from pylab import bar # type: ignore
     kw.setdefault('barw', 0.5)
     kw.setdefault('log', 0)
     kw.setdefault('color', 'blue')

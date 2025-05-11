@@ -18,6 +18,7 @@ help:
 BASE_PY_FILES=faces.py features.py embeddings.py llm_utils.py bpm.py server.py
 OTHER_PY_FILES=client.py constants.py replicate_wrapper.py providers.py text.py
 PY_FILES=$(BASE_PY_FILES)
+#fastcls.py #image_features.py
 
 ## runs various code cleanup/checking: black, autoimport, mypy and pylint
 lint: mypy

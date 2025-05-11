@@ -25,17 +25,35 @@ one of two modes:
     might be what you want, and might not be, but you deal with it.
 """
 
-import os, sys, math, time
-from array import array
-from mmap import mmap, ACCESS_READ, ACCESS_WRITE, ACCESS_COPY
-from itertools import *
-import fcntl
-from utils import FileLock, getTimeDiffs, procmem, getmem, nkgrouper, log, getListAsStr
 import codecs
-try:
-    import simplejson as json
-except ImportError:
-    import json
+import gc
+import json
+import operator as op
+import os, sys, math, time
+import re
+import inspect
+import random
+import math
+
+from array import array
+from copy import deepcopy
+from io import StringIO
+from itertools import *
+from math import sqrt
+from mmap import mmap, ACCESS_READ, ACCESS_WRITE, ACCESS_COPY
+from pprint import pprint
+from shutil import copy2
+
+import fcntl
+import numpy as np
+
+from PIL import Image
+
+from nkpylib.features import FeatureComputer # type: ignore
+from nkpylib.imageutils import colormap # type:ignore
+from nkpylib.redisutils import redis # type: ignore
+from nkpylib.utils import getTimeDiffs, procmem, getmem, nkgrouper, log, lerp, clamp, bulkNNl2
+from nkpylib.stringutils import FileLock, getListAsStr
 
 def grouper(n, iterable, padvalue=None):
     "grouper(3, 'abcdefg', 'x') --> ('a','b','c'), ('d','e','f'), ('g','x','x')"
@@ -112,9 +130,6 @@ class MmapArray(object):
               access: One of ACCESS_READ, ACCESS_WRITE, ACCESS_COPY
                 outf: A log file
         """
-        from cStringIO import StringIO
-        import operator as op
-        from math import sqrt
         if not outf:
             outf = StringIO()
         self.fname = fname
@@ -130,10 +145,10 @@ class MmapArray(object):
         if init:
             assert list(dims(init)) == list(size), 'Dims of init were %s, while given size was %s' % (dims(init), size)
             assert create, 'If given an init, create must be 1'
-        print >>outf, "For typecode %s, and size %s, got %d itemsize, %d elements total, and %d memsize" % (typecode, size, self.itemsize, self.nels, self.memsize)
+        print("For typecode %s, and size %s, got %d itemsize, %d elements total, and %d memsize" % (typecode, size, self.itemsize, self.nels, self.memsize), file=outf)
         if create:
             # create the file, and init with initvals, unless we have an init
-            print >>outf, '  Creating mmap %s' % (fname)
+            print('  Creating mmap %s' % (fname), file=outf)
             try:
                 os.makedirs(os.path.dirname(fname))
             except OSError:
@@ -144,7 +159,7 @@ class MmapArray(object):
             initsize = int(sqrt(self.nels))
             if init:
                 # write in groups of the first dimension
-                print >>outf, '  Initializing file using given init, in groups of size %d' % (initsize)
+                print('  Initializing file using given init, in groups of size %d' % (initsize), file=outf)
                 groups = nkgrouper(initsize, iterall(init))
                 for g in groups:
                     a = array(typecode, g)
@@ -158,7 +173,7 @@ class MmapArray(object):
                     makearray = lambda num: array(typecode, initval*num)
                 else:
                     makearray = lambda num: array(typecode, [initval]*num)
-                print >>outf, '  Initializing file to val %s in groups of size %d...' % (initval, initsize)
+                print('  Initializing file to val %s in groups of size %d...' % (initval, initsize), file=outf)
                 ntodo = self.nels
                 a = makearray(initsize)
                 while ntodo > initsize:
@@ -176,13 +191,13 @@ class MmapArray(object):
         diff = self.memsize - f.tell()
         assert diff <= 0
         if diff > 0:
-            #print 'diff > 0 %s, %s, %s' % (self.memsize, f.tell(), diff)
+            #print('diff > 0 %s, %s, %s' % (self.memsize, f.tell(), diff))
             f = open(fname, 'ab+')
             a = array(typecode, [initval]*(diff/self.itemsize))
             a.tofile(f)
             f.flush()
             #diff = self.memsize - f.tell()
-            #print self.memsize, f.tell(), diff, initval
+            #print(self.memsize, f.tell(), diff, initval)
             f.close()
             f = open(fname, 'rb+')
             f.seek(0, os.SEEK_END)
@@ -191,7 +206,7 @@ class MmapArray(object):
         try:
             self.mmap = mmap(f.fileno(), self.memsize, access=access)
         except Exception:
-            print f, f.fileno(), self.memsize, access, ACCESS_READ, ACCESS_WRITE, diff
+            print(f, f.fileno(), self.memsize, access, ACCESS_READ, ACCESS_WRITE, diff)
             raise
 
     def index(self, loc):
@@ -283,8 +298,6 @@ class MmapArray(object):
         """
         if not imfunc:
             # use a jet colormap imfunc
-            from nkpylib.imageutils import colormap
-            from nkpylib.utils import lerp, clamp
             if not valrange:
                 # if we're not given a value range, do it based on typecode
                 rangedict = dict(c=[0,255], B=[0,255],
@@ -312,13 +325,12 @@ class MmapArray(object):
         # these dims could be useful regardless of if we're creating the image or not
         dims = (len(rows), self.rowlen)
         if not im:
-            from PIL import Image
             im = Image.new('RGB', dims)
         ret = []
         # iterate over first coordinate
         for i in rows:
             if i % 100000 == 0:
-                #print '  On row %d' % (i)
+                #print('  On row %d' % (i))
                 pass
             # get all locs for with the first coordinate fixed
             sublocs = [[i]]+[range(s) for s in self.size[1:]]
@@ -338,9 +350,9 @@ def testmmaparray():
     c = ['cat', 'dog', 'cow', 'pig']
     m = MmapArray('junk', 'i', dims(b), init=b, create=1)
     #m = MmapArray('junk', 'i', [10000,100], create=0)
-    print m.get([0,0], 5)
+    print(m.get([0,0], 5))
     m.set([1,1], [50, 1000])
-    print m.get([0,0], 5)
+    print(m.get([0,0], 5))
 
 def relpath(path, base):
     """Returns a path relative to the given base.
@@ -380,7 +392,6 @@ class DataMatrix(object):
         Else, stores each external field as simply the length of that field, and fieldlookups for that field will be empty.
         Log messages are sent to the given outf if it's not None.
         """
-        from copy import deepcopy
         times = [time.time()]
         self.loadfields = loadfields
         self.basename = basename
@@ -460,12 +471,12 @@ class DataMatrix(object):
             # a final sanity check
             self.sanitycheck()
             times.append(time.time())
-            #print getTimeDiffs(times)
+            #print(getTimeDiffs(times))
 
     def log(self, s):
         """Logs a message to our outf"""
         if self.outf:
-            print >>self.outf, s
+            print(s, f=self.outf)
             self.outf.flush()
 
     @classmethod
@@ -511,7 +522,7 @@ class DataMatrix(object):
         """
         try:
             rownum = int(key)
-            #print 'For key %s, got rownum %d and returning row' % (key, rownum)
+            #print('For key %s, got rownum %d and returning row' % (key, rownum))
             return self.mmap.getrow(rownum)
         except Exception:
             pass
@@ -521,7 +532,7 @@ class DataMatrix(object):
         loc = self.fields2loc(key)
         if loc is None:
             raise KeyError('Could not find key %s in our fields' % (key,))
-        #print 'For key %s, got loc %s with len %s' % (key, loc, len(key))
+        #print('For key %s, got loc %s with len %s' % (key, loc, len(key)))
         if len(key) == 1:
             return self.mmap.getrow(loc[0])
         else:
@@ -546,8 +557,8 @@ class DataMatrix(object):
                 loc.append(0)
         try:
             self.mmap.set(loc, val)
-        except Exception, e:
-            print 'For key %s, tried setting at loc %s with %d len, but skipped because got %s exception: %s' % (key, loc, len(val), type(e), e)
+        except Exception as e:
+            print('For key %s, tried setting at loc %s with %d len, but skipped because got %s exception: %s' % (key, loc, len(val), type(e), e))
 
     def fieldlens(self):
         """Returns lengths of each of our fields"""
@@ -568,7 +579,6 @@ class DataMatrix(object):
             'func': keys is a function that takes (i, l, done) and returns true if it matches
         The returned dict maps inputs to row numbers.
         """
-        import re
         if isinstance(fieldtypeOrIndex, basestring):
             n = self.fieldtypes.index(fieldtypeOrIndex)
         else:
@@ -625,7 +635,7 @@ class DataMatrix(object):
                     self.log('  On row %d of %d' % (i, self.fields[n]))
                 if hadkeys and not matches(i, l): continue
                 ret[l] = i
-        except StopIteration, e:
+        except StopIteration as e:
             if e.args and e.args[0]:
                 ret[l] = i
 
@@ -769,7 +779,7 @@ class DataMatrix(object):
                 self.log('  Writing %d entries to external fields tempfile %s' % (len(lst), tmpfname))
                 f = codecs.open(tmpfname, 'wb', 'utf-8')
                 for l in lst:
-                    print >>f, l
+                    print(l, f=f)
                     #f.write(l+'\n')
                 f.close()
                 os.rename(tmpfname, fieldfname)
@@ -787,13 +797,12 @@ NKDataMatrix = DataMatrix
 
 def copyDM(curdmname, newdmname):
     """Copies a DataMatrix from curdmname to newdmname"""
-    from shutil import copy2
     assert curdmname != newdmname
     for ext in 'json mmap images'.split():
         old = curdmname+'.'+ext
         if not os.path.exists(old): continue
         new = newdmname+'.'+ext
-        #print 'Copying %s to %s' % (old, new)
+        #print('Copying %s to %s' % (old, new))
         try:
             os.makedirs(os.path.dirname(new))
         except OSError: pass
@@ -803,7 +812,6 @@ def dm2numpy(dmname, rownames, errval=999999):
     """Creates a numpy matrix from a dm using the given rownames.
     You can optionally pass in the error value to assign.
     """
-    import numpy as np
     times = [time.time()]
     typecodemap = dict(b=np.byte, h=np.short, i=np.intc, l=np.int_, B=np.ubyte, H=np.ushort, I=np.uintc, L=np.uint, f=np.single, d=np.float_)
     dm = DataMatrix(dmname, 'readdata', loadfields=0)
@@ -840,10 +848,10 @@ def test():
             m = d.mmap
             ndims = len(d.fields[1])
             #m.toimage(valrange=[0,10.0]).save('whoa.png'); sys.exit()
-            print d.fields, d.fieldtypes, d.errval, d.typecode, d.other, d.mmap, ndims
+            print(d.fields, d.fieldtypes, d.errval, d.typecode, d.other, d.mmap, ndims)
             for i, im in enumerate(d.fields[0]):
                 v = m.get((i, 0), ndims)
-                print i, im, v
+                print(i, im, v)
                 m.set((i,0), [i, i*2, i*3])
 
 def nkfeat2dm(dmname, mstr, fstr, inputiter, incr=1000):
@@ -858,9 +866,6 @@ def nkfeat2dm(dmname, mstr, fstr, inputiter, incr=1000):
     then 'fname' is used as the fname for the compute().
     The DM is flushed every 'incr' inputs
     """
-    from nkpylib.features import FeatureComputer
-    from pprint import pprint
-    import gc
     gc.collect()
     log('Memory at top of nkfeat2dm is %0.2fMB' % (procmem()/1024.0/1024))
     d = DataMatrix(dmname, mode='updatedata')
@@ -883,7 +888,8 @@ def nkfeat2dm(dmname, mstr, fstr, inputiter, incr=1000):
         try:
             #i = fnames.index(unicode(fname, 'utf-8', 'ignore'))
             i = fnamelookup[unicode(fname, 'utf-8', 'ignore')]
-        except (KeyError,UnicodeDecodeError): continue
+        except (KeyError,UnicodeDecodeError):
+            continue
         loc = m.rowloc(i)
         #log('Memory in main loop with done=%s is %0.2fMB' % (done, procmem()/1024.0/1024))
         fckw.setdefault('fname', fname)
@@ -891,22 +897,22 @@ def nkfeat2dm(dmname, mstr, fstr, inputiter, incr=1000):
         if not fvec:
             # set to error value
             fvec = array(str(d.typecode), [d.errval]*m.rowlen)
-            print '  Error on input for row %d (loc %s), so setting to errval %s' % (i, loc, d.errval)
+            print('  Error on input for row %d (loc %s), so setting to errval %s' % (i, loc, d.errval))
         m.set(loc, fvec)
         done += 1
         if done >= incr:
             m.flush()
             done = 0
-        print i, fname, loc, len(fvec)
+        print(i, fname, loc, len(fvec))
     m.flush()
 
 def mstrfstrmain(*args):
     """An old driver that reads mstr, fstr, and writes to a DM."""
     incr = 1000
     if len(sys.argv) < 4:
-        print 'Usage: python %s <dmname> <mstr> <fstr> [<flush incr>=%s]< inputs' % (sys.argv[0], incr)
-        print '  The inputs should be one per line, with filename first.'
-        print '  Then, optionally and tab-separated: fiducials, outparams'
+        print('Usage: python %s <dmname> <mstr> <fstr> [<flush incr>=%s]< inputs' % (sys.argv[0], incr))
+        print('  The inputs should be one per line, with filename first.')
+        print('  Then, optionally and tab-separated: fiducials, outparams')
         sys.exit()
     dmname, mstr, fstr = sys.argv[2:5]
     try:
@@ -952,17 +958,17 @@ def create(type, dmname, infname):
             # the input should be a single sift file
             lines = [l.rstrip().split(' ') for l in codecs.open(infname, 'rb', 'utf-8') if l.rstrip()]
             ptfields = ['point-%06d' % i for i, l in enumerate(lines) if len(l) == 132]
-            print 'Read %d lines from %s, down to %d after filtering, last: %s' % (len(lines), infname, len(ptfields), ptfields[-5:])
+            print('Read %d lines from %s, down to %d after filtering, last: %s' % (len(lines), infname, len(ptfields), ptfields[-5:]))
         elif type == 'siftmany':
             # the input should be the output of 'wc -l <list of descriptor outputs'
             lines = [l.rstrip().split(' ',1) for l in codecs.open(infname, 'rb', 'utf-8') if ' ' in l.rstrip()]
             lines = [(fname, int(num)) for num, fname in lines if fname != 'total']
             total = sum(num for fname, num in lines)
-            print 'There are %d descriptors in %d lines total, coming out to %s bytes' % (total, len(lines), total*(128+4*4))
+            print('There are %d descriptors in %d lines total, coming out to %s bytes' % (total, len(lines), total*(128+4*4)))
             ptfields = []
             for fname, num in lines:
                 ptfields.extend(['%s::point-%06d' % (fname, i) for i in range(num)])
-            print 'Read %d lines from %s, %d total, last: %s' % (len(lines), infname, len(ptfields), ptfields[-5:])
+            print('Read %d lines from %s, %d total, last: %s' % (len(lines), infname, len(ptfields), ptfields[-5:]))
         field2 = ['x y scale orientation'.split(), ['sift-%03d' % i for i in range(128)]]
         #sys.exit()
         typecodes = 'fB'
@@ -978,7 +984,7 @@ def create(type, dmname, infname):
         fieldfnames = [os.path.basename(dmname)+'.images', None]
         fields = [[l.rstrip() for l in codecs.open(infname, 'rb', 'utf-8')]]
         fields.append(['gist-%04d' % i for i in range(960)])
-        print 'Creating gist DM at %s with field lens %s' % (dmname, map(len, fields))
+        print('Creating gist DM at %s with field lens %s' % (dmname, map(len, fields)))
         dm = DataMatrix(dmname, mode='updatestruct', typecode='f', fields=fields, fieldfnames=fieldfnames, fieldtypes=fieldtypes, errval=-1.0).flush()
 
 def readsiftdescriptors(fname, sortbyloc=1):
@@ -1004,14 +1010,14 @@ def oldupdatesift(dmprefix, *args):
     The descfname is the filename where descriptors are read from.
     """
     times = [time.time()]
-    print 'Reading dm %s' % (dmprefix+'-locs')
+    print('Reading dm %s' % (dmprefix+'-locs'))
     dmlocs = DataMatrix(dmprefix+'-locs', mode='updatedata', loadfields=0)
     mlocs = dmlocs.mmap
     times.append(time.time())
     dmdescs = DataMatrix(dmprefix+'-descs', mode='updatedata', loadfields=0)
     mdescs = dmdescs.mmap
     times.append(time.time())
-    print 'Times to read DMs from prefix %s: %s' % (dmprefix, getTimeDiffs(times))
+    print('Times to read DMs from prefix %s: %s' % (dmprefix, getTimeDiffs(times)))
     inputs = list(nkgrouper(2, args))
     # precache rowlookups
     imnames = set(zip(*inputs)[0])
@@ -1019,39 +1025,39 @@ def oldupdatesift(dmprefix, *args):
     loclookup = dmlocs.getlookup(0, keys=imnames, keytype='regexp')
     desclookup = dmdescs.getlookup(0, keys=imnames, keytype='regexp')
     times.append(time.time())
-    print 'Times to precache lookups: %s' % (getTimeDiffs(times))
+    print('Times to precache lookups: %s' % (getTimeDiffs(times)))
     t1 = time.time()
     for iter, (imname, descfname) in enumerate(inputs):
-        print 'On input %d of %d, with im %s, descfname %s' % (iter+1, len(inputs), imname, descfname)
+        print('On input %d of %d, with im %s, descfname %s' % (iter+1, len(inputs), imname, descfname))
         pname = lambda num: imname+'::point-%06d' % (num)
         lookup = lambda num: pname(num) in loclookup
         if not lookup(0):
-            print '  This image not found in DM, so skipping'
+            print('  This image not found in DM, so skipping')
             continue
         locs, descs = readsiftdescriptors(descfname)
-        print '  Got %d locs, %d descs: %s' % (len(locs), len(descs), locs[:2])
+        print('  Got %d locs, %d descs: %s' % (len(locs), len(descs), locs[:2]))
         if not lookup(len(locs)-1):
-            print '  This descfile has %d points, but the DM has less, so skipping all' % (len(locs))
+            print('  This descfile has %d points, but the DM has less, so skipping all' % (len(locs)))
             continue
         if lookup(len(locs)):
-            print '  This descfile has %d points, but the DM has more, so skipping all' % (len(locs))
+            print('  This descfile has %d points, but the DM has more, so skipping all' % (len(locs)))
             continue
         # at this point, we're ready to write
         locrownum = loclookup[pname(0)]
         descrownum = desclookup[pname(0)]
-        print '  Updating starting from rownums %d, %d' % (locrownum, descrownum)
+        print('  Updating starting from rownums %d, %d' % (locrownum, descrownum))
         for i, (loc, desc) in enumerate(zip(locs, descs)):
-            #print '    ', i, loc, desc[:8], mlocs.rowloc(locrownum+i), mdescs.rowloc(descrownum+i)
+            #print('    ', i, loc, desc[:8], mlocs.rowloc(locrownum+i), mdescs.rowloc(descrownum+i))
             mlocs.set(mlocs.rowloc(locrownum+i), loc)
             mdescs.set(mdescs.rowloc(descrownum+i), desc)
         times.append(time.time())
         sys.stdout.flush()
-    print 'Finished updating %d images in %0.3fs, flushing now...' % (iter, time.time()-t1)
+    print('Finished updating %d images in %0.3fs, flushing now...' % (iter, time.time()-t1))
     dmlocs.flush()
     times.append(time.time())
     dmdescs.flush()
     times.append(time.time())
-    print 'Final times: %s' % (getTimeDiffs(times))
+    print('Final times: %s' % (getTimeDiffs(times)))
 
 def getsiftrowspecs(ptsfname, descriplookup):
     """Reads the given list of points and descriptor lookup and outputs rowspecs.
@@ -1074,7 +1080,7 @@ def getsiftrowspecs(ptsfname, descriplookup):
     im2desc = dict((im, d) for im, d in lines if im in ret)
     for im in order:
         try:
-            print '%d-%d\t%s' % (ret[im][0], ret[im][1], im2desc[im])
+            print('%d-%d\t%s' % (ret[im][0], ret[im][1], im2desc[im]))
         except KeyError:
             log('Image %s did not exist in %s' % (im, descriplookup))
 
@@ -1085,35 +1091,35 @@ def updatesift(dmprefix, *args):
     The descfname is the filename where descriptors are read from.
     """
     times = [time.time()]
-    print 'Reading dm %s' % (dmprefix+'-locs')
+    print('Reading dm %s' % (dmprefix+'-locs'))
     dmlocs = DataMatrix(dmprefix+'-locs', mode='updatedata', loadfields=0)
     dmdescs = DataMatrix(dmprefix+'-descs', mode='updatedata', loadfields=0)
     mlocs, mdescs = dmlocs.mmap, dmdescs.mmap
     inputs = list(nkgrouper(2, args))
     times.append(time.time())
-    print 'Times to read DMs from prefix %s, and %d inputs: %s' % (dmprefix, len(inputs), getTimeDiffs(times))
+    print('Times to read DMs from prefix %s, and %d inputs: %s' % (dmprefix, len(inputs), getTimeDiffs(times)))
     t1 = time.time()
     for iter, (rowspec, descfname) in enumerate(inputs):
-        print 'On input %d of %d, with rowspec %s, descfname %s' % (iter+1, len(inputs), rowspec, descfname)
+        print('On input %d of %d, with rowspec %s, descfname %s' % (iter+1, len(inputs), rowspec, descfname))
         locs, descs = readsiftdescriptors(descfname)
         rownums = range(*map(int, rowspec.split('-')))
-        print '  Got %d locs, %d descs, and %d rownums: %s' % (len(locs), len(descs), len(rownums), locs[:2])
+        print('  Got %d locs, %d descs, and %d rownums: %s' % (len(locs), len(descs), len(rownums), locs[:2]))
         if len(rownums) != len(locs) != len(descs):
-            print '  Mismatched number of rows/locs/descs, so skipping'
+            print('  Mismatched number of rows/locs/descs, so skipping')
             continue
         # at this point, we're ready to write
         for rownum, loc, desc in zip(rownums, locs, descs):
-            #print '    ', i, loc, desc[:8], mlocs.rowloc(locrownum+i), mdescs.rowloc(descrownum+i)
+            #print('    ', i, loc, desc[:8], mlocs.rowloc(locrownum+i), mdescs.rowloc(descrownum+i))
             mlocs.set(mlocs.rowloc(rownum), loc)
             mdescs.set(mdescs.rowloc(rownum), desc)
         times.append(time.time())
         sys.stdout.flush()
-    print 'Finished updating %d images in %0.3fs, flushing now...' % (iter, time.time()-t1)
+    print('Finished updating %d images in %0.3fs, flushing now...' % (iter, time.time()-t1))
     dmlocs.flush()
     times.append(time.time())
     dmdescs.flush()
     times.append(time.time())
-    print 'Final times: %s' % (getTimeDiffs(times))
+    print('Final times: %s' % (getTimeDiffs(times)))
 
 def checksift(dmprefix, num, descriplookup):
     """Checks the given DM for sift completion/correctness.
@@ -1122,32 +1128,31 @@ def checksift(dmprefix, num, descriplookup):
     The imname indexes into the DM (using the 1st field).
     The descfname is the filename where descriptors are read from.
     """
-    import random
     times = [time.time()]
-    print 'Reading dm %s' % (dmprefix+'-locs')
+    print('Reading dm %s' % (dmprefix+'-locs'))
     dmlocs = DataMatrix(dmprefix+'-locs', mode='readdata', loadfields=0)
     mlocs = dmlocs.mmap
     times.append(time.time())
     dmdescs = DataMatrix(dmprefix+'-descs', mode='readdata', loadfields=0)
     mdescs = dmdescs.mmap
     times.append(time.time())
-    print 'Times to read DMs from prefix %s: %s' % (dmprefix, getTimeDiffs(times))
+    print('Times to read DMs from prefix %s: %s' % (dmprefix, getTimeDiffs(times)))
     # precache rowlookups
     num = int(num)
     todo = set(random.sample(xrange(dmlocs.fields[0]), num))
     #todo = range(num) + [80000]
     maxrow = max(todo)
-    print '%d Todo, with max %s' % (len(todo), maxrow)
+    print('%d Todo, with max %s' % (len(todo), maxrow))
     loclookup = dmlocs.getlookup(0, keys=todo, keytype='index')
     desclookup = dmdescs.getlookup(0, keys=todo, keytype='index')
     times.append(time.time())
-    print 'Times to precache %d row lookups: %s' % (len(loclookup), getTimeDiffs(times))
+    print('Times to precache %d row lookups: %s' % (len(loclookup), getTimeDiffs(times)))
     # now precache descrip lookups
     imnames = set(im.split('::')[0] for im in desclookup)
     lines = (l.rstrip().split() for l in open(descriplookup))
     im2desc = dict((im, d) for im, d in lines if im in imnames)
     times.append(time.time())
-    print 'Times to precache %d descrip lookups for %d imnames: %s' % (len(im2desc), len(imnames), getTimeDiffs(times))
+    print('Times to precache %d descrip lookups for %d imnames: %s' % (len(im2desc), len(imnames), getTimeDiffs(times)))
     t1 = time.time()
     alldescs = {}
     aresimilar = lambda a,b: sum(abs(x-y) for x, y in zip(a, b)) < 0.001
@@ -1158,7 +1163,7 @@ def checksift(dmprefix, num, descriplookup):
         im, ptnum = pt.split('::')
         ptnum = int(ptnum.split('-')[1])
         descfname = im2desc[im]
-        #print pt, im, descfname, ptnum, loclookup[pt], desclookup[pt]
+        #print(pt, im, descfname, ptnum, loclookup[pt], desclookup[pt])
         if descfname not in alldescs:
             alldescs[descfname] = readsiftdescriptors(descfname)
         locs, descs = alldescs[descfname]
@@ -1167,7 +1172,7 @@ def checksift(dmprefix, num, descriplookup):
         sloc = mlocs.getrow(loclookup[pt])
         sdesc = mdescs.getrow(desclookup[pt])
         if not aresimilar(sloc, loc) or not aresimilar(sdesc, desc):
-            print '%s had a problem:\n\t%s\n\t%s\n\t%s\n\t%s' % (pt, sloc, loc, sdesc, desc)
+            print('%s had a problem:\n\t%s\n\t%s\n\t%s\n\t%s' % (pt, sloc, loc, sdesc, desc))
         done += 1
 
 def updategist(dmname, infname, loadfields=0, incr=5000):
@@ -1180,7 +1185,7 @@ def updategist(dmname, infname, loadfields=0, incr=5000):
     m = dm.mmap
     t1 = time.time()
     times.append(t1)
-    print 'Loaded DM %s with loadfields=%d in %0.3fs and starting to read outputs from %s' % (dmname, loadfields, t1-times[0], infname)
+    print('Loaded DM %s with loadfields=%d in %0.3fs and starting to read outputs from %s' % (dmname, loadfields, t1-times[0], infname))
     ndone = 0
     for iter, l in enumerate(open(infname)):
         try:
@@ -1189,10 +1194,10 @@ def updategist(dmname, infname, loadfields=0, incr=5000):
             assert len(fvec) == m.size[1]
             rownum = dm.fieldlookups[0][first] if loadfields else int(first)
         except (KeyError, ValueError, AssertionError):
-            print '  On line %d, could not read rownum or fvec: %s' % (iter, l.rstrip())
+            print('  On line %d, could not read rownum or fvec: %s' % (iter, l.rstrip()))
             continue
         if iter % 1 == 0:
-            print '  On input %d, with rownum %s' % (iter+1, rownum)
+            print('  On input %d, with rownum %s' % (iter+1, rownum))
         m.set(m.rowloc(rownum), fvec)
         ndone += 1
         if ndone >= incr:
@@ -1200,10 +1205,10 @@ def updategist(dmname, infname, loadfields=0, incr=5000):
             dm.flush()
             ndone = 0
         sys.stdout.flush()
-    print 'Finished updating %d images in %0.3fs, flushing now...' % (iter, time.time()-t1)
+    print('Finished updating %d images in %0.3fs, flushing now...' % (iter, time.time()-t1))
     dm.flush()
     times.append(time.time())
-    print 'Final times: %s' % (getTimeDiffs(times))
+    print('Final times: %s' % (getTimeDiffs(times)))
 
 def fnames2rownums(fnamelst):
     """Reads fnamelst and makes a mapping of fname -> rownum.
@@ -1218,12 +1223,11 @@ def fnames2rownums(fnamelst):
         if fname not in d:
             log('Error on line %d: %s not in dict' % (i, fname))
             continue
-        print '%s\t%s' % (d[fname], rest)
+        print('%s\t%s' % (d[fname], rest))
 
 
 def squaredims(dims):
     """Takes a pair of dimensions and normalizes them so that they're almost square."""
-    import math
     w, h = dims
     total = w*h
     outw = int(math.sqrt(total))
@@ -1236,17 +1240,16 @@ def squaredims(dims):
 def siftimages(dmprefix, outfmt, nrows=250000):
     """Creates images representing a sift DM.
     """
-    from PIL import Image
     dm = DataMatrix(dmprefix+'-descs', mode='readdata', loadfields=0)
     dims = [len(f) if isinstance(f, list) else f for f in dm.fields]
     rowsets = list(nkgrouper(nrows, xrange(dims[0])))
-    print len(rowsets)
+    print(len(rowsets))
     cache = {}
     for i, rows in enumerate(rowsets):
         w, h = squaredims((len(rows),dims[1]))
         im = Image.new('RGB', (w, h))
         fname = outfmt % i
-        print 'On image %d of %d, with dims %d x %d: %s' % (i+w, len(rowsets), w, h, fname)
+        print('On image %d of %d, with dims %d x %d: %s' % (i+w, len(rowsets), w, h, fname))
         im = dm.mmap.toimage(im=im, rows=rows, cache=cache, valrange=[0, 128])
         im.save(fname)
 
@@ -1270,42 +1273,40 @@ def testnn(dmname, datarowsfname):
     300000 |   100  | 12.6s
     Or in summary: linear in datasize, sublinear in testsize
     """
-    from utils import bulkNNl2
     times = [time.time()]
     datarows = [k.rstrip() for k in open(datarowsfname) if k.rstrip()]
     keys = [k.rstrip() for k in sys.stdin if k.rstrip()]
     dm = DataMatrix(dmname, 'readdata', loadfields=0)
     times.append(time.time())
-    print 'Times: %s' % (getTimeDiffs(times))
+    print('Times: %s' % (getTimeDiffs(times)))
     datamat = dm2numpy(dmname, datarows, errval=dm.errval)
     times.append(time.time())
-    print 'Times: %s' % (getTimeDiffs(times))
-    print 'Datamat:',datamat, datamat.shape, datamat.dtype
+    print('Times: %s' % (getTimeDiffs(times)))
+    print('Datamat:',datamat, datamat.shape, datamat.dtype)
     testmat = dm2numpy(dmname, keys, errval=dm.errval)
     times.append(time.time())
-    print 'Times: %s' % (getTimeDiffs(times))
-    print 'Testmat:',testmat, testmat.shape, testmat.dtype
+    print('Times: %s' % (getTimeDiffs(times)))
+    print('Testmat:',testmat, testmat.shape, testmat.dtype)
     dists = bulkNNl2(testmat, datamat)
     times.append(time.time())
-    print 'Times: %s' % (getTimeDiffs(times))
-    print dists, dists.shape, dists.dtype
+    print('Times: %s' % (getTimeDiffs(times)))
+    print(dists, dists.shape, dists.dtype)
 
 def dm2redis(dmname, rediscfgfname):
     """Puts a datamatrix into redis.
     Reads fnames from stdin."""
-    from nkpylib.redisutils import redis
     name = os.path.basename(dmname)
     db = redis.Redis(**json.load(open(rediscfgfname)))
     db.sadd('ftypes', name)
-    print 'Opened redis db connection using params in %s and added ftype %s' % (rediscfgfname, name)
+    print('Opened redis db connection using params in %s and added ftype %s' % (rediscfgfname, name))
     # read fnames and map them to ids
     incr = 100000
     fnames = [l.rstrip('\n') for l in sys.stdin if l.rstrip('\n')]
-    print 'Read %d fnames: %s' % (len(fnames), fnames[:5])
+    print('Read %d fnames: %s' % (len(fnames), fnames[:5]))
     groups = list(nkgrouper(incr, fnames))
     idmap = {}
     for i, g in enumerate(groups):
-        print '  On group %d of %d' % (i+1, len(groups))
+        print('  On group %d of %d' % (i+1, len(groups)))
         ids = db.hmget('fnameids', g)
         toset = {}
         for id, fname in zip(ids, g):
@@ -1313,13 +1314,13 @@ def dm2redis(dmname, rediscfgfname):
                 idmap[fname] = toset[fname] = int(db.incr('id_counter'))
             else:
                 idmap[fname] = int(id)
-        print '    Setting %d ids, %d total in idmap' % (len(toset), len(idmap))
+        print('    Setting %d ids, %d total in idmap' % (len(toset), len(idmap)))
         if toset:
             db.hmset('fnameids', toset)
-    print 'Set and got ids for %d fnames' % (len(idmap))
+    print('Set and got ids for %d fnames' % (len(idmap)))
     # load DM and go through it
     dm = DataMatrix(dmname, 'readdata', loadfields=1)
-    print 'Loaded dm %s' % (dmname)
+    print('Loaded dm %s' % (dmname))
     p = db.pipeline()
     for i, fname in enumerate(dm.fields[0]):
         if fname not in idmap: continue
@@ -1327,10 +1328,10 @@ def dm2redis(dmname, rediscfgfname):
         fvec = dm.mmap.getrow(i)
         p.set(key, fvec.tostring())
         if i % 1000 == 0:
-            print '  Executing pipeline for i=%d' % (i)
+            print('  Executing pipeline for i=%d' % (i))
             p.execute()
     p.execute()
-    print 'Finished updating redis'
+    print('Finished updating redis')
 
 def view(dmname, filt=None):
     """Views a datamatrix"""
@@ -1339,16 +1340,15 @@ def view(dmname, filt=None):
     for i, fname in enumerate(dm.fields[0]):
         if filt and filt not in fname: continue
         r = m.getrow(i)
-        print u'%s\t%s' % (fname, getListAsStr(r, '\t'))
+        print(u'%s\t%s' % (fname, getListAsStr(r, '\t')))
 
 
 if __name__ == '__main__':
-    import inspect
     callspec = lambda f: inspect.getsource(f).split('\n')[0].strip().replace('def ','').rstrip(':')
     drivers = [create, getsiftrowspecs, updatesift, checksift, updategist, fnames2rownums, siftimages, externalize, mstrfstrmain, testnn, test, dm2redis, view]
     dnames = [f.__name__ for f in drivers]
     if len(sys.argv) < 2 or sys.argv[1] not in dnames:
-        print 'Usages:\n%s' % ('\n'.join('\t'+callspec(f) for f in drivers))
+        print('Usages:\n%s' % ('\n'.join('\t'+callspec(f) for f in drivers)))
         sys.exit()
     func = eval(sys.argv[1])
     func(*sys.argv[2:])

@@ -200,8 +200,8 @@ garnishes/sides: handful of chopped fresh basil, or cilantro, optional sriracha 
 class Ingredient:
     """A class to represent an ingredient in a recipe."""
     id: str
-    min: float
-    max: float
+    min: float|str
+    max: float|str
     unit: str
     full_item: str
     main_item: str
@@ -209,7 +209,7 @@ class Ingredient:
     importance: int = 1
     type: str = 'main'
     source: str = 'recipe'
-    alternates: list[Ingredient] = None
+    alternates: list[Ingredient] = []
 
 
 class NKRecipe:
@@ -223,7 +223,7 @@ class NKRecipe:
         return f'<NKRecipe name="{self.recipe.get("name", "")}">'
 
     @classmethod
-    def match_ingrs_to_steps(cls, all_steps: list[dict[str]], ingrs: list[Ingredient], name: str) -> None:
+    def match_ingrs_to_steps(cls, all_steps: list[dict[str, Any]], ingrs: list[str], name: str) -> None:
         """For each step, output a list of matching ingredients, using an LLM"""
         ingrs = ['i_%d:%s' % (i, ingr.strip().replace('\n', '. ')) for i, ingr in enumerate(ingrs)]
         steps = []
@@ -248,7 +248,7 @@ Input Steps follow after this.
             cur['ingredients'] = [int(ingr_id.split('_',1)[-1]) for ingr_id in out.split(',')]
 
     @classmethod
-    def add_timers_to_steps(cls, steps: list[dict[str]]) -> None:
+    def add_timers_to_steps(cls, steps: list[dict[str, Any]]) -> None:
         """Adds timer information to steps."""
         inputs = [s['text'] for s in steps]
         prompt = f'''For each of the following steps of a recipe, determine if one or more durations are listed that would be helpful to run timers for. Output a (possibly-empty) comma-separated list of timers corresponding to each input step. There might be multiple timers per step. Output each timer in the form <short name>:<hours>:<minutes>:<seconds> where each of hours, minutes, and seconds might be 0. If a range is given, output a timer for both ends of the range, append " min" and " max" to the short name respectively.
@@ -282,7 +282,10 @@ Input Steps follow after this.
         ret = []
         # run llm in parallel
         outputs = llm_transform_list(base_prompt=INGREDIENT_PROMPT.format(name=name), items=ingredients, chunk_size=50)
-        counts_by_name = Counter()
+        counts_by_name: Counter[str] = Counter()
+        m: str|float;
+        M: str|float;
+        importance: str|int;
         for input, output in zip(ingredients, outputs):
             if not output:
                 raise ValueError(f'Error processing ingredient: {input}')
@@ -311,7 +314,6 @@ Input Steps follow after this.
                              main_item=main_item,
                              importance=importance,
                              notes=notes)
-            obj = asdict(obj)
             #print(f' input: "{input}" -> {obj}')
             ret.append(obj)
         return ret
@@ -324,7 +326,7 @@ Input Steps follow after this.
         return s
 
     @classmethod
-    def sectionize_steps(cls, instructions: list[str]) -> dict[str, list[str]]:
+    def sectionize_steps(cls, instructions: list[dict[str,Any]]) -> dict[str, list[dict[str, Any]]]:
         """Splits the ingredients from the raw recipe into sections as needed. Also does some cleanup."""
         # if we have no sections, enclose in a section named main
         ret = {}

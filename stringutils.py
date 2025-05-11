@@ -50,7 +50,7 @@ class Token(NamedTuple):
 
 class Segment(NamedTuple):
     """Represents a segment of a filename"""
-    tokens: list[str] # list of tokens
+    tokens: list[Token] # list of tokens
 
     @property
     def start(self):
@@ -182,7 +182,7 @@ class FilenameParser:
                 if clean.lower() != clean and clean.upper() != clean and ' ' not in clean:
                     clean = re.sub('([a-z])([A-Z])', r'\1 \2', clean)
             # now extract values
-            value = clean
+            value: str|int|float = clean
             # numbers
             try:
                 value = int(clean)
@@ -211,7 +211,7 @@ class FilenameParser:
         """Replaces `num` tokens in `old_tokens` starting at `idx` with `new_tokens`"""
         return old_tokens[:idx] + new_tokens + old_tokens[idx+num:]
 
-    def find_date(self, tokens) -> Optional[tuple[Token, int, int]]:
+    def find_date(self, tokens) -> tuple[Token, int, int]|None:
         """Looks for the first date from tokens, returning (token, start_idx, length)
 
         For now, we look for 3 tokens in a row that could be a date, and if so, we return it.
@@ -289,11 +289,11 @@ class FilenameParser:
             new_tokens2 = []
             i = 0
             while i < (len(new_tokens) - n + 1):
-                options = [[t.text, t.text.lower(), t.clean, t.clean.lower()] for t in new_tokens[i:i+n]]
-                if len(options) > 1:
-                    options = list(zip(*options))
-                #print(f'  checking {options} against {text_tokens}')
-                if any(text_tokens == option for option in options):
+                option_lists = [[t.text, t.text.lower(), t.clean, t.clean.lower()] for t in new_tokens[i:i+n]]
+                if len(option_lists) > 1:
+                    option_lists = list(zip(*option_lists)) # type: ignore[arg-type]
+                #print(f'  checking {option_lists} against {text_tokens}')
+                if any(text_tokens == option for option in option_lists):
                     # skip this match
                     i += n
                     continue
@@ -1186,18 +1186,17 @@ def parse_num_spec(s: str) -> list[int]:
     for el in els:
         el = el.strip()
         if '-' in el:
-            start, end = el.split('-')
-            start = int(start)
-            end = int(end)
+            _start, _end = el.split('-')
+            start, end = int(_start), int(_end)
             for i in range(start, end+1):
                 if i not in done:
                     ret.append(i)
                     done.add(i)
         else:
-            el = int(el)
-            if el not in done:
-                ret.append(el)
-                done.add(el)
+            _el = int(el)
+            if _el not in done:
+                ret.append(_el)
+                done.add(_el)
     return ret
 
 

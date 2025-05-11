@@ -34,7 +34,7 @@ import requests
 from tqdm import tqdm
 
 from nkpylib.cacheutils import APICache
-from nkpylib.utils import haversinedist
+from nkpylib.geometry import haversinedist
 
 wm_cache = partial(APICache, cachedir='cache/wikimapia/%(fn)s/', mindelay=5, serializer='json')
 ga_cache = partial(APICache, cachedir='cache/geoapify/%(fn)s/', mindelay=5, serializer='json')

@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import sys
 
+from typing import IO, Any
+
+
 class IndentWriter:
     """Base class for writing indented text to a file. This one is non-syntax aware"""
-    def __init__(self, f: file, indent_str:str='    '):
+    def __init__(self, f: IO[Any], indent_str:str='    '):
         self.indent_str = indent_str
         self.level = 0
         self.file = f
@@ -53,9 +56,9 @@ class XmlWriter(IndentWriter):
                 pass
 
     """
-    def __init__(self, f: file, indent_str:str ='    '):
+    def __init__(self, f: IO[Any], indent_str:str ='    '):
         super().__init__(f, indent_str)
-        self._tag_stack = []  # Stack of open tags
+        self._tag_stack: list[_XmlTagContext] = []  # Stack of open tags
 
     def write(self, text: str, **kw) -> None:
         if self._tag_stack:

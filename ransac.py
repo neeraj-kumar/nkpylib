@@ -3,7 +3,6 @@
 
 import os, sys, time
 import numpy as np
-from align import getHomography, transformPts
 
 class Model(object):
     """A baseclass for a model"""
@@ -19,6 +18,7 @@ class Model(object):
 
 class HomographyModel(Model):
     """A homography-based model"""
+    from align import getHomography, transformPts # type: ignore
     def __init__(self, hyp, **kw):
         """Takes a hypothesis, which should have at least 4 pair.
         Each pair should be (x1, y1), (x2, y2).
