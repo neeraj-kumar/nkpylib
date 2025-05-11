@@ -144,8 +144,18 @@ class LetterboxdArchive:
     def __getitem__(self, key: str) -> list[Entry]:
         """Get diary entries (a list) by imdb id"""
         imdb_id_pattern = re.compile(r"tt\d+")
-        imdb_id = imdb_id_pattern.search(key).group(0)
+        matches = imdb_id_pattern.search(key)
+        if not matches:
+            raise KeyError(f'No imdb id in {key}')
+        imdb_id = matches.group(0)
         return self.diary_by_imdb_id[imdb_id]
+
+    def get(self, key: str, default=None) -> list[Entry]:
+        """Get diary entries (a list) by imdb id"""
+        try:
+            return self[key]
+        except KeyError:
+            return default
 
 
 if __name__ == "__main__":
@@ -154,9 +164,18 @@ if __name__ == "__main__":
     parser.add_argument("path", help="Path to the letterboxd archive")
     args = parser.parse_args()
     archive = LetterboxdArchive(args.path)
-    print(f'Read archive with {len(archive)} entries')
-    for i, m in enumerate(archive):
-        print(f'movie {i}: {m}')
-        if i > 4:
-            break
-    print(f'For interstellar, got following diary entries: {archive["tt0816692"]}')
+    print(f'Read letterboxd archive with {len(archive)} entries')
+    # read our mementodb and get list of movies that we've seen
+    from nkpylib.memento import MovieDB
+    mdb = MovieDB()
+    i = 0
+    for m in (mdb):
+        f = m['fields']
+        if 'imdb link' not in f or f['status']:
+            continue
+        matches = archive.get(f['imdb link'])
+        if not matches:
+            continue
+        #print(f'got movie: {m} vs {matches}')
+        print(f"Seen movie {f['title']} ({f.get('recommended by')})")
+        i += 1
