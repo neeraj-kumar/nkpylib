@@ -12,6 +12,7 @@ from argparse import ArgumentParser
 
 from nkpylib.ml.constants import PROVIDERS_PATH
 from nkpylib.web_utils import make_request_async
+from nkpylib.thread_utils import sync_or_async
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,8 @@ async def call_external(endpoint, headers_kw=None, provider_name='', **data):
     return ret
 
 
-def update_providers(path=PROVIDERS_PATH):
+@sync_or_async
+async def update_providers(path=PROVIDERS_PATH):
     """Update the providers file with the latest data for each provider."""
     with open(path) as f:
         providers = json.load(f)
@@ -96,7 +98,8 @@ def update_providers(path=PROVIDERS_PATH):
         logger.info(f'\nUpdating provider {name}')
         if provider.get('no_model_api'):
             continue
-        models = call_provider(name, '/models')['data']
+        _models = await call_provider(name, '/models')
+        models = _models['data']
         logger.debug(f'  {len(models)} models: {models[:10]}')
         provider['models'] = {m['id']: m for m in models}
     # backup existing one to %s.bak (overwriting any previous), then write new one
