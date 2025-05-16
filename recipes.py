@@ -209,7 +209,7 @@ class Ingredient:
     importance: int = 1
     type: str = 'main'
     source: str = 'recipe'
-    alternates: list[Ingredient] = []
+    alternates: list[Ingredient]|None = None
 
 
 class NKRecipe:
