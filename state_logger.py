@@ -279,7 +279,7 @@ def web_main():
     parser.add_argument('data_path', help="The path to the data file")
     kw = {}
     def post_parse_fn(args):
-        reader = StateLogReader(args.data_path)
+        reader = StateLogReader(args['data_path'])
         kw['reader'] = reader
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/state_logger.jsx',
