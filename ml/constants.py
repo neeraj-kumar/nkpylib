@@ -22,6 +22,8 @@ DEFAULT_MODELS = dict(
     # clip for image <-> text embeddings in same space
     clip="openai/clip-vit-large-patch14",
     image='openai/clip-vit-large-patch14',
+    # llama4 (scout) for top-line perf on text tasks
+    llama4='meta-llama/Llama-4-Scout-17B-16E-Instruct',
     # llama3 for default good perf on various text tasks
     llama3='meta-llama/Llama-3.3-70B-Instruct',
     text='meta-llama/Llama-3.3-70B-Instruct',

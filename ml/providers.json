@@ -3,52 +3,28 @@
     "api_key_var": "DEEPINFRA_API_TOKEN",
     "base_url": "https://api.deepinfra.com/v1/openai",
     "models": {
-      "NousResearch/Hermes-3-Llama-3.1-405B": {
-        "id": "NousResearch/Hermes-3-Llama-3.1-405B",
+      "Gryphe/MythoMax-L2-13b-turbo": {
+        "id": "Gryphe/MythoMax-L2-13b-turbo",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "NousResearch/Hermes-3-Llama-3.1-405B",
+        "root": "Gryphe/MythoMax-L2-13b-turbo",
         "parent": null
       },
-      "openbmb/MiniCPM-Llama3-V-2_5": {
-        "id": "openbmb/MiniCPM-Llama3-V-2_5",
+      "google/gemma-2-9b-it": {
+        "id": "google/gemma-2-9b-it",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "openbmb/MiniCPM-Llama3-V-2_5",
+        "root": "google/gemma-2-9b-it",
         "parent": null
       },
-      "deepseek-ai/DeepSeek-R1": {
-        "id": "deepseek-ai/DeepSeek-R1",
+      "microsoft/phi-4-reasoning-plus": {
+        "id": "microsoft/phi-4-reasoning-plus",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-R1",
-        "parent": null
-      },
-      "bigcode/starcoder2-15b": {
-        "id": "bigcode/starcoder2-15b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "bigcode/starcoder2-15b",
-        "parent": null
-      },
-      "mistralai/Mistral-7B-Instruct-v0.1": {
-        "id": "mistralai/Mistral-7B-Instruct-v0.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-7B-Instruct-v0.1",
-        "parent": null
-      },
-      "KoboldAI/LLaMA2-13B-Tiefighter": {
-        "id": "KoboldAI/LLaMA2-13B-Tiefighter",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "KoboldAI/LLaMA2-13B-Tiefighter",
+        "root": "microsoft/phi-4-reasoning-plus",
         "parent": null
       },
       "Qwen/Qwen2.5-7B-Instruct": {
@@ -59,328 +35,28 @@
         "root": "Qwen/Qwen2.5-7B-Instruct",
         "parent": null
       },
-      "Sao10K/L3.3-70B-Euryale-v2.3": {
-        "id": "Sao10K/L3.3-70B-Euryale-v2.3",
+      "google/gemini-2.0-flash-001": {
+        "id": "google/gemini-2.0-flash-001",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Sao10K/L3.3-70B-Euryale-v2.3",
+        "root": "google/gemini-2.0-flash-001",
         "parent": null
       },
-      "nvidia/Nemotron-4-340B-Instruct": {
-        "id": "nvidia/Nemotron-4-340B-Instruct",
+      "deepseek-ai/DeepSeek-R1-Distill-Llama-70B": {
+        "id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "nvidia/Nemotron-4-340B-Instruct",
+        "root": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
         "parent": null
       },
-      "meta-llama/Llama-3.2-1B-Instruct": {
-        "id": "meta-llama/Llama-3.2-1B-Instruct",
+      "google/gemma-3-12b-it": {
+        "id": "google/gemma-3-12b-it",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-1B-Instruct",
-        "parent": null
-      },
-      "Qwen/Qwen2-72B-Instruct": {
-        "id": "Qwen/Qwen2-72B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2-72B-Instruct",
-        "parent": null
-      },
-      "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": {
-        "id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
-        "parent": null
-      },
-      "google/gemma-1.1-7b-it": {
-        "id": "google/gemma-1.1-7b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-1.1-7b-it",
-        "parent": null
-      },
-      "microsoft/phi-4": {
-        "id": "microsoft/phi-4",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/phi-4",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3-8B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3-8B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3-8B-Instruct",
-        "parent": null
-      },
-      "Sao10K/L3-8B-Lunaris-v1": {
-        "id": "Sao10K/L3-8B-Lunaris-v1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Sao10K/L3-8B-Lunaris-v1",
-        "parent": null
-      },
-      "mistralai/Mistral-Nemo-Instruct-2407": {
-        "id": "mistralai/Mistral-Nemo-Instruct-2407",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-Nemo-Instruct-2407",
-        "parent": null
-      },
-      "intfloat/e5-large-v2": {
-        "id": "intfloat/e5-large-v2",
-        "object": "model"
-      },
-      "Austism/chronos-hermes-13b-v2": {
-        "id": "Austism/chronos-hermes-13b-v2",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Austism/chronos-hermes-13b-v2",
-        "parent": null
-      },
-      "Sao10K/L3-70B-Euryale-v2.1": {
-        "id": "Sao10K/L3-70B-Euryale-v2.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Sao10K/L3-70B-Euryale-v2.1",
-        "parent": null
-      },
-      "mistralai/Mistral-7B-Instruct-v0.2": {
-        "id": "mistralai/Mistral-7B-Instruct-v0.2",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-7B-Instruct-v0.2",
-        "parent": null
-      },
-      "nvidia/Llama-3.1-Nemotron-70B-Instruct": {
-        "id": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
-        "parent": null
-      },
-      "Sao10K/L3.1-70B-Euryale-v2.2": {
-        "id": "Sao10K/L3.1-70B-Euryale-v2.2",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Sao10K/L3.1-70B-Euryale-v2.2",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3.1-70B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3.1-70B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-70B-Instruct",
-        "parent": null
-      },
-      "lizpreciatior/lzlv_70b_fp16_hf": {
-        "id": "lizpreciatior/lzlv_70b_fp16_hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "lizpreciatior/lzlv_70b_fp16_hf",
-        "parent": null
-      },
-      "microsoft/Phi-3-medium-4k-instruct": {
-        "id": "microsoft/Phi-3-medium-4k-instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/Phi-3-medium-4k-instruct",
-        "parent": null
-      },
-      "mistralai/Mixtral-8x7B-Instruct-v0.1": {
-        "id": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-        "parent": null
-      },
-      "openchat/openchat_3.5": {
-        "id": "openchat/openchat_3.5",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "openchat/openchat_3.5",
-        "parent": null
-      },
-      "meta-llama/Llama-3.3-70B-Instruct": {
-        "id": "meta-llama/Llama-3.3-70B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.3-70B-Instruct",
-        "parent": null
-      },
-      "NovaSky-AI/Sky-T1-32B-Preview": {
-        "id": "NovaSky-AI/Sky-T1-32B-Preview",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "NovaSky-AI/Sky-T1-32B-Preview",
-        "parent": null
-      },
-      "mistralai/Mistral-Small-24B-Instruct-2501": {
-        "id": "mistralai/Mistral-Small-24B-Instruct-2501",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-Small-24B-Instruct-2501",
-        "parent": null
-      },
-      "meta-llama/Llama-2-70b-chat-hf": {
-        "id": "meta-llama/Llama-2-70b-chat-hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-2-70b-chat-hf",
-        "parent": null
-      },
-      "Qwen/Qwen2.5-Coder-32B-Instruct": {
-        "id": "Qwen/Qwen2.5-Coder-32B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2.5-Coder-32B-Instruct",
-        "parent": null
-      },
-      "codellama/CodeLlama-34b-Instruct-hf": {
-        "id": "codellama/CodeLlama-34b-Instruct-hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "codellama/CodeLlama-34b-Instruct-hf",
-        "parent": null
-      },
-      "google/gemma-2-27b-it": {
-        "id": "google/gemma-2-27b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-2-27b-it",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3-70B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3-70B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3-70B-Instruct",
-        "parent": null
-      },
-      "openchat/openchat-3.6-8b": {
-        "id": "openchat/openchat-3.6-8b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "openchat/openchat-3.6-8b",
-        "parent": null
-      },
-      "Qwen/QwQ-32B-Preview": {
-        "id": "Qwen/QwQ-32B-Preview",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/QwQ-32B-Preview",
-        "parent": null
-      },
-      "Qwen/QVQ-72B-Preview": {
-        "id": "Qwen/QVQ-72B-Preview",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/QVQ-72B-Preview",
-        "parent": null
-      },
-      "cognitivecomputations/dolphin-2.6-mixtral-8x7b": {
-        "id": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3.1-8B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "parent": null
-      },
-      "mistralai/Mistral-7B-Instruct-v0.3": {
-        "id": "mistralai/Mistral-7B-Instruct-v0.3",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-7B-Instruct-v0.3",
-        "parent": null
-      },
-      "codellama/CodeLlama-70b-Instruct-hf": {
-        "id": "codellama/CodeLlama-70b-Instruct-hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "codellama/CodeLlama-70b-Instruct-hf",
-        "parent": null
-      },
-      "meta-llama/Llama-3.2-90B-Vision-Instruct": {
-        "id": "meta-llama/Llama-3.2-90B-Vision-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-90B-Vision-Instruct",
-        "parent": null
-      },
-      "meta-llama/Llama-3.2-11B-Vision-Instruct": {
-        "id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-        "parent": null
-      },
-      "meta-llama/Llama-2-7b-chat-hf": {
-        "id": "meta-llama/Llama-2-7b-chat-hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-2-7b-chat-hf",
-        "parent": null
-      },
-      "meta-llama/Llama-3.2-3B-Instruct": {
-        "id": "meta-llama/Llama-3.2-3B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-3B-Instruct",
-        "parent": null
-      },
-      "deepinfra/airoboros-70b": {
-        "id": "deepinfra/airoboros-70b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepinfra/airoboros-70b",
+        "root": "google/gemma-3-12b-it",
         "parent": null
       },
       "Phind/Phind-CodeLlama-34B-v2": {
@@ -399,140 +75,36 @@
         "root": "google/codegemma-7b-it",
         "parent": null
       },
-      "deepseek-ai/DeepSeek-R1-Distill-Llama-70B": {
-        "id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+      "Sao10K/L3.3-70B-Euryale-v2.3": {
+        "id": "Sao10K/L3.3-70B-Euryale-v2.3",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+        "root": "Sao10K/L3.3-70B-Euryale-v2.3",
         "parent": null
       },
-      "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {
-        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "Qwen/Qwen3-235B-A22B": {
+        "id": "Qwen/Qwen3-235B-A22B",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "root": "Qwen/Qwen3-235B-A22B",
         "parent": null
       },
-      "Qwen/Qwen2-7B-Instruct": {
-        "id": "Qwen/Qwen2-7B-Instruct",
+      "cognitivecomputations/dolphin-2.6-mixtral-8x7b": {
+        "id": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2-7B-Instruct",
+        "root": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
         "parent": null
       },
-      "Qwen/Qwen2.5-72B-Instruct": {
-        "id": "Qwen/Qwen2.5-72B-Instruct",
+      "Qwen/QwQ-32B": {
+        "id": "Qwen/QwQ-32B",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2.5-72B-Instruct",
-        "parent": null
-      },
-      "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
-        "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        "parent": null
-      },
-      "google/gemma-2-9b-it": {
-        "id": "google/gemma-2-9b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-2-9b-it",
-        "parent": null
-      },
-      "mistralai/Mixtral-8x22B-Instruct-v0.1": {
-        "id": "mistralai/Mixtral-8x22B-Instruct-v0.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mixtral-8x22B-Instruct-v0.1",
-        "parent": null
-      },
-      "mattshumer/Reflection-Llama-3.1-70B": {
-        "id": "mattshumer/Reflection-Llama-3.1-70B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mattshumer/Reflection-Llama-3.1-70B",
-        "parent": null
-      },
-      "Gryphe/MythoMax-L2-13b": {
-        "id": "Gryphe/MythoMax-L2-13b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Gryphe/MythoMax-L2-13b",
-        "parent": null
-      },
-      "databricks/dbrx-instruct": {
-        "id": "databricks/dbrx-instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "databricks/dbrx-instruct",
-        "parent": null
-      },
-      "mistralai/Mixtral-8x22B-v0.1": {
-        "id": "mistralai/Mixtral-8x22B-v0.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mixtral-8x22B-v0.1",
-        "parent": null
-      },
-      "Gryphe/MythoMax-L2-13b-turbo": {
-        "id": "Gryphe/MythoMax-L2-13b-turbo",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Gryphe/MythoMax-L2-13b-turbo",
-        "parent": null
-      },
-      "Qwen/Qwen2.5-Coder-7B": {
-        "id": "Qwen/Qwen2.5-Coder-7B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2.5-Coder-7B",
-        "parent": null
-      },
-      "microsoft/WizardLM-2-7B": {
-        "id": "microsoft/WizardLM-2-7B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/WizardLM-2-7B",
-        "parent": null
-      },
-      "cognitivecomputations/dolphin-2.9.1-llama-3-70b": {
-        "id": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
-        "parent": null
-      },
-      "deepseek-ai/DeepSeek-V3": {
-        "id": "deepseek-ai/DeepSeek-V3",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-V3",
-        "parent": null
-      },
-      "meta-llama/Llama-2-13b-chat-hf": {
-        "id": "meta-llama/Llama-2-13b-chat-hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-2-13b-chat-hf",
+        "root": "Qwen/QwQ-32B",
         "parent": null
       },
       "bigcode/starcoder2-15b-instruct-v0.1": {
@@ -543,20 +115,300 @@
         "root": "bigcode/starcoder2-15b-instruct-v0.1",
         "parent": null
       },
-      "HuggingFaceH4/zephyr-orpo-141b-A35b-v0.1": {
-        "id": "HuggingFaceH4/zephyr-orpo-141b-A35b-v0.1",
+      "anthropic/claude-3-7-sonnet-latest": {
+        "id": "anthropic/claude-3-7-sonnet-latest",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "HuggingFaceH4/zephyr-orpo-141b-A35b-v0.1",
+        "root": "anthropic/claude-3-7-sonnet-latest",
         "parent": null
       },
-      "microsoft/WizardLM-2-8x22B": {
-        "id": "microsoft/WizardLM-2-8x22B",
+      "deepseek-ai/DeepSeek-V3": {
+        "id": "deepseek-ai/DeepSeek-V3",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "microsoft/WizardLM-2-8x22B",
+        "root": "deepseek-ai/DeepSeek-V3",
+        "parent": null
+      },
+      "microsoft/Phi-3-medium-4k-instruct": {
+        "id": "microsoft/Phi-3-medium-4k-instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/Phi-3-medium-4k-instruct",
+        "parent": null
+      },
+      "Qwen/QwQ-32B-Preview": {
+        "id": "Qwen/QwQ-32B-Preview",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/QwQ-32B-Preview",
+        "parent": null
+      },
+      "mistralai/Mistral-Small-24B-Instruct-2501": {
+        "id": "mistralai/Mistral-Small-24B-Instruct-2501",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-Small-24B-Instruct-2501",
+        "parent": null
+      },
+      "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
+        "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "parent": null
+      },
+      "openbmb/MiniCPM-Llama3-V-2_5": {
+        "id": "openbmb/MiniCPM-Llama3-V-2_5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "openbmb/MiniCPM-Llama3-V-2_5",
+        "parent": null
+      },
+      "NousResearch/Hermes-3-Llama-3.1-405B": {
+        "id": "NousResearch/Hermes-3-Llama-3.1-405B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "NousResearch/Hermes-3-Llama-3.1-405B",
+        "parent": null
+      },
+      "meta-llama/Llama-4-Scout-17B-16E-Instruct": {
+        "id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        "parent": null
+      },
+      "Qwen/Qwen2.5-Coder-7B": {
+        "id": "Qwen/Qwen2.5-Coder-7B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-Coder-7B",
+        "parent": null
+      },
+      "google/gemini-2.5-flash": {
+        "id": "google/gemini-2.5-flash",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-2.5-flash",
+        "parent": null
+      },
+      "google/gemma-2-27b-it": {
+        "id": "google/gemma-2-27b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-2-27b-it",
+        "parent": null
+      },
+      "Sao10K/L3-70B-Euryale-v2.1": {
+        "id": "Sao10K/L3-70B-Euryale-v2.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3-70B-Euryale-v2.1",
+        "parent": null
+      },
+      "Qwen/Qwen2.5-72B-Instruct": {
+        "id": "Qwen/Qwen2.5-72B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-72B-Instruct",
+        "parent": null
+      },
+      "nvidia/Llama-3.1-Nemotron-70B-Instruct": {
+        "id": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
+        "parent": null
+      },
+      "meta-llama/Llama-3.3-70B-Instruct": {
+        "id": "meta-llama/Llama-3.3-70B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.3-70B-Instruct",
+        "parent": null
+      },
+      "Sao10K/L3-8B-Lunaris-v1-Turbo": {
+        "id": "Sao10K/L3-8B-Lunaris-v1-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3-8B-Lunaris-v1-Turbo",
+        "parent": null
+      },
+      "nvidia/Nemotron-4-340B-Instruct": {
+        "id": "nvidia/Nemotron-4-340B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "nvidia/Nemotron-4-340B-Instruct",
+        "parent": null
+      },
+      "microsoft/Phi-4-multimodal-instruct": {
+        "id": "microsoft/Phi-4-multimodal-instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/Phi-4-multimodal-instruct",
+        "parent": null
+      },
+      "meta-llama/Llama-Guard-3-8B": {
+        "id": "meta-llama/Llama-Guard-3-8B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-Guard-3-8B",
+        "parent": null
+      },
+      "lizpreciatior/lzlv_70b_fp16_hf": {
+        "id": "lizpreciatior/lzlv_70b_fp16_hf",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "lizpreciatior/lzlv_70b_fp16_hf",
+        "parent": null
+      },
+      "Qwen/Qwen2-72B-Instruct": {
+        "id": "Qwen/Qwen2-72B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2-72B-Instruct",
+        "parent": null
+      },
+      "mistralai/Mixtral-8x22B-Instruct-v0.1": {
+        "id": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+        "parent": null
+      },
+      "NovaSky-AI/Sky-T1-32B-Preview": {
+        "id": "NovaSky-AI/Sky-T1-32B-Preview",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "NovaSky-AI/Sky-T1-32B-Preview",
+        "parent": null
+      },
+      "meta-llama/Meta-Llama-3.1-70B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "parent": null
+      },
+      "meta-llama/Llama-2-13b-chat-hf": {
+        "id": "meta-llama/Llama-2-13b-chat-hf",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-2-13b-chat-hf",
+        "parent": null
+      },
+      "Austism/chronos-hermes-13b-v2": {
+        "id": "Austism/chronos-hermes-13b-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Austism/chronos-hermes-13b-v2",
+        "parent": null
+      },
+      "Gryphe/MythoMax-L2-13b": {
+        "id": "Gryphe/MythoMax-L2-13b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Gryphe/MythoMax-L2-13b",
+        "parent": null
+      },
+      "Sao10K/L3-8B-Lunaris-v1": {
+        "id": "Sao10K/L3-8B-Lunaris-v1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3-8B-Lunaris-v1",
+        "parent": null
+      },
+      "meta-llama/Meta-Llama-3-8B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "parent": null
+      },
+      "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {
+        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "parent": null
+      },
+      "Qwen/Qwen3-30B-A3B": {
+        "id": "Qwen/Qwen3-30B-A3B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-30B-A3B",
+        "parent": null
+      },
+      "meta-llama/Llama-2-70b-chat-hf": {
+        "id": "meta-llama/Llama-2-70b-chat-hf",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-2-70b-chat-hf",
+        "parent": null
+      },
+      "google/gemma-1.1-7b-it": {
+        "id": "google/gemma-1.1-7b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-1.1-7b-it",
+        "parent": null
+      },
+      "meta-llama/Llama-3.2-3B-Instruct": {
+        "id": "meta-llama/Llama-3.2-3B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-3B-Instruct",
+        "parent": null
+      },
+      "microsoft/phi-4": {
+        "id": "microsoft/phi-4",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/phi-4",
+        "parent": null
+      },
+      "mistralai/Mistral-7B-Instruct-v0.1": {
+        "id": "mistralai/Mistral-7B-Instruct-v0.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-7B-Instruct-v0.1",
         "parent": null
       },
       "meta-llama/Meta-Llama-3.1-405B-Instruct": {
@@ -567,6 +419,158 @@
         "root": "meta-llama/Meta-Llama-3.1-405B-Instruct",
         "parent": null
       },
+      "meta-llama/Llama-3.2-90B-Vision-Instruct": {
+        "id": "meta-llama/Llama-3.2-90B-Vision-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-90B-Vision-Instruct",
+        "parent": null
+      },
+      "deepseek-ai/DeepSeek-V3-0324": {
+        "id": "deepseek-ai/DeepSeek-V3-0324",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-V3-0324",
+        "parent": null
+      },
+      "cognitivecomputations/dolphin-2.9.1-llama-3-70b": {
+        "id": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
+        "parent": null
+      },
+      "mistralai/Mistral-Nemo-Instruct-2407": {
+        "id": "mistralai/Mistral-Nemo-Instruct-2407",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-Nemo-Instruct-2407",
+        "parent": null
+      },
+      "microsoft/WizardLM-2-8x22B": {
+        "id": "microsoft/WizardLM-2-8x22B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/WizardLM-2-8x22B",
+        "parent": null
+      },
+      "Qwen/Qwen2.5-Coder-32B-Instruct": {
+        "id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "parent": null
+      },
+      "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": {
+        "id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+        "parent": null
+      },
+      "Qwen/Qwen3-32B": {
+        "id": "Qwen/Qwen3-32B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-32B",
+        "parent": null
+      },
+      "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
+        "id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "parent": null
+      },
+      "meta-llama/Meta-Llama-3.1-8B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "parent": null
+      },
+      "Qwen/Qwen2-7B-Instruct": {
+        "id": "Qwen/Qwen2-7B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2-7B-Instruct",
+        "parent": null
+      },
+      "deepseek-ai/DeepSeek-R1": {
+        "id": "deepseek-ai/DeepSeek-R1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1",
+        "parent": null
+      },
+      "meta-llama/Llama-3.2-1B-Instruct": {
+        "id": "meta-llama/Llama-3.2-1B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-1B-Instruct",
+        "parent": null
+      },
+      "mistralai/Mistral-7B-Instruct-v0.2": {
+        "id": "mistralai/Mistral-7B-Instruct-v0.2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-7B-Instruct-v0.2",
+        "parent": null
+      },
+      "mistralai/Mistral-7B-Instruct-v0.3": {
+        "id": "mistralai/Mistral-7B-Instruct-v0.3",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-7B-Instruct-v0.3",
+        "parent": null
+      },
+      "deepinfra/airoboros-70b": {
+        "id": "deepinfra/airoboros-70b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepinfra/airoboros-70b",
+        "parent": null
+      },
+      "google/gemma-3-4b-it": {
+        "id": "google/gemma-3-4b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-3-4b-it",
+        "parent": null
+      },
+      "google/gemini-2.5-pro": {
+        "id": "google/gemini-2.5-pro",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-2.5-pro",
+        "parent": null
+      },
+      "meta-llama/Llama-3.2-11B-Vision-Instruct": {
+        "id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+        "parent": null
+      },
       "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": {
         "id": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
         "object": "model",
@@ -575,12 +579,132 @@
         "root": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
         "parent": null
       },
-      "01-ai/Yi-34B-Chat": {
-        "id": "01-ai/Yi-34B-Chat",
+      "google/gemini-1.5-flash-8b": {
+        "id": "google/gemini-1.5-flash-8b",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "01-ai/Yi-34B-Chat",
+        "root": "google/gemini-1.5-flash-8b",
+        "parent": null
+      },
+      "openchat/openchat_3.5": {
+        "id": "openchat/openchat_3.5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "openchat/openchat_3.5",
+        "parent": null
+      },
+      "deepseek-ai/DeepSeek-Prover-V2-671B": {
+        "id": "deepseek-ai/DeepSeek-Prover-V2-671B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-Prover-V2-671B",
+        "parent": null
+      },
+      "mattshumer/Reflection-Llama-3.1-70B": {
+        "id": "mattshumer/Reflection-Llama-3.1-70B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mattshumer/Reflection-Llama-3.1-70B",
+        "parent": null
+      },
+      "google/gemini-1.5-flash": {
+        "id": "google/gemini-1.5-flash",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-1.5-flash",
+        "parent": null
+      },
+      "meta-llama/Llama-Guard-4-12B": {
+        "id": "meta-llama/Llama-Guard-4-12B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-Guard-4-12B",
+        "parent": null
+      },
+      "google/gemma-3-27b-it": {
+        "id": "google/gemma-3-27b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-3-27b-it",
+        "parent": null
+      },
+      "KoboldAI/LLaMA2-13B-Tiefighter": {
+        "id": "KoboldAI/LLaMA2-13B-Tiefighter",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "KoboldAI/LLaMA2-13B-Tiefighter",
+        "parent": null
+      },
+      "Qwen/Qwen3-14B": {
+        "id": "Qwen/Qwen3-14B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-14B",
+        "parent": null
+      },
+      "openchat/openchat-3.6-8b": {
+        "id": "openchat/openchat-3.6-8b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "openchat/openchat-3.6-8b",
+        "parent": null
+      },
+      "Qwen/QVQ-72B-Preview": {
+        "id": "Qwen/QVQ-72B-Preview",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/QVQ-72B-Preview",
+        "parent": null
+      },
+      "deepseek-ai/DeepSeek-R1-Turbo": {
+        "id": "deepseek-ai/DeepSeek-R1-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1-Turbo",
+        "parent": null
+      },
+      "meta-llama/Meta-Llama-3-70B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3-70B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3-70B-Instruct",
+        "parent": null
+      },
+      "mistralai/Mixtral-8x7B-Instruct-v0.1": {
+        "id": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        "parent": null
+      },
+      "Sao10K/L3.1-70B-Euryale-v2.2": {
+        "id": "Sao10K/L3.1-70B-Euryale-v2.2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3.1-70B-Euryale-v2.2",
+        "parent": null
+      },
+      "microsoft/WizardLM-2-7B": {
+        "id": "microsoft/WizardLM-2-7B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/WizardLM-2-7B",
         "parent": null
       }
     }
@@ -590,10 +714,18 @@
     "base_url": "https://api.together.xyz/v1",
     "no_model_api": true,
     "models": {
-"Qwen/Qwen2-VL-72B-Instruct": {"id": "Qwen/Qwen2-VL-72B-Instruct"},
-"meta-llama/Llama-Vision-Free": {"id": "meta-llama/Llama-Vision-Free"},
-"meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": {"id": "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo"},
-"meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo": {"id": "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo"},
+      "Qwen/Qwen2-VL-72B-Instruct": {
+        "id": "Qwen/Qwen2-VL-72B-Instruct"
+      },
+      "meta-llama/Llama-Vision-Free": {
+        "id": "meta-llama/Llama-Vision-Free"
+      },
+      "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": {
+        "id": "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo"
+      },
+      "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo": {
+        "id": "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo"
+      },
       "zero-one-ai/Yi-34B-Chat": {
         "id": "zero-one-ai/Yi-34B-Chat"
       },
@@ -789,34 +921,24 @@
     "api_key_var": "FIREWORKS_API_TOKEN",
     "base_url": "https://api.fireworks.ai/inference/v1",
     "models": {
-      "accounts/yi-01-ai/models/yi-large": {
-        "id": "accounts/yi-01-ai/models/yi-large",
+      "accounts/fireworks/models/qwq-32b": {
+        "id": "accounts/fireworks/models/qwq-32b",
         "object": "model",
-        "owned_by": "yi-01-ai",
-        "created": 1719445303,
+        "owned_by": "fireworks",
+        "created": 1741204251,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
         "supports_tools": false,
-        "context_length": 32768
+        "context_length": 131072
       },
-      "accounts/mels-e0299e/models/aiderlm-v0": {
-        "id": "accounts/mels-e0299e/models/aiderlm-v0",
+      "accounts/instacart/models/srl-finetune-0417-debug": {
+        "id": "accounts/instacart/models/srl-finetune-0417-debug",
         "object": "model",
-        "owned_by": "mels-e0299e",
-        "created": 1737740484,
+        "owned_by": "instacart",
+        "created": 1744916473,
         "kind": "HF_PEFT_ADDON",
         "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false
-      },
-      "accounts/fireworks/models/flux-1-schnell-fp8": {
-        "id": "accounts/fireworks/models/flux-1-schnell-fp8",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1729535376,
-        "kind": "FLUMINA_BASE_MODEL",
-        "supports_chat": false,
         "supports_image_input": false,
         "supports_tools": false
       },
@@ -830,49 +952,49 @@
         "supports_image_input": false,
         "supports_tools": false
       },
-      "accounts/fireworks/models/mistral-small-24b-instruct-2501": {
-        "id": "accounts/fireworks/models/mistral-small-24b-instruct-2501",
+      "accounts/fireworks/models/llama4-maverick-instruct-basic": {
+        "id": "accounts/fireworks/models/llama4-maverick-instruct-basic",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1738241944,
+        "created": 1743878495,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 32768
+        "supports_image_input": true,
+        "supports_tools": true,
+        "context_length": 1048576
       },
-      "accounts/fireworks/models/deepseek-r1": {
-        "id": "accounts/fireworks/models/deepseek-r1",
+      "accounts/fireworks/models/qwen3-30b-a3b": {
+        "id": "accounts/fireworks/models/qwen3-30b-a3b",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1737397673,
+        "created": 1745878133,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
         "supports_tools": false,
-        "context_length": 163840
+        "context_length": 40000
       },
-      "accounts/fireworks/models/mixtral-8x22b-instruct": {
-        "id": "accounts/fireworks/models/mixtral-8x22b-instruct",
+      "accounts/fireworks/models/llama4-scout-instruct-basic": {
+        "id": "accounts/fireworks/models/llama4-scout-instruct-basic",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1713375508,
+        "created": 1743878279,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 65536
+        "supports_image_input": true,
+        "supports_tools": true,
+        "context_length": 1048576
       },
-      "accounts/fireworks/models/llama-v3-8b-instruct": {
-        "id": "accounts/fireworks/models/llama-v3-8b-instruct",
+      "accounts/fireworks/models/firesearch-ocr-v6": {
+        "id": "accounts/fireworks/models/firesearch-ocr-v6",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1713472181,
+        "created": 1733897492,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
-        "supports_image_input": false,
+        "supports_image_input": true,
         "supports_tools": false,
-        "context_length": 8192
+        "context_length": 131072
       },
       "accounts/fireworks/models/deepseek-v3": {
         "id": "accounts/fireworks/models/deepseek-v3",
@@ -882,29 +1004,7 @@
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/fireworks/models/qwen-qwq-32b-preview": {
-        "id": "accounts/fireworks/models/qwen-qwq-32b-preview",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1732738990,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 32768
-      },
-      "accounts/fireworks/models/llama-v3p1-405b-instruct": {
-        "id": "accounts/fireworks/models/llama-v3p1-405b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1721428386,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
+        "supports_tools": true,
         "context_length": 131072
       },
       "accounts/fireworks/models/llama-v3p1-8b-instruct": {
@@ -918,49 +1018,6 @@
         "supports_tools": false,
         "context_length": 131072
       },
-      "accounts/fireworks/models/llama-v3-8b-instruct-hf": {
-        "id": "accounts/fireworks/models/llama-v3-8b-instruct-hf",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1713474103,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 8192
-      },
-      "accounts/fireworks/models/llama-v3p2-3b-instruct": {
-        "id": "accounts/fireworks/models/llama-v3p2-3b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1726694681,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/fireworks/models/qwen2p5-72b-instruct": {
-        "id": "accounts/fireworks/models/qwen2p5-72b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1727827284,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 32768
-      },
-      "accounts/fireworks/models/llama-v3p1-405b-instruct-long": {
-        "id": "accounts/fireworks/models/llama-v3p1-405b-instruct-long",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1723679065,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false
-      },
       "accounts/fireworks/models/llama-v3p1-70b-instruct": {
         "id": "accounts/fireworks/models/llama-v3p1-70b-instruct",
         "object": "model",
@@ -969,30 +1026,41 @@
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
-        "supports_tools": false,
+        "supports_tools": true,
         "context_length": 131072
       },
-      "accounts/fireworks/models/llama-v3-70b-instruct": {
-        "id": "accounts/fireworks/models/llama-v3-70b-instruct",
+      "accounts/fireworks/models/deepseek-v3-0324": {
+        "id": "accounts/fireworks/models/deepseek-v3-0324",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1713462220,
+        "created": 1742827220,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 163840
+      },
+      "accounts/fireworks/models/qwen3-235b-a22b": {
+        "id": "accounts/fireworks/models/qwen3-235b-a22b",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1745885249,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 128000
+      },
+      "accounts/fireworks/models/deepseek-r1-basic": {
+        "id": "accounts/fireworks/models/deepseek-r1-basic",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1742306746,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
         "supports_tools": false,
-        "context_length": 8192
-      },
-      "accounts/fireworks/models/llama-v3p2-90b-vision-instruct": {
-        "id": "accounts/fireworks/models/llama-v3p2-90b-vision-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1727132928,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": true,
-        "supports_tools": false,
-        "context_length": 131072
+        "context_length": 163840
       },
       "accounts/fireworks/models/llama-v3p3-70b-instruct": {
         "id": "accounts/fireworks/models/llama-v3p3-70b-instruct",
@@ -1005,16 +1073,27 @@
         "supports_tools": false,
         "context_length": 131072
       },
-      "accounts/fireworks/models/qwen2p5-coder-32b-instruct": {
-        "id": "accounts/fireworks/models/qwen2p5-coder-32b-instruct",
+      "accounts/fireworks/models/deepseek-r1": {
+        "id": "accounts/fireworks/models/deepseek-r1",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1731373788,
+        "created": 1737397673,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
         "supports_tools": false,
-        "context_length": 32768
+        "context_length": 163840
+      },
+      "accounts/fireworks/models/qwen2p5-vl-32b-instruct": {
+        "id": "accounts/fireworks/models/qwen2p5-vl-32b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1743392739,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": true,
+        "supports_tools": false,
+        "context_length": 128000
       },
       "accounts/fireworks/models/qwen2-vl-72b-instruct": {
         "id": "accounts/fireworks/models/qwen2-vl-72b-instruct",
@@ -1027,17 +1106,6 @@
         "supports_tools": false,
         "context_length": 32768
       },
-      "accounts/fireworks/models/llama-v3p2-11b-vision-instruct": {
-        "id": "accounts/fireworks/models/llama-v3p2-11b-vision-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1727222019,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": true,
-        "supports_tools": false,
-        "context_length": 131072
-      },
       "accounts/fireworks/models/llama-guard-3-8b": {
         "id": "accounts/fireworks/models/llama-guard-3-8b",
         "object": "model",
@@ -1049,90 +1117,80 @@
         "supports_tools": false,
         "context_length": 131072
       },
-      "accounts/fireworks/models/phi-3-vision-128k-instruct": {
-        "id": "accounts/fireworks/models/phi-3-vision-128k-instruct",
+      "accounts/sentientfoundation/models/dobby-unhinged-llama-3-3-70b-new": {
+        "id": "accounts/sentientfoundation/models/dobby-unhinged-llama-3-3-70b-new",
+        "object": "model",
+        "owned_by": "sentientfoundation",
+        "created": 1739563474,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/flux-1-schnell-fp8": {
+        "id": "accounts/fireworks/models/flux-1-schnell-fp8",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1716976879,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": true,
-        "supports_tools": false,
-        "context_length": 32064
-      },
-      "accounts/sentientfoundation/models/dobby-mini-leashed-llama-3-1-8b": {
-        "id": "accounts/sentientfoundation/models/dobby-mini-leashed-llama-3-1-8b",
-        "object": "model",
-        "owned_by": "sentientfoundation",
-        "created": 1737752454,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/sentientfoundation/models/dobby-mini-unhinged-llama-3-1-8b": {
-        "id": "accounts/sentientfoundation/models/dobby-mini-unhinged-llama-3-1-8b",
-        "object": "model",
-        "owned_by": "sentientfoundation",
-        "created": 1737752741,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/marco-0dece6/models/state-transition-llama3p1": {
-        "id": "accounts/marco-0dece6/models/state-transition-llama3p1",
-        "object": "model",
-        "owned_by": "marco-0dece6",
-        "created": 1727293189,
-        "kind": "HF_PEFT_ADDON",
+        "created": 1729535376,
+        "kind": "FLUMINA_BASE_MODEL",
         "supports_chat": false,
         "supports_image_input": false,
         "supports_tools": false
       },
-      "accounts/fireworks/models/mixtral-8x7b-instruct": {
-        "id": "accounts/fireworks/models/mixtral-8x7b-instruct",
+      "accounts/perplexity/models/r1-1776": {
+        "id": "accounts/perplexity/models/r1-1776",
         "object": "model",
-        "owned_by": "fireworks",
-        "created": 1702326791,
+        "owned_by": "perplexity",
+        "created": 1739982998,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
         "supports_tools": false,
+        "context_length": 163840
+      },
+      "accounts/fireworks/models/llama-v3p1-405b-instruct-long": {
+        "id": "accounts/fireworks/models/llama-v3p1-405b-instruct-long",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1723679065,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false
+      },
+      "accounts/fireworks/models/llama-v3p1-405b-instruct": {
+        "id": "accounts/fireworks/models/llama-v3p1-405b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1721428386,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/mixtral-8x22b-instruct": {
+        "id": "accounts/fireworks/models/mixtral-8x22b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1713375508,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 65536
+      },
+      "accounts/fireworks/models/qwen2p5-72b-instruct": {
+        "id": "accounts/fireworks/models/qwen2p5-72b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1727827284,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
         "context_length": 32768
-      },
-      "accounts/fireworks/models/mythomax-l2-13b": {
-        "id": "accounts/fireworks/models/mythomax-l2-13b",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1707860632,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 4096
-      },
-      "accounts/guzmanesneider75-94d6ba/models/tsr3": {
-        "id": "accounts/guzmanesneider75-94d6ba/models/tsr3",
-        "object": "model",
-        "owned_by": "guzmanesneider75-94d6ba",
-        "created": 1738092962,
-        "kind": "HF_PEFT_ADDON",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false
-      },
-      "accounts/carlos-0f74b3/models/service-emergency-classifier-llama3-8b-instruct": {
-        "id": "accounts/carlos-0f74b3/models/service-emergency-classifier-llama3-8b-instruct",
-        "object": "model",
-        "owned_by": "carlos-0f74b3",
-        "created": 1718620513,
-        "kind": "HF_PEFT_ADDON",
-        "supports_chat": false,
-        "supports_image_input": false,
-        "supports_tools": false
       }
     }
   },
@@ -1140,106 +1198,16 @@
     "api_key_var": "OPENAI_API_KEY",
     "base_url": "https://api.openai.com/v1",
     "models": {
-      "gpt-4o-audio-preview-2024-10-01": {
-        "id": "gpt-4o-audio-preview-2024-10-01",
+      "gpt-4o-realtime-preview-2024-12-17": {
+        "id": "gpt-4o-realtime-preview-2024-12-17",
         "object": "model",
-        "created": 1727389042,
+        "created": 1733945430,
         "owned_by": "system"
       },
-      "gpt-4o-mini-audio-preview": {
-        "id": "gpt-4o-mini-audio-preview",
+      "gpt-4o-audio-preview-2024-12-17": {
+        "id": "gpt-4o-audio-preview-2024-12-17",
         "object": "model",
-        "created": 1734387424,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-audio-preview-2024-12-17": {
-        "id": "gpt-4o-mini-audio-preview-2024-12-17",
-        "object": "model",
-        "created": 1734115920,
-        "owned_by": "system"
-      },
-      "gpt-4o-2024-11-20": {
-        "id": "gpt-4o-2024-11-20",
-        "object": "model",
-        "created": 1731975040,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-realtime-preview": {
-        "id": "gpt-4o-mini-realtime-preview",
-        "object": "model",
-        "created": 1734387380,
-        "owned_by": "system"
-      },
-      "dall-e-2": {
-        "id": "dall-e-2",
-        "object": "model",
-        "created": 1698798177,
-        "owned_by": "system"
-      },
-      "chatgpt-4o-latest": {
-        "id": "chatgpt-4o-latest",
-        "object": "model",
-        "created": 1723515131,
-        "owned_by": "system"
-      },
-      "gpt-3.5-turbo": {
-        "id": "gpt-3.5-turbo",
-        "object": "model",
-        "created": 1677610602,
-        "owned_by": "openai"
-      },
-      "o1-preview-2024-09-12": {
-        "id": "o1-preview-2024-09-12",
-        "object": "model",
-        "created": 1725648865,
-        "owned_by": "system"
-      },
-      "gpt-3.5-turbo-0125": {
-        "id": "gpt-3.5-turbo-0125",
-        "object": "model",
-        "created": 1706048358,
-        "owned_by": "system"
-      },
-      "o1-preview": {
-        "id": "o1-preview",
-        "object": "model",
-        "created": 1725648897,
-        "owned_by": "system"
-      },
-      "text-embedding-ada-002": {
-        "id": "text-embedding-ada-002",
-        "object": "model",
-        "created": 1671217299,
-        "owned_by": "openai-internal"
-      },
-      "o1-mini-2024-09-12": {
-        "id": "o1-mini-2024-09-12",
-        "object": "model",
-        "created": 1725648979,
-        "owned_by": "system"
-      },
-      "whisper-1": {
-        "id": "whisper-1",
-        "object": "model",
-        "created": 1677532384,
-        "owned_by": "openai-internal"
-      },
-      "dall-e-3": {
-        "id": "dall-e-3",
-        "object": "model",
-        "created": 1698785189,
-        "owned_by": "system"
-      },
-      "gpt-4": {
-        "id": "gpt-4",
-        "object": "model",
-        "created": 1687882411,
-        "owned_by": "openai"
-      },
-      "babbage-002": {
-        "id": "babbage-002",
-        "object": "model",
-        "created": 1692634615,
+        "created": 1734034239,
         "owned_by": "system"
       },
       "gpt-4-1106-preview": {
@@ -1248,52 +1216,94 @@
         "created": 1698957206,
         "owned_by": "system"
       },
-      "omni-moderation-latest": {
-        "id": "omni-moderation-latest",
+      "dall-e-3": {
+        "id": "dall-e-3",
         "object": "model",
-        "created": 1731689265,
+        "created": 1698785189,
         "owned_by": "system"
       },
-      "omni-moderation-2024-09-26": {
-        "id": "omni-moderation-2024-09-26",
+      "dall-e-2": {
+        "id": "dall-e-2",
         "object": "model",
-        "created": 1732734466,
+        "created": 1698798177,
         "owned_by": "system"
       },
-      "tts-1-hd-1106": {
-        "id": "tts-1-hd-1106",
+      "gpt-4o-audio-preview-2024-10-01": {
+        "id": "gpt-4o-audio-preview-2024-10-01",
         "object": "model",
-        "created": 1699053533,
+        "created": 1727389042,
         "owned_by": "system"
       },
-      "gpt-4o-2024-05-13": {
-        "id": "gpt-4o-2024-05-13",
+      "gpt-4-turbo-preview": {
+        "id": "gpt-4-turbo-preview",
         "object": "model",
-        "created": 1715368132,
+        "created": 1706037777,
         "owned_by": "system"
       },
-      "gpt-4o-mini-2024-07-18": {
-        "id": "gpt-4o-mini-2024-07-18",
+      "text-embedding-3-small": {
+        "id": "text-embedding-3-small",
         "object": "model",
-        "created": 1721172717,
+        "created": 1705948997,
         "owned_by": "system"
       },
-      "gpt-4o-mini": {
-        "id": "gpt-4o-mini",
+      "babbage-002": {
+        "id": "babbage-002",
         "object": "model",
-        "created": 1721172741,
+        "created": 1692634615,
         "owned_by": "system"
       },
-      "tts-1-hd": {
-        "id": "tts-1-hd",
+      "gpt-4": {
+        "id": "gpt-4",
         "object": "model",
-        "created": 1699046015,
+        "created": 1687882411,
+        "owned_by": "openai"
+      },
+      "text-embedding-ada-002": {
+        "id": "text-embedding-ada-002",
+        "object": "model",
+        "created": 1671217299,
+        "owned_by": "openai-internal"
+      },
+      "chatgpt-4o-latest": {
+        "id": "chatgpt-4o-latest",
+        "object": "model",
+        "created": 1723515131,
         "owned_by": "system"
       },
-      "gpt-3.5-turbo-instruct": {
-        "id": "gpt-3.5-turbo-instruct",
+      "gpt-4o-mini-audio-preview": {
+        "id": "gpt-4o-mini-audio-preview",
         "object": "model",
-        "created": 1692901427,
+        "created": 1734387424,
+        "owned_by": "system"
+      },
+      "gpt-4o-audio-preview": {
+        "id": "gpt-4o-audio-preview",
+        "object": "model",
+        "created": 1727460443,
+        "owned_by": "system"
+      },
+      "o1-preview-2024-09-12": {
+        "id": "o1-preview-2024-09-12",
+        "object": "model",
+        "created": 1725648865,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-realtime-preview": {
+        "id": "gpt-4o-mini-realtime-preview",
+        "object": "model",
+        "created": 1734387380,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-realtime-preview-2024-12-17": {
+        "id": "gpt-4o-mini-realtime-preview-2024-12-17",
+        "object": "model",
+        "created": 1734112601,
+        "owned_by": "system"
+      },
+      "gpt-4.1-nano": {
+        "id": "gpt-4.1-nano",
+        "object": "model",
+        "created": 1744321707,
         "owned_by": "system"
       },
       "gpt-3.5-turbo-instruct-0914": {
@@ -1302,11 +1312,239 @@
         "created": 1694122472,
         "owned_by": "system"
       },
+      "gpt-4o-mini-search-preview": {
+        "id": "gpt-4o-mini-search-preview",
+        "object": "model",
+        "created": 1741391161,
+        "owned_by": "system"
+      },
+      "gpt-4.1-nano-2025-04-14": {
+        "id": "gpt-4.1-nano-2025-04-14",
+        "object": "model",
+        "created": 1744321025,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo-16k": {
+        "id": "gpt-3.5-turbo-16k",
+        "object": "model",
+        "created": 1683758102,
+        "owned_by": "openai-internal"
+      },
+      "gpt-4o-realtime-preview": {
+        "id": "gpt-4o-realtime-preview",
+        "object": "model",
+        "created": 1727659998,
+        "owned_by": "system"
+      },
+      "davinci-002": {
+        "id": "davinci-002",
+        "object": "model",
+        "created": 1692634301,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo-1106": {
+        "id": "gpt-3.5-turbo-1106",
+        "object": "model",
+        "created": 1698959748,
+        "owned_by": "system"
+      },
+      "gpt-4o-search-preview": {
+        "id": "gpt-4o-search-preview",
+        "object": "model",
+        "created": 1741388720,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo-instruct": {
+        "id": "gpt-3.5-turbo-instruct",
+        "object": "model",
+        "created": 1692901427,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo": {
+        "id": "gpt-3.5-turbo",
+        "object": "model",
+        "created": 1677610602,
+        "owned_by": "openai"
+      },
+      "o3-mini-2025-01-31": {
+        "id": "o3-mini-2025-01-31",
+        "object": "model",
+        "created": 1738010200,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-search-preview-2025-03-11": {
+        "id": "gpt-4o-mini-search-preview-2025-03-11",
+        "object": "model",
+        "created": 1741390858,
+        "owned_by": "system"
+      },
+      "gpt-4-0125-preview": {
+        "id": "gpt-4-0125-preview",
+        "object": "model",
+        "created": 1706037612,
+        "owned_by": "system"
+      },
+      "gpt-4o-2024-11-20": {
+        "id": "gpt-4o-2024-11-20",
+        "object": "model",
+        "created": 1739331543,
+        "owned_by": "system"
+      },
+      "gpt-4o-2024-05-13": {
+        "id": "gpt-4o-2024-05-13",
+        "object": "model",
+        "created": 1715368132,
+        "owned_by": "system"
+      },
+      "text-embedding-3-large": {
+        "id": "text-embedding-3-large",
+        "object": "model",
+        "created": 1705953180,
+        "owned_by": "system"
+      },
+      "o1-2024-12-17": {
+        "id": "o1-2024-12-17",
+        "object": "model",
+        "created": 1734326976,
+        "owned_by": "system"
+      },
+      "o1": {
+        "id": "o1",
+        "object": "model",
+        "created": 1734375816,
+        "owned_by": "system"
+      },
+      "o1-preview": {
+        "id": "o1-preview",
+        "object": "model",
+        "created": 1725648897,
+        "owned_by": "system"
+      },
       "gpt-4-0613": {
         "id": "gpt-4-0613",
         "object": "model",
         "created": 1686588896,
         "owned_by": "openai"
+      },
+      "o1-mini": {
+        "id": "o1-mini",
+        "object": "model",
+        "created": 1725649008,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-tts": {
+        "id": "gpt-4o-mini-tts",
+        "object": "model",
+        "created": 1742403959,
+        "owned_by": "system"
+      },
+      "o1-pro": {
+        "id": "o1-pro",
+        "object": "model",
+        "created": 1742251791,
+        "owned_by": "system"
+      },
+      "gpt-4o-transcribe": {
+        "id": "gpt-4o-transcribe",
+        "object": "model",
+        "created": 1742068463,
+        "owned_by": "system"
+      },
+      "gpt-4.5-preview": {
+        "id": "gpt-4.5-preview",
+        "object": "model",
+        "created": 1740623059,
+        "owned_by": "system"
+      },
+      "o1-pro-2025-03-19": {
+        "id": "o1-pro-2025-03-19",
+        "object": "model",
+        "created": 1742251504,
+        "owned_by": "system"
+      },
+      "gpt-4.5-preview-2025-02-27": {
+        "id": "gpt-4.5-preview-2025-02-27",
+        "object": "model",
+        "created": 1740623304,
+        "owned_by": "system"
+      },
+      "gpt-4o-search-preview-2025-03-11": {
+        "id": "gpt-4o-search-preview-2025-03-11",
+        "object": "model",
+        "created": 1741388170,
+        "owned_by": "system"
+      },
+      "omni-moderation-2024-09-26": {
+        "id": "omni-moderation-2024-09-26",
+        "object": "model",
+        "created": 1732734466,
+        "owned_by": "system"
+      },
+      "gpt-image-1": {
+        "id": "gpt-image-1",
+        "object": "model",
+        "created": 1745517030,
+        "owned_by": "system"
+      },
+      "o1-mini-2024-09-12": {
+        "id": "o1-mini-2024-09-12",
+        "object": "model",
+        "created": 1725648979,
+        "owned_by": "system"
+      },
+      "tts-1-hd": {
+        "id": "tts-1-hd",
+        "object": "model",
+        "created": 1699046015,
+        "owned_by": "system"
+      },
+      "gpt-4o": {
+        "id": "gpt-4o",
+        "object": "model",
+        "created": 1715367049,
+        "owned_by": "system"
+      },
+      "tts-1-hd-1106": {
+        "id": "tts-1-hd-1106",
+        "object": "model",
+        "created": 1699053533,
+        "owned_by": "system"
+      },
+      "gpt-4o-2024-08-06": {
+        "id": "gpt-4o-2024-08-06",
+        "object": "model",
+        "created": 1722814719,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-2024-07-18": {
+        "id": "gpt-4o-mini-2024-07-18",
+        "object": "model",
+        "created": 1721172717,
+        "owned_by": "system"
+      },
+      "gpt-4.1-mini": {
+        "id": "gpt-4.1-mini",
+        "object": "model",
+        "created": 1744318173,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini": {
+        "id": "gpt-4o-mini",
+        "object": "model",
+        "created": 1721172741,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-audio-preview-2024-12-17": {
+        "id": "gpt-4o-mini-audio-preview-2024-12-17",
+        "object": "model",
+        "created": 1734115920,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo-0125": {
+        "id": "gpt-3.5-turbo-0125",
+        "object": "model",
+        "created": 1706048358,
+        "owned_by": "system"
       },
       "gpt-4-turbo": {
         "id": "gpt-4-turbo",
@@ -1320,64 +1558,16 @@
         "created": 1681940951,
         "owned_by": "openai-internal"
       },
-      "tts-1-1106": {
-        "id": "tts-1-1106",
-        "object": "model",
-        "created": 1699053241,
-        "owned_by": "system"
-      },
-      "gpt-4o-2024-08-06": {
-        "id": "gpt-4o-2024-08-06",
-        "object": "model",
-        "created": 1722814719,
-        "owned_by": "system"
-      },
-      "gpt-4o": {
-        "id": "gpt-4o",
-        "object": "model",
-        "created": 1715367049,
-        "owned_by": "system"
-      },
-      "davinci-002": {
-        "id": "davinci-002",
-        "object": "model",
-        "created": 1692634301,
-        "owned_by": "system"
-      },
-      "gpt-4-turbo-preview": {
-        "id": "gpt-4-turbo-preview",
-        "object": "model",
-        "created": 1706037777,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-realtime-preview-2024-12-17": {
-        "id": "gpt-4o-mini-realtime-preview-2024-12-17",
-        "object": "model",
-        "created": 1734112601,
-        "owned_by": "system"
-      },
-      "gpt-4o-audio-preview": {
-        "id": "gpt-4o-audio-preview",
-        "object": "model",
-        "created": 1727460443,
-        "owned_by": "system"
-      },
-      "text-embedding-3-small": {
-        "id": "text-embedding-3-small",
-        "object": "model",
-        "created": 1705948997,
-        "owned_by": "system"
-      },
       "gpt-4-turbo-2024-04-09": {
         "id": "gpt-4-turbo-2024-04-09",
         "object": "model",
         "created": 1712601677,
         "owned_by": "system"
       },
-      "gpt-3.5-turbo-1106": {
-        "id": "gpt-3.5-turbo-1106",
+      "tts-1-1106": {
+        "id": "tts-1-1106",
         "object": "model",
-        "created": 1698959748,
+        "created": 1699053241,
         "owned_by": "system"
       },
       "gpt-4o-realtime-preview-2024-10-01": {
@@ -1386,46 +1576,70 @@
         "created": 1727131766,
         "owned_by": "system"
       },
-      "gpt-3.5-turbo-16k": {
-        "id": "gpt-3.5-turbo-16k",
+      "gpt-4o-mini-transcribe": {
+        "id": "gpt-4o-mini-transcribe",
         "object": "model",
-        "created": 1683758102,
+        "created": 1742068596,
+        "owned_by": "system"
+      },
+      "computer-use-preview-2025-03-11": {
+        "id": "computer-use-preview-2025-03-11",
+        "object": "model",
+        "created": 1741377021,
+        "owned_by": "system"
+      },
+      "gpt-4.1-mini-2025-04-14": {
+        "id": "gpt-4.1-mini-2025-04-14",
+        "object": "model",
+        "created": 1744317547,
+        "owned_by": "system"
+      },
+      "o3-mini": {
+        "id": "o3-mini",
+        "object": "model",
+        "created": 1737146383,
+        "owned_by": "system"
+      },
+      "computer-use-preview": {
+        "id": "computer-use-preview",
+        "object": "model",
+        "created": 1734655677,
+        "owned_by": "system"
+      },
+      "gpt-4.1": {
+        "id": "gpt-4.1",
+        "object": "model",
+        "created": 1744316542,
+        "owned_by": "system"
+      },
+      "whisper-1": {
+        "id": "whisper-1",
+        "object": "model",
+        "created": 1677532384,
         "owned_by": "openai-internal"
       },
-      "gpt-4o-audio-preview-2024-12-17": {
-        "id": "gpt-4o-audio-preview-2024-12-17",
+      "gpt-4.1-2025-04-14": {
+        "id": "gpt-4.1-2025-04-14",
         "object": "model",
-        "created": 1734034239,
+        "created": 1744315746,
         "owned_by": "system"
       },
-      "text-embedding-3-large": {
-        "id": "text-embedding-3-large",
+      "omni-moderation-latest": {
+        "id": "omni-moderation-latest",
         "object": "model",
-        "created": 1705953180,
+        "created": 1731689265,
         "owned_by": "system"
       },
-      "gpt-4o-realtime-preview-2024-12-17": {
-        "id": "gpt-4o-realtime-preview-2024-12-17",
+      "o4-mini-2025-04-16": {
+        "id": "o4-mini-2025-04-16",
         "object": "model",
-        "created": 1733945430,
+        "created": 1744133506,
         "owned_by": "system"
       },
-      "gpt-4o-realtime-preview": {
-        "id": "gpt-4o-realtime-preview",
+      "o4-mini": {
+        "id": "o4-mini",
         "object": "model",
-        "created": 1727659998,
-        "owned_by": "system"
-      },
-      "gpt-4-0125-preview": {
-        "id": "gpt-4-0125-preview",
-        "object": "model",
-        "created": 1706037612,
-        "owned_by": "system"
-      },
-      "o1-mini": {
-        "id": "o1-mini",
-        "object": "model",
-        "created": 1725649008,
+        "created": 1744225351,
         "owned_by": "system"
       }
     }
