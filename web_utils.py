@@ -24,6 +24,7 @@ import traceback
 from abc import ABC, abstractmethod
 from collections import Counter
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 from os.path import dirname, splitext
 from typing import Any, Optional, Callable
 from urllib.parse import urlparse
@@ -36,13 +37,14 @@ from tornado.web import Application, RequestHandler, StaticFileHandler
 from nkpylib.constants import USER_AGENT
 from nkpylib.utils import specialize
 from nkpylib.ml.client import call_llm
+from nkpylib.ml.llm_utils import load_llm_json
 from nkpylib.thread_utils import sync_or_async, run_async
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SEARCH_LOG_FILE = 'search-logs.jsonl'
 
-DEFAULT_LLM_MODEL = 'llama3'
+DEFAULT_LLM_MODEL = 'turbo'
 
 REQUEST_TIMES: dict[str, float] = {}
 
@@ -165,13 +167,17 @@ class BaseSearcher(ABC):
 
     You can initialize this in your search handler (or in the app, if you want to keep it around),
     and then call the `search()` method with a query string and the tornado request object to get
-    the results.
+    the results. The tornado request object is stored as `self.req`
 
     By default, `search()` does the following:
     - parses the query using `parse()`
     - calls `_search()` with the query, the parser results, and number of results ('n')
     - log the query and results to a log file
-    - return the results.
+    - creates a list of messages (arbitrary JSON objects) that are sent back to the client. These
+      are helpful for showing what kinds of operations were run on the backend, how the query was
+      parsed, etc.
+    - creates a dict of timings
+    - return the results
 
     The default parser simply strips the query.
 
@@ -186,6 +192,8 @@ class BaseSearcher(ABC):
 
         If a `log_file_path` is given, it will be a .jsonl file (one json object per line) that
         can be written to using `self.log()`. If not, no logging is done.
+
+        The `kw` args are stored as instance variables on the searcher.
         """
         self.logf = open(log_file_path, 'a') if log_file_path else None
         self.req: Optional[RequestHandler] = None
@@ -206,7 +214,7 @@ class BaseSearcher(ABC):
         self.logf.flush()
 
     def add_msg(self, msg: str) -> None:
-        """Adds a message to the request object."""
+        """Adds a message to the current request object."""
         if self.req is not None:
             self.req.msgs.append(msg) # type: ignore
             # also print it to the log
@@ -221,8 +229,8 @@ class BaseSearcher(ABC):
         - store the request object in `self.req`
         - create an empty list in the req called `msgs`
           - you can add to this using `self.add_msg()`
-        - parse the `q` string using `parse()`
-        - call `_search()` with the parsed query and any other `kw` args
+        - parse the `q` string using `self.parse()`
+        - call `self._search()` with the parsed query and any other `kw` args
         - logs the query and results, and some metadata.
         - collect some basic timings
         - returns a dict with q, parsed, ret, msgs, and times.
@@ -230,6 +238,10 @@ class BaseSearcher(ABC):
         A common pattern in your subclass is to call this method using super().search() and then
         do other post-processing. You can also update the `times` and `msgs` fields in the returned
         dict if you want to add more info.
+
+        Note that there is no expectation of what the results should look like, other than being a
+        dict, so you can return whatever you want. It will be available to the client as `ret` in the
+        returned response.
         """
         t0 = time.time()
         self.req = req
@@ -281,6 +293,7 @@ class LLMSearcher(BaseSearcher):
                  log_file_path: str=DEFAULT_SEARCH_LOG_FILE,
                  model_name: str=DEFAULT_LLM_MODEL,
                  history_length_s: float=900,
+                 n_queries: int=5,
                  **kw: Any):
         """Inits this with the underlying searchers to use, the prompt_fmt, and some other init.
 
@@ -288,6 +301,7 @@ class LLMSearcher(BaseSearcher):
         to generate the actual prompt sent to the LLM. The args passed in will include at least:
         - `q`: the query string
         - `human_ts`: the current ts in 'YYYY-MM-DD HH:MM:SS' format
+        - `n_queries`: the maximum number of queries to generate
 
         Uses the `model_name` for the LLM model to use, and the `log_file_path` for logging searches.
 
@@ -301,6 +315,8 @@ class LLMSearcher(BaseSearcher):
         self.simple_searcher = simple_searcher
         self.prompt_fmt = prompt_fmt
         self.model_name = model_name
+        self.n_queries = n_queries
+        self.pool = ThreadPoolExecutor(max_workers=self.n_queries)
         # load past searches if requested
         self.history = []
         if log_file_path and history_length_s >= 0:
@@ -331,9 +347,12 @@ class LLMSearcher(BaseSearcher):
         You can subclass this, but make sure to call this method via super().gen_prompt_kw() to
         get some standard kw.
         """
-        return dict(q=q,
-                    history='\n'.join(self.history),
-                    human_ts=time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+        return dict(
+            q=q,
+            history='\n'.join(self.history),
+            human_ts=time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
+            n_queries=self.n_queries,
+        )
 
     def parse(self, q: str) -> object:
         """Parses the `q` by calling the llm.
@@ -349,23 +368,52 @@ class LLMSearcher(BaseSearcher):
         kwargs = self.gen_prompt_kw(q)
         prompt = self.prompt_fmt.format(**kwargs)
         logger.debug(f'From q {q} got kwargs {kwargs}, and prompt: {prompt}')
-        structured_q = call_llm.single(prompt, model=self.model_name).strip()
-        self.add_msg(f'Translated "{q}" to "{structured_q}" using {self.model_name}')
-        self.log(llm_translation={q: structured_q})
+        resp = call_llm.single(prompt, model=self.model_name).strip()
+        lst = load_llm_json(resp)
+        logger.info(f'LLM response: {lst}')
+        self.add_msg(f'Translated "{q}" to "{lst}" using {self.model_name}')
+        self.log(llm_translations={q: lst})
         try:
-            parsed = self.full_searcher.parse(structured_q)
+            parsed = [self.full_searcher.parse(structured_q) for structured_q in lst]
             self.req.searcher_used = self.full_searcher # type: ignore
         except Exception as e:
             self.add_msg(f'Could not run full search, switching to simple search: {e}')
             traceback.print_exc()
-            parsed = self.simple_searcher.parse(q)
+            parsed = [self.simple_searcher.parse(q)]
             self.req.searcher_used = self.simple_searcher # type: ignore
         return parsed
 
+    @abstractmethod
+    def _combine_results(self, results: list[dict[str, object]], **kw) -> dict[str, object]:
+        """Takes a list of results and combines them into a single results dict.
+
+        Implement in your subclass.
+        """
+        ...
+
     def _search(self, q: str, parsed: object, **kw: Any) -> dict[str, object]:
-        """Runs the search using whichever searcher was used in `parse()`."""
+        """Runs the search using whichever searcher was used in `parse()`.
+
+        Note that because we're generating multiple queries, we run many searches in parallel using
+        our thread pool.
+        """
         assert self.req is not None
-        return self.req.searcher_used._search(q=q, parsed=parsed, **kw) # type: ignore
+        func = self.req.searcher_used._search
+        #return func(q=q, parsed=parsed, **kw) # type: ignore
+        futures = [self.pool.submit(func, q=q, parsed=p, **kw) for p in parsed]
+        # wait for all the futures to finish
+        results = []
+        for future in futures:
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                logger.error(f'*** Error running search: {e}')
+                traceback.print_exc()
+                self.add_msg(f'*** Error running search: {e}')
+        # combine the results
+        combined = self._combine_results(results)
+        return combined
 
 
 def run_search(q: str,

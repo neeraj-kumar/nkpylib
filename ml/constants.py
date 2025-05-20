@@ -24,6 +24,9 @@ DEFAULT_MODELS = dict(
     image='openai/clip-vit-large-patch14',
     # llama4 (scout) for top-line perf on text tasks
     llama4='meta-llama/Llama-4-Scout-17B-16E-Instruct',
+    # qwen, latest baidu model
+    qwen='Qwen/Qwen3-30B-A3B',
+    qwen_large='Qwen/Qwen3-235B-A22B',
     # llama3 for default good perf on various text tasks
     llama3='meta-llama/Llama-3.3-70B-Instruct',
     text='meta-llama/Llama-3.3-70B-Instruct',
