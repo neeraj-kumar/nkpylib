@@ -612,6 +612,128 @@ def bundle_js(js_path: str, css_path: str|None=None) -> str:
     return ret
 
 
+def clean_html_for_llm(s: str, max_length=200000, **kw) -> str:
+    """Cleans up html for LLM input, primarily for length.
+
+    - `max_length`: truncate the string to this length
+
+    Pass in some `kw` else we do all of them. These are:
+    - `image_data=True`: replace b64 image data with a placeholder
+    - `quoted_image_data=True`: replace quoted b64 image data with a placeholder
+    - `remove_svg=True`: remove all SVG elements
+    - `remove_links=True`: remove all <link> elements (not actual <a> links)
+    """
+    orig_len = len(s)
+    default_kw = dict(image_data=True,
+                      quoted_image_data=True,
+                      remove_svg=True,
+                      remove_links=True,
+                      remove_style=True,
+                      remove_script=True,
+                      )
+    if not kw:
+        kw = default_kw
+    img_exts = ['png', 'jpg', 'jpeg', 'gif']
+    img_data_prefix = 'data:image/(' + '|'.join(img_exts) + ')'
+    def remove_tag(tag, s):
+        # note that tags can be nested
+        return re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', s, flags=re.DOTALL)
+
+    for key, value in kw.items():
+        if key == 'image_data' and value:
+            data_re = re.compile(img_data_prefix + r';base64,[^"]+')
+            s = data_re.sub('data:image/png;base64,PLACEHOLDER', s)
+        if key == 'quoted_image_data' and value:
+            quoted_data_re = re.compile(r'data:image/png%3bbase64%2c[^"]+')
+            s = quoted_data_re.sub('data:image/png%3bbase64%2cPLACEHOLDER', s)
+        if key == 'remove_links' and value:
+            s = re.sub(r'<link [^>]*>', '', s)
+        if key == 'remove_svg' and value:
+            s = remove_tag('svg', s)
+        if key == 'remove_style' and value:
+            s = remove_tag('style', s)
+        if key == 'remove_script' and value:
+            s = remove_tag('script', s)
+
+    msg = f'Got input string type {type(s)}, len {orig_len} -> {len(s)}'
+    s = s[:max_length]
+    msg += f' -> {len(s)}, {s[-100:]}'
+    logger.info(msg)
+    return s
+
+def simplify_html(html: str, idx: int|None=None) -> str:
+    """Simplifies htmls by checking against text content.
+
+    For each node, if the node has no text content, we remove it.
+    Or, if it has the exact same text content as one of its children, we remove it.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    orig_clean = soup.prettify()
+    counts: Counter[str] = Counter()
+    for node in soup.find_all():
+        counts['total'] += 1
+        if isinstance(node, Comment):
+            #print(f"  Killing comment node with {len(node.text)} bytes: {node.text[:100]}...")
+            counts['comment'] += 1
+            counts['killed'] += 1
+            node.extract()
+#       elif node.name in ['img']:
+#           counts['img'] += 1
+#           counts['alive'] += 1
+        elif node.name in ['style', 'script', 'footer']:
+            #print(f"  Killing {node.name} node with {len(node.text)} bytes: {node.text[:100]}...")
+            counts[node.name] += 1
+            counts['killed'] += 1
+            node.extract()
+        elif not node.text.strip():
+            #print(f'    Killing {node.name} node with no text content: {str(node)[:100]}...')
+            node.extract()
+            counts['empty'] += 1
+            counts['killed'] += 1
+        # check for any nodes with a style attribute that contains 'display: none' or 'visibility: hidden'
+        elif node.has_attr('style') and ('display: none' in node['style'] or 'visibility: hidden' in node['style']):
+            #print(f'    Killing {node.name} node with hidden style: {str(node)[:100]}...')
+            node.extract()
+            counts['hidden'] += 1
+            counts['killed'] += 1
+        else:
+            counts['alive'] += 1
+            #counts[f'type-{node.name}'] += 1
+
+    def simplify_node(node):
+        """Recursive function to check if a node can be simplified.
+
+        If this node has a single child with text content identical to this node itself, then we can
+        remove this node and replace it with the child.
+        """
+        if not hasattr(node, 'children'):
+            return
+        if not node.children:
+            return
+        children = list(node.children)
+        if len(children) == 1:
+            child = children[0]
+            if child.text == node.text:
+                #print(f"  Simplifying node {node.name} with {len(node.text)} bytes: {node.text[:100]}...")
+                node.replace_with(child)
+                counts['simplified'] += 1
+        for child in children:
+            simplify_node(child)
+
+    first = str(soup)
+    C = lambda s: f'{len(s)}b/{count_tokens(s)}t ({100.0*count_tokens(s) / len(s):.0f}%)'
+    simplify_node(soup)
+    ret = str(soup)
+    logger.info(f"Simplified html from {C(html)} -> {C(first)} -> {C(ret)}, {pformat(counts)}")
+    # write versions to disk if we were given an idx
+    if idx is not None:
+        with open(f'streeteasy_raw_{idx}.html', 'w') as f:
+            f.write(orig_clean)
+        with open(f'streeteasy_clean_{idx}.html', 'w') as f:
+            f.write(soup.prettify())
+    return ret
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Simple react web server (default port 13000)')
     parser.add_argument('jsx_path', help='Path to jsx file to load')
