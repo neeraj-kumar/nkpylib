@@ -70,7 +70,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
 from os.path import join
 from tqdm import tqdm
-from typing import Any, Optional, Union, Sequence, Callable, Iterator
+from typing import Any, Optional, Union, Sequence, Callable, Iterator, TypeVar
 
 import requests
 
@@ -78,7 +78,8 @@ from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION, Role, Msg
 
 logger = logging.getLogger(__name__)
 
-def chunked(lst: Sequence[Any], n: int) -> Iterator[Sequence[Any]]:
+T = TypeVar('T')
+def chunked(lst: Sequence[T], n: int) -> Iterator[Sequence[T]]:
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i:i + n]
