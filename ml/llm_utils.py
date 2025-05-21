@@ -10,8 +10,9 @@ import logging
 import re
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pprint import pformat
-from typing import Any, Iterator, Optional, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import tiktoken
 
@@ -61,7 +62,7 @@ def llm_transform_list(base_prompt: str,
                        chunk_size:int = 10,
                        prompt_fmt: str=CHUNKED_PROMPT,
                        sys_prompt: str='',
-                       **kw) -> Iterator[Optional[str]]:
+                       **kw) -> Iterator[str|None]:
     """Transforms a list of items using an LLM.
 
     Often you have a list of items that you want to transform using an LLM. If the list is very
@@ -122,54 +123,6 @@ def llm_transform_list(base_prompt: str,
             else:
                 yield None
 
-def clean_html_for_llm(s: str, max_length=200000, **kw) -> str:
-    """Cleans up html for LLM input, primarily for length.
-
-    - `max_length`: truncate the string to this length
-
-    Pass in some `kw` else we do all of them. These are:
-    - `image_data=True`: replace b64 image data with a placeholder
-    - `quoted_image_data=True`: replace quoted b64 image data with a placeholder
-    - `remove_svg=True`: remove all SVG elements
-    - `remove_links=True`: remove all <link> elements (not actual <a> links)
-    """
-    orig_len = len(s)
-    default_kw = dict(image_data=True,
-                      quoted_image_data=True,
-                      remove_svg=True,
-                      remove_links=True,
-                      remove_style=True,
-                      remove_script=True,
-                      )
-    if not kw:
-        kw = default_kw
-    img_exts = ['png', 'jpg', 'jpeg', 'gif']
-    img_data_prefix = 'data:image/(' + '|'.join(img_exts) + ')'
-    def remove_tag(tag, s):
-        # note that tags can be nested
-        return re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', s, flags=re.DOTALL)
-
-    for key, value in kw.items():
-        if key == 'image_data' and value:
-            data_re = re.compile(img_data_prefix + r';base64,[^"]+')
-            s = data_re.sub('data:image/png;base64,PLACEHOLDER', s)
-        if key == 'quoted_image_data' and value:
-            quoted_data_re = re.compile(r'data:image/png%3bbase64%2c[^"]+')
-            s = quoted_data_re.sub('data:image/png%3bbase64%2cPLACEHOLDER', s)
-        if key == 'remove_links' and value:
-            s = re.sub(r'<link [^>]*>', '', s)
-        if key == 'remove_svg' and value:
-            s = remove_tag('svg', s)
-        if key == 'remove_style' and value:
-            s = remove_tag('style', s)
-        if key == 'remove_script' and value:
-            s = remove_tag('script', s)
-
-    msg = f'Got input string type {type(s)}, len {orig_len} -> {len(s)}'
-    s = s[:max_length]
-    msg += f' -> {len(s)}, {s[-100:]}'
-    logger.info(msg)
-    return s
 
 EncOrNameT = str|tiktoken.core.Encoding
 
@@ -229,6 +182,8 @@ def match_obj_schema(objs: list[dict],
 
     If `allow_new_selects` is `True`, we allow the LLM to generate new options for selects, else not.
 
+    The `kw` are directly passed to `llm_transform_list()`.
+
     A practical tip: in airtable, add a description only to those fields that you want to map into
     (skipping primary keys, formulae, notes, etc), and then only include fields with descriptions in
     the target schema.
@@ -278,74 +233,102 @@ def match_obj_schema(objs: list[dict],
         else:
             yield {}
 
-def simplify_html(html: str, idx: int|None=None) -> str:
-    """Simplifies htmls by checking against text content.
+def search_objects_llm(search_objs: list[dict],
+                       db_objs: list[dict],
+                       search_preprocess_fn:None|Callable=None,
+                       db_preprocess_fn:None|Callable=None,
+                       max_workers:int|None=None,
+                       additional_prompt: str='',
+                       search_chunk_size: int=0,
+                       db_chunk_size: int=0,
+                       **kw) -> list[tuple[int, float]]:
+    """Searches for correspondences between 2 lists of objects using an LLM.
 
-    For each node, if the node has no text content, we remove it.
-    Or, if it has the exact same text content as one of its children, we remove it.
+    For each item in `search_objs`, we ask the LLM to find the best match in `db_objs`, as well as a
+    confidence value between 0-1. We return a list corresponding to `search_objs`, where each item
+    is a tuple `(db_obj_idx, confidence)`. Note that if there is no good match, the index will be
+    -1.
+
+    If given, we first run each search object through `search_preprocess_fn(obj)`, and each db object
+    through `db_preprocess_fn(obj)` (both in parallel via a thread pool). These functions should
+    take a single object and return a single object. They are useful for cleaning up the objects,
+    such as removing extraneous fields, etc.
+
+    The `max_workers` argument is passed to the thread pool executor. If `None`, we use the default
+    number of workers.
+
+    We optionally chunk the search and db objects into smaller chunks, using the `search_chunk_size` and
+    `db_chunk_size` arguments. If either is 0, we do not chunk that list. Note that even for modern
+    models like llama4 that have large context windows, in practice they tend to do much better with
+    shorter inputs. But there is no science to it (yet), so you just have to experiment.
+
+    In the case of db object chunking, we take the db obj index with the highest confidence for each
+    search object.
+
+    All other keyword arguments are passed to the LLM call (call_llm.single()). You can also pass in
+    `additional_prompt` which is inserted in the system prompt (before output formatting
+    instructions).
     """
-    soup = BeautifulSoup(html, "html.parser")
-    orig_clean = soup.prettify()
-    counts: Counter[str] = Counter()
-    for node in soup.find_all():
-        counts['total'] += 1
-        if isinstance(node, Comment):
-            #print(f"  Killing comment node with {len(node.text)} bytes: {node.text[:100]}...")
-            counts['comment'] += 1
-            counts['killed'] += 1
-            node.extract()
-#       elif node.name in ['img']:
-#           counts['img'] += 1
-#           counts['alive'] += 1
-        elif node.name in ['style', 'script', 'footer']:
-            #print(f"  Killing {node.name} node with {len(node.text)} bytes: {node.text[:100]}...")
-            counts[node.name] += 1
-            counts['killed'] += 1
-            node.extract()
-        elif not node.text.strip():
-            #print(f'    Killing {node.name} node with no text content: {str(node)[:100]}...')
-            node.extract()
-            counts['empty'] += 1
-            counts['killed'] += 1
-        # check for any nodes with a style attribute that contains 'display: none' or 'visibility: hidden'
-        elif node.has_attr('style') and ('display: none' in node['style'] or 'visibility: hidden' in node['style']):
-            #print(f'    Killing {node.name} node with hidden style: {str(node)[:100]}...')
-            node.extract()
-            counts['hidden'] += 1
-            counts['killed'] += 1
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        if search_preprocess_fn:
+            search_objs = list(pool.map(search_preprocess_fn, search_objs))
+        if db_preprocess_fn:
+            db_objs = list(pool.map(db_preprocess_fn, db_objs))
+
+    sys_prompt = f'''You are an intelligent data matcher. Given a list of search objects, you try to
+    match each one to the best match in a list of database objects. The objects are likely to have
+    very similar schemas, but not identical. Use your best judgement and consider the entire set of
+    database objects and search objects to figure out which database object is most similar to each
+    search object.
+
+    {additional_prompt}
+
+    Output a JSON list with one output item for each input search object. Each output item is a
+    pair [db_object_index, confidence], where db_object_index is the index of the best match in the
+    database objects list, and confidence is a number between 0 and 1, indicating how confident you
+    are that this is the best match. For example, with 2 search objects and 45 db objects, the
+    output might look like: [[21,0.4],[39,0.7]]
+
+    If you are not confident that there is any good match, return -1 for the index and 0 for the
+    confidence.
+
+    Output no other text or explanations, just the JSON object.
+    '''
+    logger.debug(f'Search matcher sys prompt: {sys_prompt}')
+
+    def chunkify_indices(objs: list[dict], chunk_size: int) -> list[list[int]]:
+        """Chunks indices of `objs` into smaller lists of size `chunk_size`."""
+        if chunk_size <= 0:
+            return [list(range(len(objs)))]
         else:
-            counts['alive'] += 1
-            #counts[f'type-{node.name}'] += 1
+            return list(chunked(range(len(objs)), chunk_size)) # type: ignore[arg-type]
 
-    def simplify_node(node):
-        """Recursive function to check if a node can be simplified.
+    search_chunks = chunkify_indices(search_objs, search_chunk_size)
+    db_chunks = chunkify_indices(db_objs, db_chunk_size)
+    futures = []
+    for search_chunk in search_chunks:
+        for db_chunk in db_chunks:
+            search_objs_str = '\n'.join([f'{i}. {json.dumps(search_objs[idx])}' for i, idx in enumerate(search_chunk)])
+            db_objs_str = '\n'.join([f'{i}. {json.dumps(db_objs[idx])}' for i, idx in enumerate(db_chunk)])
+            user_prompt = f'''SEARCH OBJECTS:
+            {search_objs_str}
 
-        If this node has a single child with text content identical to this node itself, then we can
-        remove this node and replace it with the child.
-        """
-        if not hasattr(node, 'children'):
-            return
-        if not node.children:
-            return
-        children = list(node.children)
-        if len(children) == 1:
-            child = children[0]
-            if child.text == node.text:
-                #print(f"  Simplifying node {node.name} with {len(node.text)} bytes: {node.text[:100]}...")
-                node.replace_with(child)
-                counts['simplified'] += 1
-        for child in children:
-            simplify_node(child)
-
-    first = str(soup)
-    C = lambda s: f'{len(s)}b/{count_tokens(s)}t ({100.0*count_tokens(s) / len(s):.0f}%)'
-    simplify_node(soup)
-    ret = str(soup)
-    logger.info(f"Simplified html from {C(html)} -> {C(first)} -> {C(ret)}, {pformat(counts)}")
-    # write versions to disk if we were given an idx
-    if idx is not None:
-        with open(f'streeteasy_raw_{idx}.html', 'w') as f:
-            f.write(orig_clean)
-        with open(f'streeteasy_clean_{idx}.html', 'w') as f:
-            f.write(soup.prettify())
+            DATABASE OBJECTS:
+            {db_objs_str}
+            '''
+            logger.debug(f'Got user prompt: {user_prompt}')
+            msgs = [('system', sys_prompt), ('user', user_prompt)]
+            future = call_llm.single_future(msgs, **kw)
+            futures.append((search_chunk, db_chunk, future))
+    logger.debug(f'Got {len(futures)} futures')
+    ret = [[-1, 0] for o in search_objs]
+    for search_chunk, db_chunk, future in futures:
+        llm_output = future.result()
+        logger.debug(f'for search chunk {search_chunk} and db chunk {db_chunk} got output {llm_output}')
+        out = json.loads(llm_output)
+        for search_idx, (db_idx, conf) in zip(search_chunk, out):
+            db_idx += db_chunk[0]
+            cur_idx, cur_conf = ret[search_idx]
+            if cur_idx == -1 or cur_conf < conf:
+                ret[search_idx] = [db_idx, conf]
     return ret
