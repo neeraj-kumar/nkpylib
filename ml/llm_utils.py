@@ -241,13 +241,13 @@ def search_objects_llm(search_objs: list[dict],
                        additional_prompt: str='',
                        search_chunk_size: int=0,
                        db_chunk_size: int=0,
-                       **kw) -> list[tuple[int, float]]:
+                       **kw) -> list[list[tuple[int, float]]]:
     """Searches for correspondences between 2 lists of objects using an LLM.
 
-    For each item in `search_objs`, we ask the LLM to find the best match in `db_objs`, as well as a
+    For each item in `search_objs`, we ask the LLM to find the best matches in `db_objs`, as well as a
     confidence value between 0-1. We return a list corresponding to `search_objs`, where each item
-    is a tuple `(db_obj_idx, confidence)`. Note that if there is no good match, the index will be
-    -1.
+    is a list of matches. Each match is a tuple `(db_obj_idx, confidence)`. Note that if there is no
+    good match, the index will be -1.
 
     If given, we first run each search object through `search_preprocess_fn(obj)`, and each db object
     through `db_preprocess_fn(obj)` (both in parallel via a thread pool). These functions should
@@ -283,11 +283,13 @@ def search_objects_llm(search_objs: list[dict],
 
     {additional_prompt}
 
-    Output a JSON list with one output item for each input search object. Each output item is a
-    pair [db_object_index, confidence], where db_object_index is the index of the best match in the
-    database objects list, and confidence is a number between 0 and 1, indicating how confident you
-    are that this is the best match. For example, with 2 search objects and 45 db objects, the
-    output might look like: [[21,0.4],[39,0.7]]
+    Output a JSON list with one output item for each input search object. Each output item is a list
+    of the top 3 potential matches for that search object: [best_match, 2nd_best_match,
+    3rd_best_match], where each match is a pair [db_object_index, confidence], where db_object_index
+    is the index of the match in the database objects list, and confidence is a number between 0 and
+    1, indicating how confident you are that this is the match. For example, with 2 search objects
+    and 45 db objects, the output might look like:
+    [[[21,0.4],[3,0.3],[42,0.1]],[[39,0.7],[12,0.5],[3,0.2]]]
 
     If you are not confident that there is any good match, return -1 for the index and 0 for the
     confidence.
@@ -321,14 +323,17 @@ def search_objects_llm(search_objs: list[dict],
             future = call_llm.single_future(msgs, **kw)
             futures.append((search_chunk, db_chunk, future))
     logger.debug(f'Got {len(futures)} futures')
-    ret = [[-1, 0] for o in search_objs]
+    ret = [[] for o in search_objs]
     for search_chunk, db_chunk, future in futures:
         llm_output = future.result()
         logger.debug(f'for search chunk {search_chunk} and db chunk {db_chunk} got output {llm_output}')
-        out = json.loads(llm_output)
-        for search_idx, (db_idx, conf) in zip(search_chunk, out):
-            db_idx += db_chunk[0]
-            cur_idx, cur_conf = ret[search_idx]
-            if cur_idx == -1 or cur_conf < conf:
-                ret[search_idx] = [db_idx, conf]
+        outs = load_llm_json(llm_output)
+        for search_idx, matches in zip(search_chunk, outs):
+            for db_idx, conf in matches:
+                db_idx += db_chunk[0]
+                ret[search_idx].append((db_idx, conf))
+    # sort the matches by confidence
+    for i, matches in enumerate(ret):
+        matches.sort(key=lambda x: x[1], reverse=True)
+        ret[i] = matches[:3]
     return ret

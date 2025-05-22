@@ -23,11 +23,11 @@ def cli_item_action_loop(items: list[InputT],
     """
     Perform actions on a list of items based on user input in a loop until all items are done.
 
-    :param items: List of items to perform actions on.
-    :param actions: Dictionary mapping action letters to (action_name, action_func).
+    - items: List of items to perform actions on.
+    - actions: Dictionary mapping action letters to (action_name, action_func).
     The action functions should accept a list of items and return a list of items that have been marked as done.
-    :param exclusive: If True, prevents multiple different actions on the same item.
-    :param print_func: Function to convert each item to a string for display.
+    - exclusive: If True, prevents multiple different actions on the same item.
+    - print_func: Function to convert each item to a string for display.
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
     max_items_per_batch = min(max_items if max_items > 0 else len(item_labels), len(item_labels))
