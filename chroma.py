@@ -75,13 +75,21 @@ class ChromaUpdater:
 
     You can keep track of all ids ever seen and whether have been committed or not via `ids_seen`.
     """
-    def __init__(self, col: Collection, item_incr: int=100, time_incr: float=30.0, debug: bool=False):
+    def __init__(self,
+                 col: Collection,
+                 item_incr: int=100,
+                 time_incr: float=30.0,
+                 post_commit_fn: Callable[[list[str]], None]|None=None,
+                 debug: bool=False):
         """Initialize the updater with the given collection and update frequency.
 
         - item_incr: number of items to add before committing [default 100]. (Disabled if <= 0)
         - time_incr: elapsed time to wait before committing [default 30.0]. (Disabled if <= 0)
 
         Note that if both are specified, then whichever comes first triggers a commit.
+
+        You can optionally pass in a `post_commit_fn` to be called after each commit. It is called
+        with the list of ids that were just committed.
 
         If you specify `debug=True`, then commit messages will be printed using logger.info()
         """
@@ -92,6 +100,7 @@ class ChromaUpdater:
         self.to_add: dict[str, list] = dict(ids=[], embeddings=[], documents=[], metadatas=[])
         self.timer = None
         self.ids_seen: dict[str, bool] = {}
+        self.post_commit_fn = post_commit_fn
         self.debug = debug
 
     def commit(self):
@@ -107,6 +116,8 @@ class ChromaUpdater:
         self.col.add(**to_add)
         for id in to_add['ids']:
             self.ids_seen[id] = True
+        if self.post_commit_fn:
+            self.post_commit_fn(to_add['ids'])
         self.to_add = dict(ids=[], embeddings=[], documents=[], metadatas=[])
         self.last_update = time.time()
         if self.timer:
