@@ -11,13 +11,9 @@ import re
 
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from pprint import pformat
 from typing import Any, Callable, Iterator, Sequence
 
 import tiktoken
-
-from bs4 import BeautifulSoup, Comment
-from bs4.element import NavigableString
 
 from nkpylib.ml.client import call_llm, chunked
 

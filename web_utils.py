@@ -26,18 +26,21 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from os.path import dirname, splitext
+from pprint import pformat
 from typing import Any, Optional, Callable
 from urllib.parse import urlparse
 
 import requests
 
+from bs4 import BeautifulSoup, Comment
+from bs4.element import NavigableString
 from tornado.ioloop import IOLoop
 from tornado.web import Application, RequestHandler, StaticFileHandler
 
 from nkpylib.constants import USER_AGENT
 from nkpylib.utils import specialize
 from nkpylib.ml.client import call_llm
-from nkpylib.ml.llm_utils import load_llm_json
+from nkpylib.ml.llm_utils import load_llm_json, count_tokens
 from nkpylib.thread_utils import sync_or_async, run_async
 
 logger = logging.getLogger(__name__)
@@ -398,9 +401,9 @@ class LLMSearcher(BaseSearcher):
         our thread pool.
         """
         assert self.req is not None
-        func = self.req.searcher_used._search
+        func = self.req.searcher_used._search # type: ignore[attr-defined]
         #return func(q=q, parsed=parsed, **kw) # type: ignore
-        futures = [self.pool.submit(func, q=q, parsed=p, **kw) for p in parsed]
+        futures = [self.pool.submit(func, q=q, parsed=p, **kw) for p in parsed] # type: ignore[attr-defined]
         # wait for all the futures to finish
         results = []
         for future in futures:
