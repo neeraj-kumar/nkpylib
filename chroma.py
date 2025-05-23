@@ -71,9 +71,11 @@ class ChromaUpdater:
 
     Note that when the updater is deleted, it will automatically commit any remaining items, so you
     don't have to worry about the pesky "last commit" that is always annoying to deal with -- as
-    soon as this goes out-of-scope, it will commit.
+    soon as this goes out-of-scope, it will commit. You can also just call commit() at the end of
+    your add loop.
 
-    You can keep track of all ids ever seen and whether have been committed or not via `ids_seen`.
+    The class also keeps track of all ids ever seen and whether have been committed or not via
+    `ids_seen`.
     """
     def __init__(self,
                  col: Collection,
