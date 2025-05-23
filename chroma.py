@@ -85,8 +85,9 @@ class ChromaUpdater:
         self.item_incr = item_incr
         self.time_incr = time_incr
         self.last_update = time.time()
-        self.to_add = dict(ids=[], embeddings=[], documents=[], metadatas=[])
+        self.to_add: dict[str, list] = dict(ids=[], embeddings=[], documents=[], metadatas=[])
         self.timer = None
+        self.ids_seen: set[str] = set()
 
     def commit(self):
         """Commits the current items to the collection and resets the updater."""
@@ -130,7 +131,9 @@ class ChromaUpdater:
 
         If the update frequency is reached, it will commit the items to the collection.
         """
+        assert id not in self.ids_seen, f'ID {id} already seen!'
         self.to_add['ids'].append(id)
+        self.ids_seen.add(id)
         if embedding is not None:
             self.to_add['embeddings'].append(embedding)
         if document is not None:
