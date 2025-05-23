@@ -40,7 +40,8 @@ from typing import Optional, Iterable, Any, Callable
 
 from tqdm import tqdm
 
-from .airtable import airtable_all_rows, airtable_api_call
+from nkpylib.airtable import airtable_all_rows, airtable_api_call
+from nkpylib.chroma import ChromaUpdater
 
 logger = logging.getLogger(__name__)
 
@@ -335,32 +336,19 @@ class ChromaTree(Tree):
         This adds the given keys to chroma, including all relevant metadata.
         """
         assert self.add_func is not None
-        to_add: dict[str, list[Any]] = dict(ids=[], embeddings=[], metadatas=[], documents=[])
+        updater = ChromaUpdater(col=self.col, item_incr=self.incr, debug=self.debug)
         for d in tqdm(diffs):
             try:
                 md = self.add_func(key=d.b, other=other)
             except Exception:
                 #raise #TODO for debugging
                 continue
-            to_add['ids'].append(d.b)
-            to_add['embeddings'].append(md.pop('embedding'))
-            to_add['documents'].append(md.pop('document'))
-            to_add['metadatas'].append(md)
-            if len(to_add['ids']) >= self.incr:
-                if self.debug:
-                    x = dict(**to_add)
-                    x.pop('embeddings')
-                    logger.info(f'Adding {len(x["ids"])}: {json.dumps(x, indent=2)}')
-                else:
-                    self.col.add(**to_add)
-                to_add = dict(ids=[], embeddings=[], metadatas=[], documents=[])
-        if to_add['ids']:
-            if self.debug:
-                x = dict(**to_add)
-                x.pop('embeddings')
-                logger.info(f'Adding {len(x["ids"])}: {json.dumps(x, indent=2)}')
-            else:
-                self.col.add(**to_add)
+            updater.add(
+                id=d.b,
+                embedding=md.pop('embedding'),
+                document=md.pop('document'),
+                metadata=md,
+            )
 
     def execute_delete(self, diffs: list[Diff], other: Tree) -> None:
         """Executes DELETE operations from given `diffs` going from `self` to `other`
