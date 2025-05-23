@@ -72,14 +72,18 @@ class ChromaUpdater:
     Note that when the updater is deleted, it will automatically commit any remaining items, so you
     don't have to worry about the pesky "last commit" that is always annoying to deal with -- as
     soon as this goes out-of-scope, it will commit.
+
+    You can keep track of all ids ever seen and whether have been committed or not via `ids_seen`.
     """
-    def __init__(self, col: Collection, item_incr: int=100, time_incr: float=30.0):
+    def __init__(self, col: Collection, item_incr: int=100, time_incr: float=30.0, debug: bool=False):
         """Initialize the updater with the given collection and update frequency.
 
         - item_incr: number of items to add before committing [default 100]. (Disabled if <= 0)
         - time_incr: elapsed time to wait before committing [default 30.0]. (Disabled if <= 0)
 
         Note that if both are specified, then whichever comes first triggers a commit.
+
+        If you specify `debug=True`, then commit messages will be printed using logger.info()
         """
         self.col = col
         self.item_incr = item_incr
@@ -87,18 +91,22 @@ class ChromaUpdater:
         self.last_update = time.time()
         self.to_add: dict[str, list] = dict(ids=[], embeddings=[], documents=[], metadatas=[])
         self.timer = None
-        self.ids_seen: set[str] = set()
+        self.ids_seen: dict[str, bool] = {}
+        self.debug = debug
 
     def commit(self):
         """Commits the current items to the collection and resets the updater."""
         if not self.to_add['ids']:
             return
-        logger.debug(f'Committing {len(self.to_add["ids"])} items to {self.col}')
+        log_func = logger.info if self.debug else logger.debug
+        log_func(f'Committing {len(self.to_add["ids"])} items to {self.col}')
         to_add = dict(ids=self.to_add['ids'])
         for field in ['embeddings', 'documents', 'metadatas']:
             if field in self.to_add:
                 to_add[field] = self.to_add[field]
         self.col.add(**to_add)
+        for id in to_add['ids']:
+            self.ids_seen[id] = True
         self.to_add = dict(ids=[], embeddings=[], documents=[], metadatas=[])
         self.last_update = time.time()
         if self.timer:
@@ -133,7 +141,7 @@ class ChromaUpdater:
         """
         assert id not in self.ids_seen, f'ID {id} already seen!'
         self.to_add['ids'].append(id)
-        self.ids_seen.add(id)
+        self.ids_seen[id] = False
         if embedding is not None:
             self.to_add['embeddings'].append(embedding)
         if document is not None:
