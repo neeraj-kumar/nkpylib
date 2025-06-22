@@ -219,9 +219,10 @@ class MementoDB:
         """Iterates through the entries in the library.
 
         Note that this first calls `refresh()` to update the entries if needed.
+        This also first creates a list over the entries, so that the iterator is stable.
         """
         self.refresh()
-        return iter(self.entries.values())
+        return iter(list(self.entries.values()))
 
     def __getitem__(self, key: Any) -> Entry:
         """Returns the first entry with the given key (based on the `key_field`).
@@ -338,45 +339,71 @@ class FoodReviews(MementoDB):
     def __init__(self):
         super().__init__(name="food reviews", key_field="Title")
 
-def split_reviews(r):
+def split_reviews(r, revs):
+    """Given a single review object `r`, split it into multiple reviews if it contains multiple dates."""
     desc = r['fields']['description']
     prompt = f'''The following is a review/notes of a restaurant. It might contain multiple reviews
     on different dates. If so, output a list of reviews as a JSON object, where each individual
-    review is a [date in YYYY-MM-DD format, review text] pair. If it is a single review, output an
-    empty list.
+    review is a [date in YYYY-MM-DD format, review text] pair. If the review starts without a date,
+    then include the first part of the review (without a date) as the first review. If the whole
+    thing is a single review, output an empty list.
 
     Output only a JSON object, no other text, errors, or explanation.
 
     Review:
     {desc}
     '''
-    response = load_llm_json(call_llm.single(prompt, max_tokens=128000))
-    print(f'Converted {r} -> {response}')
+    outs = load_llm_json(call_llm.single(prompt, max_tokens=128000))
+    print(f'Converted {r} -> {outs}')
+    if not isinstance(outs, list):
+        raise ValueError(f"Expected a list of reviews, got {outs}")
+    if len(outs) <= 1:
+        return
+    # more than one review, so duplicate with the different reviews
+    f = r['fields']
+    x = None
+    for date, review in outs:
+        if not date:
+            print(f'  Updating review to: {review}')
+            x = revs.update(r['id'], description=review)
+        else:
+            obj = dict(
+                description=review,
+                date=date+'T15:00:00Z', # middle of the day, since we don't know
+                Restaurants=f['Restaurants'],
+                Rating=f['Rating'],
+                new=True,
+            )
+            print(f'  Creating new review: {obj}')
+            x = revs.create(**obj)
+        #print(f'   Got resp: {x}')
+
 
 
 def migrate_food():
+    raise NotImplementedError("Already done the migration, so don't call this again")
     rests = Restaurants()
     revs = FoodReviews()
     print(f'Migrating {len(revs)} food reviews to {len(rests)} restaurants')
-    for r in revs:
-        if '20' in r['fields']['description']:
-            try:
-                split_reviews(r)
-            except Exception:
-                pass
-            break
-
+    # add a restaurant to all reviews that don't have one
     for i, r in enumerate(revs):
         if 'Restaurants' not in r['fields'] and r['fields'].get('Title'):
             rest = rests[r['fields']['Title']]
             print(f'{i} Adding restaurant {rest["fields"]["Title"]} to review {r["fields"]["Title"]}')
             revs.update(r["id"], Restaurants=[rest["id"]])
+    # split multiple reviews into separate entries
+    for r in revs:
+        if '20' in r['fields']['description']: # look for reviews with dates
+            try:
+                split_reviews(r, revs)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
     p = lambda x: print(json.dumps(x, indent=2))
-    task = 'migrate-food'
-    if task == 'simple_test':
+    task = 'test-movies'
+    if task == 'simple-test':
         r = get_libraries()
         p(r)
         info = get_library_info(r["movies"])
