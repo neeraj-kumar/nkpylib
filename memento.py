@@ -17,6 +17,8 @@ from typing import Any, Iterator, TypedDict
 import requests
 
 from nkpylib.web_utils import make_request
+from nkpylib.ml.client import call_llm
+from nkpylib.ml.llm_utils import load_llm_json
 
 
 logger = logging.getLogger(__name__)
@@ -33,10 +35,12 @@ class EntriesWrapper(TypedDict, total=False):
     entries: list[Entry]
 
 
-def memento_api(endpoint: str, method="get", **data):
+def memento_api(endpoint: str, method="get", retries=3, **data):
     """Runs a memento API query to given `endpoint`.
 
     We use the `MEMENTO_ACCESS_TOKEN` env var for auth.
+    If the request fails due to rate limits, we retry up to `retries` times, pausing 6 seconds
+    (since the API has a limit of 10/minute).
     """
     base_url = "https://api.mementodatabase.com/v1"
     endpoint = endpoint.lstrip("/")
@@ -45,17 +49,25 @@ def memento_api(endpoint: str, method="get", **data):
     # there's a limit of 10 reqs/min, but we'll try pushing our luck a bit
     params = dict(**data, token=token)
     if method == "get":
-        r = make_request(url, min_delay=1, params=params)
+        r = make_request(url, min_delay=6, params=params)
     else:
-        r = make_request(f'{url}?token={token}', method=method, min_delay=1, json=params)
+        r = make_request(f'{url}?token={token}', method=method, min_delay=6, json=params)
     logger.debug(f"Request: {r.request} to {r.request.url} with params {params}")
-    return r.json()
+    ret = r.json()
+    if retries > 0 and 'code' in ret and ret['code'] == 403 and 'rate limit' in ret['description']:
+        logger.info(f'Rate limit hit on endpoint {endpoint}, retrying...')
+        return memento_api(endpoint, method=method, retries=retries - 1, **data)
+    return ret
 
 
 def get_libraries() -> dict[str, str]:
     """Returns a dict from library name to library id in the Memento database."""
     libs = memento_api("libraries")
-    return {lib["name"]: lib["id"] for lib in libs["libraries"]}
+    try:
+        return {lib["name"]: lib["id"] for lib in libs["libraries"]}
+    except KeyError:
+        logger.error(f"Failed to parse libraries response: {libs}")
+        raise
 
 
 def get_library_info(library_id: str) -> dict[str, Any]:
@@ -247,7 +259,8 @@ class MementoDB:
 
     def update(self, entry_id: str, **kw) -> None:
         """Updates an entry with given fields and values."""
-        update_entry(self.library_id, entry_id, library_info=self.info, **kw)
+        resp = update_entry(self.library_id, entry_id, library_info=self.info, **kw)
+        print(resp)
         # update our local version
         self.entries[entry_id]['fields'].update(**kw)
 
@@ -312,9 +325,58 @@ class MovieDB(MementoDB):
         print(f'Got {len(matches)} matches for "4alicia": {matches}')
 
 
+class Restaurants(MementoDB):
+    """Subclass of MementoDB specialized for handling the restaurant list."""
+
+    def __init__(self):
+        super().__init__(name="Restaurants", key_field="Title")
+
+
+class FoodReviews(MementoDB):
+    """Subclass of MementoDB specialized for handling the food reviews list."""
+
+    def __init__(self):
+        super().__init__(name="food reviews", key_field="Title")
+
+def split_reviews(r):
+    desc = r['fields']['description']
+    prompt = f'''The following is a review/notes of a restaurant. It might contain multiple reviews
+    on different dates. If so, output a list of reviews as a JSON object, where each individual
+    review is a [date in YYYY-MM-DD format, review text] pair. If it is a single review, output an
+    empty list.
+
+    Output only a JSON object, no other text, errors, or explanation.
+
+    Review:
+    {desc}
+    '''
+    response = load_llm_json(call_llm.single(prompt, max_tokens=128000))
+    print(f'Converted {r} -> {response}')
+
+
+def migrate_food():
+    rests = Restaurants()
+    revs = FoodReviews()
+    print(f'Migrating {len(revs)} food reviews to {len(rests)} restaurants')
+    for r in revs:
+        if '20' in r['fields']['description']:
+            try:
+                split_reviews(r)
+            except Exception:
+                pass
+            break
+
+    for i, r in enumerate(revs):
+        if 'Restaurants' not in r['fields'] and r['fields'].get('Title'):
+            rest = rests[r['fields']['Title']]
+            print(f'{i} Adding restaurant {rest["fields"]["Title"]} to review {r["fields"]["Title"]}')
+            revs.update(r["id"], Restaurants=[rest["id"]])
+
+
 if __name__ == "__main__":
     p = lambda x: print(json.dumps(x, indent=2))
-    if 0:
+    task = 'migrate-food'
+    if task == 'simple_test':
         r = get_libraries()
         p(r)
         info = get_library_info(r["movies"])
@@ -323,5 +385,7 @@ if __name__ == "__main__":
         p(entries["entries"][:10])
         serp = search_entries("tt0140352", r["movies"])
         p(serp)
-    else:
+    elif task == 'test-movies':
         MovieDB.test()
+    elif task == 'migrate-food':
+        migrate_food()
