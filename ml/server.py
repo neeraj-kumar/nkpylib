@@ -57,6 +57,7 @@ import uuid
 from abc import ABC, abstractmethod
 from hashlib import sha256
 from pprint import pformat
+from asyncio import Lock, Condition
 from typing import Any, Callable, Literal, Optional, Union
 from urllib.request import urlretrieve
 
@@ -180,10 +181,13 @@ class Model(ABC):
         if model_name in DEFAULT_MODELS:
             model_name = DEFAULT_MODELS[model_name]
         self.model_name = model_name
+        self.lock = Lock()
+        self.condition = Condition()
         self.use_cache = use_cache
         self.model: Any = None
         self.cache = RESULTS_CACHE.setdefault(self.__class__, {})
         self.timing: dict[str, Any] = dict(model=model_name)
+        self.current: set[Any] = set() # what's currently running
 
 
     async def _load(self, **kw) -> Any:
@@ -196,19 +200,20 @@ class Model(ABC):
     async def load(self, **kw) -> bool:
         """Loads our model if not already loaded, returning if we actually loaded it"""
         model_cache_key = (self.__class__, self.model_name)
-        if self.model is None:
-            # first check if we have a cached version
-            if model_cache_key in MODEL_CACHE:
-                self.model = MODEL_CACHE[model_cache_key]
-                logger.debug(f"Model {self.model_name} loaded from cache")
-                return False
-            t0 = time.time()
-            self.model = await self._load(**kw)
-            t1 = time.time()
-            MODEL_CACHE[model_cache_key] = self.model
-            self.timing['load_time'] = t1 - t0
-            logger.debug(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
-            return True
+        async with self.lock:
+            if self.model is None:
+                # first check if we have a cached version
+                if model_cache_key in MODEL_CACHE:
+                    self.model = MODEL_CACHE[model_cache_key]
+                    logger.debug(f"Model {self.model_name} loaded from cache")
+                    return False
+                t0 = time.time()
+                self.model = await self._load(**kw)
+                t1 = time.time()
+                MODEL_CACHE[model_cache_key] = self.model
+                self.timing['load_time'] = t1 - t0
+                logger.debug(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
+                return True
         return False
 
     def update_kw(self, input, **kw) -> dict:
@@ -234,15 +239,24 @@ class Model(ABC):
                 self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
                 self.load(**kw) if self.model is None else asyncio.sleep(0)
             )
-            assert cache_key is not None
         t0 = time.time()
         if cache_key in self.cache:
             ret = self.cache[cache_key]
             self.cache[cache_key] = ret
             self.timing['found_cache'] = True
         else:
+            if cache_key is not None:
+                if cache_key in self.current:
+                    async with self.condition:
+                        await self.condition.wait_for(lambda: cache_key not in self.current)
+                self.current.add(cache_key)
             ret = await self._run(input, **kw)
-            self.cache[cache_key] = ret
+            if cache_key is not None:
+                self.cache[cache_key] = ret
+                self.current.remove(cache_key)
+                async with self.condition:
+                    self.condition.notify_all()
+
             self.timing['found_cache'] = False
         t1 = time.time()
         self.timing['generate'] = t1 - t0
@@ -424,7 +438,7 @@ class TranscriptionModel(Model):
 
 class LocalTranscriptionModel(TranscriptionModel):
     """A local transcription model using faster-whisper."""
-    async def load(self, n_threads=12, **kw) -> Any: # type: ignore[override]
+    async def _load(self, n_threads=12, **kw) -> Any: # type: ignore[override]
         from faster_whisper import WhisperModel # type: ignore
         model_name = 'large-v3'
         logger.debug(f'Loading model {model_name} with {n_threads} threads')
@@ -436,27 +450,13 @@ class LocalTranscriptionModel(TranscriptionModel):
         ret = dict(**info._asdict())
         ret['transcription_options'] = info.transcription_options._asdict()
         ret['segments'] = []
-        # info and segments are both named tuples
-        async def process_segment(segment):
-            # segments contain 'words' which is a list of named tuples
+        for segment in tqdm(segments):
+            await asyncio.sleep(0)  # yield thread
             seg = segment._asdict()
             if seg['words'] is not None:
                 seg['words'] = [word._asdict() for word in seg['words']]
             ret['segments'].append(seg)
-            # let other threads continue, since typically we're waiting a while per segment
-            await asyncio.sleep(sleep_time)
-
-        if 0: # sync version (manual sleeps)
-            for segment in tqdm(segments):
-                await process_segment(segment)
-        else: # async version
-            it = iter(segments)
-            while True:
-                try:
-                    segment = await anyio.to_thread.run_sync(next, it)
-                    process_segment(segment)
-                except StopIteration:
-                    break
+            logger.debug(f'Processed segment {len(ret["segments"])}: {seg}')
         ret['text'] = ''.join([seg['text'] for seg in ret['segments']])
         return ret
 
@@ -496,6 +496,7 @@ async def status():
 @app.post("/v1/chat")
 async def chat(req: ChatRequest):
     """Generates chat response for the given prompts using the given model."""
+    logger.warning(f'running chat model')
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
     model: ChatModel

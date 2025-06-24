@@ -15,7 +15,7 @@ help:
 	} \
 	{ lastLine = $$0 }' $(MAKEFILE_LIST)
 
-BASE_PY_FILES=faces.py features.py embeddings.py llm_utils.py bpm.py server.py
+BASE_PY_FILES=faces.py features.py embeddings.py bpm.py server.py
 OTHER_PY_FILES=client.py constants.py replicate_wrapper.py providers.py text.py
 PY_FILES=$(BASE_PY_FILES)
 #fastcls.py #image_features.py
@@ -40,7 +40,7 @@ llm:
 
 ## runs the llm server
 llm-server:
-	uvicorn server:app --reload --port 8234 --host 0.0.0.0
+	nice uvicorn server:app --reload --port 8234 --host 0.0.0.0
 
 ## test requests to the llm server
 test-llm:
@@ -59,7 +59,7 @@ test-client:
 
 ## test llama
 test-llama:
-	curl -s -X POST -H "Content-Type: application/json" --data '{"prompt": "output the 10 most populous countries of the world and their populations as a JSON list.", "max_tokens": 500, "model": "llama3"}' http://localhost:8234/v1/completions
+	curl -s -X POST -H "Content-Type: application/json" --data '{"prompts": "output the 10 most populous countries of the world and their populations as a JSON list.", "max_tokens": 500, "model": "llama3"}' http://localhost:8234/v1/chat
 
 ## test out face detection using replicate
 rep-face:
