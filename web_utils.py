@@ -51,6 +51,27 @@ DEFAULT_LLM_MODEL = 'turbo'
 
 REQUEST_TIMES: dict[str, float] = {}
 
+def preprocess_make_request(url: str,
+                            min_delay=1,
+                            request_times=REQUEST_TIMES,
+                            headers=None) -> dict[str, Any]:
+    """Common preprocessing code for make_request() and make_request_async().
+
+    This does the following:
+    - rate-limits requests to the same host by waiting `min_delay` seconds between requests
+    - sets a default User-Agent header if not given
+    - merges any additional headers passed in with the default User-Agent header
+    """
+    host = urlparse(url).hostname
+    elapsed = time.time() - request_times.get(host, 0)
+    if elapsed < min_delay:
+        time.sleep(min_delay - elapsed)
+    request_times[host] = time.time()
+    _headers = {'User-Agent': USER_AGENT}
+    if headers is not None:
+        _headers.update(headers)
+    return _headers
+
 async def make_request_async(url: str,
                              method='get',
                              min_delay=1,
@@ -70,14 +91,7 @@ async def make_request_async(url: str,
     global in this module, but you can pass your own), and we wait `min_delay` seconds before
     contacting the same host again.
     """
-    host = urlparse(url).hostname
-    elapsed = time.time() - request_times.get(host, 0)
-    if elapsed < min_delay:
-        time.sleep(min_delay - elapsed)
-    request_times[host] = time.time()
-    _headers = {'User-Agent': USER_AGENT}
-    if headers is not None:
-        _headers.update(headers)
+    _headers = preprocess_make_request(url, min_delay=min_delay, request_times=request_times, headers=headers)
     resp = await asyncio.to_thread(requests.request, method, url, headers=_headers, files=files, **kwargs)
     return resp
 
@@ -100,18 +114,9 @@ def make_request(url: str,
     global in this module, but you can pass your own), and we wait `min_delay` seconds before
     contacting the same host again.
     """
-    #FIXME figure out if we can just use the async version here, robustly
-    host = urlparse(url).hostname
-    elapsed = time.time() - request_times.get(host, 0)
-    if elapsed < min_delay:
-        time.sleep(min_delay - elapsed)
-    request_times[host] = time.time()
-    _headers = {'User-Agent': USER_AGENT}
-    if headers is not None:
-        _headers.update(headers)
+    _headers = preprocess_make_request(url, min_delay=min_delay, request_times=request_times, headers=headers)
     resp = requests.request(method, url, headers=_headers, files=files, **kwargs)
     return resp
-
 
 def resolve_url(url: str, method='head', **kwargs) -> str:
     """Follows the url through all redirects and returns the ultimate url"""
