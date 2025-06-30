@@ -49,7 +49,8 @@ class GeneralJSONEncoder(json.JSONEncoder):
             elif self.datetime_format == 'epoch':
                 return int(obj.timestamp())
         elif isinstance(obj, np.ndarray):
-            return obj.astype(float).tolist() if np.issubdtype(obj.dtype, np.floating) else obj.astype(int).tolist()
+            dtype =  float if np.issubdtype(obj.dtype, np.floating) else int
+            return obj.astype(dtype).tolist()
         elif is_dataclass(obj):
             return asdict(obj)
         return super().default(obj)
