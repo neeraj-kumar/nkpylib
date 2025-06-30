@@ -536,7 +536,7 @@ def quick_test():
             print(f'trying model {model}:', call_vlm.single((image, prompt), model=model))
     if 'emb' in test:
         s = 'hello'
-        for model in 'e5 ada clip st'.split():
+        for model in 'qwen_emb e5 ada clip st'.split():
             ret = embed_text.single(s, model=model)
             print(f'Embedding for model {model} with {len(ret)} dims: {ret[:10]}')
     if 'strsim' in test:

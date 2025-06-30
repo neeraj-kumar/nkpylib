@@ -18,7 +18,7 @@ import numpy as np
 from chromadb import Collection, HttpClient, PersistentClient, Client, EphemeralClient
 from tqdm import tqdm
 
-from nkpylib.thread_utils import chained_producer_consumers
+from nkpylib.thread_utils import chained_producer_consumers, CollectionUpdater
 
 logger = logging.getLogger(__name__)
 
@@ -58,24 +58,14 @@ def load_chroma_client(db_path: str='', port: int=0):
                 logger.info(f"Loaded chromadb client in {time.time() - t0:.2f}s")
     return CHROMA_CLIENTS[key]
 
-class ChromaUpdater:
-    """A simple class that makes it easy to update a collection in more natural ways.
+class ChromaUpdater(CollectionUpdater):
+    """A chroma-specific version of `CollectionUpdater`.
 
     In particular, chroma's add function is clunky, requiring a dict with lists of ids, embeddings,
     etc. This makes sense for efficiency, but is annoying.
 
     With this class, you specify your update frequency (in number of items and/or elapsed time) in
     the constructor, and then call .add() for each item.
-
-    You can also manually call commit() to force a commit at any time.
-
-    Note that when the updater is deleted, it will automatically commit any remaining items, so you
-    don't have to worry about the pesky "last commit" that is always annoying to deal with -- as
-    soon as this goes out-of-scope, it will commit. You can also just call commit() at the end of
-    your add loop.
-
-    The class also keeps track of all ids ever seen and whether have been committed or not via
-    `ids_seen`.
     """
     def __init__(self,
                  col: Collection,
@@ -96,56 +86,23 @@ class ChromaUpdater:
         If you specify `debug=True`, then commit messages will be printed using logger.info()
         """
         self.col = col
-        self.item_incr = item_incr
-        self.time_incr = time_incr
-        self.last_update = time.time()
-        self.to_add: dict[str, list] = dict(ids=[], embeddings=[], documents=[], metadatas=[])
-        self.timer = None
-        self.ids_seen: dict[str, bool] = {}
-        self.post_commit_fn = post_commit_fn
-        self.debug = debug
+        super().__init__(add_fn=self._add_fn,
+                         item_incr=item_incr,
+                         time_incr=time_incr,
+                         post_commit_fn=post_commit_fn,
+                         debug=debug)
 
-    def commit(self):
-        """Commits the current items to the collection and resets the updater."""
-        if not self.to_add['ids']:
-            return
-        log_func = logger.info if self.debug else logger.debug
-        log_func(f'Committing {len(self.to_add["ids"])} items to {self.col}')
-        to_add = dict(ids=self.to_add['ids'])
+    def _reset_to_add(self) -> dict[str, list]:
+        """Resets our batch of items to add."""
+        return dict(ids=[], embeddings=[], documents=[], metadatas=[])
+
+    def _add_fn(self, to_add: dict[str, list]) -> None:
+        """Batch add to chroma"""
+        _to_add = dict(ids=to_add['ids'])
         for field in ['embeddings', 'documents', 'metadatas']:
-            if field in self.to_add:
-                to_add[field] = self.to_add[field]
+            if field in to_add:
+                _to_add[field] = to_add[field]
         self.col.add(**to_add)
-        for id in to_add['ids']:
-            self.ids_seen[id] = True
-        if self.post_commit_fn:
-            self.post_commit_fn(to_add['ids'])
-        self.to_add = dict(ids=[], embeddings=[], documents=[], metadatas=[])
-        self.last_update = time.time()
-        if self.timer:
-            self.timer.cancel()
-        self.timer = None
-
-    def __del__(self):
-        """Commit any remaining items before deleting the updater."""
-        self.commit()
-
-    def maybe_commit(self):
-        """Called to check if we should commit based on the update frequencies."""
-        if not self.to_add['ids']:
-            return
-        if self.item_incr > 0 and len(self.to_add['ids']) >= self.item_incr:
-            self.commit()
-        if self.time_incr > 0 and time.time() - self.last_update >= self.time_incr:
-            self.commit()
-        if self.time_incr <= 0:
-            return
-        # we also want to set a timer to make sure we commit even if we don't add any more items
-        if self.timer and self.timer.is_alive(): # timer is already running, we're fine
-            return
-        # at this point, we need to set a timer
-        self.timer = threading.Timer(1.0, self.maybe_commit)
-        self.timer.start()
 
     def add(self, id: str, embedding: np.ndarray|None=None, document: str|None=None, metadata: dict[str, Any]|None=None):
         """Adds an item to the updater.

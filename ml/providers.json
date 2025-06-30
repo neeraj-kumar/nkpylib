@@ -3,6 +3,30 @@
     "api_key_var": "DEEPINFRA_API_TOKEN",
     "base_url": "https://api.deepinfra.com/v1/openai",
     "models": {
+      "Qwen/Qwen3-Embedding-8B": {
+        "id": "Qwen/Qwen3-Embedding-8B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Embedding-8B",
+        "parent": null
+      },
+      "Qwen/Qwen3-Embedding-4B": {
+        "id": "Qwen/Qwen3-Embedding-4B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Embedding-4B",
+        "parent": null
+      },
+      "Qwen/Qwen3-Embedding-0.6B": {
+        "id": "Qwen/Qwen3-Embedding-0.6B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Embedding-0.6B",
+        "parent": null
+      },
       "Gryphe/MythoMax-L2-13b-turbo": {
         "id": "Gryphe/MythoMax-L2-13b-turbo",
         "object": "model",

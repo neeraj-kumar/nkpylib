@@ -57,6 +57,9 @@ DEFAULT_MODELS = dict(
     ada='text-embedding-ada-002',
     # e5 embeddings with 1024 output dims
     e5='intfloat/e5-large-v2',
+    # qwen3 embeddings (large and small)
+    qwen_emb='Qwen/Qwen3-Embedding-8B',
+    qwen_emb_small='Qwen/Qwen3-Embedding-0.6B',
 )
 
 LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']
