@@ -84,6 +84,8 @@ app = fastapi.FastAPI()
 MODEL_CACHE: dict = {}
 RESULTS_CACHE: dict = {}
 
+RESULTS_CACHE_LIMIT = 10000
+
 # load func takes model name and **kw, and returns the loaded model
 LoadFuncT = Callable[[Any], Any]
 RunFuncT = Callable[[Any, Any], dict]
@@ -186,7 +188,7 @@ class Model(ABC):
         self.condition = Condition()
         self.use_cache = use_cache
         self.model: Any = None
-        self.cache = RESULTS_CACHE.setdefault(self.__class__, {})
+        self.cache = RESULTS_CACHE.setdefault(self.__class__, OrderedDict())
         self.timing: dict[str, Any] = dict(model=model_name)
         self.current: set[Any] = set() # what's currently running
 
@@ -243,8 +245,7 @@ class Model(ABC):
         t0 = time.time()
         if cache_key in self.cache:
             ret = self.cache[cache_key]
-            self.cache[cache_key] = ret
-            self.timing['found_cache'] = True
+            self.cache.move_to_end(cache_key)  # move to end to keep it fresh
         else:
             if cache_key is not None:
                 if cache_key in self.current:
@@ -254,11 +255,12 @@ class Model(ABC):
             ret = await self._run(input, **kw)
             if cache_key is not None:
                 self.cache[cache_key] = ret
+                while len(self.cache) > RESULTS_CACHE_LIMIT:
+                    self.cache.popitem(last=False)
                 self.current.remove(cache_key)
                 async with self.condition:
                     self.condition.notify_all()
-
-            self.timing['found_cache'] = False
+        self.timing['found_cache'] = cache_key in self.cache
         t1 = time.time()
         self.timing['generate'] = t1 - t0
         ret['timing'] = dict(self.timing)
