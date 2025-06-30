@@ -17,7 +17,7 @@ import typing
 
 from os.path import abspath, basename, dirname, exists, join, relpath
 from queue import Queue, Empty
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +219,119 @@ def sync_or_async(async_func):
             return async_func(*args, **kwargs)
 
     return wrapper
+
+
+class CollectionUpdater:
+    """A simple class that makes it easy to update a collection in more natural ways.
+
+    Particularly when working with databases of various kinds, it's much more efficient to add stuff
+    in batches, but in code, it's often more natural to just iterate through items and add them one
+    by one. This class lets you have the best of both worlds.
+
+    Each item you add must have a string 'id', and then any other fields you want to use. You
+    specify your update frequency (in number of items and/or elapsed time) in the constructor, and
+    then call .add() for each item.
+
+    You can also manually call commit() to force a commit at any time.
+
+    Note that when the updater is deleted, it will automatically commit any remaining items, so you
+    don't have to worry about the pesky "last commit" that is always annoying to deal with -- as
+    soon as this goes out-of-scope, it will commit. You can also just call commit() at the end of
+    your add loop.
+
+    The class also keeps track of all ids ever seen and whether have been committed or not via
+    `ids_seen`.
+
+    It will also call the optional `post_commit_fn(list_of_ids_committed)` after each commit,
+    passing in the list of ids in that batch.
+    """
+    def __init__(self,
+                 # add function can take arbitrary args and return anything
+                 add_fn: Callable[[Any], Any],
+                 item_incr: int=100,
+                 time_incr: float=30.0,
+                 post_commit_fn: Callable[[list[str]], None]|None=None,
+                 debug: bool=False):
+        """Initialize the updater with the given underlying `add_fn` and update frequency.
+
+        - add_fn: a function that takes a batch of items to add. It will be called directly with
+          `self.to_add`
+        - item_incr: number of items to add before committing [default 100]. (Disabled if <= 0)
+        - time_incr: elapsed time to wait before committing [default 30.0]. (Disabled if <= 0)
+
+        Note that if both are specified, then whichever comes first triggers a commit.
+
+        You can optionally pass in a `post_commit_fn` to be called after each commit. It is called
+        with the list of ids that were just committed.
+
+        If you specify `debug=True`, then commit messages will be printed using logger.info()
+        """
+        self.add_fn = add_fn
+        self.item_incr = item_incr
+        self.time_incr = time_incr
+        self.last_update = time.time()
+        self.to_add = self._reset_to_add()
+        self.timer = None
+        self.ids_seen: dict[str, bool] = {}
+        self.post_commit_fn = post_commit_fn
+        self.debug = debug
+
+    def _reset_to_add(self) -> dict[str, list]:
+        """Resets our batch of items to add."""
+        return dict(ids=[], objects=[])
+
+    def commit(self):
+        """Commits the current items to the collection and resets the updater."""
+        if not self.to_add['ids']:
+            return
+        log_func = logger.info if self.debug else logger.debug
+        log_func(f'Committing {len(self.to_add["ids"])} items')
+        assert len(self.to_add['ids']) == len(self.to_add['objects'])
+        self.add_fn(self.to_add)
+        for id in self.to_add['ids']:
+            self.ids_seen[id] = True
+        if self.post_commit_fn:
+            self.post_commit_fn(self.to_add['ids'])
+        self.to_add = self._reset_to_add()
+        self.last_update = time.time()
+        if self.timer:
+            self.timer.cancel()
+        self.timer = None
+
+    def __del__(self):
+        """Commit any remaining items before deleting the updater."""
+        self.commit()
+
+    def maybe_commit(self):
+        """Called to check if we should commit based on the update frequencies."""
+        if not self.to_add['ids']:
+            return
+        if self.item_incr > 0 and len(self.to_add['ids']) >= self.item_incr:
+            self.commit()
+        if self.time_incr > 0 and time.time() - self.last_update >= self.time_incr:
+            self.commit()
+        if self.time_incr <= 0:
+            return
+        # we also want to set a timer to make sure we commit even if we don't add any more items
+        if self.timer and self.timer.is_alive(): # timer is already running, we're fine
+            return
+        # at this point, we need to set a timer
+        self.timer = threading.Timer(1.0, self.maybe_commit)
+        self.timer.start()
+
+    def add(self, id: str, obj: Any):
+        """Adds an `obj` to the updater.
+
+        Note that if the object needs the id inside it, you should include it there as well.
+        The param `id` is only for bookkeeping for this class.
+
+        If the update frequency is reached, it will commit the items to the collection.
+        """
+        assert id not in self.ids_seen, f'ID {id} already seen!'
+        self.to_add['ids'].append(id)
+        self.to_add['objects'].append(obj)
+        self.ids_seen[id] = False
+        self.maybe_commit()
 
 
 
