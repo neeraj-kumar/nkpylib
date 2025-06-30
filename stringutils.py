@@ -18,6 +18,7 @@ import tempfile
 import time
 
 from collections import defaultdict, Counter
+from enum import Enum
 from dataclasses import is_dataclass, asdict
 from datetime import date, datetime
 from difflib import SequenceMatcher
@@ -63,6 +64,8 @@ class GeneralJSONEncoder(json.JSONEncoder):
             return dict(obj)
         elif isinstance(obj, set):
             return sorted(obj)
+        elif isinstance(obj, Enum):
+            return obj.value
         return super().default(obj)
 
 
