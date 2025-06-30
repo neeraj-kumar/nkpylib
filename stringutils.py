@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 
+from dataclasses import is_dataclass, asdict
 from datetime import date, datetime
 from difflib import SequenceMatcher
 from io import StringIO
@@ -25,17 +26,23 @@ from random import choice, randint
 from shutil import copy2
 from subprocess import call, PIPE
 from typing import Any, NamedTuple, Union
-from json import JSONEncoder
-from datetime import datetime
-import numpy as np
-from dataclasses import is_dataclass, asdict
+from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.request import url2pathname, urlretrieve
 
-class CustomJSONEncoder(JSONEncoder):
+class GeneralJSONEncoder(json.JSONEncoder):
+    """A general-purpose JSON encoder that can handle common non-json-able types.
+
+    Currently:
+    - datetime: specify `datetime_format` in constructor (default rfc3339)
+    - numpy.ndarray: converts to list and data types as well
+    - dataclasses: converts to dict using `asdict()`
+    """
     def __init__(self, *args, datetime_format='rfc3339', **kwargs):
         super().__init__(*args, **kwargs)
         self.datetime_format = datetime_format
 
     def default(self, obj):
+        import numpy as np
         if isinstance(obj, datetime):
             if self.datetime_format == 'rfc3339':
                 return obj.isoformat()
@@ -46,8 +53,7 @@ class CustomJSONEncoder(JSONEncoder):
         elif is_dataclass(obj):
             return asdict(obj)
         return super().default(obj)
-from urllib.parse import parse_qs, quote, unquote, urlparse
-from urllib.request import url2pathname, urlretrieve
+
 
 #: Mapping from filename extensions to canonical 3-letter form
 IMAGE_EXTENSIONS = {
