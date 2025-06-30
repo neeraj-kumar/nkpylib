@@ -25,6 +25,27 @@ from random import choice, randint
 from shutil import copy2
 from subprocess import call, PIPE
 from typing import Any, NamedTuple, Union
+from json import JSONEncoder
+from datetime import datetime
+import numpy as np
+from dataclasses import is_dataclass, asdict
+
+class CustomJSONEncoder(JSONEncoder):
+    def __init__(self, *args, datetime_format='rfc3339', **kwargs):
+        super().__init__(*args, **kwargs)
+        self.datetime_format = datetime_format
+
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            if self.datetime_format == 'rfc3339':
+                return obj.isoformat()
+            elif self.datetime_format == 'epoch':
+                return int(obj.timestamp())
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif is_dataclass(obj):
+            return asdict(obj)
+        return super().default(obj)
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import url2pathname, urlretrieve
 
