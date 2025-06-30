@@ -26,6 +26,7 @@ from random import choice, randint
 from shutil import copy2
 from subprocess import call, PIPE
 from typing import Any, NamedTuple, Union
+from collections import defaultdict, Counter
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import url2pathname, urlretrieve
 
@@ -53,6 +54,10 @@ class GeneralJSONEncoder(json.JSONEncoder):
             return obj.astype(dtype).tolist()
         elif is_dataclass(obj):
             return asdict(obj)
+        elif isinstance(obj, (defaultdict, Counter)):
+            return dict(obj)
+        elif isinstance(obj, set):
+            return sorted(obj)
         return super().default(obj)
 
 
