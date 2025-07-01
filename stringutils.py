@@ -18,10 +18,10 @@ import tempfile
 import time
 
 from collections import defaultdict, Counter
-from enum import Enum
 from dataclasses import is_dataclass, asdict
 from datetime import date, datetime
 from difflib import SequenceMatcher
+from enum import Enum
 from io import StringIO
 from pprint import pprint
 from random import choice, randint
@@ -41,6 +41,7 @@ class GeneralJSONEncoder(json.JSONEncoder):
     - defaultdict: converts to a regular dict
     - Counter: converts to a regular dict
     - set: converts to a sorted list
+    - Enum: converts to its value
     """
     DATETIME_FORMATS = ('rfc3339', 'epoch')
     def __init__(self, *args, datetime_format='rfc3339', **kwargs):
