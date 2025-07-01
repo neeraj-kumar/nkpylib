@@ -43,6 +43,7 @@ Current ML types and models:
 
 from __future__ import annotations
 
+#TODO singletons for classes?
 #TODO have some kind of context manager for deciding where to run llm functions from? (local, replicate, openai)
 #TODO some way to turn an LLM query into an embeddings + code query (e.g. recipe pdf name correction)
 
@@ -74,6 +75,7 @@ from tqdm import tqdm
 from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
 from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
+from nkpylib.thread_utils import Singleton
 from nkpylib.web_utils import make_request_async, dl_temp_file
 from nkpylib.utils import is_instance_of_type
 
@@ -189,7 +191,17 @@ class Model(ABC):
         self.use_cache = use_cache
         self.model: Any = None
         self.cache = RESULTS_CACHE.setdefault(self.__class__, OrderedDict())
-        self.timing: dict[str, Any] = dict(model=model_name)
+        self.timing: dict[str, Any] = dict(
+            model=model_name,
+            n_calls=0,
+            n_inferences=0,
+            avg_generate=0,
+            throughput=0,
+            n_cache_hits=0,
+            n_cache_misses=0,
+            generate_all=0,
+            inference_time=0,
+        )
         self.current: set[Any] = set() # what's currently running
 
 
@@ -215,6 +227,7 @@ class Model(ABC):
                 t1 = time.time()
                 MODEL_CACHE[model_cache_key] = self.model
                 self.timing['load_time'] = t1 - t0
+                self.timing['load_ts'] = t1
                 logger.debug(f"Model {self.model_name} loaded in {t1-t0:.2f}s")
                 return True
         return False
@@ -235,6 +248,7 @@ class Model(ABC):
 
     async def run(self, input: Any, **kw) -> dict:
         """Runs the model with given `input`"""
+        t0 = time.time()
         cache_key = None
         kw = self.update_kw(input, **kw)
         if self.use_cache or self.model is None:
@@ -242,17 +256,22 @@ class Model(ABC):
                 self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
                 self.load(**kw) if self.model is None else asyncio.sleep(0)
             )
-        t0 = time.time()
         if cache_key in self.cache:
             ret = self.cache[cache_key]
+            self.timing['n_cache_hits'] += 1
             self.cache.move_to_end(cache_key)  # move to end to keep it fresh
         else:
             if cache_key is not None:
                 if cache_key in self.current:
                     async with self.condition:
                         await self.condition.wait_for(lambda: cache_key not in self.current)
+                self.timing['n_cache_misses'] += 1
                 self.current.add(cache_key)
+            t2 = time.time()
             ret = await self._run(input, **kw)
+            t3 = time.time()
+            self.timing['n_inferences'] += 1
+            self.timing['inference_time'] += (t3 - t2)
             if cache_key is not None:
                 self.cache[cache_key] = ret
                 while len(self.cache) > RESULTS_CACHE_LIMIT:
@@ -260,12 +279,16 @@ class Model(ABC):
                 self.current.remove(cache_key)
                 async with self.condition:
                     self.condition.notify_all()
-        self.timing['found_cache'] = cache_key in self.cache
         t1 = time.time()
-        self.timing['generate'] = t1 - t0
-        ret['timing'] = dict(self.timing)
+        self.timing['n_calls'] += 1
+        self.timing['generate_all'] += t1 - t0
+        self.timing['load_elapsed'] = t1 - self.timing.get('load_ts', t0)
+        self.timing['throughput'] = self.timing['n_inferences'] / self.timing['load_elapsed']
+        self.timing['avg_generate'] = self.timing['generate_all'] / self.timing['n_inferences']
+        ret['timing'] = dict(self.timing, generate=t1-t0, found_cache=cache_key in self.cache)
         logger.debug(f"Model {self.model_name} run in {t1-t0:.2f}s")
         return ret
+
 
 class ChatModel(Model):
     """Base class for chat models.
@@ -310,6 +333,7 @@ class LocalChatModel(ChatModel):
         return self.postprocess(input, result, **kw)
 
 
+@Singleton
 class ExternalChatModel(ChatModel):
     """Model subclass for handling external chat models."""
     async def _run(self, input: Any, **kw) -> dict:
@@ -329,6 +353,7 @@ class ExternalChatModel(ChatModel):
         return self.postprocess(input, ret, **kw)
 
 
+@Singleton
 class VLMModel(ChatModel):
     """Model subclass for handling VLM models."""
     async def _get_cache_key(self, input: Any, **kw) -> str:
@@ -377,6 +402,7 @@ class EmbeddingModel(Model):
         )
 
 
+@Singleton
 class ClipEmbeddingModel(EmbeddingModel):
     """Model subclass for handling CLIP text/image embeddings."""
     def __init__(self, mode='text', model_name: str='', use_cache: bool=True, **kw):
@@ -399,6 +425,7 @@ class ClipEmbeddingModel(EmbeddingModel):
         return self.postprocess(ret)
 
 
+@Singleton
 class SentenceTransformerModel(EmbeddingModel):
     """Model subclass for handling SentenceTransformer embeddings."""
     async def _load(self, **kw) -> Any:
@@ -410,6 +437,7 @@ class SentenceTransformerModel(EmbeddingModel):
         return self.postprocess(embedding)
 
 
+@Singleton
 class ExternalEmbeddingModel(EmbeddingModel):
     """Model subclass for handling external API text embeddings."""
     async def _run(self, input: Any, **kw) -> dict:
@@ -418,6 +446,7 @@ class ExternalEmbeddingModel(EmbeddingModel):
         return ret
 
 
+@Singleton
 class TextExtractionModel(Model):
     """Model subclass for extracting text from URLs or file paths."""
     async def _get_cache_key(self, input: Any, **kw) -> str:
@@ -447,7 +476,7 @@ class LocalTranscriptionModel(TranscriptionModel):
         logger.debug(f'Loading model {model_name} with {n_threads} threads')
         return WhisperModel(model_name, device="cpu", compute_type='int8', cpu_threads=n_threads)
 
-    async def _run(self, input: Any, language='en', beam_size=5, sleep_time=5, **kw) -> dict:
+    async def _run(self, input: Any, language='en', beam_size=5, **kw) -> dict:
         assert isinstance(input, str)
         segments, info = self.model.transcribe(input, beam_size=beam_size, language=language)
         ret = dict(**info._asdict())
@@ -464,6 +493,7 @@ class LocalTranscriptionModel(TranscriptionModel):
         return ret
 
 
+@Singleton
 class ExternalTranscriptionModel(TranscriptionModel):
     """Model subclass for handling speech transcription."""
     async def _run(self, input: Any, **kw) -> dict:
@@ -480,11 +510,21 @@ class ExternalTranscriptionModel(TranscriptionModel):
 # setup fastapi chat endpoint
 class ChatRequest(BaseModel):
     prompts: str|list[Msg]
-    model: str='chat' # this will get mapped bsaed on DEFAULT_MODELS['chat']
+    model: str='chat' # this will get mapped based on DEFAULT_MODELS['chat']
     max_tokens: int=1024
     kwargs: dict={}
     use_cache: bool=False
     provider: str=''
+
+ALL_SINGLETON_MODELS = [
+    ExternalChatModel,
+    VLMModel,
+    ClipEmbeddingModel,
+    SentenceTransformerModel,
+    ExternalEmbeddingModel,
+    TextExtractionModel,
+    ExternalTranscriptionModel,
+]
 
 @app.get("/v1/status")
 async def status():
@@ -494,6 +534,20 @@ async def status():
         MODEL_CACHE=[str(k) for k in MODEL_CACHE],
         RESULTS_CACHE={str(k): len(v) for k, v, in RESULTS_CACHE.items()},
     )
+    for model in ALL_SINGLETON_MODELS:
+        instances = model._instances
+        if not instances:
+            continue
+        name = model._cls.__name__
+        for key, el in instances.items():
+            ret[f'{name}: {key}'] = {
+                'class': name,
+                'instance_id': key,
+                'model_name': el.model_name,
+                'loaded': el.model is not None,
+                'timing': el.timing,
+                'current': list(el.current),
+            }
     return ret
 
 @app.post("/v1/chat")
@@ -519,7 +573,7 @@ async def chat(req: ChatRequest):
 class VLMRequest(BaseModel):
     image: str # path/url/image directly?
     prompts: str|list[Msg]
-    model: str='vlm' # this will get mapped bsaed on DEFAULT_MODELS['vlm']
+    model: str='vlm' # this will get mapped based on DEFAULT_MODELS['vlm']
     max_tokens: int=1024
     kwargs: dict={}
     use_cache: bool=False

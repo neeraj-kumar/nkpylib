@@ -15,6 +15,8 @@ import threading
 import time
 import typing
 
+from functools import wraps
+from inspect import iscoroutinefunction
 from os.path import abspath, basename, dirname, exists, join, relpath
 from queue import Queue, Empty
 from typing import Any, Callable, Iterable
@@ -333,6 +335,55 @@ class CollectionUpdater:
         self.ids_seen[id] = False
         self.maybe_commit()
 
+class Singleton:
+    """A singleton implementation that hashes the args and kwargs to the init of a class"""
+    def __init__(self, cls):
+        self._cls = cls
+        self._instances = {}
+        self._lock = threading.Lock()
+        self._async_lock = asyncio.Lock()
+
+    def _make_key(self, args, kwargs):
+        # Note: assumes all args and kwargs are hashable
+        return (args, frozenset(kwargs.items()))
+
+    def __call__(self, *args, **kwargs):
+        key = self._make_key(args, kwargs)
+
+        # Try fast path first
+        instance = self._instances.get(key)
+        if instance is not None:
+            return instance
+
+        # Thread-safe path
+        with self._lock:
+            instance = self._instances.get(key)
+            if instance is None:
+                instance = self._cls(*args, **kwargs)
+                self._instances[key] = instance
+        return instance
+
+    async def __acall__(self, *args, **kwargs):
+        key = self._make_key(args, kwargs)
+
+        # Try fast path first
+        instance = self._instances.get(key)
+        if instance is not None:
+            return instance
+
+        async with self._async_lock:
+            instance = self._instances.get(key)
+            if instance is None:
+                if iscoroutinefunction(self._cls.__init__):
+                    instance = await self._cls(*args, **kwargs)
+                else:
+                    instance = self._cls(*args, **kwargs)
+                self._instances[key] = instance
+        return instance
+
+    def __get__(self, obj, objtype=None):
+        # In case someone applies this to a method accidentally
+        return self
 
 
 if __name__ == "__main__":

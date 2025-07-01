@@ -62,6 +62,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import sys
 import tempfile
 import time
@@ -111,18 +112,13 @@ class FunctionWrapper:
         user-friendly output. You can set the mode to 'raw' to return the raw JSON response.
 
         We also allow you to pass in an executor to use for parallel calls. By default, we create a
-        new `ThreadPoolExecutor` for each `FunctionWrapper` instance.
+        new `ThreadPoolExecutor` for each `FunctionWrapper` instance. (with os.cpu_count() * 5
+        threads, since this is all IO-bound).
 
         The core function should take the input and any additional arguments and return the raw
         JSON response from the server. The final function should take the raw response and return
         a more user-friendly output. If no final function is provided, we default to 'raw' mode (and
         disallow setting mode to 'final').
-
-        By default, we use 'final' mode, which processes the response and returns a more
-        user-friendly output. You can set the mode to 'raw' to return the raw JSON response.
-
-        We also allow you to pass in an executor to use for parallel calls. By default, we create a
-        new ThreadPoolExecutor for each FunctionWrapper instance.
 
         The `progress_msg` parameter allows you to specify a message to display with a tqdm progress
         bar during batch processing. If `progress_msg` is an empty string (the default), no progress
@@ -130,7 +126,7 @@ class FunctionWrapper:
         """
         self.core_func = core_func
         if executor is None:
-            executor = ThreadPoolExecutor()
+            executor = ThreadPoolExecutor(max_workers=os.cpu_count() * 15)
         self.executor = executor
         self.final_func = final_func
         self.progress_msg = progress_msg
