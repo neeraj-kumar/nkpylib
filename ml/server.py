@@ -86,7 +86,7 @@ app = fastapi.FastAPI()
 MODEL_CACHE: dict = {}
 RESULTS_CACHE: dict = {}
 
-RESULTS_CACHE_LIMIT = 10000
+RESULTS_CACHE_LIMIT = 90000
 
 # load func takes model name and **kw, and returns the loaded model
 LoadFuncT = Callable[[Any], Any]
