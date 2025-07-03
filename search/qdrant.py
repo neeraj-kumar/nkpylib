@@ -9,6 +9,7 @@ from nkpylib.search.searcher import (
         SearchImpl,
         SearchResult,
     )
+from nkpylib.search.searcher import SearchCond, OpCond, Op, JoinCond, JoinType, Array1D
 
 logger = logging.getLogger(__name__)
 
