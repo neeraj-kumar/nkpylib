@@ -19,8 +19,6 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-J = lambda x: pprint(x)
-
 Array1D = list[float] | tuple[float] | np.ndarray
 Array2D = list[Array1D] | np.ndarray # for multiple embeddings
 
@@ -41,6 +39,10 @@ class SearchCond:
     def simplify(self) -> None:
         """Simplify this search condition if possible (in-place)"""
         pass
+
+    def __hash__(self):
+        """Hash this condition for use in sets or dicts."""
+        raise NotImplementedError("Subclasses must implement __hash__")
 
 
 # define enum for operators
@@ -84,6 +86,11 @@ class OpCond(SearchCond):
             val = val[:50] + '...'
         return f"{self.field} {self.op} {val}"
 
+    def __hash__(self):
+        """Hash this condition for use in sets or dicts."""
+        return hash((self.field, self.op, json.dumps(self.value, sort_keys=True)))
+
+
 class JoinType(Enum):
     """Types of joins for search conditions"""
     AND = 'and'
@@ -125,6 +132,10 @@ class JoinCond(SearchCond):
         dlm = self.join.value.upper()
         return '(' + f'\n  {dlm} '.join(repr(c) for c in self.conds) + ')'
 
+    def __hash__(self):
+        """Hash this condition for use in sets or dicts."""
+        return hash((self.join, tuple(hash(c) for c in self.conds)))
+
 
 @dataclass
 class SearchResult:
@@ -141,7 +152,7 @@ class SearchResult:
     def __repr__(self):
         md = ''
         if self.metadata:
-            md = str(self.metadata)[:100]
+            md = str(self.metadata)[:150]
         return f"SR<{self.id}|{self.score:.3f}|{md}>"
 
 
@@ -175,6 +186,3 @@ class SearchImpl(ABC):
 class Searcher:
     """Base class for searchers"""
     pass
-
-
-
