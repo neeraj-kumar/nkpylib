@@ -5,6 +5,7 @@ import logging
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
+from typing import Sequence
 from nkpylib.search.searcher import (
         SearchImpl,
         SearchResult,
