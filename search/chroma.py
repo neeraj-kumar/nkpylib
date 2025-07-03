@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Sequence, Callable, Generator
+import logging
+
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Sequence, Callable, Generator
+
 from nkpylib.search.searcher import SearchImpl, SearchResult, Array1D
-
-import logging
-
-from nkpylib.search.searcher import SearchImpl, SearchResult
 
 logger = logging.getLogger(__name__)
 

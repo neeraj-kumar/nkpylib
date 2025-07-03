@@ -10,15 +10,8 @@ import threading
 import time
 
 from argparse import ArgumentParser
-from collections import defaultdict, Counter
-from dataclasses import is_dataclass, asdict
-from datetime import datetime
-from enum import Enum
-from json import JSONEncoder
 from typing import Any, Callable, NamedTuple
-import numpy as np
 from threading import Lock
-from typing import Any, Callable, NamedTuple
 
 import numpy as np
 

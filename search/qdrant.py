@@ -2,15 +2,21 @@ from __future__ import annotations
 
 import logging
 
+from typing import Sequence
+
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
-from typing import Sequence
 from nkpylib.search.searcher import (
-        SearchImpl,
-        SearchResult,
-    )
-from nkpylib.search.searcher import SearchCond, OpCond, Op, JoinCond, JoinType, Array1D
+    Array1D,
+    JoinCond,
+    JoinType,
+    Op,
+    OpCond,
+    SearchCond,
+    SearchImpl,
+    SearchResult,
+)
 
 logger = logging.getLogger(__name__)
 
