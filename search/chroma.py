@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any
+from numpy.typing import ArrayLike as Array1D
+
 import logging
 
 from nkpylib.search.searcher import SearchImpl, SearchResult
