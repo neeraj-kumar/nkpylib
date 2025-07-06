@@ -38,7 +38,7 @@ import sys
 
 from abc import ABC, abstractmethod
 from os.path import basename, dirname, join, abspath, isdir, split, exists
-from typing import Any, Generator, Sequence
+from typing import Any, Generator, Sequence, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,7 @@ class FileGroupMeta(type):
                 def make_property(key):
                     @property
                     def _prop(self):
-                        return cls.translate_path(key, type_key)
+                        return self.paths[key]
                     return _prop
 
                 setattr(cls, prop_name, make_property(type_key))
@@ -152,20 +152,45 @@ class FileGroup(metaclass=FileGroupMeta):
         If `assert_exist` is True, it will raise an error if any of our TYPES do not exist on disk.
         If `assert_data` is True, it will raise an error if the JSON data cannot be loaded.
         """
+        print(f'Initializing FileGroup with path: {path}')
         self.paths = {}
         t = self.identify_type(path)
         self.paths[t] = path
+        print(f'Identified type: {t} for path: {self.split_path(path)}')
         for type_name, (prefix, suffix) in self.TYPES.items():
             if type_name != t:
                 self.paths[type_name] = self.translate_path(path, type_name)
-                if assert _exist and not exists(self.paths[type_name]):
+                if assert_exist and not exists(self.paths[type_name]):
                     raise FileNotFoundError(f"Path {self.paths[type_name]} does not exist for type {type_name}")
+        print(f'All paths: {self.paths}')
         self._data: Any = None
         try:
             self._load_data()
         except Exception as e:
             if assert_data:
                 raise
+
+    @classmethod
+    def ordered_types(cls) -> list[str]:
+        """Return the type names ordered by most constrained first."""
+        ret = []
+        # first add those with both prefix and suffix
+        for type_name, (prefix, suffix) in cls.TYPES.items():
+            if prefix and suffix:
+                ret.append(type_name)
+        # now add those with just prefix
+        for type_name, (prefix, suffix) in cls.TYPES.items():
+            if prefix and not suffix:
+                ret.append(type_name)
+        # now add those with just suffix
+        for type_name, (prefix, suffix) in cls.TYPES.items():
+            if not prefix and suffix:
+                ret.append(type_name)
+        # now add those with neither
+        for type_name, (prefix, suffix) in cls.TYPES.items():
+            if not prefix and not suffix:
+                ret.append(type_name)
+        return ret
 
     @classmethod
     def split_path(cls, path: str) -> tuple[str, str, str, str]:
@@ -184,9 +209,11 @@ class FileGroup(metaclass=FileGroupMeta):
                 path += '/'
             return path, '', '', ''
         dir, rest = split(path)
-        for type_name, (prefix, suffix) in cls.TYPES.items():
+        for type_name in cls.ordered_types():
+            prefix, suffix = cls.TYPES[type_name]
             if rest.startswith(prefix) and rest.endswith(suffix):
-                base = rest[len(prefix):-len(suffix)]
+                end_idx = -len(suffix) if suffix else None
+                base = rest[len(prefix):end_idx]
                 return dir, prefix, base, suffix
         else:
             return (dir, '', rest, '')
@@ -200,7 +227,8 @@ class FileGroup(metaclass=FileGroupMeta):
         parse = dir, prefix, base, suffix = cls.split_path(path)
         if not base:
             raise ValueError(f"Path must have a base. Current parse: {parse}")
-        for type_name, (p, s) in cls.TYPES.items():
+        for type_name in cls.ordered_types():
+            p, s = cls.TYPES[type_name]
             if prefix == p and suffix == s:
                 return type_name
         raise ValueError(f"Path {path} does not match any known file type: {cls.TYPES.keys()}")
@@ -227,6 +255,12 @@ class FileGroup(metaclass=FileGroupMeta):
         for type_name in self.TYPES:
             yield self.paths[type_name]
 
+    @property
+    def first(self) -> str:
+        """Returns the first file path in this group."""
+        for s in self:
+            return s
+
     def iteritems(self) -> Generator[tuple[str, str]]:
         """Iterate over the file paths in the group, yielding (type_name, path) tuples."""
         for type_name in self.TYPES:
@@ -238,12 +272,14 @@ class FileGroup(metaclass=FileGroupMeta):
 
     def __repr__(self) -> str:
         """Return the path without the prefix or suffix"""
-        dir, prefix, base, suffix = self.split_path(self.orig_file)
+        dir, prefix, base, suffix = self.split_path(self.first)
+        print(f'FileGroup __repr__ called with dir={dir}, prefix={prefix}, base={base}, suffix={suffix}')
         return f'<{dir}{base}>'
 
     def _load_data(self):
         """Load data data from our JSON file."""
         self._data = None
+        print(f'for {self.orig_path} -> opening {self.json_path}')
         with open(self.json_path) as f:
             self._data = json.load(f)
 
@@ -312,7 +348,7 @@ class FileGroup(metaclass=FileGroupMeta):
             if not p:
                 continue
             try:
-                fg = cls(p, **kw)
+                fg = cls(p, **kwargs)
                 ret.append(fg)
             except Exception as e:
                 logger.error(f"Error loading {p}: {e}")
