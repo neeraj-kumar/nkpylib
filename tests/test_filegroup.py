@@ -96,7 +96,10 @@ def test_filegroup_is_type(path1):
     """Test the is_type class method of FileGroup."""
     assert FileGroup.is_type(path1, 'orig')
     json_path = FileGroup.translate_path(path1, 'json')
+    print(f'type of json_path: {FileGroup.identify_type(json_path)}')
     assert FileGroup.is_type(json_path, 'json')
+
+def test_filegroup_from_paths(path1):
     """Test the from_paths class method of FileGroup."""
     file_groups = FileGroup.from_paths([path1])
     assert len(file_groups) == 1
