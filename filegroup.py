@@ -41,7 +41,7 @@ import sys
 
 from abc import ABC, abstractmethod
 from os.path import basename, dirname, join, abspath, isdir, split, exists
-from typing import Any, Generator, Sequence, TypeVar
+from typing import Any, Generator, Sequence, TypeVar, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,23 @@ class FileOp:
             sum(values) == 1
         ), "Exactly one of copy, symlink, hardlink, or rename must be set, currently {values}"
 
+    def __repr__(self) -> str:
+        """Return a string representation of the file operation."""
+        parts = []
+        if self.copy:
+            parts.append("copy")
+        if self.symlink:
+            parts.append("symlink")
+        if self.hardlink:
+            parts.append("hardlink")
+        if self.rename:
+            parts.append("rename")
+        if self.suffix:
+            parts.append("suffix")
+        if self.dry_run:
+            parts.append("dry_run")
+        return f"FileOp<{', '.join(parts)}>"
+
     @property
     def name(self) -> str:
         """Return the name of the chosen file operation."""
@@ -86,12 +103,17 @@ class FileOp:
             return "rename"
         raise ValueError("No file operation set")
 
-    def execute(self, src: str, dst: str):
+    def execute(self, src: str, dst: str, quiet: bool=False):
         """Perform the file operation based on the flags."""
+        if src == dst:
+            return
         msg = f"{self.name}: {src} -> {dst}"
         if self.dry_run:
             msg += " [dry run]"
-        logger.info(msg)
+        if quiet:
+            logger.debug(msg)
+        else:
+            logger.info(msg)
         if not self.dry_run:
             try:
                 os.makedirs(dirname(dst), exist_ok=True)
@@ -155,17 +177,17 @@ class FileGroup(metaclass=FileGroupMeta):
         If `assert_exist` is True, it will raise an error if any of our TYPES do not exist on disk.
         If `assert_data` is True, it will raise an error if the JSON data cannot be loaded.
         """
-        print(f'Initializing FileGroup with path: {path}')
+        logger.debug(f'Initializing FileGroup with path: {path}')
         self.paths = {}
         t = self.identify_type(path)
         self.paths[t] = path
-        print(f'Identified type: {t} for path: {self.split_path(path)}')
+        logger.debug(f'Identified type: {t} for path: {self.split_path(path)}')
         for type_name, (prefix, suffix) in self.TYPES.items():
             if type_name != t:
                 self.paths[type_name] = self.translate_path(path, type_name)
                 if assert_exist and not exists(self.paths[type_name]):
                     raise FileNotFoundError(f"Path {self.paths[type_name]} does not exist for type {type_name}")
-        print(f'All paths: {self.paths}')
+        logger.debug(f'All paths: {self.paths}')
         self._data: Any = None
         try:
             self._load_data()
@@ -253,7 +275,7 @@ class FileGroup(metaclass=FileGroupMeta):
         new_prefix, new_suffix = cls.TYPES[type_name]
         return join(dir, f"{new_prefix}{base}{new_suffix}")
 
-    def __iter__(self) -> Generator[str]:
+    def __iter__(self) -> Iterator[str]:
         """Iterate over the file paths in the group, in order of our TYPES."""
         for type_name in self.TYPES:
             yield self.paths[type_name]
@@ -262,9 +284,10 @@ class FileGroup(metaclass=FileGroupMeta):
     def first(self) -> str:
         """Returns the first file path in this group."""
         for s in self:
-            return s
+            break
+        return s
 
-    def iteritems(self) -> Generator[tuple[str, str]]:
+    def iteritems(self) -> Iterator[tuple[str, str]]:
         """Iterate over the file paths in the group, yielding (type_name, path) tuples."""
         for type_name in self.TYPES:
             yield type_name, self.paths[type_name]
@@ -276,13 +299,13 @@ class FileGroup(metaclass=FileGroupMeta):
     def __repr__(self) -> str:
         """Return the path without the prefix or suffix"""
         dir, prefix, base, suffix = self.split_path(self.first)
-        print(f'FileGroup __repr__ called with dir={dir}, prefix={prefix}, base={base}, suffix={suffix}')
+        logger.debug(f'FileGroup __repr__ called with dir={dir}, prefix={prefix}, base={base}, suffix={suffix}')
         return f'<{dir}{base}>'
 
     def _load_data(self):
         """Load data data from our JSON file."""
         self._data = None
-        print(f'for {self.orig_path} -> opening {self.json_path}')
+        logger.debug(f'for {self.orig_path} -> opening {self.json_path}')
         with open(self.json_path) as f:
             self._data = json.load(f)
 
@@ -300,24 +323,6 @@ class FileGroup(metaclass=FileGroupMeta):
     def pretty(self) -> str:
         """Return the JSON data as a string in pretty-printed format."""
         return json.dumps(self._data, indent=2)
-
-    def apply_fileop(self, new_name: str, op: FileOp):
-        """Rename (or other fileop) the underlying files to the given new name"""
-        #FIXME
-        # Check that the new name doesn't end with .pdf already
-        if new_name.endswith(".pdf"):
-            new_name = new_name[:-4]
-
-        # Determine new file paths
-        if "/" in new_name:
-            new_pdf_path = new_name + ".pdf"
-        else:
-            new_pdf_path = join(dirname(self.orig_file), new_name + ".pdf")
-        new_json_path = self.to_json_path(new_pdf_path)
-
-        # Perform the file operation
-        op.execute(self.orig_file, new_pdf_path)
-        op.execute(self.json_file, new_json_path)
 
     @classmethod
     def from_paths(cls: type[FG],
@@ -346,12 +351,16 @@ class FileGroup(metaclass=FileGroupMeta):
             with open(file_list_path, 'r') as f:
                 all_paths.extend([line for line in f if not line.startswith('#')])
         ret = []
+        seen_first_paths = set()
         for p in all_paths:
             p = p.strip()
             if not p:
                 continue
             try:
                 fg = cls(p, **kwargs)
+                if fg.first in seen_first_paths:
+                    continue
+                seen_first_paths.add(fg.first)
                 ret.append(fg)
             except Exception as e:
                 logger.error(f"Error loading {p}: {e}")
