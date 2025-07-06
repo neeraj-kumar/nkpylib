@@ -54,7 +54,32 @@ def test_filegroup_iteritems(path1):
     items = list(fg.iteritems())
     assert items == [('orig', path1), ('json', join(DATA_DIR, '.slow magic tickets.pdf.json'))]
 
-def notest_filegroup_apply_fileop(path1):
+def test_filegroup_first(path1):
+    """Test the first method of FileGroup."""
+    fg = FileGroup(path1, assert_exist=False)
+    assert fg.first() == path1
+
+def test_filegroup_data(path1):
+    """Test the data property of FileGroup."""
+    fg = FileGroup(path1, assert_exist=False)
+    assert fg.data is None  # Assuming no data is loaded
+
+def test_filegroup_json_str(path1):
+    """Test the json_str property of FileGroup."""
+    fg = FileGroup(path1, assert_exist=False)
+    assert fg.json_str == 'null'  # Assuming no data is loaded
+
+def test_filegroup_pretty(path1):
+    """Test the pretty property of FileGroup."""
+    fg = FileGroup(path1, assert_exist=False)
+    assert fg.pretty == 'null'  # Assuming no data is loaded
+
+def test_filegroup_from_paths():
+    """Test the from_paths class method of FileGroup."""
+    paths = [join(DATA_DIR, 'slow magic tickets.pdf')]
+    file_groups = FileGroup.from_paths(paths, raise_errors=False)
+    assert len(file_groups) == 1
+    assert file_groups[0].paths['orig'] == paths[0]
     """Test the apply_fileop method of FileGroup."""
     path = path1
     fg = FileGroup(path, assert_exist=False)
