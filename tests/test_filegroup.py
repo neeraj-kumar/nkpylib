@@ -45,7 +45,7 @@ def test_filegroup_exists():
     path = DOC1_PATH
     fg = FileGroup(path, assert_exist=False)
     assert fg.exists('orig')
-    assert not fg.exists('json')  # Assuming the JSON file doesn't exist
+    assert fg.exists('json')
 
 def test_filegroup_iteritems():
     """Test the iteritems method of FileGroup."""
