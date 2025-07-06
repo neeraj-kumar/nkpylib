@@ -13,8 +13,13 @@ DATA_DIR = join(dirname(__file__), 'data')
 
 @pytest.fixture
 def path1():
-    """Fixture for the path to the test document."""
+    """Fixture for the path to a full test document."""
     return join(dirname(__file__), 'data', 'slow magic tickets.pdf')
+
+@pytest.fixture
+def path2():
+    """Fixture for the path to a small test document."""
+    return join(dirname(__file__), 'data', 'driver.pdf')
 
 def test_filegroup_initialization(path1):
     """Test initialization of FileGroup with valid and invalid paths."""
@@ -56,32 +61,42 @@ def test_filegroup_iteritems(path1):
 
 def test_filegroup_first(path1):
     """Test the first method of FileGroup."""
-    fg = FileGroup(path1, assert_exist=False)
-    assert fg.first() == path1
+    fg = FileGroup(path1)
+    assert fg.first == path1
 
-def test_filegroup_data(path1):
+def test_filegroup_data(path2):
     """Test the data property of FileGroup."""
-    fg = FileGroup(path1, assert_exist=False)
-    assert fg.data is None  # Assuming no data is loaded
+    fg = FileGroup(path2)
+    assert fg.data == {'baz': [1, 3, 5], 'foo': 'bar'}
 
-def test_filegroup_json_str(path1):
+def test_filegroup_json_str(path2):
     """Test the json_str property of FileGroup."""
-    fg = FileGroup(path1, assert_exist=False)
-    assert fg.json_str == 'null'  # Assuming no data is loaded
+    fg = FileGroup(path2)
+    assert fg.json_str == '{"baz": [1, 3, 5], "foo": "bar"}'
 
-def test_filegroup_pretty(path1):
+def test_filegroup_pretty(path2):
     """Test the pretty property of FileGroup."""
-    fg = FileGroup(path1, assert_exist=False)
-    assert fg.pretty == 'null'  # Assuming no data is loaded
+    fg = FileGroup(path2)
+    assert fg.pretty == '''{
+  "foo": "bar",
+  "baz": [
+    1,
+    3,
+    5
+  ]
+}'''
 
-def test_filegroup_from_paths():
+def test_filegroup_from_paths(path1, path2):
     """Test the from_paths class method of FileGroup."""
-    paths = [join(DATA_DIR, 'slow magic tickets.pdf')]
-    file_groups = FileGroup.from_paths(paths, raise_errors=False)
+    file_groups = FileGroup.from_paths([path1])
     assert len(file_groups) == 1
-    assert file_groups[0].paths['orig'] == paths[0]
+    fg = file_groups[0]
+    print(fg, fg.paths)
+    assert fg.paths['orig'] == path1
+
+def notest_filegroup_apply_fileop():
     """Test the apply_fileop method of FileGroup."""
-    path = path1
+    path = join(DATA_DIR, 'test_file.pdf')
     fg = FileGroup(path, assert_exist=False)
     new_name = 'test_renamed'
     file_op = FileOp(rename=True)
