@@ -1,0 +1,49 @@
+{
+  "ts": 1749615785.4928913,
+  "input_path": "docs/slow magic tickets.pdf",
+  "results_by_page": [
+    {
+      "title": "Event Ticket",
+      "general_category": "Ticket",
+      "detailed_category": "Event Ticket",
+      "order_date": "8/25/2015 10:43:16 AM",
+      "order_id": 4539362,
+      "ticket_id": "4934371-1",
+      "ticket_name": "Presale GA",
+      "price": "$25.00",
+      "card_holder_name": "Neeraj Kumar",
+      "charge_info": "Visa ***-****-4806",
+      "event_name": "So Cute! Tour | Slow Magic & Giraffage",
+      "event_time_date": "8:00 PM 12/17/2015 to 12:00 AM 12/18/2015",
+      "venue_info": {
+        "name": "REGENCY BALLROOM",
+        "address": "1300 Van Ness",
+        "city": "San Francisco",
+        "state": "CA",
+        "zip": "94109"
+      }
+    },
+    {
+      "title": "Event Ticket",
+      "general_category": "Ticket",
+      "detailed_category": "Event Ticket",
+      "order_date": "8/25/2015 10:43:16 AM",
+      "order_id": 4539362,
+      "ticket_id": "4934371-2",
+      "ticket_name": "Presale GA",
+      "price": "$25.00",
+      "card_holder_name": "Neeraj Kumar",
+      "charge_info": "Visa ***-****-4806",
+      "event_name": "So Cute! Tour | Slow Magic & Giraffage",
+      "event_time_date": "8:00 PM 12/17/2015 to 12:00 AM 12/18/2015",
+      "venue_info": {
+        "name": "REGENCY BALLROOM",
+        "address": "1300 Van Ness",
+        "city": "San Francisco",
+        "state": "CA",
+        "zip": "94109"
+      }
+    }
+  ],
+  "input_sha256": "5fb4d53ddabed771d518a9e90d7c36fab6c2b80eacc1dd27c0b71cdde1628a1d"
+}
