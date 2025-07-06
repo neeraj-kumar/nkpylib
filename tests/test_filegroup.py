@@ -40,7 +40,40 @@ def test_filegroup_iter():
     paths = list(fg)
     assert paths == [DOC1_PATH, join(DATA_DIR, '.slow magic tickets.pdf.json')]
 
-def test_fileop_execute():
+def test_filegroup_exists():
+    """Test the exists method of FileGroup."""
+    path = DOC1_PATH
+    fg = FileGroup(path, assert_exist=False)
+    assert fg.exists('orig')
+    assert not fg.exists('json')  # Assuming the JSON file doesn't exist
+
+def test_filegroup_iteritems():
+    """Test the iteritems method of FileGroup."""
+    path = DOC1_PATH
+    fg = FileGroup(path, assert_exist=False)
+    items = list(fg.iteritems())
+    assert items == [('orig', DOC1_PATH), ('json', join(DATA_DIR, '.slow magic tickets.pdf.json'))]
+
+def test_filegroup_apply_fileop():
+    """Test the apply_fileop method of FileGroup."""
+    path = DOC1_PATH
+    fg = FileGroup(path, assert_exist=False)
+    new_name = 'test_renamed'
+    file_op = FileOp(rename=True)
+
+    # Create a dummy original file
+    with open(fg.orig_path, 'w') as f:
+        f.write('dummy content')
+
+    # Apply file operation
+    fg.apply_fileop(new_name, file_op)
+
+    # Check if the new file exists
+    new_path = join(DATA_DIR, f'{new_name}.pdf')
+    assert os.path.exists(new_path)
+
+    # Clean up
+    os.remove(new_path)
     """Test the execute method of FileOp."""
     src = join(DATA_DIR, 'test_source.pdf')
     dst = join(DATA_DIR, 'test_copy.pdf')
