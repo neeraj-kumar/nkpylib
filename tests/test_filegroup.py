@@ -9,6 +9,8 @@ from os.path import basename, dirname, join, abspath, isdir, split, exists
 
 from nkpylib.filegroup import FileGroup, FileOp
 
+DATA_DIR = join(dirname(__file__), 'data')
+
 @pytest.fixture
 def path1():
     """Fixture for the path to the test document."""
@@ -40,7 +42,7 @@ def test_filegroup_iter(path1):
     path = path1
     fg = FileGroup(path, assert_exist=False)
     paths = list(fg)
-    assert paths == [DOC1_PATH, join(DATA_DIR, '.slow magic tickets.pdf.json')]
+    assert paths == [path1, join(DATA_DIR, '.slow magic tickets.pdf.json')]
 
 def test_filegroup_exists(path1):
     """Test the exists method of FileGroup."""
@@ -54,7 +56,7 @@ def test_filegroup_iteritems(path1):
     path = path1
     fg = FileGroup(path, assert_exist=False)
     items = list(fg.iteritems())
-    assert items == [('orig', DOC1_PATH), ('json', join(DATA_DIR, '.slow magic tickets.pdf.json'))]
+    assert items == [('orig', path1), ('json', join(DATA_DIR, '.slow magic tickets.pdf.json'))]
 
 def test_filegroup_apply_fileop(path1):
     """Test the apply_fileop method of FileGroup."""
