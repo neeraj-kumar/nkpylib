@@ -18,7 +18,6 @@ def path1():
 
 def test_filegroup_initialization(path1):
     """Test initialization of FileGroup with valid and invalid paths."""
-    valid_path = path1
     invalid_path = join(DATA_DIR, 'non_existent_file')
 
     # Test valid initialization
@@ -32,22 +31,19 @@ def test_filegroup_initialization(path1):
 
 def test_filegroup_translate_path(path1):
     """Test the translate_path method."""
-    path = path1
-    fg = FileGroup(path, assert_exist=False)
-    json_path = fg.translate_path(path, 'json')
+    fg = FileGroup(path1, assert_exist=False)
+    json_path = fg.translate_path(path1, 'json')
     assert json_path == join(DATA_DIR, '.slow magic tickets.pdf.json')
 
 def test_filegroup_iter(path1):
     """Test the iteration over file paths in the group."""
-    path = path1
-    fg = FileGroup(path, assert_exist=False)
+    fg = FileGroup(path1, assert_exist=False)
     paths = list(fg)
     assert paths == [path1, join(DATA_DIR, '.slow magic tickets.pdf.json')]
 
 def test_filegroup_exists(path1):
     """Test the exists method of FileGroup."""
-    path = path1
-    fg = FileGroup(path, assert_exist=False)
+    fg = FileGroup(path1, assert_exist=False)
     assert fg.exists('orig')
     assert fg.exists('json')
 
