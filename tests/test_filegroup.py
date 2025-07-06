@@ -31,8 +31,8 @@ def test_filegroup_initialization(path):
     invalid_path = join(DATA_DIR, 'non_existent_file')
 
     # Test valid initialization
-    fg = FileGroup(path1, assert_exist=False)
-    assert fg.paths['orig'] == path1
+    fg = FileGroup(path, assert_exist=False)
+    assert fg.paths['orig'] == path
 
     # Test invalid initialization
     with pytest.raises(FileNotFoundError):
@@ -41,33 +41,32 @@ def test_filegroup_initialization(path):
 
 def test_filegroup_translate_path(path1):
     """Test the translate_path method."""
-    fg = FileGroup(path1, assert_exist=False)
-    json_path = fg.translate_path(path1, 'json')
+    fg = FileGroup(path, assert_exist=False)
+    json_path = fg.translate_path(path, 'json')
     assert json_path == join(DATA_DIR, '.slow magic tickets.pdf.json')
 
 def test_filegroup_iter(path1):
     """Test the iteration over file paths in the group."""
-    fg = FileGroup(path1, assert_exist=False)
+    fg = FileGroup(path, assert_exist=False)
     paths = list(fg)
     assert paths == [path1, join(DATA_DIR, '.slow magic tickets.pdf.json')]
 
 def test_filegroup_exists(path1):
     """Test the exists method of FileGroup."""
-    fg = FileGroup(path1, assert_exist=False)
+    fg = FileGroup(path, assert_exist=False)
     assert fg.exists('orig')
     assert fg.exists('json')
 
 def test_filegroup_iteritems(path1):
     """Test the iteritems method of FileGroup."""
-    path = path1
     fg = FileGroup(path, assert_exist=False)
     items = list(fg.iteritems())
     assert items == [('orig', path1), ('json', join(DATA_DIR, '.slow magic tickets.pdf.json'))]
 
 def test_filegroup_first(path1):
     """Test the first method of FileGroup."""
-    fg = FileGroup(path1)
-    assert fg.first == path1
+    fg = FileGroup(path)
+    assert fg.first == path
 
 def test_filegroup_data(path2):
     """Test the data property of FileGroup."""
@@ -93,20 +92,20 @@ def test_filegroup_pretty(path2):
 
 def test_filegroup_repr(path1):
     """Test the __repr__ method of FileGroup."""
-    fg = FileGroup(path1, assert_exist=False)
-    expected_repr = f"<{dirname(path1)}{basename(path1)}>"
+    fg = FileGroup(path, assert_exist=False)
+    expected_repr = f"<{dirname(path)}{basename(path)}>"
     assert repr(fg) == expected_repr
 
 def test_filegroup_is_type(path1):
     """Test the is_type class method of FileGroup."""
-    assert FileGroup.is_type(path1, 'orig')
-    json_path = FileGroup.translate_path(path1, 'json')
+    assert FileGroup.is_type(path, 'orig')
+    json_path = FileGroup.translate_path(path, 'json')
     print(f'type of json_path: {FileGroup.identify_type(json_path)}')
     assert FileGroup.is_type(json_path, 'json')
 
 def test_filegroup_from_paths(path1):
     """Test the from_paths class method of FileGroup."""
-    file_groups = FileGroup.from_paths([path1])
+    file_groups = FileGroup.from_paths([path])
     assert len(file_groups) == 1
     fg = file_groups[0]
     print(fg, fg.paths)
