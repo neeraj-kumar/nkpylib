@@ -28,6 +28,8 @@ These primitives are then used to add some convenience properties:
 - to_{type_name}_path: converts this instance's path to the specified type
 """
 
+#TODO allow the orig prefix/suffix to be regexps
+
 from __future__ import annotations
 
 import json
