@@ -10,8 +10,8 @@ import logging
 import re
 
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor, Future
+from typing import Any, Callable, Iterator, Sequence, TypeVar
 
 import tiktoken
 
@@ -41,6 +41,61 @@ def load_llm_json(s: str) -> Any:
         return json.loads(json_str)
     except Exception as e:
         raise ValueError(f"Could not load JSON from {json_str}: {e}")
+
+def json_per_line(obj) -> str:
+    """Returns a string with the JSON representation of `obj`, one item per line.
+
+    For lists and dicts, we put the initial/last [ ] or { } on lines by themselves, and each other
+    entry on a single line.
+
+    All other things are converted to JSON and returned as a single line.
+    """
+    if isinstance(obj, list):
+        return '[\n' + ',\n'.join(json.dumps(o) for o in obj) + '\n]'
+    elif isinstance(obj, dict):
+        return '{\n' + ',\n'.join(f'"{k}": {json.dumps(v)}' for k, v in obj.items()) + '\n}'
+    else:
+        return json.dumps(obj)
+
+T = TypeVar('T')
+def batched_llm_call(prompt: str,
+                     inputs: Sequence[T],
+                     batch_size: int,
+                     serialize_fn: Callable[[Sequence[T]], str]=lambda lst: '\n'.join(map(str,lst)),
+                     sys_prompt: str='',
+                     json_outputs: bool=True,
+                     **llm_kw) -> Iterator[tuple[Sequence[Any], Future|Any]]:
+    """Runs LLM calls on a set of `inputs` in batches using futures.
+
+    We divide up `inputs` into batches of size `batch_size`, and for each batch, we append the
+    inputs to the end of the user `prompt`. The inputs are serialized using `serialize_fn`, which
+    should a list and return a single string. By default, this is a simple join with newlines.
+    If your inputs are JSON, then you might want to use `json_per_line` as the serializer.
+
+    You can optionally provide a `sys_prompt` if you wish. You can also specify any other llm_kw.
+
+    This yields an iterator that returns tuples of the form `(batch, output)`, where `batch` is a
+    subset of the inputs (in the same order as given). The `output` depends on the value of
+    `json_outputs`. If that is true, then we wait for the future and then run `load_llm_json` on its
+    results, and yield that. Otherwise, we yield the future directly. Note that in the latter case,
+    you will get all outputs at once, since we're not waiting for the futures.
+    """
+    futures = []
+    msgs: list[tuple[str, str]] | str
+    for batch in chunked(inputs, batch_size):
+        user_prompt = prompt + '\n' + serialize_fn(batch)
+        if sys_prompt:
+            msgs = [('system', sys_prompt), ('user', user_prompt)]
+        else:
+            msgs = user_prompt
+        logger.debug(f'Calling llm with batch of size {len(batch)}:\n{msgs}')
+        futures.append((batch, call_llm.single_future(msgs, **llm_kw)))
+    for batch, future in futures:
+        if not json_outputs:
+            yield (batch, future)
+            continue
+        output = load_llm_json(future.result())
+        yield (batch, output)
 
 CHUNKED_PROMPT = """%s
 
@@ -319,7 +374,7 @@ def search_objects_llm(search_objs: list[dict],
             future = call_llm.single_future(msgs, **kw)
             futures.append((search_chunk, db_chunk, future))
     logger.debug(f'Got {len(futures)} futures')
-    ret = [[] for o in search_objs]
+    ret: list[list[tuple[int, float]]] = [[] for o in search_objs]
     for search_chunk, db_chunk, future in futures:
         llm_output = future.result()
         logger.debug(f'for search chunk {search_chunk} and db chunk {db_chunk} got output {llm_output}')
