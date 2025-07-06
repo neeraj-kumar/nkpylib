@@ -9,12 +9,14 @@ from os.path import basename, dirname, join, abspath, isdir, split, exists
 
 from nkpylib.filegroup import FileGroup, FileOp
 
-DATA_DIR = join(dirname(__file__), 'data')
-DOC1_PATH = join(DATA_DIR, 'slow magic tickets.pdf')
+@pytest.fixture
+def path1():
+    """Fixture for the path to the test document."""
+    return join(dirname(__file__), 'data', 'slow magic tickets.pdf')
 
-def test_filegroup_initialization():
+def test_filegroup_initialization(path1):
     """Test initialization of FileGroup with valid and invalid paths."""
-    valid_path = DOC1_PATH
+    valid_path = path1
     invalid_path = join(DATA_DIR, 'non_existent_file')
 
     # Test valid initialization
@@ -26,37 +28,37 @@ def test_filegroup_initialization():
         FileGroup(invalid_path)
 
 
-def test_filegroup_translate_path():
+def test_filegroup_translate_path(path1):
     """Test the translate_path method."""
-    path = DOC1_PATH
+    path = path1
     fg = FileGroup(path, assert_exist=False)
     json_path = fg.translate_path(path, 'json')
     assert json_path == join(DATA_DIR, '.slow magic tickets.pdf.json')
 
-def test_filegroup_iter():
+def test_filegroup_iter(path1):
     """Test the iteration over file paths in the group."""
-    path = DOC1_PATH
+    path = path1
     fg = FileGroup(path, assert_exist=False)
     paths = list(fg)
     assert paths == [DOC1_PATH, join(DATA_DIR, '.slow magic tickets.pdf.json')]
 
-def test_filegroup_exists():
+def test_filegroup_exists(path1):
     """Test the exists method of FileGroup."""
-    path = DOC1_PATH
+    path = path1
     fg = FileGroup(path, assert_exist=False)
     assert fg.exists('orig')
     assert fg.exists('json')
 
-def test_filegroup_iteritems():
+def test_filegroup_iteritems(path1):
     """Test the iteritems method of FileGroup."""
-    path = DOC1_PATH
+    path = path1
     fg = FileGroup(path, assert_exist=False)
     items = list(fg.iteritems())
     assert items == [('orig', DOC1_PATH), ('json', join(DATA_DIR, '.slow magic tickets.pdf.json'))]
 
-def test_filegroup_apply_fileop():
+def test_filegroup_apply_fileop(path1):
     """Test the apply_fileop method of FileGroup."""
-    path = DOC1_PATH
+    path = path1
     fg = FileGroup(path, assert_exist=False)
     new_name = 'test_renamed'
     file_op = FileOp(rename=True)
