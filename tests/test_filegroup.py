@@ -21,7 +21,12 @@ def path2():
     """Fixture for the path to a small test document."""
     return join(dirname(__file__), 'data', 'driver.pdf')
 
-def test_filegroup_initialization(path1):
+@pytest.fixture(params=["slow magic tickets.pdf", "driver.pdf"])
+def path(request):
+    """Parameterized fixture for paths to test documents."""
+    return join(dirname(__file__), 'data', request.param)
+
+def test_filegroup_initialization(path):
     """Test initialization of FileGroup with valid and invalid paths."""
     invalid_path = join(DATA_DIR, 'non_existent_file')
 
