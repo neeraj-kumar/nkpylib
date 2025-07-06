@@ -86,7 +86,17 @@ def test_filegroup_pretty(path2):
   ]
 }'''
 
-def test_filegroup_from_paths(path1, path2):
+def test_filegroup_repr(path1):
+    """Test the __repr__ method of FileGroup."""
+    fg = FileGroup(path1, assert_exist=False)
+    expected_repr = f"<{dirname(path1)}{basename(path1)}>"
+    assert repr(fg) == expected_repr
+
+def test_filegroup_is_type(path1):
+    """Test the is_type class method of FileGroup."""
+    assert FileGroup.is_type(path1, 'orig')
+    json_path = FileGroup.translate_path(path1, 'json')
+    assert FileGroup.is_type(json_path, 'json')
     """Test the from_paths class method of FileGroup."""
     file_groups = FileGroup.from_paths([path1])
     assert len(file_groups) == 1
