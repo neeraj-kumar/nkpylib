@@ -238,7 +238,17 @@ def single_call(endpoint: str, model:Optional[str]=None, **kw) -> ResponseT:
         data['model'] = model
     return requests.post(url, json=data).json()
 
-@execution_wrapper(final_func=lambda x: x['choices'][0]['text'])
+def llm_final_func(resp):
+    """Final function for LLM responses to return the text of the first choice."""
+    if 'choices' not in resp:
+        resp.pop('prompts')
+        resp.pop('timing')
+        raise ValueError(f"Invalid response from LLM server: {resp}")
+    if not resp['choices']:
+        raise ValueError(f"No choices in response from LLM server: {resp}")
+    return resp['choices'][0]['message']['content']
+
+@execution_wrapper(final_func=llm_final_func)
 def call_llm_completion(prompt: str, max_tokens:int =1024, model:Optional[str] =None, use_cache=True, **kw) -> ResponseT:
     """Calls our local llm server for a completion.
 
@@ -295,9 +305,9 @@ def call_llm_impl(prompts: str|list[Msg],
     return ret
 
 
-@execution_wrapper(final_func=lambda x: x['choices'][0]['message']['content'])
+@execution_wrapper(final_func=llm_final_func)
 def call_llm(prompts: str|list[Msg],
-             max_tokens:int =1024,
+             max_tokens:int =10240,
              model:Optional[str] =None,
              session_id:str ='',
              use_cache=True,
@@ -325,9 +335,9 @@ def call_llm(prompts: str|list[Msg],
                          session_cache=session_cache)
 
 
-@execution_wrapper(final_func=lambda x: x['choices'][0]['message']['content'])
+@execution_wrapper(final_func=llm_final_func)
 def call_vlm(inputs: tuple[str, str|list[Msg]],
-             max_tokens:int =1024,
+             max_tokens:int =10240,
              model:Optional[str] =None,
              session_id:str ='',
              use_cache=True,

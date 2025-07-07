@@ -420,9 +420,13 @@ class ClipEmbeddingModel(EmbeddingModel):
         raise NotImplementedError(f"Unsupported mode: {self.mode}")
 
     async def _run(self, input: Any, **kw) -> dict:
-        ret = await asyncio.to_thread(self.model, input) # clip doesn't use any kw
-        ret = ret.numpy()
-        return self.postprocess(ret)
+        try:
+            ret = await asyncio.to_thread(self.model, input) # clip doesn't use any kw
+            ret = ret.numpy()
+            return self.postprocess(ret)
+        except Exception as e:
+            logger.error(f"Error running CLIP embedding model: {e}")
+            return {}
 
 
 @Singleton
@@ -455,8 +459,12 @@ class TextExtractionModel(Model):
 
     async def _run(self, input: Any, **kw) -> dict:
         from nkpylib.ml.text import get_text
-        ret = await asyncio.to_thread(get_text, input, **kw)
-        return dict(url=input, text=ret)
+        try:
+            ret = await asyncio.to_thread(get_text, input, **kw)
+            return dict(url=input, text=ret)
+        except Exception as e:
+            logger.error(f"Error extracting text from {input}: {e}")
+            return dict(url=input, text='', error=str(e))
 
 class TranscriptionModel(Model):
     """Base class for transcription models.
@@ -553,7 +561,7 @@ async def status():
 @app.post("/v1/chat")
 async def chat(req: ChatRequest):
     """Generates chat response for the given prompts using the given model."""
-    logger.warning(f'running chat model')
+    logger.debug(f'running chat model')
     if req.model in DEFAULT_MODELS:
         req.model = DEFAULT_MODELS[req.model]
     model: ChatModel
@@ -610,7 +618,7 @@ async def text_embeddings(req: TextEmbeddingRequest):
     }
     ModelClass: Any = model_class_by_name.get(req.model, ExternalEmbeddingModel)
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
-    if 0:
+    if 0: #FIXME what was this code even doing??
         async with dl_temp_file(req.input) as path:
             ret = await model.run(input=path, provider=req.provider)
     else:
@@ -677,7 +685,7 @@ class GetTextRequest(BaseModel):
 @app.post("/v1/get_text")
 async def get_text_api(req: GetTextRequest, cache={}):
     """Gets the text from the given URL or path of pdf, image, or text."""
-    model = TextExtractionModel(model_name=req.url, use_cache=req.use_cache)
+    model = TextExtractionModel(model_name='text', use_cache=req.use_cache)
     ret = await model.run(input=req.url, **(req.kw or {}))
     if req.use_cache:
         cache[req.url] = ret

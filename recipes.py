@@ -58,8 +58,9 @@ from urllib.parse import urlparse
 from pyquery import PyQuery as pq # type: ignore
 
 from nkpylib.constants import URL_REGEXP
-from nkpylib.ml.client import call_llm
-from nkpylib.ml.llm_utils import llm_transform_list
+from nkpylib.ml.client import call_llm, get_text
+from nkpylib.ml.llm_utils import llm_transform_list, batched_llm_call
+from nkpylib.stringutils import GeneralJSONEncoder
 from nkpylib.web_search import BingWebSearch
 from nkpylib.web_utils import make_request
 
@@ -108,8 +109,10 @@ def get_urls_from_pdf(path: str) -> Iterable[tuple[str, str]]:
     These are sorted by most common hostname.
     """
     urls_by_host = defaultdict(set)
-    args = ["pdftotext", path, "-"]
-    out = check_output(args).decode("utf-8", "replace")
+    out = get_text.single(path)
+    if 0:
+        args = ["pdftotext", path, "-"]
+        out = check_output(args).decode("utf-8", "replace")
     urls = [m.group(0) for m in URL_REGEXP.finditer(out)]
     # group links by hostname
     for url in urls:
@@ -167,7 +170,7 @@ def get_url_from_recipe(path: str, title: str) -> str:
     return ''
 
 
-INGREDIENT_PROMPT = '''The following are a list of ingredients from a recipe for "{name}". Break each one into:
+INGREDIENT_PROMPT = '''The following are a list of ingredients from a recipe for "NAME". Break each one into:
 - a min and max quantity (e.g., 1, 2.5, 1/2), but converted to a float. If there's only a single
   value (e.g. 2), then min and max are the same (e.g. 2). If it's a range (e.g., 1-2), then min is
   the lower bound and max is the upper bound. Note that the unit might have a size, such as a 14 oz can, in which case the min and max quantities should refer to number of units (e.g. cans). If there's no value, then set these both to 1.
@@ -175,25 +178,34 @@ INGREDIENT_PROMPT = '''The following are a list of ingredients from a recipe for
   cucumber), then leave this blank.
 - the full ingredient name as listed in the input (e.g., gluten-free flour, brown sugar, cherry
   tomatoes, etc.), but without any extra notes (see below)
-- the ingredient primary name (e.g., flour, sugar, tomatoes, etc.)
+- the ingredient main or primary name (e.g., flour, sugar, tomatoes, etc.)
 - the importance of the ingredient: 2 if it's a key ingredient for the dish, 1 if it's a required
   but not key ingredient, and 0 if optional. For deciding if it's a key ingredient, use your best judgment based on the recipe name and other ingredients. In general, the main vegetables and distinctive spices are key (e.g. potatoes or sesame oil), standard things (like oil, salt or garlic) are not key, and garnishes (like scallions or cilantro) are sometimes optional.
 - optionally, any additional notes (e.g., "finely chopped", "divided", "to taste", etc.)
 
-For each input ingredient, output: min, max, unit, full ingredient name, ingredient key name, importance, and notes (all separated by semicolons, all in one line). Strip any extra spaces, punctuation, parentheses, etc.
+For each input ingredient, output a JSON object with the following keys:
+- min (float)
+- max (float)
+- unit (str)
+- full_item (str)
+- main_item (str)
+- importance (0, 1, or 2)
+- notes (list of str)
+
+Strip any extra spaces, punctuation, parentheses, etc.
 
 Some examples:
 
-1/4 Cup Parmesan Cheese, grated, use more if prefer -> 0.25;0.25;cup;Parmesan Cheese;Parmesan Cheese;1; grated, use more if prefer
-4  garlic cloves (crushed) -> 4;4;;garlic cloves;garlic;1;crushed
-2 14 ounces can fava beans -> 2;2;14 ounces can;fava beans;fava beans;2
-1 (7 oz) block of Greek feta cheese in brine (torn into slabs) -> 1;1;7 oz block;Greek feta cheese in brine;feta cheese;1;torn into slabs
-1 cup potatoes ((2 medium) chopped to \u00bd inch) -> 1;1;cup;potatoes;potatoes;2;2 medium chopped to 1/2 inch
-\u00be to 1 cup cauliflower ((gobi florets)) -> 0.75;1;cup;cauliflower;cauliflower;2;gobi florets
-1/2 cup thinly sliced green onion  ((optional, 2 stalks yield ~1/2 cup)) -> 0.5;0.5;cup;green onion;green onion;0;2 stalks yield ~1/2 cup
-2 tbsp Olive Oil, replace 1 tbsp oil with sun dried tomato oil -> 2;2;tbsp;Olive Oil;Olive Oil;1;replace 1 tbsp oil with sun dried tomato oil
-1/4 Cup Wine, good qaulity cooking wine, or leftover white wine -> 0.25;0.25;cup;Wine;Wine;1;good qaulity cooking wine or leftover white wine
-garnishes/sides: handful of chopped fresh basil, or cilantro, optional sriracha or chili -> 1;1;handful;garnishes/sides;garnish;0;handful of chopped fresh basil, or cilantro, optional sriracha or chili
+1/4 Cup Parmesan Cheese, grated, use more if prefer -> {"min":0.25,"max":0.25,"unit":"cup","full_item":"Parmesan Cheese","main_item":"Parmesan Cheese","importance":1,"notes":["grated", "use more if prefer"]}
+4  garlic cloves (crushed) -> {"min":4,"max":4,"unit":"","full_item":"garlic cloves","main_item":"garlic","importance":1,"notes":["crushed"]}
+2 14 ounces can fava beans -> {"min":2,"max":2,"unit":"14 ounces can","full_item":"fava beans","main_item":"fava beans","importance":2,"notes":[]}
+1 (7 oz) block of Greek feta cheese in brine (torn into slabs) -> {"min":1,"max":1,"unit":"7 oz block","full_item":"Greek feta cheese in brine","main_item":"feta cheese","importance":1,"notes":["torn into slabs"]}
+1 cup potatoes ((2 medium) chopped to \u00bd inch) -> {"min":1,"max":1,"unit":"cup","full_item":"potatoes","main_item":"potatoes","importance":2,"notes":["2 medium chopped to 1/2 inch"]}
+\u00be to 1 cup cauliflower ((gobi florets)) -> {"min":0.75,"max":1,"unit":"cup","full_item":"cauliflower","main_item":"cauliflower","importance":2,"notes":["gobi florets"]}
+1/2 cup thinly sliced green onion  ((optional, 2 stalks yield ~1/2 cup)) -> {"min":0.5,"max":0.5,"unit":"cup","full_item":"green onion","main_item":"green onion","importance":0,"notes":["2 stalks yield ~1/2 cup"]}
+2 tbsp Olive Oil, replace 1 tbsp oil with sun dried tomato oil -> {"min":2,"max":2,"unit":"tbsp","full_item":"Olive Oil","main_item":"Olive Oil","importance":1,"notes":["replace 1 tbsp oil with sun dried tomato oil"]}
+1/4 Cup Wine, good qaulity cooking wine, or leftover white wine -> {"min":0.25,"max":0.25,"unit":"cup","full_item":"Wine","main_item":"Wine","importance":1,"notes":["good qaulity cooking wine or leftover white wine"]}
+garnishes/sides: handful of chopped fresh basil, or cilantro, optional sriracha or chili -> {"min":1,"max":1,"unit":"handful","full_item":"garnishes/sides","main_item":"garnish","importance":0,"notes":["handful of chopped fresh basil, or cilantro", "optional sriracha or chili"]}
 '''
 
 @dataclass
@@ -280,42 +292,25 @@ Input Steps follow after this.
     def transform_ingredients(cls, ingredients: list[str], name: str) -> list[Ingredient]:
         """Transforms our list of ingredients using an LLM."""
         ret = []
-        # run llm in parallel
-        outputs = llm_transform_list(base_prompt=INGREDIENT_PROMPT.format(name=name), items=ingredients, chunk_size=50)
+        # run llm in parallel across all ingredients
+        llm_outs = batched_llm_call(prompt=INGREDIENT_PROMPT.replace('NAME', name),
+                                    inputs=ingredients,
+                                    batch_size=50,
+                                    json_outputs=True,
+                                    model='llama4',
+                                    max_tokens=1000000)
         counts_by_name: Counter[str] = Counter()
-        m: str|float;
-        M: str|float;
-        importance: str|int;
-        for input, output in zip(ingredients, outputs):
-            if not output:
-                raise ValueError(f'Error processing ingredient: {input}')
-            out = [el.strip() for el in output.split(';')]
-            m, M, unit, full_item, main_item, importance, *notes = out
-            name = main_item.lower().replace(' ', '_')[:3]
-            counts_by_name[name] += 1
-            notes = [n.strip() for n in notes if n.strip()]
-            try:
-                m = float(m)
-            except ValueError:
-                pass
-            try:
-                M = float(M)
-            except ValueError:
-                pass
-            try:
-                importance = int(importance)
-            except ValueError:
-                importance = 1
-            obj = Ingredient(id=f'{name}{counts_by_name[name]}',
-                             min=m,
-                             max=M,
-                             unit=unit,
-                             full_item=full_item,
-                             main_item=main_item,
-                             importance=importance,
-                             notes=notes)
-            #print(f' input: "{input}" -> {obj}')
-            ret.append(obj)
+        for batch, outputs in llm_outs:
+            for input, obj in zip(batch, outputs):
+                if not obj:
+                    raise ValueError(f'Error processing ingredient: {input}')
+                name = obj['main_item'].lower().replace(' ', '_')[:3]
+                counts_by_name[name] += 1
+                obj.setdefault('notes', [])
+                obj.setdefault('importance', 1)
+                ingr = Ingredient(id=f'{name}{counts_by_name[name]}', **obj)
+                #print(f' input: "{input}" -> {obj} -> {ingr}')
+                ret.append(ingr)
         return ret
 
     @classmethod
@@ -352,7 +347,7 @@ Input Steps follow after this.
         name = recipe.get('name', recipe.get('title', recipe.get('headline', '')))
         orig_ingrs = [self.clean_text(ingr) for ingr in recipe.pop("recipeIngredient")]
         recipe['ingredients'] = {'main': self.transform_ingredients(orig_ingrs, name=name)}
-        ingr_id_by_idx = {i: ingr['id'] for i, ingr in enumerate(recipe['ingredients']['main'])}
+        ingr_id_by_idx = {i: ingr.id for i, ingr in enumerate(recipe['ingredients']['main'])}
         #TODO figure out how to split ingredients into sections
         # split steps into sections and do some cleanup
         recipe['steps'] = self.sectionize_steps(recipe.pop("recipeInstructions"))
@@ -367,5 +362,5 @@ Input Steps follow after this.
         for sec, steps in recipe['steps'].items():
             for step in steps:
                 step['ingredients'] = [ingr_id_by_idx[i] for i in step['ingredients']]
-        print(json.dumps(recipe, indent=2))
+        #print(json.dumps(recipe, indent=2, cls=GeneralJSONEncoder))
         return recipe
