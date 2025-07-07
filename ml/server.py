@@ -610,8 +610,11 @@ async def text_embeddings(req: TextEmbeddingRequest):
     }
     ModelClass: Any = model_class_by_name.get(req.model, ExternalEmbeddingModel)
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
-    async with dl_temp_file(req.input) as path:
-        ret = await model.run(input=path, provider=req.provider)
+    if 0:
+        async with dl_temp_file(req.input) as path:
+            ret = await model.run(input=path, provider=req.provider)
+    else:
+        ret = await model.run(input=req.input, provider=req.provider)
     return ret
 
 

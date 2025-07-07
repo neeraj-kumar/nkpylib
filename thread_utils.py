@@ -288,7 +288,8 @@ class CollectionUpdater:
             return
         log_func = logger.info if self.debug else logger.debug
         log_func(f'Committing {len(self.to_add["ids"])} items')
-        assert len(self.to_add['ids']) == len(self.to_add['objects'])
+        if 'objects' in self.to_add:
+            assert len(self.to_add['ids']) == len(self.to_add['objects'])
         self.add_fn(self.to_add)
         for id in self.to_add['ids']:
             self.ids_seen[id] = True
