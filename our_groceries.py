@@ -23,6 +23,8 @@ from scipy.spatial.distance import cdist # type: ignore
 from nkpylib.web_utils import make_request
 from nkpylib.ml.client import embed_text
 
+EMB_MODEL = 'qwen_emb_small'
+
 logger = logging.getLogger(__name__)
 
 # Base URL for all API calls
@@ -45,6 +47,8 @@ class OurGroceries:
         """Reads our list and maintains it"""
         self.embeddings = {}
         self.items = self.get_list(include_deleted=True)
+        # start a background thread to update the embeddings
+        #self.embeddings_thread = #TODO
 
     def _api(self, command: str,
                    headers: dict | None = None,
@@ -86,7 +90,7 @@ class OurGroceries:
     def update_embeddings(self):
         """Updates our embeddings for the items in the list."""
         todo = [el['name'] for el in self.items if el['name'] not in self.embeddings]
-        embeddings = embed_text.batch(todo)
+        embeddings = embed_text.batch(todo, model=EMB_MODEL)
         self.embeddings.update(dict(zip(todo, embeddings)))
 
     def parse_list(self, lst: list[dict], include_deleted: bool = False) -> GroceryList:
@@ -174,7 +178,7 @@ class OurGroceries:
         """
         if name in self:
             return [(0.0, name)]
-        name_emb = embed_text.single(name)
+        name_emb = embed_text.single(name, model=EMB_MODEL)
         items, embs = zip(*self.embeddings.items())
         dists = cdist([name_emb], embs, 'cosine')[0]
         # sort by distance
