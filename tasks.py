@@ -238,6 +238,12 @@ class Task:
                 logging.exception("%s failed", self)
                 self.status = Status.FAILED
 
+    def log(self, msg, *args, **kwargs):
+        """Logs `msg` with our LOG_LEVEL"""
+        if 'level' not in kwargs:
+            kwargs['level'] = self.LOG_LEVEL
+        logging.log(kwargs['level'], msg, *args)
+
 
 def run_task(task):
     output = task.run()
