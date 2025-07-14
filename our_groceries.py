@@ -90,6 +90,8 @@ class OurGroceries:
     def update_embeddings(self):
         """Updates our embeddings for the items in the list."""
         todo = [el['name'] for el in self.items if el['name'] not in self.embeddings]
+        lmdb_cache_path = f'/home/neeraj/db/cache/embeddings/ourgroceries-embeddings-{EMB_MODEL}.lmdb'
+        #embeddings = embed_text.batch(todo, model=EMB_MODEL, lmdb_cache_path=lmdb_cache_path)
         embeddings = embed_text.batch(todo, model=EMB_MODEL)
         self.embeddings.update(dict(zip(todo, embeddings)))
 
