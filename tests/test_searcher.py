@@ -189,7 +189,7 @@ def _generate_test_cases():
         ('"John Doe"', 'John Doe'),  # space
         ('"O\'Reilly"', "O'Reilly"),  # single quote
         ('"tab\there"', 'tab\there'),  # tab
-        ('"new\nline"', 'new\nline'),  # newline
+        (r'"new\nline"', 'new\nline'),  # newline
         ('"Unicode ★ Star"', 'Unicode ★ Star'),  # unicode
         ('"∑∏∐∅∈∉√"', '∑∏∐∅∈∉√'),  # math symbols
         ('"中文"', '中文'),  # Chinese
