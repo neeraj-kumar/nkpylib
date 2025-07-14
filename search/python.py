@@ -69,10 +69,16 @@ class PythonSearch(SearchImpl):
 
     def _matches_op_cond(self, item: dict, cond: OpCond) -> bool:
         """Check if an item matches an operator condition"""
-        # Handle EXISTS and NULL checks first
-        if cond.op in (Op.EXISTS, Op.IS_NOT_NULL):
+        # Handle EXISTS checks
+        if cond.op == Op.EXISTS:
+            return cond.field in item
+        elif cond.op == Op.NOT_EXISTS:
+            return cond.field not in item
+            
+        # Handle NULL checks
+        if cond.op == Op.IS_NOT_NULL:
             return cond.field in item and item[cond.field] is not None
-        elif cond.op in (Op.NOT_EXISTS, Op.IS_NULL):
+        elif cond.op == Op.IS_NULL:
             return cond.field not in item or item[cond.field] is None
 
         # For all other operators, field must exist and not be None
