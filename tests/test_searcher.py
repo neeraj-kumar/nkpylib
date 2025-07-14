@@ -80,6 +80,10 @@ def test_parse_nested():
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 3
 
+    # Test optional parentheses
+    assert LarkSearcher.parse_cond('(name = "John", age > 25)') == LarkSearcher.parse_cond('name = "John", age > 25')
+    assert LarkSearcher.parse_cond('(status = "new" | status = "pending")') == LarkSearcher.parse_cond('status = "new" | status = "pending"')
+
 def test_parse_errors():
     """Test error conditions"""
     with pytest.raises(ValueError, match="No operator found"):
