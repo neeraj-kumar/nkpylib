@@ -88,6 +88,8 @@ class SearchTransformer(Transformer):
             '!?+': Op.IS_NULL,
             '?+': Op.IS_NOT_NULL
         }
+        logger.debug(f'Parsing op: {items}')
+        logger.debug(f'Parsing op: {items}, {items[0] in op_map}')
         return op_map[str(items[0])]
 
     def op_cond(self, items):
@@ -121,9 +123,9 @@ def parse_cond(query: str) -> SearchCond:
     logger.debug(f"Parsing query: {query}")
     try:
         tree = parser.parse(query)
-        logger.debug(f"Parse tree: {tree.pretty()}")
+        logger.debug(f"Parse tree:\n{tree.pretty()}")
         result = SearchTransformer().transform(tree)
-        logger.debug(f"Transformed result: {result}")
+        logger.debug(f"Transformed result:\n{result}")
         return result
     except Exception as e:
         logger.error(f"Failed to parse query: {query}")
