@@ -53,7 +53,11 @@ futures, you would do:
 
 
 The server also supports caching for all calls (except Images passed in directly). This is enabled by
-default, but can be disabled by passing `use_cache=False` to any of the function calls.
+default, but can be disabled by passing `use_cache=False` to any of the function calls. This is
+memory-only caching, not on disk.
+
+There is a simple LMDB-based embeddings cache available for `embed_text` and `embed_image` calls,
+enabled by using `lmdb_cache_path`.
 """
 
 from __future__ import annotations
