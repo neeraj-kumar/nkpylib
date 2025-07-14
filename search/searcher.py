@@ -280,13 +280,18 @@ class Searcher:
             if s.startswith('(') and s.endswith(')'):
                 s = s[1:-1].strip()
 
+            # Handle empty or None
+            if not s:
+                raise ValueError("Empty expression")
+
             # Split on OR first
             parts = []
             current = []
             paren_count = 0
+            bracket_count = 0
 
             for c in s + '|':  # Add sentinel
-                if c == '|' and paren_count == 0:
+                if c == '|' and paren_count == 0 and bracket_count == 0:
                     if current:
                         parts.append(''.join(current).strip())
                         current = []
@@ -295,6 +300,10 @@ class Searcher:
                         paren_count += 1
                     elif c == ')':
                         paren_count -= 1
+                    elif c == '[':
+                        bracket_count += 1
+                    elif c == ']':
+                        bracket_count -= 1
                     current.append(c)
 
             if len(parts) > 1:
@@ -304,9 +313,10 @@ class Searcher:
             parts = []
             current = []
             paren_count = 0
+            bracket_count = 0
 
             for c in s + ',':  # Add sentinel
-                if c == ',' and paren_count == 0:
+                if c == ',' and paren_count == 0 and bracket_count == 0:
                     if current:
                         parts.append(''.join(current).strip())
                         current = []
@@ -315,6 +325,10 @@ class Searcher:
                         paren_count += 1
                     elif c == ')':
                         paren_count -= 1
+                    elif c == '[':
+                        bracket_count += 1
+                    elif c == ']':
+                        bracket_count -= 1
                     current.append(c)
 
             if len(parts) > 1:
