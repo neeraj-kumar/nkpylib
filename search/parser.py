@@ -85,7 +85,10 @@ class SearchTransformer(Transformer):
     """Transforms parse tree into SearchCond objects"""
     def string(self, items):
         logger.debug(f"Parsing string: {items}")
-        result = str(items[0][1:-1])  # Remove quotes
+        # Get the string without outer quotes
+        s = str(items[0][1:-1])
+        # Handle escape sequences
+        result = bytes(s, "utf-8").decode("unicode_escape")
         logger.debug(f"String result: {result}")
         return result
 
