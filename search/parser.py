@@ -87,9 +87,14 @@ class SearchTransformer(Transformer):
         logger.debug(f"Parsing string: {items}")
         # Get the string without outer quotes
         s = str(items[0][1:-1])
-        # Handle escape sequences
-        result = bytes(s, "utf-8").decode("unicode_escape")
-        logger.debug(f"String result: {result}")
+        # Handle both escape sequences and Unicode characters
+        try:
+            # First try unicode_escape for \n etc
+            result = bytes(s, "utf-8").decode("unicode_escape")
+        except UnicodeDecodeError:
+            # If that fails, just use the string directly
+            result = s
+        logger.debug(f"String result: {result!r}")
         return result
 
     def number(self, items):
