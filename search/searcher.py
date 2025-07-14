@@ -54,8 +54,8 @@ class Op(Enum):
     GTE = '>='
     LT = '<'
     LTE = '<='
-    LIKE = 'like' # sql "like"
-    NOT_LIKE = 'not like' # sql "not like"
+    LIKE = '~' # sql "like"
+    NOT_LIKE = '!~' # sql "not like"
     IN = 'in' # value is a list
     NOT_IN = 'not in' # value is a list
     CLOSE_TO = 'close to' # for vector similarity
@@ -217,8 +217,8 @@ class Searcher:
             '>=': Op.GTE,
             '<': Op.LT,
             '<=': Op.LTE,
-            'like': Op.LIKE,
-            'not like': Op.NOT_LIKE,
+            '~': Op.LIKE,
+            '!~': Op.NOT_LIKE,
             'in': Op.IN,
             'not in': Op.NOT_IN,
             'close to': Op.CLOSE_TO,
@@ -249,7 +249,7 @@ class Searcher:
         def parse_basic(s: str) -> OpCond:
             """Parse a basic condition like 'key op value'"""
             # Split on first operator we find, requiring proper boundaries
-            for op_str in ['!=', '>=', '<=', '=', '>', '<', 'not like', 'like',
+            for op_str in ['!=', '>=', '<=', '=', '>', '<', '!~', '~',
                           'not in', 'in', 'close to', 'not exists', 'exists',
                           'is not null', 'is null']:
                 # For string operators, require whitespace or numbers around them

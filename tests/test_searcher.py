@@ -13,7 +13,7 @@ def test_parse_basic():
     assert Searcher.parse_cond('age > 25') == OpCond('age', Op.GT, 25)
     assert Searcher.parse_cond('price >= 99.99') == OpCond('price', Op.GTE, 99.99)
     assert Searcher.parse_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
-    assert Searcher.parse_cond('name like "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
+    assert Searcher.parse_cond('name ~ "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
     assert Searcher.parse_cond('tags in ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
     c = Searcher.parse_cond('embedding close to [0.1, 0.2]')
     print(f'c: {c}')
@@ -74,7 +74,7 @@ def test_parse_nested():
     assert cond.conds[1].join == JoinType.OR
 
     # Complex nested
-    cond = Searcher.parse_cond('name like "Jo%", !(status = "deleted"), (age < 20 | age > 60)')
+    cond = Searcher.parse_cond('name ~ "Jo%", !(status = "deleted"), (age < 20 | age > 60)')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 3
