@@ -19,7 +19,7 @@ GRAMMAR = """
 and_cond: expr ("," expr)+
 or_cond: expr ("|" expr)+
 not_cond: "!(" expr ")"
-op_cond: field op value
+op_cond: field op [value]
 field: CNAME
 op: OP
 value: string | number | list
@@ -103,7 +103,11 @@ class SearchTransformer(Transformer):
 
     def op_cond(self, items):
         logger.debug(f"Parsing op_cond: {items}")
-        field, op, value = items
+        if len(items) == 2:
+            field, op = items
+            value = None
+        else:
+            field, op, value = items
         result = OpCond(field=field, op=op, value=value)
         logger.debug(f"OpCond result: {result}")
         return result
