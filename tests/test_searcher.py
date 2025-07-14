@@ -145,6 +145,9 @@ def is_compatible(op: str, val: str) -> bool:
     # List operators only work with list values
     if op in (':', '!:', '~='):
         return val.startswith('[')
+    # Simple operators don't work with lists
+    if op in ('=', '!=', '>', '>=', '<', '<=', '~', '!~'):
+        return not val.startswith('[')
     # Everything else is compatible
     return True
 
