@@ -22,15 +22,27 @@ logger = logging.getLogger(__name__)
 
 class PythonSearch(SearchImpl):
     """A search implementation that searches an in-memory Python data structure."""
-    def __init__(self, obj: list[dict]):
-        self.obj = obj
+    def __init__(self, items: list[dict], id_field:str=''):
+        """Initializes with a list of `items` to search.
+
+        You can optionally provide a `id_field` that uniquely identifies each item.
+        If not given, then we use the index of the item in the list as its ID.
+        """
+        self.items = items
+        self.id_field = id_field
+
+    def get_id(self, item: dict) -> str:
+        """Returns the ID of an item, either from the specified id_field or its index."""
+        if self.id_field:
+            return str(item.get(self.id_field, ''))
+        return str(self.items.index(item))
 
     def search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
-        """Searches our `obj` with given `cond`."""
+        """Searches our list of `items` with given `cond`."""
         results = []
-        for idx, item in enumerate(self.obj):
+        for idx, item in enumerate(self.items):
             if self._matches_condition(item, cond):
-                results.append(SearchResult(id=str(idx), score=1.0, obj=item))
+                results.append(SearchResult(id=self.get_id(item), score=1.0, obj=item))
             if len(results) >= n_results:
                 break
         return results
@@ -42,7 +54,7 @@ class PythonSearch(SearchImpl):
         elif isinstance(cond, JoinCond):
             return self._matches_join_cond(item, cond)
         else:
-            raise ValueError(f"Unknown condition type: {type(cond)}")
+            raise NotImplementedError(f"Unknown condition type: {type(cond)}")
 
     def _matches_join_cond(self, item: dict, cond: JoinCond) -> bool:
         """Check if an item matches a join condition"""
@@ -53,7 +65,7 @@ class PythonSearch(SearchImpl):
         elif cond.join == JoinType.NOT:
             return not self._matches_condition(item, cond.conds[0])
         else:
-            raise ValueError(f"Unknown join type: {cond.join}")
+            raise NotImplementedError(f"Unknown join type: {cond.join}")
 
     def _matches_op_cond(self, item: dict, cond: OpCond) -> bool:
         """Check if an item matches an operator condition"""
