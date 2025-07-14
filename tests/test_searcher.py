@@ -132,3 +132,77 @@ def test_boolean_values():
     assert LarkSearcher.parse_cond('is_active = true') == OpCond('is_active', Op.EQ, True)
     assert LarkSearcher.parse_cond('is_deleted = false') == OpCond('is_deleted', Op.EQ, False)
     assert LarkSearcher.parse_cond('verified != true') == OpCond('verified', Op.NEQ, True)
+
+@pytest.fixture
+def test_fields():
+    """Test field names"""
+    return [
+        'name', 'age', 'status', 'tags', 'price',
+        'is_active', 'verified', 'embedding'
+    ]
+
+@pytest.fixture
+def test_ops():
+    """Test operators and their expected enum values"""
+    return [
+        ('=', Op.EQ),
+        ('!=', Op.NEQ),
+        ('>', Op.GT),
+        ('>=', Op.GTE),
+        ('<', Op.LT),
+        ('<=', Op.LTE),
+        ('~', Op.LIKE),
+        ('!~', Op.NOT_LIKE),
+        (':', Op.IN),
+        ('!:', Op.NOT_IN),
+        ('~=', Op.CLOSE_TO),
+        ('?', Op.EXISTS),
+        ('!?', Op.NOT_EXISTS),
+        ('!?+', Op.IS_NULL),
+        ('?+', Op.IS_NOT_NULL),
+    ]
+
+@pytest.fixture
+def test_values():
+    """Test values and their expected parsed form"""
+    return [
+        ('"John"', 'John'),
+        ('active', 'active'),
+        ('25', 25),
+        ('99.99', 99.99),
+        ('[1, 2, 3]', [1, 2, 3]),
+        ('["red", "blue"]', ['red', 'blue']),
+        ('true', True),
+        ('false', False),
+    ]
+
+def is_compatible(op: str, val: str) -> bool:
+    """Check if an operator and value combination is valid"""
+    # Exists/Null operators don't take values
+    if op in ('?', '!?', '?+', '!?+'):
+        return val == ''
+    # List operators only work with list values
+    if op in (':', '!:', '~='):
+        return val.startswith('[')
+    # Everything else is compatible
+    return True
+
+@pytest.mark.parametrize('field,op_str,op_enum,val_str,val_expected', [
+    (f, os, oe, vs, ve)
+    for f in pytest.lazy_fixture('test_fields')
+    for (os, oe) in pytest.lazy_fixture('test_ops')
+    for (vs, ve) in pytest.lazy_fixture('test_values')
+    if is_compatible(os, vs)
+])
+def test_op_combinations(field: str, op_str: str, op_enum: Op, val_str: str, val_expected: Any):
+    """Test various combinations of fields, operators and values"""
+    # Skip value for exists/null operators
+    if op_str in ('?', '!?', '?+', '!?+'):
+        query = f'{field} {op_str}'
+        val_expected = None
+    else:
+        query = f'{field} {op_str} {val_str}'
+    
+    expected = OpCond(field, op_enum, val_expected)
+    result = LarkSearcher.parse_cond(query)
+    assert result == expected, f"Failed parsing '{query}'"
