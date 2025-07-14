@@ -73,6 +73,7 @@ import time
 
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial, wraps
+from hashlib import sha256
 from os.path import join
 from tqdm import tqdm
 from typing import Any, Optional, Union, Sequence, Callable, Iterator, TypeVar
@@ -80,6 +81,7 @@ from typing import Any, Optional, Union, Sequence, Callable, Iterator, TypeVar
 import requests
 
 from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION, Role, Msg
+from nkpylib.ml.embeddings import NumpyLmdb
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +255,11 @@ def llm_final_func(resp):
     return resp['choices'][0]['message']['content']
 
 @execution_wrapper(final_func=llm_final_func)
-def call_llm_completion(prompt: str, max_tokens:int =1024, model:Optional[str] =None, use_cache=True, **kw) -> ResponseT:
+def call_llm_completion(prompt: str,
+                        max_tokens:int =1024,
+                        model:Optional[str] =None,
+                        use_cache=True,
+                        **kw) -> ResponseT:
     """Calls our local llm server for a completion.
 
     Uses the 'mistral-7b-instruct-v0.2.Q4_K_M.gguf' model by default.
@@ -373,8 +379,19 @@ def call_vlm(inputs: tuple[str, str|list[Msg]],
 
 
 @execution_wrapper(final_func=lambda x: x['data'][0]['embedding'])
-def embed_text(s: str, model: str='sentence', use_cache=True, **kw) -> ResponseT:
+def embed_text(s: str,
+               model: str='sentence',
+               use_cache=True,
+               lmdb_cache_path: str='',
+               **kw) -> ResponseT:
     """Embeds a string using the specified model.
+
+    If you set `lmdb_cache_path`, then we will use an on-disk LMDB cache for embeddings returned.
+    The cache uses the sha256 of the input string as the key (since its length could be unbounded),
+    and stores the embedding as a numpy array. This incurs an additional cost because of the hashing.
+
+    Note that we do no checking about which model was used, and there is no metadata around the
+    times at which the embeddings were generated.
 
     Models:
     - 'sentence': BAAI/bge-large-en-v1.5 [default]
@@ -382,7 +399,21 @@ def embed_text(s: str, model: str='sentence', use_cache=True, **kw) -> ResponseT
 
     Returns the raw json response (as a dict).
     """
-    return single_call("embeddings", input=s, model=model, use_cache=use_cache, **kw)
+    db: NumpyLmdb|None = None
+    hashed: str|None = None
+    if lmdb_cache_path:
+        db = NumpyLmdb.open(lmdb_cache_path, mode='c') # create if needed
+        hashed = sha256(s.encode()).hexdigest()
+        if hashed in db:
+            logger.debug(f'Found cached embedding for "{s}" in {lmdb_cache_path}')
+            return {'data': [{'embedding': db[hashed]}]}
+    ret = single_call("embeddings", input=s, model=model, use_cache=use_cache, **kw)
+    if db is not None and hashed:
+        emb = ret['data'][0]['embedding']
+        print(f'got emb: {emb[:5]}')
+        db[hashed] = emb
+        db.close()
+    return ret
 
 @execution_wrapper(final_func=lambda x: x['similarity'])
 def strsim(input_: tuple[str, str], model='clip', use_cache=True, **kw) -> ResponseT:

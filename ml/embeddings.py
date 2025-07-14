@@ -2,16 +2,19 @@
 
 #TODO overall metadata
 #TODO metadata for each embedding
+#TODO I think I can handle metadata by creating a second lmdbm, inside the first one, with the same keys, plus a global key.
 #TODO sparse
 #TODO in-memory
 
 from __future__ import annotations
 
 import logging
+import os
 import random
 
 from collections.abc import Mapping
 from collections import Counter
+from os.path import dirname
 from typing import Any, cast, Sequence, Generic, TypeVar, Union, Iterator
 
 import numpy as np
@@ -54,6 +57,12 @@ class NumpyLmdb(Lmdb):
         """
         if 'map_size' not in kw:
             kw['map_size'] = 2 ** 25 # lmdbm only grows up to 12 factors, and defaults to 2e20
+        # make dirs if needed
+        if mode != 'r':
+            try:
+                os.makedirs(dirname(file), exist_ok=True)
+            except Exception:
+                pass
         ret = cast(NumpyLmdb, super().open(file, mode, **kw))
         ret.dtype = dtype
         ret.path = file
@@ -66,12 +75,15 @@ class NumpyLmdb(Lmdb):
         return key.decode('utf-8', 'ignore')
 
     def _pre_value(self, value: np.ndarray) -> bytes:
+        value = np.array(value, dtype=self.dtype)
         assert isinstance(value, np.ndarray), f'Value must be a numpy array, not {type(value)}'
         assert value.dtype == self.dtype, f'Value must be of type {self.dtype}, not {value.dtype}'
+        print(f'set: value of type {type(value)} with shape {value.shape} and dtype {value.dtype}: {value}')
         return value.tobytes()
 
     def _post_value(self, value: bytes) -> np.ndarray:
         a = np.frombuffer(value, dtype=self.dtype)
+        print(f'get: value of type {type(a)} with shape {a.shape} and dtype {a.dtype}: {a}')
         return a
 
     def __repr__(self):
