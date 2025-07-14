@@ -21,11 +21,13 @@ or_cond: expr ("|" expr)+
 not_cond: "!(" expr ")"
 op_cond: field op value
 field: CNAME
-op: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" | "!?" | "?+" | "!?+"
+op: OP
 value: string | number | list
 string: ESCAPED_STRING
 number: SIGNED_NUMBER
 list: "[" [value ("," value)*] "]"
+
+OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" | "!?" | "?+" | "!?+"
 
 %import common.CNAME
 %import common.ESCAPED_STRING
