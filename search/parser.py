@@ -215,10 +215,15 @@ def parse_cond(query: str) -> SearchCond:
         return result
     try:
         return parse(query)
-    except Exception:
-        try:
-            return parse('('+query+')')
-        except Exception as e:
-            logger.error(f"Failed to parse query: {query}")
-            logger.error(f"Error: {e}")
-            raise
+    except Exception as e1:
+        if not query.startswith('('):
+            try:
+                return parse('('+query+')')
+            except Exception as e2:
+                logger.error(f"Failed to parse query: {query}")
+                logger.error(f"First error: {e1}")
+                logger.error(f"Second error: {e2}")
+                raise e2
+        logger.error(f"Failed to parse query: {query}")
+        logger.error(f"Error: {e1}")
+        raise e1
