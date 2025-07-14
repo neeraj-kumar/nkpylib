@@ -88,21 +88,22 @@ def test_parse_errors():
     """Test error conditions"""
     with pytest.raises(Exception):
         LarkSearcher.parse_cond('invalid query')
-    
+
     with pytest.raises(Exception):
         LarkSearcher.parse_cond('!status = "deleted"')  # NOT must use !()
-        
+
     with pytest.raises(Exception):
         LarkSearcher.parse_cond('name = "John" age > 25')  # Missing comma
-        
+
     with pytest.raises(Exception):
         LarkSearcher.parse_cond('name @ "John"')  # Invalid operator
-        
-    with pytest.raises(Exception):
-        LarkSearcher.parse_cond('(name = "John"')  # Unmatched parenthesis
-        
+
     with pytest.raises(Exception):
         LarkSearcher.parse_cond('name = "John")')  # Unmatched parenthesis
+
+    with pytest.raises(Exception):
+        r = LarkSearcher.parse_cond('(name = "John"')  # Unmatched parenthesis
+        print(f'Parsed condition: {r}')
 
 def test_parse_whitespace():
     """Test whitespace handling"""

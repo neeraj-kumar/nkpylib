@@ -12,13 +12,50 @@ from .searcher import SearchCond, Op, OpCond, JoinType, JoinCond
 
 logger = logging.getLogger(__name__)
 
+# some utility functions
+def get_matching_parens(s, ptype='(') -> list[tuple[int, int]]:
+    """Returns a list of tuples with matching parentheses indices in the string.
+
+    By default looks for '(' and ')', but can be customized with `ptype`. Specify the opening paren
+    character, one of:
+    (
+    [
+    {
+    <
+
+    Raises `ValueError` if there are unmatched parentheses.
+    """
+    stack = []
+    matches = []
+    paren_types = {
+        '(': ')',
+        '[': ']',
+        '{': '}',
+        '<': '>'
+    }
+    assert ptype in paren_types, f"Invalid parenthesis type: {ptype}. Must be one of {paren_types}"
+    open_paren = ptype
+    close_paren = paren_types[open_paren]
+    for i, char in enumerate(s):
+        if char == open_paren:
+            stack.append(i)
+        elif char == close_paren:
+            if stack:
+                start = stack.pop()
+                matches.append((start, i))
+            else:
+                raise ValueError(f"Unmatched closing parenthesis at index {i} in string: {s}")
+    if stack:
+        raise ValueError(f"Unmatched opening parenthesis at indices {stack} in string: {s}")
+    return matches
+
+
 # Define the grammar for our search language
 GRAMMAR = """
 ?start: expr
-?expr: op_cond | and_cond | or_cond | not_cond | paren_expr
-paren_expr: "(" expr ")"
-and_cond: expr "," expr ("," expr)* | "(" expr "," expr ("," expr)* ")"
-or_cond: expr "|" expr ("|" expr)* | "(" expr "|" expr ("|" expr)* ")"
+?expr: op_cond | and_cond | or_cond | not_cond
+and_cond:  "(" expr "," expr ("," expr)* ")"
+or_cond:  "(" expr "|" expr ("|" expr)* ")"
 not_cond: "!(" expr ")"
 op_cond: field op [value]
 field: CNAME
@@ -144,14 +181,21 @@ class SearchTransformer(Transformer):
 
 def parse_cond(query: str) -> SearchCond:
     """Parse a query string into a SearchCond using Lark parser."""
+    query = query.strip()
     logger.debug(f"Parsing query: {query}")
-    try:
-        tree = parser.parse(query)
+    # add outer parens if necessary
+    def parse(q: str):
+        tree = parser.parse(q)
         logger.debug(f"Parse tree:\n{tree.pretty()}")
         r = result = SearchTransformer().transform(tree)
         logger.debug(f"Transformed result:{type(result)}\n{result}")
         return result
-    except Exception as e:
-        logger.error(f"Failed to parse query: {query}")
-        logger.error(f"Error: {e}")
-        raise
+    try:
+        return parse(query)
+    except Exception:
+        try:
+            return parse('('+query+')')
+        except Exception as e:
+            logger.error(f"Failed to parse query: {query}")
+            logger.error(f"Error: {e}")
+            raise
