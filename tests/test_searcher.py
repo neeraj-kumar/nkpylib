@@ -146,10 +146,11 @@ def is_compatible(op: str, val: str) -> bool:
     # Everything else is compatible
     return True
 
-@pytest.mark.parametrize('field,op_str,op_enum,val_str,val_expected', [
-    (f, os, oe, vs, ve)
-    for f in ['name', 'age', 'status', 'tags', 'price', 'is_active', 'verified', 'embedding']
-    for (os, oe) in [
+def _generate_test_cases():
+    """Generate test cases for operator combinations"""
+    cases = []
+    fields = ['name', 'age', 'status', 'tags', 'price', 'is_active', 'verified', 'embedding']
+    operators = [
         ('=', Op.EQ),
         ('!=', Op.NEQ),
         ('>', Op.GT),
@@ -166,7 +167,7 @@ def is_compatible(op: str, val: str) -> bool:
         ('!?+', Op.IS_NULL),
         ('?+', Op.IS_NOT_NULL),
     ]
-    for (vs, ve) in [
+    values = [
         ('"John"', 'John'),
         ('active', 'active'),
         ('25', 25),
@@ -176,8 +177,15 @@ def is_compatible(op: str, val: str) -> bool:
         ('true', True),
         ('false', False),
     ]
-    if is_compatible(os, vs)
-])
+    
+    for f in fields:
+        for os, oe in operators:
+            for vs, ve in values:
+                if is_compatible(os, vs):
+                    cases.append((f, os, oe, vs, ve))
+    return cases
+
+@pytest.mark.parametrize('field,op_str,op_enum,val_str,val_expected', _generate_test_cases())
 def test_op_combinations(field: str, op_str: str, op_enum: Op, val_str: str, val_expected: Any):
     """Test various combinations of fields, operators and values"""
     # Skip value for exists/null operators
