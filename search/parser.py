@@ -60,12 +60,13 @@ not_cond: "!(" expr ")"
 op_cond: field op [value]
 field: CNAME
 op: OP
-value: string | unquoted_string | number | list
+value: string | unquoted_string | number | list | boolean
 string: ESCAPED_STRING
 unquoted_string: CNAME
 number: SIGNED_NUMBER
 list: "[" [value ("," value)*] "]"
 
+boolean: "true" | "false"
 OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" | "!?" | "?+" | "!?+"
 
 %import common.CNAME
@@ -103,6 +104,12 @@ class SearchTransformer(Transformer):
         logger.debug(f"Parsing unquoted string: {items}")
         result = str(items[0])
         logger.debug(f"Unquoted string result: {result}")
+        return result
+
+    def boolean(self, items):
+        logger.debug(f"Parsing boolean: {items}")
+        result = items[0].lower() == "true"
+        logger.debug(f"Boolean result: {result}")
         return result
 
     def value(self, items):
