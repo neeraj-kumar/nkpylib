@@ -168,6 +168,10 @@ def test_python_search():
         # IN/NOT_IN operators
         ('tags : ["a"]', {'Bob', 'John'}),
         ('name !: ["John", "Jane"]', {'Alice', 'Bob'}),
+        
+        # HAS/NOT_HAS operators
+        ('tags @ "a"', {'Bob', 'John'}),
+        ('tags !@ "b"', {'Bob', 'Alice'}),
     ]
 
     for query, expected_names in test_cases:
@@ -186,8 +190,8 @@ def is_compatible(op: str, val: str) -> bool:
     # List operators only work with list values
     if op in (':', '!:', '~='):
         return val.startswith('[')
-    # Simple operators don't work with lists
-    if op in ('=', '!=', '>', '>=', '<', '<=', '~', '!~'):
+    # Simple operators and HAS operators don't work with lists
+    if op in ('=', '!=', '>', '>=', '<', '<=', '~', '!~', '@', '!@'):
         return not val.startswith('[')
     # Everything else is compatible
     return True

@@ -105,6 +105,10 @@ class PythonSearch(SearchImpl):
             return val in cond.value
         elif cond.op == Op.NOT_IN:
             return val not in cond.value
+        elif cond.op == Op.HAS:
+            return isinstance(val, (list, tuple)) and cond.value in val
+        elif cond.op == Op.NOT_HAS:
+            return isinstance(val, (list, tuple)) and cond.value not in val
         elif cond.op == Op.CLOSE_TO:
             # deal with this separately
             pass
