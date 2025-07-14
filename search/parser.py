@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+
 from typing import Any
 
 from lark import Lark, Transformer
@@ -14,11 +15,11 @@ logger = logging.getLogger(__name__)
 # Define the grammar for our search language
 GRAMMAR = """
 ?start: expr
-?expr: basic_cond | and_cond | or_cond | not_cond
+?expr: op_cond | and_cond | or_cond | not_cond
 and_cond: expr ("," expr)+
 or_cond: expr ("|" expr)+
 not_cond: "!(" expr ")"
-basic_cond: field op value
+op_cond: field op value
 field: CNAME
 op: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" | "!?" | "?+" | "!?+"
 value: string | number | list
@@ -40,22 +41,22 @@ class SearchTransformer(Transformer):
     """Transforms parse tree into SearchCond objects"""
     def string(self, items):
         return str(items[0][1:-1])  # Remove quotes
-        
+
     def number(self, items):
         val = float(items[0])
         if val.is_integer():
             return int(val)
         return val
-        
+
     def list(self, items):
         return list(items)
-        
+
     def value(self, items):
         return items[0]
-        
+
     def field(self, items):
         return str(items[0])
-        
+
     def op(self, items):
         op_map = {
             '=': Op.EQ,
@@ -75,22 +76,22 @@ class SearchTransformer(Transformer):
             '?+': Op.IS_NOT_NULL
         }
         return op_map[str(items[0])]
-        
-    def basic_cond(self, items):
+
+    def op_cond(self, items):
         field, op, value = items
         return OpCond(field=field, op=op, value=value)
-        
+
     def and_cond(self, items):
         return JoinCond(JoinType.AND, list(items))
-        
+
     def or_cond(self, items):
         return JoinCond(JoinType.OR, list(items))
-        
+
     def not_cond(self, items):
         return JoinCond(JoinType.NOT, [items[0]])
+
 
 def parse_cond(query: str) -> SearchCond:
     """Parse a query string into a SearchCond using Lark parser."""
     tree = parser.parse(query)
     return SearchTransformer().transform(tree)
-
