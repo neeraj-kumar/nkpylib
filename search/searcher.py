@@ -57,9 +57,11 @@ class Op(Enum):
     LTE = '<='
     LIKE = '~' # sql "like"
     NOT_LIKE = '!~' # sql "not like"
-    IN = ':' # value is a list
-    NOT_IN = '!:' # value is a list
-    CLOSE_TO = '~=' # for vector similarity
+    IN = ':' # key is in value (which is a list)
+    NOT_IN = '!:' # key is not in value (which is a list)
+    HAS = '@' # key (which is a list) contains value (not a list)
+    NOT_HAS = '!@' # key (which is a list) does not contain value (not a list)
+    CLOSE_TO = '~=' # key is similar to value (both are vectors)
     EXISTS = '?' # key exists, value ignored
     NOT_EXISTS = '!?' # key doesn't exist, value ignored
     IS_NULL = '!?+' # key is null, value ignored

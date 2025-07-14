@@ -33,7 +33,7 @@ list: "[" [value ("," value)*] "]"
 boolean: TRUE | FALSE
 TRUE: "true"i
 FALSE: "false"i
-OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" | "!?" | "?+" | "!?+"
+OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "@" | "!@" | "~=" | "?" | "!?" | "?+" | "!?+"
 
 %import common.CNAME
 %import common.ESCAPED_STRING
@@ -113,6 +113,8 @@ class SearchTransformer(Transformer):
             '!~': Op.NOT_LIKE,
             ':': Op.IN,
             '!:': Op.NOT_IN,
+            '@': Op.HAS,
+            '!@': Op.NOT_HAS,
             '~=': Op.CLOSE_TO,
             '?': Op.EXISTS,
             '!?': Op.NOT_EXISTS,
