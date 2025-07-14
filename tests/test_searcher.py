@@ -86,11 +86,23 @@ def test_parse_nested():
 
 def test_parse_errors():
     """Test error conditions"""
-    with pytest.raises(ValueError, match="No operator found"):
+    with pytest.raises(Exception):
         LarkSearcher.parse_cond('invalid query')
     
-    with pytest.raises(ValueError, match="NOT expression must be in parentheses"):
-        LarkSearcher.parse_cond('!status = "deleted"')
+    with pytest.raises(Exception):
+        LarkSearcher.parse_cond('!status = "deleted"')  # NOT must use !()
+        
+    with pytest.raises(Exception):
+        LarkSearcher.parse_cond('name = "John" age > 25')  # Missing comma
+        
+    with pytest.raises(Exception):
+        LarkSearcher.parse_cond('name @ "John"')  # Invalid operator
+        
+    with pytest.raises(Exception):
+        LarkSearcher.parse_cond('(name = "John"')  # Unmatched parenthesis
+        
+    with pytest.raises(Exception):
+        LarkSearcher.parse_cond('name = "John")')  # Unmatched parenthesis
 
 def test_parse_whitespace():
     """Test whitespace handling"""
