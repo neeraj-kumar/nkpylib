@@ -145,23 +145,26 @@ def test_python_search():
         {'name': 'Bob', 'age': 35, 'tags': ['a', 'c']},
         {'name': 'Alice', 'age': 28},  # No tags
     ]
-    searcher = PythonSearch(data)
+    searcher = PythonSearch(data, id_field='name')
+
+    def get_names(results):
+        return sorted(r.id for r in results)
 
     # Test basic operators
-    assert len(searcher.search(Searcher.parse_cond('age > 30'))) == 1
-    assert len(searcher.search(Searcher.parse_cond('name ~ "J%"'))) == 2
+    assert get_names(searcher.search(Searcher.parse_cond('age > 30'))) == ['Bob']
+    assert get_names(searcher.search(Searcher.parse_cond('name ~ "J%"'))) == ['Jane', 'John']
 
     # Test AND/OR
-    assert len(searcher.search(Searcher.parse_cond('age > 25, name ~ "J%"'))) == 1
-    assert len(searcher.search(Searcher.parse_cond('age < 30 | age > 33'))) == 3
+    assert get_names(searcher.search(Searcher.parse_cond('age > 25, name ~ "J%"'))) == ['John']
+    assert get_names(searcher.search(Searcher.parse_cond('age < 30 | age > 33'))) == ['Alice', 'Bob', 'Jane']
 
     # Test EXISTS/NULL
-    assert len(searcher.search(Searcher.parse_cond('tags ?'))) == 3
-    assert len(searcher.search(Searcher.parse_cond('tags !?'))) == 1
+    assert get_names(searcher.search(Searcher.parse_cond('tags ?'))) == ['Bob', 'Jane', 'John']
+    assert get_names(searcher.search(Searcher.parse_cond('tags !?'))) == ['Alice']
 
     # Test IN/NOT_IN
-    assert len(searcher.search(Searcher.parse_cond('tags : ["a"]'))) == 2
-    assert len(searcher.search(Searcher.parse_cond('name !: ["John", "Jane"]'))) == 2
+    assert get_names(searcher.search(Searcher.parse_cond('tags : ["a"]'))) == ['Bob', 'John']
+    assert get_names(searcher.search(Searcher.parse_cond('name !: ["John", "Jane"]'))) == ['Alice', 'Bob']
 
 
 def is_compatible(op: str, val: str) -> bool:
