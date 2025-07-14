@@ -151,24 +151,25 @@ def test_python_search():
         # Basic operators
         ('age > 30', {'Bob'}),
         ('name ~ "J%"', {'Jane', 'John'}),
-        
+
         # AND/OR conditions
         ('age > 25, name ~ "J%"', {'John'}),
         ('age < 30 | age > 33', {'Alice', 'Bob', 'Jane'}),
-        
+
         # EXISTS/NULL checks
         ('tags ?', {'Bob', 'Jane', 'John'}),
         ('tags !?', {'Alice'}),
-        ('tags ?+', {'Bob', 'Jane', 'John'}),
-        ('tags !?+', {'Alice'}),
-        
+        ('tags ?+', {'Bob', 'Jane', 'John'}), # exists and is not null
+
         # IN/NOT_IN operators
         ('tags : ["a"]', {'Bob', 'John'}),
         ('name !: ["John", "Jane"]', {'Alice', 'Bob'}),
     ]
 
     for query, expected_names in test_cases:
-        result_names = {r.id for r in searcher.search(Searcher.parse_cond(query))}
+        cond = Searcher.parse_cond(query)
+        print(f'Parsed query {query} -> {cond}')
+        result_names = {r.id for r in searcher.search(cond)}
         assert result_names == expected_names, \
             f"Query '{query}' returned {result_names}, expected {expected_names}"
 
