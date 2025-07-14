@@ -104,6 +104,8 @@ class SearchTransformer(Transformer):
         # Handle empty list case
         if not items:
             result = []
+        elif items[0] is None:
+            result = []
         else:
             result = list(items)
         logger.debug(f"List result: {result}")
