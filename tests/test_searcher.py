@@ -15,6 +15,8 @@ def test_parse_basic():
     assert Searcher.parse_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
     assert Searcher.parse_cond('name like "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
     assert Searcher.parse_cond('tags in ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
+    c = Searcher.parse_cond('embedding close to [0.1, 0.2]')
+    print(f'c: {c}')
     assert Searcher.parse_cond('embedding close to [0.1, 0.2]') == OpCond('embedding', Op.CLOSE_TO, [0.1, 0.2])
     assert Searcher.parse_cond('phone exists') == OpCond('phone', Op.EXISTS, None)
     assert Searcher.parse_cond('status is null') == OpCond('status', Op.IS_NULL, None)

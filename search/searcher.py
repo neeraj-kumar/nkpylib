@@ -249,7 +249,7 @@ class Searcher:
         def parse_basic(s: str) -> OpCond:
             """Parse a basic condition like 'key op value'"""
             # Split on first operator we find, requiring proper boundaries
-            for op_str in ['!=', '>=', '<=', '=', '>', '<', 'not like', 'like', 
+            for op_str in ['!=', '>=', '<=', '=', '>', '<', 'not like', 'like',
                           'not in', 'in', 'close to', 'not exists', 'exists',
                           'is not null', 'is null']:
                 # For string operators, require whitespace or numbers around them
