@@ -56,13 +56,13 @@ class Op(Enum):
     LTE = '<='
     LIKE = '~' # sql "like"
     NOT_LIKE = '!~' # sql "not like"
-    IN = 'in' # value is a list
-    NOT_IN = 'not in' # value is a list
-    CLOSE_TO = 'close to' # for vector similarity
-    EXISTS = 'exists' # key exists, value ignored
-    NOT_EXISTS = 'not exists' # key doesn't exist, value ignored
-    IS_NULL = 'is null' # key is null, value ignored
-    IS_NOT_NULL = 'is not null' # key is not null, value ignored
+    IN = ':' # value is a list
+    NOT_IN = '!:' # value is a list
+    CLOSE_TO = '~=' # for vector similarity
+    EXISTS = '?' # key exists, value ignored
+    NOT_EXISTS = '!?' # key doesn't exist, value ignored
+    IS_NULL = '!?+' # key is null, value ignored
+    IS_NOT_NULL = '?+' # key is not null, value ignored
 
     def __str__(self):
         return self.value
@@ -219,13 +219,13 @@ class Searcher:
             '<=': Op.LTE,
             '~': Op.LIKE,
             '!~': Op.NOT_LIKE,
-            'in': Op.IN,
-            'not in': Op.NOT_IN,
-            'close to': Op.CLOSE_TO,
-            'exists': Op.EXISTS,
-            'not exists': Op.NOT_EXISTS,
-            'is null': Op.IS_NULL,
-            'is not null': Op.IS_NOT_NULL
+            ':': Op.IN,
+            '!:': Op.NOT_IN,
+            '~=': Op.CLOSE_TO,
+            '?': Op.EXISTS,
+            '!?': Op.NOT_EXISTS,
+            '!?+': Op.IS_NULL,
+            '?+': Op.IS_NOT_NULL
         }
         return op_map[op_str.lower()]
 
@@ -250,8 +250,8 @@ class Searcher:
             """Parse a basic condition like 'key op value'"""
             # Split on first operator we find, requiring proper boundaries
             for op_str in ['!=', '>=', '<=', '=', '>', '<', '!~', '~',
-                          'not in', 'in', 'close to', 'not exists', 'exists',
-                          'is not null', 'is null']:
+                          '!:', ':', '~=', '!?', '?',
+                          '?+', '!?+']:
                 # For string operators, require whitespace or numbers around them
                 if ' ' in op_str:
                     # Look for the operator with spaces around it

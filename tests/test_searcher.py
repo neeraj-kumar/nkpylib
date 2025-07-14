@@ -14,12 +14,10 @@ def test_parse_basic():
     assert Searcher.parse_cond('price >= 99.99') == OpCond('price', Op.GTE, 99.99)
     assert Searcher.parse_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
     assert Searcher.parse_cond('name ~ "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
-    assert Searcher.parse_cond('tags in ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
-    c = Searcher.parse_cond('embedding close to [0.1, 0.2]')
-    print(f'c: {c}')
-    assert Searcher.parse_cond('embedding close to [0.1, 0.2]') == OpCond('embedding', Op.CLOSE_TO, [0.1, 0.2])
-    assert Searcher.parse_cond('phone exists') == OpCond('phone', Op.EXISTS, None)
-    assert Searcher.parse_cond('status is null') == OpCond('status', Op.IS_NULL, None)
+    assert Searcher.parse_cond('tags : ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
+    assert Searcher.parse_cond('embedding ~= [0.1, 0.2]') == OpCond('embedding', Op.CLOSE_TO, [0.1, 0.2])
+    assert Searcher.parse_cond('phone ?') == OpCond('phone', Op.EXISTS, None)
+    assert Searcher.parse_cond('status !?+') == OpCond('status', Op.IS_NULL, None)
 
 def test_parse_and():
     """Test AND conditions"""
