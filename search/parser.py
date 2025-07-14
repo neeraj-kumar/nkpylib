@@ -115,13 +115,23 @@ class SearchTransformer(Transformer):
 
     def and_cond(self, items):
         logger.debug(f"Parsing and_cond: {items}")
-        result = JoinCond(JoinType.AND, list(items))
+        # If first item is already an AND condition, extend it
+        if isinstance(items[0], JoinCond) and items[0].join == JoinType.AND:
+            items[0].conds.extend(items[1:])
+            result = items[0]
+        else:
+            result = JoinCond(JoinType.AND, list(items))
         logger.debug(f"AND result: {result}")
         return result
 
     def or_cond(self, items):
         logger.debug(f"Parsing or_cond: {items}")
-        result = JoinCond(JoinType.OR, list(items))
+        # If first item is already an OR condition, extend it
+        if isinstance(items[0], JoinCond) and items[0].join == JoinType.OR:
+            items[0].conds.extend(items[1:])
+            result = items[0]
+        else:
+            result = JoinCond(JoinType.OR, list(items))
         logger.debug(f"OR result: {result}")
         return result
 
