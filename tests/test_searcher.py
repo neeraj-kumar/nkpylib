@@ -15,6 +15,7 @@ from nkpylib.search.searcher import (
     SearchImpl,
     SearchResult,
 )
+from nkpylib.search.python import PythonSearch
 
 TEST_UNICODE = False
 
