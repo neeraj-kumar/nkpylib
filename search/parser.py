@@ -140,7 +140,6 @@ def parse_cond(query: str) -> SearchCond:
         logger.debug(f"Parse tree:\n{tree.pretty()}")
         r = result = SearchTransformer().transform(tree)
         logger.debug(f"Transformed result:{type(result)}\n{result}")
-        logger.debug(f'OpCond: {r.field}, {r.op.name}, {r.value}')
         return result
     except Exception as e:
         logger.error(f"Failed to parse query: {query}")
