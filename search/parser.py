@@ -71,7 +71,11 @@ class SearchTransformer(Transformer):
         return result
 
     def op(self, items):
-        #op_str = str(items[0])
+        logger.debug(f'Parsing op with items: {items!r}')
+        if not items:
+            raise ValueError("No operator token found in parse tree")
+        op_str = str(items[0])
+        logger.debug(f'Operator string: {op_str!r}')
         op_map = {
             '=': Op.EQ,
             '!=': Op.NEQ,
@@ -89,10 +93,11 @@ class SearchTransformer(Transformer):
             '!?+': Op.IS_NULL,
             '?+': Op.IS_NOT_NULL
         }
-        logger.debug(f'Parsing op: {items}')
         if op_str not in op_map:
-            raise ValueError(f"Unknown operator: {op_str}")
-        return op_map[op_str]
+            raise ValueError(f"Unknown operator: {op_str!r}")
+        result = op_map[op_str]
+        logger.debug(f'Mapped to Op: {result}')
+        return result
 
     def op_cond(self, items):
         logger.debug(f"Parsing op_cond: {items}")
