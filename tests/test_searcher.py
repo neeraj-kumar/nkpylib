@@ -136,6 +136,33 @@ def test_boolean_values():
     assert Searcher.parse_cond('verified != true') == OpCond('verified', Op.NEQ, True)
 
 
+def test_python_search():
+    """Test PythonSearch implementation"""
+    data = [
+        {'name': 'John', 'age': 30, 'tags': ['a', 'b']},
+        {'name': 'Jane', 'age': 25, 'tags': ['b', 'c']},
+        {'name': 'Bob', 'age': 35, 'tags': ['a', 'c']},
+        {'name': 'Alice', 'age': 28},  # No tags
+    ]
+    searcher = PythonSearch(data)
+    
+    # Test basic operators
+    assert len(searcher.search(Searcher.parse_cond('age > 30'))) == 1
+    assert len(searcher.search(Searcher.parse_cond('name ~ "J%"'))) == 2
+    
+    # Test AND/OR
+    assert len(searcher.search(Searcher.parse_cond('age > 25, name ~ "J%"'))) == 1
+    assert len(searcher.search(Searcher.parse_cond('age < 30 | age > 33'))) == 3
+    
+    # Test EXISTS/NULL
+    assert len(searcher.search(Searcher.parse_cond('tags ?'))) == 3
+    assert len(searcher.search(Searcher.parse_cond('tags !?'))) == 1
+    
+    # Test IN/NOT_IN
+    assert len(searcher.search(Searcher.parse_cond('tags : ["a"]'))) == 2
+    assert len(searcher.search(Searcher.parse_cond('name !: ["John", "Jane"]'))) == 2
+
+
 def is_compatible(op: str, val: str) -> bool:
     """Check if an operator and value combination is valid"""
     # Exists/Null operators don't take values
