@@ -12,32 +12,48 @@ def myfunc():
     ...
 
 
-Licensed under the 3-clause BSD License:
-
-Copyright (c) 2013-4, Neeraj Kumar (neerajkumar.org)
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the author nor the
-      names of its contributors may be used to endorse or promote products
-      derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL NEERAJ KUMAR BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+Design for new version:
+- different key_funcs
+- runnable in background/async/futures/threads
+- batchable
+- decorable
+- ignore certain args
+- cache a list or dict:
+  - figure out which are already cached and which aren't
+  - where underlying function takes a batch
+- use tempfile + rename when writing files
+- JSON encoder/decoder class
+- something for imdb data dump updates -> either run function or read from db/cache?
+- expiration criteria
+  - time
+  - count
+  - memory
+  - other?
+- single-value cache with different keys
+  - e.g. the embeddings cache which checks for current normed, scale_mean, scale_std
+- TTL
+- ignore cache for individual calls
+- force invalidate, either single key or all
+- archival
+- expiration
+- delay + variance
+- different formats - json, pickle, ...
+- different backing stores - mem, fs, lmdb, numpylmdb
+- one file per key, or one file overall, or ...?
+- stats/timing
+- prefetch?
+- caching binary files (e.g. web fetch request)
+- per-host timers (like in make_request)?
+- works on class methods (how to check for other instance var dependencies?)
+- store revisions?
+- named revisions?
+- external dependencies:
+    external_counter = 0
+    @cache(depends_on=lambda:[external_counter])
+    def things_with_external(a,b,c):
+        global external_counter
+        from time import sleep; sleep(1) # <- simulating a long-running process
+        return external_counter + a + b + c
 """
 
 import json
@@ -139,7 +155,8 @@ class APICache(object):
             cachefunc - Converts apifunc requests (*args, **kwargs) into a filename (MINUS extension!)
                         If not given, then uses all args and kwargs to generate a unique filename.
             cachedir - The cache paths given by cachefunc() are appended to this cachedir.
-                       This can include format specifiers, because it is rendered using an object containing:
+                       This can include format specifiers, because it is rendered using an object
+                       containing:
                            fn: function name
             mindelay - Minimum delay (in secs) between multiple requests to the API. Set to 0 to disable.
             delay_variance - The variance in the delay (as a multiple of the delay) between multiple requests to the API.
