@@ -149,7 +149,22 @@ def is_compatible(op: str, val: str) -> bool:
 def _generate_test_cases():
     """Generate test cases for operator combinations"""
     cases = []
-    fields = ['name', 'age', 'status', 'tags', 'price', 'is_active', 'verified', 'embedding']
+    # Field names with various challenges
+    fields = [
+        'name',  # simple
+        'user_id',  # underscore
+        'firstName',  # camelCase
+        'API_KEY',  # uppercase with underscore
+        'email2',  # with number
+        'has_value',  # looks like keyword
+        'true_col',  # looks like boolean
+        'null_field',  # looks like null
+        'in_array',  # looks like operator
+        '_private',  # leading underscore
+        'x',  # single char
+        'very_very_very_long_field_name_that_goes_on',  # very long
+    ]
+    
     operators = [
         ('=', Op.EQ),
         ('!=', Op.NEQ),
@@ -167,15 +182,46 @@ def _generate_test_cases():
         ('!?+', Op.IS_NULL),
         ('?+', Op.IS_NOT_NULL),
     ]
+
+    # Values with various challenges
     values = [
-        ('"John"', 'John'),
-        ('active', 'active'),
-        ('25', 25),
-        ('99.99', 99.99),
-        ('[1, 2, 3]', [1, 2, 3]),
-        ('["red", "blue"]', ['red', 'blue']),
+        # Strings with special characters
+        ('"John Doe"', 'John Doe'),  # space
+        ('"O\'Reilly"', "O'Reilly"),  # single quote
+        ('"double""quote"', 'double"quote'),  # double quote
+        ('"tab\there"', 'tab\there'),  # tab
+        ('"new\nline"', 'new\nline'),  # newline
+        ('"Unicode ★ Star"', 'Unicode ★ Star'),  # unicode
+        ('"∑∏∐∅∈∉√"', '∑∏∐∅∈∉√'),  # math symbols
+        ('"中文"', '中文'),  # Chinese
+        ('"🌟 emoji"', '🌟 emoji'),  # emoji
+        ('simple', 'simple'),  # unquoted simple
+        ('has_underscore', 'has_underscore'),  # unquoted with underscore
+        ('hasNumbers123', 'hasNumbers123'),  # unquoted with numbers
+        
+        # Numbers
+        ('0', 0),  # zero
+        ('-1', -1),  # negative
+        ('3.14159', 3.14159),  # pi
+        ('1e6', 1000000.0),  # scientific notation
+        ('-0.0001', -0.0001),  # small decimal
+        ('9999999999', 9999999999),  # large number
+        
+        # Lists
+        ('[]', []),  # empty
+        ('[1]', [1]),  # single item
+        ('[1, 2, 3]', [1, 2, 3]),  # numbers
+        ('["a", "b", "c"]', ['a', 'b', 'c']),  # strings
+        ('[1, "two", 3.14]', [1, 'two', 3.14]),  # mixed
+        ('["spaces here", "and,comma", "and""quote"]', ['spaces here', 'and,comma', 'and"quote']),  # complex strings
+        ('[" leading", "trailing ", "  both  "]', [' leading', 'trailing ', '  both  ']),  # whitespace
+        ('["★", "∑", "🌟"]', ['★', '∑', '🌟']),  # unicode in list
+        
+        # Booleans
         ('true', True),
         ('false', False),
+        ('TRUE', True),  # uppercase
+        ('False', False),  # mixed case
     ]
 
     for f in fields:
