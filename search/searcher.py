@@ -248,11 +248,24 @@ class Searcher:
         """
         def parse_basic(s: str) -> OpCond:
             """Parse a basic condition like 'key op value'"""
-            # Split on first operator we find
+            # Split on first operator we find, requiring proper boundaries
             for op_str in ['!=', '>=', '<=', '=', '>', '<', 'not like', 'like', 
                           'not in', 'in', 'close to', 'not exists', 'exists',
                           'is not null', 'is null']:
-                if op_str in s:
+                # For string operators, require whitespace or numbers around them
+                if ' ' in op_str:
+                    # Look for the operator with spaces around it
+                    idx = s.find(f' {op_str} ')
+                    if idx >= 0:
+                        key = s[:idx]
+                        val = s[idx + len(op_str) + 2:]  # +2 for the spaces
+                        return OpCond(
+                            field=key.strip(),
+                            op=cls.parse_op(op_str),
+                            value=cls.parse_token(val.strip())
+                        )
+                # For single-char operators, just split on them
+                elif op_str in s:
                     key, val = s.split(op_str, 1)
                     return OpCond(
                         field=key.strip(),
