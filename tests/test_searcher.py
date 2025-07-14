@@ -17,6 +17,8 @@ from nkpylib.search.searcher import (
     SearchResult,
 )
 
+TEST_UNICODE = False
+
 def test_parse_basic():
     """Test basic condition parsing"""
     # Test different operators
@@ -193,10 +195,6 @@ def _generate_test_cases():
         ('"O\'Reilly"', "O'Reilly"),  # single quote
         ('"tab\there"', 'tab\there'),  # tab
         (r'"new\nline"', 'new\nline'),  # newline
-        #('Unicode \u2605 Star', 'Unicode ★ Star'),  # unicode without quotes
-        #('"∑∏∐∅∈∉√"', '∑∏∐∅∈∉√'),  # math symbols
-        #('"中文"', '中文'),  # Chinese
-        #('"🌟 emoji"', '🌟 emoji'),  # emoji
         ('simple', 'simple'),  # unquoted simple
         ('has_underscore', 'has_underscore'),  # unquoted with underscore
         ('hasNumbers123', 'hasNumbers123'),  # unquoted with numbers
@@ -217,7 +215,6 @@ def _generate_test_cases():
         ('[1, "two", 3.14]', [1, 'two', 3.14]),  # mixed
         ('["spaces here", "and,comma"]', ['spaces here', 'and,comma']),  # complex strings
         ('[" leading", "trailing ", "  both  "]', [' leading', 'trailing ', '  both  ']),  # whitespace
-        #('["★", "∑", "🌟"]', ['★', '∑', '🌟']),  # unicode in list
 
         # Booleans
         ('true', True),
@@ -225,6 +222,14 @@ def _generate_test_cases():
         ('TRUE', True),  # uppercase
         ('False', False),  # mixed case
     ]
+    if TEST_UNICODE:
+        values += [
+            ('Unicode \u2605 Star', 'Unicode ★ Star'),  # unicode without quotes
+            ('"∑∏∐∅∈∉√"', '∑∏∐∅∈∉√'),  # math symbols
+            ('"中文"', '中文'),  # Chinese
+            ('"🌟 emoji"', '🌟 emoji'),  # emoji
+            ('["★", "∑", "🌟"]', ['★', '∑', '🌟']),  # unicode in list
+        ]
 
     for f in fields:
         for os, oe in operators:

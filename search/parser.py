@@ -42,9 +42,6 @@ OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" 
 %ignore WS
 """
 
-# Create parser once as module variable
-parser = Lark(GRAMMAR, parser='lalr', propagate_positions=True)
-
 class SearchTransformer(Transformer):
     """Transforms parse tree into SearchCond objects"""
     def string(self, items):
@@ -168,28 +165,29 @@ class SearchTransformer(Transformer):
         return result
 
 
+# Create parser once as module variable
+parser = Lark(GRAMMAR, parser='lalr', propagate_positions=True, transformer=SearchTransformer())
+
+
 def parse_cond(query: str) -> SearchCond:
-    """Parse a query string into a SearchCond using Lark parser."""
+    """Parse a query string into a `SearchCond` using our Lark parser"""
     query = query.strip()
     logger.debug(f"Parsing query: {query}")
-    # add outer parens if necessary
     def parse(q: str):
-        tree = parser.parse(q)
-        logger.debug(f"Parse tree:\n{tree.pretty()}")
-        r = result = SearchTransformer().transform(tree)
-        logger.debug(f"Transformed result:{type(result)}\n{result}")
+        if 0:
+            tree = parser.parse(q)
+            logger.debug(f"Parse tree:\n{tree.pretty()}")
+            r = result = SearchTransformer().transform(tree)
+            logger.debug(f"Transformed result:{type(result)}\n{result}")
+        else:
+            result = parser.parse(q)
         return result
     try:
         return parse(query)
-    except Exception as e1:
-        if not query.startswith('('):
-            try:
-                return parse('('+query+')')
-            except Exception as e2:
-                logger.error(f"Failed to parse query: {query}")
-                logger.error(f"First error: {e1}")
-                logger.error(f"Second error: {e2}")
-                raise e2
-        logger.error(f"Failed to parse query: {query}")
-        logger.error(f"Error: {e1}")
-        raise e1
+    except Exception:
+        # add outer parens if necessary
+        try:
+            return parse('('+query+')')
+        except Exception as e:
+            logger.error(f"Failed to parse query: {query} -> {e}")
+            raise e
