@@ -71,7 +71,7 @@ class SearchTransformer(Transformer):
         return result
 
     def op(self, items):
-        op_str = str(items[0])
+        #op_str = str(items[0])
         op_map = {
             '=': Op.EQ,
             '!=': Op.NEQ,
@@ -89,7 +89,7 @@ class SearchTransformer(Transformer):
             '!?+': Op.IS_NULL,
             '?+': Op.IS_NOT_NULL
         }
-        logger.debug(f'Parsing op: {op_str}')
+        logger.debug(f'Parsing op: {items}')
         if op_str not in op_map:
             raise ValueError(f"Unknown operator: {op_str}")
         return op_map[op_str]
@@ -126,8 +126,9 @@ def parse_cond(query: str) -> SearchCond:
     try:
         tree = parser.parse(query)
         logger.debug(f"Parse tree:\n{tree.pretty()}")
-        result = SearchTransformer().transform(tree)
-        logger.debug(f"Transformed result:\n{result}")
+        r = result = SearchTransformer().transform(tree)
+        logger.debug(f"Transformed result:{type(result)}\n{result}")
+        logger.debug(f'OpCond: {r.field}, {r.op.name}, {r.value}')
         return result
     except Exception as e:
         logger.error(f"Failed to parse query: {query}")
