@@ -8,7 +8,6 @@ import pytest
 from nkpylib.search.searcher import (
     JoinCond,
     JoinType,
-    LarkSearcher,
     Op,
     OpCond,
     SearchCond,
@@ -22,20 +21,20 @@ TEST_UNICODE = False
 def test_parse_basic():
     """Test basic condition parsing"""
     # Test different operators
-    assert LarkSearcher.parse_cond('name = "John"') == OpCond('name', Op.EQ, 'John')
-    assert LarkSearcher.parse_cond('age > 25') == OpCond('age', Op.GT, 25)
-    assert LarkSearcher.parse_cond('price >= 99.99') == OpCond('price', Op.GTE, 99.99)
-    assert LarkSearcher.parse_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
-    assert LarkSearcher.parse_cond('name ~ "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
-    assert LarkSearcher.parse_cond('tags : ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
-    assert LarkSearcher.parse_cond('embedding ~= [0.1, 0.2]') == OpCond('embedding', Op.CLOSE_TO, [0.1, 0.2])
-    assert LarkSearcher.parse_cond('phone ?') == OpCond('phone', Op.EXISTS, None)
-    assert LarkSearcher.parse_cond('status !?+') == OpCond('status', Op.IS_NULL, None)
+    assert Searcher.parse_cond('name = "John"') == OpCond('name', Op.EQ, 'John')
+    assert Searcher.parse_cond('age > 25') == OpCond('age', Op.GT, 25)
+    assert Searcher.parse_cond('price >= 99.99') == OpCond('price', Op.GTE, 99.99)
+    assert Searcher.parse_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
+    assert Searcher.parse_cond('name ~ "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
+    assert Searcher.parse_cond('tags : ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
+    assert Searcher.parse_cond('embedding ~= [0.1, 0.2]') == OpCond('embedding', Op.CLOSE_TO, [0.1, 0.2])
+    assert Searcher.parse_cond('phone ?') == OpCond('phone', Op.EXISTS, None)
+    assert Searcher.parse_cond('status !?+') == OpCond('status', Op.IS_NULL, None)
 
 def test_parse_and():
     """Test AND conditions"""
     # Simple AND
-    cond = LarkSearcher.parse_cond('name = "John", age > 25')
+    cond = Searcher.parse_cond('name = "John", age > 25')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 2
@@ -43,7 +42,7 @@ def test_parse_and():
     assert cond.conds[1] == OpCond('age', Op.GT, 25)
 
     # Multiple AND
-    cond = LarkSearcher.parse_cond('name = "John", age > 25, status = "active"')
+    cond = Searcher.parse_cond('name = "John", age > 25, status = "active"')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 3
@@ -51,7 +50,7 @@ def test_parse_and():
 def test_parse_or():
     """Test OR conditions"""
     # Simple OR
-    cond = LarkSearcher.parse_cond('status = "new" | status = "pending"')
+    cond = Searcher.parse_cond('status = "new" | status = "pending"')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.OR
     assert len(cond.conds) == 2
@@ -59,7 +58,7 @@ def test_parse_or():
     assert cond.conds[1] == OpCond('status', Op.EQ, 'pending')
 
     # Multiple OR
-    cond = LarkSearcher.parse_cond('status = "new" | status = "pending" | status = "active"')
+    cond = Searcher.parse_cond('status = "new" | status = "pending" | status = "active"')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.OR
     assert len(cond.conds) == 3
@@ -67,7 +66,7 @@ def test_parse_or():
 def test_parse_not():
     """Test NOT conditions"""
     # Simple NOT
-    cond = LarkSearcher.parse_cond('!(status = "deleted")')
+    cond = Searcher.parse_cond('!(status = "deleted")')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.NOT
     assert len(cond.conds) == 1
@@ -76,7 +75,7 @@ def test_parse_not():
 def test_parse_nested():
     """Test nested conditions"""
     # AND with nested OR
-    cond = LarkSearcher.parse_cond('name = "John", (age < 20 | age > 60)')
+    cond = Searcher.parse_cond('name = "John", (age < 20 | age > 60)')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 2
@@ -85,56 +84,56 @@ def test_parse_nested():
     assert cond.conds[1].join == JoinType.OR
 
     # Complex nested
-    cond = LarkSearcher.parse_cond('name ~ "Jo%", !(status = "deleted"), (age < 20 | age > 60)')
+    cond = Searcher.parse_cond('name ~ "Jo%", !(status = "deleted"), (age < 20 | age > 60)')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 3
 
     # Test optional parentheses
-    assert LarkSearcher.parse_cond('(name = "John", age > 25)') == LarkSearcher.parse_cond('name = "John", age > 25')
-    assert LarkSearcher.parse_cond('(status = "new" | status = "pending")') == LarkSearcher.parse_cond('status = "new" | status = "pending"')
+    assert Searcher.parse_cond('(name = "John", age > 25)') == Searcher.parse_cond('name = "John", age > 25')
+    assert Searcher.parse_cond('(status = "new" | status = "pending")') == Searcher.parse_cond('status = "new" | status = "pending"')
 
 def test_parse_errors():
     """Test error conditions"""
     with pytest.raises(Exception):
-        LarkSearcher.parse_cond('invalid query')
+        Searcher.parse_cond('invalid query')
 
     with pytest.raises(Exception):
-        LarkSearcher.parse_cond('!status = "deleted"')  # NOT must use !()
+        Searcher.parse_cond('!status = "deleted"')  # NOT must use !()
 
     with pytest.raises(Exception):
-        LarkSearcher.parse_cond('name = "John" age > 25')  # Missing comma
+        Searcher.parse_cond('name = "John" age > 25')  # Missing comma
 
     with pytest.raises(Exception):
-        LarkSearcher.parse_cond('name @ "John"')  # Invalid operator
+        Searcher.parse_cond('name @ "John"')  # Invalid operator
 
     with pytest.raises(Exception):
-        LarkSearcher.parse_cond('name = "John")')  # Unmatched parenthesis
+        Searcher.parse_cond('name = "John")')  # Unmatched parenthesis
 
     with pytest.raises(Exception):
-        r = LarkSearcher.parse_cond('(name = "John"')  # Unmatched parenthesis
+        r = Searcher.parse_cond('(name = "John"')  # Unmatched parenthesis
         print(f'Parsed condition: {r}')
 
 def test_parse_whitespace():
     """Test whitespace handling"""
     # Extra spaces shouldn't matter
-    assert LarkSearcher.parse_cond('name="John"') == LarkSearcher.parse_cond('name = "John"')
-    assert LarkSearcher.parse_cond('age>25') == LarkSearcher.parse_cond('age > 25')
-    assert LarkSearcher.parse_cond('name="John",age>25') == LarkSearcher.parse_cond('name = "John", age > 25')
+    assert Searcher.parse_cond('name="John"') == Searcher.parse_cond('name = "John"')
+    assert Searcher.parse_cond('age>25') == Searcher.parse_cond('age > 25')
+    assert Searcher.parse_cond('name="John",age>25') == Searcher.parse_cond('name = "John", age > 25')
 
 def test_unquoted_strings():
     """Test unquoted string values"""
     # Single words don't need quotes
-    assert LarkSearcher.parse_cond('name = John') == LarkSearcher.parse_cond('name = "John"')
-    assert LarkSearcher.parse_cond('status = active') == LarkSearcher.parse_cond('status = "active"')
+    assert Searcher.parse_cond('name = John') == Searcher.parse_cond('name = "John"')
+    assert Searcher.parse_cond('status = active') == Searcher.parse_cond('status = "active"')
     # Lists can mix quoted and unquoted
-    assert LarkSearcher.parse_cond('tags : [red, "blue green"]') == OpCond('tags', Op.IN, ['red', 'blue green'])
+    assert Searcher.parse_cond('tags : [red, "blue green"]') == OpCond('tags', Op.IN, ['red', 'blue green'])
 
 def test_boolean_values():
     """Test boolean values"""
-    assert LarkSearcher.parse_cond('is_active = true') == OpCond('is_active', Op.EQ, True)
-    assert LarkSearcher.parse_cond('is_deleted = false') == OpCond('is_deleted', Op.EQ, False)
-    assert LarkSearcher.parse_cond('verified != true') == OpCond('verified', Op.NEQ, True)
+    assert Searcher.parse_cond('is_active = true') == OpCond('is_active', Op.EQ, True)
+    assert Searcher.parse_cond('is_deleted = false') == OpCond('is_deleted', Op.EQ, False)
+    assert Searcher.parse_cond('verified != true') == OpCond('verified', Op.NEQ, True)
 
 
 def is_compatible(op: str, val: str) -> bool:
@@ -249,5 +248,5 @@ def test_op_combinations(field: str, op_str: str, op_enum: Op, val_str: str, val
         query = f'{field} {op_str} {val_str}'
 
     expected = OpCond(field, op_enum, val_expected)
-    result = LarkSearcher.parse_cond(query)
+    result = Searcher.parse_cond(query)
     assert result == expected, f"Failed parsing '{query}'"

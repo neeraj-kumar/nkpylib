@@ -169,7 +169,7 @@ class SearchTransformer(Transformer):
 parser = Lark(GRAMMAR, parser='lalr', propagate_positions=True, transformer=SearchTransformer())
 
 
-def parse_cond(query: str) -> SearchCond:
+def parse_query_into_cond(query: str) -> SearchCond:
     """Parse a query string into a `SearchCond` using our Lark parser"""
     query = query.strip()
     logger.debug(f"Parsing query: {query}")
