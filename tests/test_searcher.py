@@ -175,6 +175,11 @@ def test_python_search():
         ('tags !@ "b"', {'Bob'}), #TODO note that alice doesn't have tags at all
     ]
 
+    # Test parallel search
+    parallel_results = searcher.search(Searcher.parse_cond('age > 25'), n_processes=2)
+    sequential_results = searcher.search(Searcher.parse_cond('age > 25'), n_processes=1)
+    assert {r.id for r in parallel_results} == {r.id for r in sequential_results}
+
     for query, expected_names in test_cases:
         cond = Searcher.parse_cond(query)
         print(f'Parsed query {query} -> {cond}')

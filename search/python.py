@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-
+from multiprocessing import get_context
 from typing import Sequence
 
 from nkpylib.search.searcher import (
@@ -35,16 +35,68 @@ class PythonSearch(SearchImpl):
             return str(item.get(self.id_field, ''))
         return str(self.items.index(item))
 
-    def search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
-        """Searches our list of `items` with given `cond`."""
+    def search(self, cond: SearchCond, n_results: int=15, n_processes: int=4, **kw) -> list[SearchResult]:
+        """Searches our list of `items` with given `cond`.
+        
+        Args:
+            cond: The search condition to apply
+            n_results: Maximum number of results to return
+            n_processes: Number of parallel processes to use (default 4)
+        """
+        if n_processes <= 1:
+            return self._search_sequential(cond, n_results)
+        return self._search_parallel(cond, n_results, n_processes)
+
+    def _search_sequential(self, cond: SearchCond, n_results: int) -> list[SearchResult]:
+        """Sequential search implementation"""
         results = []
         for idx, item in enumerate(self.items):
             if self._matches_condition(item, cond):
                 results.append(SearchResult(id=self.get_id(item), score=1.0, metadata=item))
             if len(results) >= n_results:
                 break
-        #TODO rank results based on close-to
         return results
+
+    def _search_chunk(self, chunk_data: dict) -> list[SearchResult]:
+        """Search a chunk of items - called by each worker process"""
+        start, end = chunk_data['range']
+        results = []
+        for item in self.items[start:end]:
+            if self._matches_condition(item, chunk_data['cond']):
+                results.append(SearchResult(id=self.get_id(item), score=1.0, metadata=item))
+            if len(results) >= chunk_data['n_results']:
+                break
+        return results
+
+    def _search_parallel(self, cond: SearchCond, n_results: int, n_processes: int) -> list[SearchResult]:
+        """Parallel search using process pool with fork"""
+        # Split items into chunks
+        chunk_size = len(self.items) // n_processes
+        if chunk_size == 0:
+            return self._search_sequential(cond, n_results)
+
+        chunks = []
+        for i in range(0, len(self.items), chunk_size):
+            end = min(i + chunk_size, len(self.items))
+            chunks.append({
+                'range': (i, end),
+                'cond': cond,
+                'n_results': n_results
+            })
+
+        # Use fork context for COW memory sharing
+        ctx = get_context('fork')
+        with ctx.Pool(processes=n_processes) as pool:
+            chunk_results = pool.map(self._search_chunk, chunks)
+
+        # Combine results
+        all_results = []
+        for results in chunk_results:
+            all_results.extend(results)
+            if len(all_results) >= n_results:
+                break
+
+        return all_results[:n_results]
 
     def _matches_condition(self, item: dict, cond: SearchCond) -> bool:
         """Check if an item matches the given condition"""
