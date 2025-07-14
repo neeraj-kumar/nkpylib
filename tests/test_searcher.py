@@ -146,19 +146,19 @@ def test_python_search():
         {'name': 'Alice', 'age': 28},  # No tags
     ]
     searcher = PythonSearch(data)
-    
+
     # Test basic operators
     assert len(searcher.search(Searcher.parse_cond('age > 30'))) == 1
     assert len(searcher.search(Searcher.parse_cond('name ~ "J%"'))) == 2
-    
+
     # Test AND/OR
     assert len(searcher.search(Searcher.parse_cond('age > 25, name ~ "J%"'))) == 1
     assert len(searcher.search(Searcher.parse_cond('age < 30 | age > 33'))) == 3
-    
+
     # Test EXISTS/NULL
     assert len(searcher.search(Searcher.parse_cond('tags ?'))) == 3
     assert len(searcher.search(Searcher.parse_cond('tags !?'))) == 1
-    
+
     # Test IN/NOT_IN
     assert len(searcher.search(Searcher.parse_cond('tags : ["a"]'))) == 2
     assert len(searcher.search(Searcher.parse_cond('name !: ["John", "Jane"]'))) == 2
