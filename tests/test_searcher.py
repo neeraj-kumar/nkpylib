@@ -111,3 +111,11 @@ def test_parse_whitespace():
     assert LarkSearcher.parse_cond('name="John"') == LarkSearcher.parse_cond('name = "John"')
     assert LarkSearcher.parse_cond('age>25') == LarkSearcher.parse_cond('age > 25')
     assert LarkSearcher.parse_cond('name="John",age>25') == LarkSearcher.parse_cond('name = "John", age > 25')
+
+def test_unquoted_strings():
+    """Test unquoted string values"""
+    # Single words don't need quotes
+    assert LarkSearcher.parse_cond('name = John') == LarkSearcher.parse_cond('name = "John"')
+    assert LarkSearcher.parse_cond('status = active') == LarkSearcher.parse_cond('status = "active"')
+    # Lists can mix quoted and unquoted
+    assert LarkSearcher.parse_cond('tags : [red, "blue green"]') == OpCond('tags', Op.IN, ['red', 'blue green'])

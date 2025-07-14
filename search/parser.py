@@ -60,8 +60,9 @@ not_cond: "!(" expr ")"
 op_cond: field op [value]
 field: CNAME
 op: OP
-value: string | number | list
+value: string | unquoted_string | number | list
 string: ESCAPED_STRING
+unquoted_string: CNAME
 number: SIGNED_NUMBER
 list: "[" [value ("," value)*] "]"
 
@@ -96,6 +97,12 @@ class SearchTransformer(Transformer):
         logger.debug(f"Parsing list: {items}")
         result = list(items)
         logger.debug(f"List result: {result}")
+        return result
+
+    def unquoted_string(self, items):
+        logger.debug(f"Parsing unquoted string: {items}")
+        result = str(items[0])
+        logger.debug(f"Unquoted string result: {result}")
         return result
 
     def value(self, items):
