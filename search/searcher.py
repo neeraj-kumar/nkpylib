@@ -185,17 +185,6 @@ class SearchImpl(ABC):
 
 class Searcher:
     """Base class for searchers"""
-    pass
-
-class LarkSearcher(Searcher):
-    """Searcher implementation using Lark parser"""
-    
-    @classmethod
-    def parse_cond(cls, query: str) -> SearchCond:
-        """Parse a query string into a SearchCond using Lark parser."""
-        from .parser import parse_cond
-        return parse_cond(query)
-
     @classmethod
     def parse_token(cls, token: str) -> str|int|float|list:
         """Parse a token into the appropriate type."""
@@ -362,3 +351,12 @@ class LarkSearcher(Searcher):
             return parse_basic(s)
 
         return parse_expr(query)
+
+
+class LarkSearcher(Searcher):
+    """Searcher implementation using Lark parser"""
+    @classmethod
+    def parse_cond(cls, query: str) -> SearchCond:
+        """Parse a query string into a SearchCond using Lark parser."""
+        from .parser import parse_cond
+        return parse_cond(query)
