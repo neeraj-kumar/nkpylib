@@ -140,10 +140,10 @@ def test_boolean_values():
 def test_python_search():
     """Test PythonSearch implementation"""
     data = [
-        {'name': 'John', 'age': 30, 'tags': ['a', 'b']},
-        {'name': 'Jane', 'age': 25, 'tags': ['b', 'c']},
-        {'name': 'Bob', 'age': 35, 'tags': ['a', 'c']},
-        {'name': 'Alice', 'age': 28},  # No tags
+        {'name': 'John', 'age': 30, 'tags': ['a', 'b'], 'status': 'active'},
+        {'name': 'Jane', 'age': 25, 'tags': ['b', 'c'], 'status': None},
+        {'name': 'Bob', 'age': 35, 'tags': ['a', 'c'], 'status': 'inactive'},
+        {'name': 'Alice', 'age': 28, 'status': None},  # No tags
     ]
     searcher = PythonSearch(data, id_field='name')
 
@@ -160,7 +160,11 @@ def test_python_search():
         ('tags ?', {'Bob', 'Jane', 'John'}),
         ('tags !?', {'Alice'}),
         ('tags ?+', {'Bob', 'Jane', 'John'}), # exists and is not null
-
+        
+        # NULL checks
+        ('status !?+', {'Jane', 'Alice'}),  # is null
+        ('status ?+', {'John', 'Bob'}),  # is not null
+        
         # IN/NOT_IN operators
         ('tags : ["a"]', {'Bob', 'John'}),
         ('name !: ["John", "Jane"]', {'Alice', 'Bob'}),
