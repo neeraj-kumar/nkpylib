@@ -5,8 +5,15 @@ from __future__ import annotations
 import pytest
 
 from nkpylib.search.searcher import (
-    SearchCond, Op, OpCond, JoinType, JoinCond, SearchResult, SearchImpl, 
-    Searcher, LarkSearcher
+    JoinCond,
+    JoinType,
+    LarkSearcher,
+    Op,
+    OpCond,
+    SearchCond,
+    Searcher,
+    SearchImpl,
+    SearchResult,
 )
 
 def test_parse_basic():
