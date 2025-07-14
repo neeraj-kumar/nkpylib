@@ -177,7 +177,7 @@ def _generate_test_cases():
         ('true', True),
         ('false', False),
     ]
-    
+
     for f in fields:
         for os, oe in operators:
             for vs, ve in values:
@@ -194,7 +194,7 @@ def test_op_combinations(field: str, op_str: str, op_enum: Op, val_str: str, val
         val_expected = None
     else:
         query = f'{field} {op_str} {val_str}'
-    
+
     expected = OpCond(field, op_enum, val_expected)
     result = LarkSearcher.parse_cond(query)
     assert result == expected, f"Failed parsing '{query}'"
