@@ -189,73 +189,12 @@ class Searcher:
 
 class LarkSearcher(Searcher):
     """Searcher implementation using Lark parser"""
-
-    # Define the grammar for our search language
-    GRAMMAR = """
-    ?start: expr
-    ?expr: basic_cond | and_cond | or_cond | not_cond
-    and_cond: expr ("," expr)+
-    or_cond: expr ("|" expr)+
-    not_cond: "!(" expr ")"
-    basic_cond: field op value
-    field: CNAME
-    op: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" | "!?" | "?+" | "!?+"
-    value: string | number | list
-    string: ESCAPED_STRING
-    number: SIGNED_NUMBER
-    list: "[" [value ("," value)*] "]"
-
-    %import common.CNAME
-    %import common.ESCAPED_STRING
-    %import common.SIGNED_NUMBER
-    %import common.WS
-    %ignore WS
-    """
-
-    # Create parser once as class variable
-    parser = Lark(GRAMMAR, parser='lalr', propagate_positions=True)
-
-    class SearchTransformer(Transformer):
-        """Transforms parse tree into SearchCond objects"""
-        def string(self, items):
-            return str(items[0][1:-1])  # Remove quotes
-
-        def number(self, items):
-            val = float(items[0])
-            if val.is_integer():
-                return int(val)
-            return val
-
-        def list(self, items):
-            return list(items)
-
-        def value(self, items):
-            return items[0]
-
-        def field(self, items):
-            return str(items[0])
-
-        def op(self, items):
-            return Searcher.parse_op(str(items[0]))
-
-        def basic_cond(self, items):
-            field, op, value = items
-            return OpCond(field=field, op=op, value=value)
-
-        def and_cond(self, items):
-            return JoinCond(JoinType.AND, list(items))
-
-        def or_cond(self, items):
-            return JoinCond(JoinType.OR, list(items))
-
-        def not_cond(self, items):
-            return JoinCond(JoinType.NOT, [items[0]])
-
+    
     @classmethod
     def parse_cond(cls, query: str) -> SearchCond:
         """Parse a query string into a SearchCond using Lark parser."""
-        tree = cls.parser.parse(query)
-        return cls.SearchTransformer().transform(tree)
+        from .parser import parse_cond
+        return parse_cond(query)
 
     @classmethod
     def parse_token(cls, token: str) -> str|int|float|list:
