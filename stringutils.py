@@ -1241,6 +1241,43 @@ def parse_num_spec(s: str) -> list[int]:
                 done.add(_el)
     return ret
 
+def get_matching_parens(s, ptype='(') -> list[tuple[int, int]]:
+    """Returns a list of tuples with matching parentheses indices in the string.
+
+    By default looks for '(' and ')', but can be customized with `ptype`. Specify the opening paren
+    character, one of:
+    (
+    [
+    {
+    <
+
+    Raises `ValueError` if there are unmatched parentheses.
+    """
+    stack = []
+    matches = []
+    paren_types = {
+        '(': ')',
+        '[': ']',
+        '{': '}',
+        '<': '>'
+    }
+    assert ptype in paren_types, f"Invalid parenthesis type: {ptype}. Must be one of {paren_types}"
+    open_paren = ptype
+    close_paren = paren_types[open_paren]
+    for i, char in enumerate(s):
+        if char == open_paren:
+            stack.append(i)
+        elif char == close_paren:
+            if stack:
+                start = stack.pop()
+                matches.append((start, i))
+            else:
+                raise ValueError(f"Unmatched closing parenthesis at index {i} in string: {s}")
+    if stack:
+        raise ValueError(f"Unmatched opening parenthesis at indices {stack} in string: {s}")
+    return matches
+
+
 
 if __name__ == "__main__":
     parser = FilenameParser()
