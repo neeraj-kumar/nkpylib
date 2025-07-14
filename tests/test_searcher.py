@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import time
+
 from typing import Any
+
 import pytest
 
 from nkpylib.search.searcher import (
@@ -15,7 +18,7 @@ from nkpylib.search.searcher import (
     SearchImpl,
     SearchResult,
 )
-from nkpylib.search.python import PythonSearch
+from nkpylib.search.obj import ObjSearch
 
 TEST_UNICODE = False
 
@@ -139,14 +142,14 @@ def test_boolean_values():
 
 
 def test_python_search():
-    """Test PythonSearch implementation"""
+    """Test ObjSearch implementation"""
     data = [
         {'name': 'John', 'age': 30, 'tags': ['a', 'b'], 'status': 'active', 'zodiac': 'gemini'},
         {'name': 'Jane', 'age': 25, 'tags': ['b', 'c'], 'status': None, 'zodiac': 'libra'},
         {'name': 'Bob', 'age': 35, 'tags': ['a', 'c'], 'status': 'inactive', 'zodiac': 'scorpio'},
         {'name': 'Alice', 'age': 28, 'status': None, 'zodiac': 'virgo'},  # No tags
     ]
-    searcher = PythonSearch(data, id_field='name')
+    searcher = ObjSearch(data, id_field='name')
 
     test_cases = [
         # Basic operators
@@ -176,9 +179,13 @@ def test_python_search():
     ]
 
     # Test parallel search
+    t0 = time.time()
     parallel_results = searcher.search(Searcher.parse_cond('age > 25'), n_processes=2)
+    t1 = time.time()
     sequential_results = searcher.search(Searcher.parse_cond('age > 25'), n_processes=1)
+    t2 = time.time()
     assert {r.id for r in parallel_results} == {r.id for r in sequential_results}
+    print(f'Parallel search time: {t1 - t0:.3f}s, Sequential search time: {t2 - t1:.3f}s')
 
     for query, expected_names in test_cases:
         cond = Searcher.parse_cond(query)
