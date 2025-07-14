@@ -66,7 +66,9 @@ unquoted_string: CNAME
 number: SIGNED_NUMBER
 list: "[" [value ("," value)*] "]"
 
-boolean: "true" | "false"
+boolean: TRUE | FALSE
+TRUE: "true"i
+FALSE: "false"i
 OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "~=" | "?" | "!?" | "?+" | "!?+"
 
 %import common.CNAME
