@@ -134,18 +134,22 @@ def test_boolean_values():
     assert LarkSearcher.parse_cond('is_deleted = false') == OpCond('is_deleted', Op.EQ, False)
     assert LarkSearcher.parse_cond('verified != true') == OpCond('verified', Op.NEQ, True)
 
-@pytest.fixture
-def test_fields():
-    """Test field names"""
-    return [
-        'name', 'age', 'status', 'tags', 'price',
-        'is_active', 'verified', 'embedding'
-    ]
 
-@pytest.fixture
-def test_ops():
-    """Test operators and their expected enum values"""
-    return [
+def is_compatible(op: str, val: str) -> bool:
+    """Check if an operator and value combination is valid"""
+    # Exists/Null operators don't take values
+    if op in ('?', '!?', '?+', '!?+'):
+        return val == ''
+    # List operators only work with list values
+    if op in (':', '!:', '~='):
+        return val.startswith('[')
+    # Everything else is compatible
+    return True
+
+@pytest.mark.parametrize('field,op_str,op_enum,val_str,val_expected', [
+    (f, os, oe, vs, ve)
+    for f in ['name', 'age', 'status', 'tags', 'price', 'is_active', 'verified', 'embedding']
+    for (os, oe) in [
         ('=', Op.EQ),
         ('!=', Op.NEQ),
         ('>', Op.GT),
@@ -162,11 +166,7 @@ def test_ops():
         ('!?+', Op.IS_NULL),
         ('?+', Op.IS_NOT_NULL),
     ]
-
-@pytest.fixture
-def test_values():
-    """Test values and their expected parsed form"""
-    return [
+    for (vs, ve) in [
         ('"John"', 'John'),
         ('active', 'active'),
         ('25', 25),
@@ -176,23 +176,6 @@ def test_values():
         ('true', True),
         ('false', False),
     ]
-
-def is_compatible(op: str, val: str) -> bool:
-    """Check if an operator and value combination is valid"""
-    # Exists/Null operators don't take values
-    if op in ('?', '!?', '?+', '!?+'):
-        return val == ''
-    # List operators only work with list values
-    if op in (':', '!:', '~='):
-        return val.startswith('[')
-    # Everything else is compatible
-    return True
-
-@pytest.mark.parametrize('field,op_str,op_enum,val_str,val_expected', [
-    (f, os, oe, vs, ve)
-    for f in pytest.lazy_fixture('test_fields')
-    for (os, oe) in pytest.lazy_fixture('test_ops')
-    for (vs, ve) in pytest.lazy_fixture('test_values')
     if is_compatible(os, vs)
 ])
 def test_op_combinations(field: str, op_str: str, op_enum: Op, val_str: str, val_expected: Any):
