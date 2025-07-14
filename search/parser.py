@@ -17,8 +17,8 @@ GRAMMAR = """
 ?start: expr
 ?expr: op_cond | and_cond | or_cond | not_cond | paren_expr
 paren_expr: "(" expr ")"
-and_cond: expr ("," expr)+ | "(" expr ("," expr)+ ")"
-or_cond: expr ("|" expr)+ | "(" expr ("|" expr)+ ")"
+and_cond: expr "," expr ("," expr)* | "(" expr "," expr ("," expr)* ")"
+or_cond: expr "|" expr ("|" expr)* | "(" expr "|" expr ("|" expr)* ")"
 not_cond: "!(" expr ")"
 op_cond: field op [value]
 field: CNAME
