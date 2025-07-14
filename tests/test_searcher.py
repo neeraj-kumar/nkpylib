@@ -127,6 +127,8 @@ def test_unquoted_strings():
     assert LarkSearcher.parse_cond('status = active') == LarkSearcher.parse_cond('status = "active"')
     # Lists can mix quoted and unquoted
     assert LarkSearcher.parse_cond('tags : [red, "blue green"]') == OpCond('tags', Op.IN, ['red', 'blue green'])
+    # Empty list
+    assert LarkSearcher.parse_cond('name = []') == OpCond('name', Op.EQ, [])
 
 def test_boolean_values():
     """Test boolean values"""

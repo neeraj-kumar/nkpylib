@@ -101,7 +101,11 @@ class SearchTransformer(Transformer):
 
     def list(self, items):
         logger.debug(f"Parsing list: {items}")
-        result = list(items)
+        # Handle empty list case
+        if not items:
+            result = []
+        else:
+            result = list(items)
         logger.debug(f"List result: {result}")
         return result
 
