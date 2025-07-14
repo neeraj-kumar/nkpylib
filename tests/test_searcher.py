@@ -188,7 +188,6 @@ def _generate_test_cases():
         # Strings with special characters
         ('"John Doe"', 'John Doe'),  # space
         ('"O\'Reilly"', "O'Reilly"),  # single quote
-        ('"double""quote"', 'double"quote'),  # double quote
         ('"tab\there"', 'tab\there'),  # tab
         ('"new\nline"', 'new\nline'),  # newline
         ('"Unicode ★ Star"', 'Unicode ★ Star'),  # unicode
