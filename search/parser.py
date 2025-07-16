@@ -41,14 +41,15 @@ OP_MAP = {
     '?+': Op.IS_NOT_NULL
 }
 
+#op_cond: "(" field op [value] ")" | field op [value]
 # Define the grammar for our search language
 GRAMMAR = """
 ?start: expr
-?expr: op_cond | and_cond | or_cond | not_cond
+?expr: op_cond | "(" op_cond ")" | and_cond | or_cond | not_cond
 and_cond:  "(" expr ("," | "&") expr (("," | "&") expr)* ")"
 or_cond:    "(" expr "|" expr ("|" expr)* ")"
 not_cond: "!(" expr ")"
-?op_cond: "(" field op [value] ")" | field op [value]
+op_cond: field op [value]
 field: CNAME
 op: OP
 value: string | unquoted_string | number | list | boolean
