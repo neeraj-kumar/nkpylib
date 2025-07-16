@@ -90,10 +90,10 @@ Text Matching:
 - !~ : Not like/not contains (field !~ "pattern")
 
 List Operations:
-- : : In list (field : [val1, val2, ...])
-- !: : Not in list (field !: [val1, val2])
-- @ : Has value (field @ value)
-- !@ : Does not have value (field !@ value)
+- : : Field (scalar) In list (field : [val1, val2, ...])
+- !: : Field (scalar) Not in list (field !: [val1, val2])
+- @ : Field (list) Has value (scalar) (field @ value)
+- !@ : Field (list) Does not have value (scalar) (field !@ value)
 
 Existence Checks:
 - ? : Field exists (field ?)
@@ -253,7 +253,8 @@ def parse_query_into_cond(query: str) -> SearchCond:
     except Exception:
         # add outer parens if necessary
         try:
-            return parse('('+query+')')
+            #return parse('('+query+')')
+            return parse(query)
         except Exception as e:
             logger.error(f"Failed to parse query: {query} -> {e}")
             raise e
