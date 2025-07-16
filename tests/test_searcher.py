@@ -37,7 +37,7 @@ def test_parse_basic():
 
 def test_parse_and():
     """Test AND conditions"""
-    # Simple AND
+    # Simple AND with comma
     cond = parse_query_into_cond('name = "John", age > 25')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
@@ -45,8 +45,28 @@ def test_parse_and():
     assert cond.conds[0] == OpCond('name', Op.EQ, 'John')
     assert cond.conds[1] == OpCond('age', Op.GT, 25)
 
-    # Multiple AND
+    # Simple AND with &
+    cond = parse_query_into_cond('name = "John" & age > 25')
+    assert isinstance(cond, JoinCond)
+    assert cond.join == JoinType.AND
+    assert len(cond.conds) == 2
+    assert cond.conds[0] == OpCond('name', Op.EQ, 'John')
+    assert cond.conds[1] == OpCond('age', Op.GT, 25)
+
+    # Multiple AND with comma
     cond = parse_query_into_cond('name = "John", age > 25, status = "active"')
+    assert isinstance(cond, JoinCond)
+    assert cond.join == JoinType.AND
+    assert len(cond.conds) == 3
+
+    # Multiple AND with &
+    cond = parse_query_into_cond('name = "John" & age > 25 & status = "active"')
+    assert isinstance(cond, JoinCond)
+    assert cond.join == JoinType.AND
+    assert len(cond.conds) == 3
+
+    # Mixed AND operators
+    cond = parse_query_into_cond('name = "John" & age > 25, status = "active"')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 3
