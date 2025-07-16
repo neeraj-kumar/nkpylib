@@ -1,6 +1,24 @@
 """Searcher data classes and utils.
 
+This module provides classes and utilities for building and executing search queries:
 
+Classes:
+- SearchCond: Base class for search conditions
+- OpCond: Condition comparing a field with a value using an operator
+- JoinCond: Combines multiple conditions with AND/OR/NOT logic
+- SearchResult: Container for search results with id, score and optional metadata
+- SearchImpl: Abstract base class for search implementations
+
+Enums:
+- Op: Search operators (=, !=, >, >=, etc.)
+- JoinType: Types of condition joins (AND, OR, NOT)
+
+Types:
+- Array1D: Type alias for 1D numeric arrays/lists
+- Array2D: Type alias for 2D numeric arrays/lists
+
+The search conditions form a tree structure that can be walked and filtered.
+SearchImpl provides timing utilities for concrete implementations.
 """
 
 
