@@ -1,4 +1,8 @@
-"""Searcher base classes"""
+"""Searcher data classes and utils.
+
+
+"""
+
 
 from __future__ import annotations
 
