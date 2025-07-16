@@ -69,6 +69,10 @@ OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "@" | "!@" 
 %ignore WS
 """
 
+PROMPT_FMT = """Convert the following natural language query into a structured search query string.
+The ...
+"""
+
 class SearchTransformer(Transformer):
     """Transforms parse tree into SearchCond objects"""
     def string(self, items):
