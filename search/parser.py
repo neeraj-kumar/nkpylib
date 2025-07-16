@@ -70,7 +70,12 @@ OP: "=" | "!=" | ">" | ">=" | "<" | "<=" | "~" | "!~" | ":" | "!:" | "@" | "!@" 
 """
 
 PROMPT_FMT = """Convert the following natural language query into a structured search query string.
-The query language supports these operators:
+The query language consists of a number of clauses, which can be arbitrarily nested with different
+join operators (described below). Each clause should be surrounded with parentheses, except the
+outermost one, where they are optional.
+
+Each clause consists of a field, an operator, and an optional value. The field is always a string.
+The query language supports these operators (clause format in parens):
 
 Basic Comparisons:
 - = : Exact equality (field = value)
@@ -81,7 +86,7 @@ Basic Comparisons:
 - <= : Less than or equal (field <= value)
 
 Text Matching:
-- ~ : Like/contains (field ~ "pattern")
+- ~ : Case-insensitive like/contains (field ~ "pattern")
 - !~ : Not like/not contains (field !~ "pattern")
 
 List Operations:
@@ -90,9 +95,6 @@ List Operations:
 - @ : Has value (field @ value)
 - !@ : Does not have value (field !@ value)
 
-Vector Operations:
-- ~= : Similar to vector (embedding ~= [0.1, 0.2, ...])
-
 Existence Checks:
 - ? : Field exists (field ?)
 - !? : Field does not exist (field !?)
@@ -100,7 +102,7 @@ Existence Checks:
 - !?+ : Field is null (field !?+)
 
 Join Operations:
-- , or & : AND (cond1, cond2) or (cond1 & cond2)
+- & : AND (cond1 & cond2)
 - | : OR (cond1 | cond2)
 - !( ) : NOT !(cond)
 
@@ -115,12 +117,12 @@ Examples:
 - name = "John" & age > 25
 - status : ["active", "pending"] & !(deleted ?+)
 - (price >= 100 | rating > 4.5), category = "electronics"
-- title ~ "%robot%" & year >= 2020
-- embedding ~= [0.1, 0.2, 0.3] & confidence > 0.8
+- title ~ "robot" & year >= 2020
 - tags @ "urgent" & !(assigned_to ?)
 - department = "sales", (region = "west" | region = "north")
 
-Convert natural language to these patterns, preserving the logical structure and using appropriate operators.
+Convert the natural language query to these patterns, preserving the logical structure and using
+appropriate operators.
 """
 
 class SearchTransformer(Transformer):

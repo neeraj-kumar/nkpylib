@@ -59,7 +59,6 @@ class ObjSearch(SearchImpl):
         #TODO rank the results
         return ret[:n_results]  # Limit to n_results
 
-
     def _search_sequential(self, cond: SearchCond, n_results: int) -> list[SearchResult]:
         """Sequential search implementation"""
         results = []
@@ -173,11 +172,16 @@ class ObjSearch(SearchImpl):
             raise NotImplementedError(f"Unknown operator: {cond.op}")
 
     def _matches_like(self, val: str, pattern: str) -> bool:
-        """Check if value matches SQL LIKE pattern"""
-        # Convert SQL LIKE pattern to regex
-        pattern = re.escape(pattern)
-        pattern = pattern.replace('%', '.*').replace('_', '.')
-        return bool(re.match(f'^{pattern}$', val))
+        """Check if value matches given pattern.
+
+        We compile it as a regular expression and run a case-insensitive match, unless there's any
+        uppercase in the pattern.
+        """
+        #pattern = re.escape(pattern)
+        flags = 0
+        if not any(c.isupper() for c in pattern):
+            flags = re.IGNORECASE
+        return bool(re.search(f'{pattern}', val, flags=flags))
 
     def _close_to(self, v1: Array1D, v2: Array1D) -> float:
         """Calculate Euclidean distance between two vectors"""

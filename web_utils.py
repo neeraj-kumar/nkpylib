@@ -41,6 +41,7 @@ from nkpylib.constants import USER_AGENT
 from nkpylib.utils import specialize
 from nkpylib.ml.client import call_llm
 from nkpylib.ml.llm_utils import load_llm_json, count_tokens
+from nkpylib.stringutils import GeneralJSONEncoder
 from nkpylib.thread_utils import sync_or_async, run_async
 
 logger = logging.getLogger(__name__)
@@ -218,7 +219,7 @@ class BaseSearcher(ABC):
         kw['uname'] = os.uname()
         kw['class'] = self.__class__.__name__
         kw['caller'] = inspect.stack()[1].function
-        self.logf.write(json.dumps(kw) + '\n')
+        self.logf.write(json.dumps(kw, cls=GeneralJSONEncoder) + '\n')
         self.logf.flush()
 
     def add_msg(self, msg: str) -> None:
