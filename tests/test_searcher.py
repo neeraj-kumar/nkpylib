@@ -26,6 +26,7 @@ def test_parse_basic():
     """Test basic condition parsing"""
     # Test different operators
     assert parse_query_into_cond('name = "John"') == OpCond('name', Op.EQ, 'John')
+    assert parse_query_into_cond('(name = "John")') == OpCond('name', Op.EQ, 'John')
     assert parse_query_into_cond('age > 25') == OpCond('age', Op.GT, 25)
     assert parse_query_into_cond('price >= 99.99') == OpCond('price', Op.GTE, 99.99)
     assert parse_query_into_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
@@ -174,10 +175,10 @@ def test_python_search():
     test_cases = [
         # Basic operators
         ('age > 30', {'Bob'}),
-        ('name ~ "J%"', {'Jane', 'John'}),
+        ('name ~ "J"', {'Jane', 'John'}),
 
         # AND/OR conditions
-        ('age > 25, name ~ "J%"', {'John'}),
+        ('age > 25, name ~ "J"', {'John'}),
         ('age < 30 | age > 33', {'Alice', 'Bob', 'Jane'}),
 
         # EXISTS/NULL checks

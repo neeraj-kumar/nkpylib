@@ -254,7 +254,7 @@ def parse_query_into_cond(query: str) -> SearchCond:
     except Exception:
         # add outer parens if necessary
         try:
-            #return parse('('+query+')')
+            return parse('('+query+')')
             return parse(query)
         except Exception as e:
             logger.error(f"Failed to parse query: {query} -> {e}")
