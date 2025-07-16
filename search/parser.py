@@ -48,7 +48,7 @@ GRAMMAR = """
 and_cond:  "(" expr ("," | "&") expr (("," | "&") expr)* ")"
 or_cond:    "(" expr "|" expr ("|" expr)* ")"
 not_cond: "!(" expr ")"
-op_cond: field op [value]
+?op_cond: "(" field op [value] ")" | field op [value]
 field: CNAME
 op: OP
 value: string | unquoted_string | number | list | boolean
