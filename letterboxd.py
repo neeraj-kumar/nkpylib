@@ -17,7 +17,7 @@ from csv import DictReader
 from os.path import dirname, join, exists
 from typing import Any, Iterator
 
-from movies.imdb import search_movies # type: ignore
+from movies.searcher import search_movies # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -119,12 +119,13 @@ class LetterboxdArchive:
         if not queries:
             return
         #queries = queries[:15]
-        ret = search_movies(queries, n_results=1)
+        ret = search_movies(queries)
         # add new imdb ids to the diary, and to our list which we will save
         for entry, matches in zip(to_search, ret):
             if not matches:
                 continue
-            entry['imdb_id'] = matches[0][0]
+            logger.debug(f'For entry {entry}: {matches}')
+            entry['imdb_id'] = matches[0].id
             self.diary_by_imdb_id.setdefault(entry['imdb_id'], []).append(entry)
             imdb_ids.append(dict(title=entry['Name'], year=entry['Year'], letterboxd_uri=entry['Letterboxd URI'], imdb_id=entry['imdb_id']))
         # save the new list of imdb ids to a temp file then rename
