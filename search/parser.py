@@ -1,7 +1,7 @@
 """Full search parser.
 
 This uses Lark to parse a terse but powerful search language and convert it to a SearchCond.
-We support arbitrarily nested clauses joined via AND (,), OR (|), and NOT (~) operators. Each clause has a
+We support arbitrarily nested clauses joined via AND (, or &), OR (|), and NOT (~) operators. Each clause has a
 field, op, and optional value.
 
 See the global `OP_MAP` for the operators available, and the grammar for the syntax.
@@ -45,7 +45,7 @@ OP_MAP = {
 GRAMMAR = """
 ?start: expr
 ?expr: op_cond | and_cond | or_cond | not_cond
-and_cond:  "(" expr "," expr ("," expr)* ")"
+and_cond:  "(" expr ("," | "&") expr (("," | "&") expr)* ")"
 or_cond:  "(" expr "|" expr ("|" expr)* ")"
 not_cond: "!(" expr ")"
 op_cond: field op [value]
