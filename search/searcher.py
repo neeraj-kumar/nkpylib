@@ -184,12 +184,3 @@ class SearchImpl(ABC):
             self.timing_counts[label] = 0
         self.timing_times[label] += elapsed_time
         self.timing_counts[label] += 1
-
-
-class Searcher:
-    """Base class for searchers"""
-    @classmethod
-    def parse_cond(cls, query: str) -> SearchCond:
-        """Parse a query string into a SearchCond using Lark parser."""
-        from nkpylib.search.parser import parse_query_into_cond
-        return parse_query_into_cond(query)

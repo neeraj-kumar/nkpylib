@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
+from nkpylib.search.parser import parse_query_into_cond
 from nkpylib.search.searcher import (
     JoinCond,
     JoinType,
     Op,
     OpCond,
     SearchCond,
-    Searcher,
     SearchImpl,
     SearchResult,
 )
@@ -25,20 +25,20 @@ TEST_UNICODE = False
 def test_parse_basic():
     """Test basic condition parsing"""
     # Test different operators
-    assert Searcher.parse_cond('name = "John"') == OpCond('name', Op.EQ, 'John')
-    assert Searcher.parse_cond('age > 25') == OpCond('age', Op.GT, 25)
-    assert Searcher.parse_cond('price >= 99.99') == OpCond('price', Op.GTE, 99.99)
-    assert Searcher.parse_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
-    assert Searcher.parse_cond('name ~ "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
-    assert Searcher.parse_cond('tags : ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
-    assert Searcher.parse_cond('embedding ~= [0.1, 0.2]') == OpCond('embedding', Op.CLOSE_TO, [0.1, 0.2])
-    assert Searcher.parse_cond('phone ?') == OpCond('phone', Op.EXISTS, None)
-    assert Searcher.parse_cond('status !?+') == OpCond('status', Op.IS_NULL, None)
+    assert parse_query_into_cond('name = "John"') == OpCond('name', Op.EQ, 'John')
+    assert parse_query_into_cond('age > 25') == OpCond('age', Op.GT, 25)
+    assert parse_query_into_cond('price >= 99.99') == OpCond('price', Op.GTE, 99.99)
+    assert parse_query_into_cond('status != "deleted"') == OpCond('status', Op.NEQ, 'deleted')
+    assert parse_query_into_cond('name ~ "Jo%"') == OpCond('name', Op.LIKE, 'Jo%')
+    assert parse_query_into_cond('tags : ["red", "blue"]') == OpCond('tags', Op.IN, ['red', 'blue'])
+    assert parse_query_into_cond('embedding ~= [0.1, 0.2]') == OpCond('embedding', Op.CLOSE_TO, [0.1, 0.2])
+    assert parse_query_into_cond('phone ?') == OpCond('phone', Op.EXISTS, None)
+    assert parse_query_into_cond('status !?+') == OpCond('status', Op.IS_NULL, None)
 
 def test_parse_and():
     """Test AND conditions"""
     # Simple AND
-    cond = Searcher.parse_cond('name = "John", age > 25')
+    cond = parse_query_into_cond('name = "John", age > 25')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 2
@@ -46,7 +46,7 @@ def test_parse_and():
     assert cond.conds[1] == OpCond('age', Op.GT, 25)
 
     # Multiple AND
-    cond = Searcher.parse_cond('name = "John", age > 25, status = "active"')
+    cond = parse_query_into_cond('name = "John", age > 25, status = "active"')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 3
@@ -54,7 +54,7 @@ def test_parse_and():
 def test_parse_or():
     """Test OR conditions"""
     # Simple OR
-    cond = Searcher.parse_cond('status = "new" | status = "pending"')
+    cond = parse_query_into_cond('status = "new" | status = "pending"')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.OR
     assert len(cond.conds) == 2
@@ -62,7 +62,7 @@ def test_parse_or():
     assert cond.conds[1] == OpCond('status', Op.EQ, 'pending')
 
     # Multiple OR
-    cond = Searcher.parse_cond('status = "new" | status = "pending" | status = "active"')
+    cond = parse_query_into_cond('status = "new" | status = "pending" | status = "active"')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.OR
     assert len(cond.conds) == 3
@@ -70,7 +70,7 @@ def test_parse_or():
 def test_parse_not():
     """Test NOT conditions"""
     # Simple NOT
-    cond = Searcher.parse_cond('!(status = "deleted")')
+    cond = parse_query_into_cond('!(status = "deleted")')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.NOT
     assert len(cond.conds) == 1
@@ -79,7 +79,7 @@ def test_parse_not():
 def test_parse_nested():
     """Test nested conditions"""
     # AND with nested OR
-    cond = Searcher.parse_cond('name = "John", (age < 20 | age > 60)')
+    cond = parse_query_into_cond('name = "John", (age < 20 | age > 60)')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 2
@@ -88,57 +88,57 @@ def test_parse_nested():
     assert cond.conds[1].join == JoinType.OR
 
     # Complex nested
-    cond = Searcher.parse_cond('name ~ "Jo%", !(status = "deleted"), (age < 20 | age > 60)')
+    cond = parse_query_into_cond('name ~ "Jo%", !(status = "deleted"), (age < 20 | age > 60)')
     assert isinstance(cond, JoinCond)
     assert cond.join == JoinType.AND
     assert len(cond.conds) == 3
 
     # Test optional parentheses
-    assert Searcher.parse_cond('(name = "John", age > 25)') == Searcher.parse_cond('name = "John", age > 25')
-    assert Searcher.parse_cond('(status = "new" | status = "pending")') == Searcher.parse_cond('status = "new" | status = "pending"')
+    assert parse_query_into_cond('(name = "John", age > 25)') == parse_query_into_cond('name = "John", age > 25')
+    assert parse_query_into_cond('(status = "new" | status = "pending")') == parse_query_into_cond('status = "new" | status = "pending"')
 
 def test_parse_errors():
     """Test error conditions"""
     with pytest.raises(Exception):
-        Searcher.parse_cond('invalid query')
+        parse_query_into_cond('invalid query')
 
     if 0: #FIXME
         with pytest.raises(Exception):
-            Searcher.parse_cond('!status = "deleted"')  # NOT must use !()
+            parse_query_into_cond('!status = "deleted"')  # NOT must use !()
 
     with pytest.raises(Exception):
-        Searcher.parse_cond('name = "John" age > 25')  # Missing comma
+        parse_query_into_cond('name = "John" age > 25')  # Missing comma
 
     with pytest.raises(Exception):
-        cond = Searcher.parse_cond('name ^ "John"')  # Invalid operator
+        cond = parse_query_into_cond('name ^ "John"')  # Invalid operator
 
     with pytest.raises(Exception):
-        Searcher.parse_cond('name = "John")')  # Unmatched parenthesis
+        parse_query_into_cond('name = "John")')  # Unmatched parenthesis
 
     with pytest.raises(Exception):
-        r = Searcher.parse_cond('(name = "John"')  # Unmatched parenthesis
+        r = parse_query_into_cond('(name = "John"')  # Unmatched parenthesis
         print(f'Parsed condition: {r}')
 
 def test_parse_whitespace():
     """Test whitespace handling"""
     # Extra spaces shouldn't matter
-    assert Searcher.parse_cond('name="John"') == Searcher.parse_cond('name = "John"')
-    assert Searcher.parse_cond('age>25') == Searcher.parse_cond('age > 25')
-    assert Searcher.parse_cond('name="John",age>25') == Searcher.parse_cond('name = "John", age > 25')
+    assert parse_query_into_cond('name="John"') == parse_query_into_cond('name = "John"')
+    assert parse_query_into_cond('age>25') == parse_query_into_cond('age > 25')
+    assert parse_query_into_cond('name="John",age>25') == parse_query_into_cond('name = "John", age > 25')
 
 def test_unquoted_strings():
     """Test unquoted string values"""
     # Single words don't need quotes
-    assert Searcher.parse_cond('name = John') == Searcher.parse_cond('name = "John"')
-    assert Searcher.parse_cond('status = active') == Searcher.parse_cond('status = "active"')
+    assert parse_query_into_cond('name = John') == parse_query_into_cond('name = "John"')
+    assert parse_query_into_cond('status = active') == parse_query_into_cond('status = "active"')
     # Lists can mix quoted and unquoted
-    assert Searcher.parse_cond('tags : [red, "blue green"]') == OpCond('tags', Op.IN, ['red', 'blue green'])
+    assert parse_query_into_cond('tags : [red, "blue green"]') == OpCond('tags', Op.IN, ['red', 'blue green'])
 
 def test_boolean_values():
     """Test boolean values"""
-    assert Searcher.parse_cond('is_active = true') == OpCond('is_active', Op.EQ, True)
-    assert Searcher.parse_cond('is_deleted = false') == OpCond('is_deleted', Op.EQ, False)
-    assert Searcher.parse_cond('verified != true') == OpCond('verified', Op.NEQ, True)
+    assert parse_query_into_cond('is_active = true') == OpCond('is_active', Op.EQ, True)
+    assert parse_query_into_cond('is_deleted = false') == OpCond('is_deleted', Op.EQ, False)
+    assert parse_query_into_cond('verified != true') == OpCond('verified', Op.NEQ, True)
 
 
 def test_python_search():
@@ -180,15 +180,15 @@ def test_python_search():
 
     # Test parallel search
     t0 = time.time()
-    parallel_results = searcher.search(Searcher.parse_cond('age > 25'), n_processes=2)
+    parallel_results = searcher.search(parse_query_into_cond('age > 25'), n_processes=2)
     t1 = time.time()
-    sequential_results = searcher.search(Searcher.parse_cond('age > 25'), n_processes=1)
+    sequential_results = searcher.search(parse_query_into_cond('age > 25'), n_processes=1)
     t2 = time.time()
     assert {r.id for r in parallel_results} == {r.id for r in sequential_results}
     print(f'Parallel search time: {t1 - t0:.3f}s, Sequential search time: {t2 - t1:.3f}s')
 
     for query, expected_names in test_cases:
-        cond = Searcher.parse_cond(query)
+        cond = parse_query_into_cond(query)
         print(f'Parsed query {query} -> {cond}')
         result_names = {r.id for r in searcher.search(cond)}
         assert result_names == expected_names, \
@@ -307,5 +307,5 @@ def test_op_combinations(field: str, op_str: str, op_enum: Op, val_str: str, val
         query = f'{field} {op_str} {val_str}'
 
     expected = OpCond(field, op_enum, val_expected)
-    result = Searcher.parse_cond(query)
+    result = parse_query_into_cond(query)
     assert result == expected, f"Failed parsing '{query}'"
