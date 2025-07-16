@@ -1,11 +1,9 @@
 """Searcher data classes and utils.
 
-This module provides classes and utilities for building and executing search queries:
-
 Classes:
 - SearchCond: Base class for search conditions
-- OpCond: Condition comparing a field with a value using an operator
-- JoinCond: Combines multiple conditions with AND/OR/NOT logic
+  - OpCond: Condition comparing a field with a value using an operator
+  - JoinCond: Combines multiple conditions with AND/OR/NOT logic
 - SearchResult: Container for search results with id, score and optional metadata
 - SearchImpl: Abstract base class for search implementations
 
@@ -18,7 +16,7 @@ Types:
 - Array2D: Type alias for 2D numeric arrays/lists
 
 The search conditions form a tree structure that can be walked and filtered.
-SearchImpl provides timing utilities for concrete implementations.
+`SearchImpl` provides timing utilities for concrete implementations.
 """
 
 
@@ -206,3 +204,11 @@ class SearchImpl(ABC):
             self.timing_counts[label] = 0
         self.timing_times[label] += elapsed_time
         self.timing_counts[label] += 1
+
+    @abstractmethod
+    def search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+        """Search for results matching the given `cond`.
+
+        Returns a list of `SearchResult` objects.
+        """
+        raise NotImplementedError("Subclasses must implement search method")

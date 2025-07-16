@@ -87,7 +87,7 @@ class QdrantSearch(SearchImpl):
             elif cond.op == Op.CLOSE_TO:
                 pass # handle this separately
             else:
-                #NEQ, LIKE, NOT_LIKE
+                #NEQ, LIKE, NOT_LIKE, HAS, NOT_HAS
                 raise NotImplementedError(f"Unsupported operator: {cond.op}")
         elif isinstance(cond, JoinCond):
             # Recursively process JoinCond
