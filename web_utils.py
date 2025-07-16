@@ -391,6 +391,9 @@ class LLMSearcher(BaseSearcher):
         try:
             parsed = []
             for structured_q in lst:
+                if isinstance(structured_q, dict):
+                    # assume the first value is the query string
+                    structured_q = next(iter(structured_q.values()))
                 try:
                     p = self.full_searcher.parse(structured_q)
                     parsed.append(p)
