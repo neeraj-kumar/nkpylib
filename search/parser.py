@@ -1,4 +1,11 @@
-"""Full search parser"""
+"""Full search parser.
+
+This uses Lark to parse a terse but powerful search language and convert it to a SearchCond.
+We support arbitrarily nested clauses joined via AND (,), OR (|), and NOT (~) operators. Each clause has a
+field, op, and optional value.
+
+See the global `OP_MAP` for the operators available, and the grammar for the syntax.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +20,26 @@ from .searcher import SearchCond, Op, OpCond, JoinType, JoinCond
 #TODO deal with unicode
 
 logger = logging.getLogger(__name__)
+
+OP_MAP = {
+    '=': Op.EQ,
+    '!=': Op.NEQ,
+    '>': Op.GT,
+    '>=': Op.GTE,
+    '<': Op.LT,
+    '<=': Op.LTE,
+    '~': Op.LIKE,
+    '!~': Op.NOT_LIKE,
+    ':': Op.IN,
+    '!:': Op.NOT_IN,
+    '@': Op.HAS,
+    '!@': Op.NOT_HAS,
+    '~=': Op.CLOSE_TO,
+    '?': Op.EXISTS,
+    '!?': Op.NOT_EXISTS,
+    '!?+': Op.IS_NULL,
+    '?+': Op.IS_NOT_NULL
+}
 
 # Define the grammar for our search language
 GRAMMAR = """
@@ -102,28 +129,9 @@ class SearchTransformer(Transformer):
             raise ValueError("No operator token found in parse tree")
         op_str = str(items[0])
         logger.debug(f'Operator string: {op_str!r}')
-        op_map = {
-            '=': Op.EQ,
-            '!=': Op.NEQ,
-            '>': Op.GT,
-            '>=': Op.GTE,
-            '<': Op.LT,
-            '<=': Op.LTE,
-            '~': Op.LIKE,
-            '!~': Op.NOT_LIKE,
-            ':': Op.IN,
-            '!:': Op.NOT_IN,
-            '@': Op.HAS,
-            '!@': Op.NOT_HAS,
-            '~=': Op.CLOSE_TO,
-            '?': Op.EXISTS,
-            '!?': Op.NOT_EXISTS,
-            '!?+': Op.IS_NULL,
-            '?+': Op.IS_NOT_NULL
-        }
-        if op_str not in op_map:
+        if op_str not in OP_MAP:
             raise ValueError(f"Unknown operator: {op_str!r}")
-        result = op_map[op_str]
+        result = OP_MAP[op_str]
         logger.debug(f'Mapped to Op: {result}')
         return result
 
