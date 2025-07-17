@@ -1,37 +1,12 @@
-# makes a lot of make commands much easier
-SHELL := /bin/bash
-
-main: help
-
-## print help for this Makefile
-help:
-	@awk '/^[a-zA-Z\-\_0-9]+:/ { \
-		helpMessage = match(lastLine, /^## (.*)/); \
-		if (helpMessage) { \
-			helpCommand = substr($$1, 0, index($$1, ":")-1); \
-			helpMessage = substr(lastLine, RSTART + 3, RLENGTH); \
-			printf "\033[36m%-20s\033[0m %s\n", helpCommand, helpMessage; \
-		} \
-	} \
-	{ lastLine = $$0 }' $(MAKEFILE_LIST)
+include ~/nk.mk
 
 BASE_PY_FILES=faces.py features.py embeddings.py bpm.py server.py
 OTHER_PY_FILES=client.py constants.py replicate_wrapper.py providers.py text.py
 PY_FILES=$(BASE_PY_FILES)
 #fastcls.py #image_features.py
 
-## runs various code cleanup/checking: black, autoimport, mypy and pylint
-lint: mypy
-	#autoimport $(PY_FILES)
-	#isort --atomic -q $(PY_FILES)
-	#isort --atomic --om --df -c ~/isort.cfg $(PY_FILES)
-	#isort --atomic -c ~/isort.cfg $(PY_FILES)
-	#python -m black --line-length=100 -q $(PY_FILES)
-	#pylint $(PY_FILES)
-
 ## runs mypy on files
-mypy:
-	mypy --explicit-package-bases $(BASE_PY_FILES)
+mypy2:
 	mypy $(OTHER_PY_FILES)
 
 ## runs the llm sample code

@@ -539,7 +539,7 @@ def quick_test():
         test = sys.argv[1:]
     except Exception:
         test = []
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
     image_url = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
     image_path = './simple-sales-invoice-modern-simple-1-1-f54b9a4c7ad8.webp'
     from PIL import Image
@@ -558,8 +558,9 @@ def quick_test():
         print(call_llm.single('summarize it in 3 sentences', **kwargs))
     if 'imgemb' in test:
         for url in [image_url, image_path, image]:
-            ret = embed_image.single(url)
-            print(f'Embedding for {url} with {len(ret)} dims: {ret[:10]}')
+            for model in ['clip', 'jina']:
+                ret = embed_image.single(url, model=model)
+                print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
     if 'vlm1' in test:
         image_url = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
         prompt = 'Can you describe this image?'
