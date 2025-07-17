@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
@@ -17,7 +18,7 @@ import time
 from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter
-from os.path import abspath, dirname, exists
+from os.path import abspath, dirname, exists, join
 from typing import Any, cast, Sequence, Generic, TypeVar, Union, Iterator
 
 import numpy as np
@@ -41,6 +42,83 @@ array2d = nparray2d | Sequence[Sequence[float]]
 
 logger = logging.getLogger(__name__)
 
+class JsonLmdb(Lmdb):
+    """Keys are utf-8 encoded strings, values are JSON-encoded objects as utf-8 encoded strings."""
+    def _pre_key(self, key):
+        return key.encode("utf-8")
+
+    def _post_key(self, key):
+        return key.decode("utf-8")
+
+    def _pre_value(self, value):
+        return json.dumps(value).encode("utf-8")
+
+    def _post_value(self, value):
+        return json.loads(value.decode("utf-8"))
+
+
+class MetadataLmdb(Lmdb):
+    """Subclass of LMDB database that stores JSON metadata for each key inside a 2nd database.
+
+    In the main database, the keys are utf-8 encoded strings, and the values are arbitrary objects.
+    (Override _pre_value and _post_value as needed in your subclass.)
+
+    We add a few new methods, all prefixed with md_ (for metadata):
+    - md_get(key): Get metadata for given key.
+    - md_set(key, **kw): Set (replace) metadata for given key.
+    - md_update(key, **kw): Update metadata for given key, keeping existing values.
+    - md_delete(key): Delete metadata for given key.
+    - md_iter(): Iterate over all metadata keys and values.
+    - md_iter_all(): Iterate over (key, value, metadata) triplets
+
+    There's also a property `global_key` which is a special key name used for global metadata.
+    """
+    path: str
+    md_path: str
+    md_db: JsonLmdb
+
+    @classmethod
+    def open(cls, file: str, mode: str='r', **kw) -> MetadataLmdb: # type: ignore[override]
+        """Opens the main LMDB database at given `file` path.
+
+        Opens a 2nd metadata-only LMDB database inside the first one, with name 'metadata.lmdb',
+        with the same `mode` and `kw` as the main db.
+
+        The mode is one of:
+        - 'r': read-only, existing
+        - 'w': read and write, existing
+        - 'c': read and write, create if not exists
+        - 'n': read and write, overwrite
+
+        By default, we set `map_size` to 2 ** 25, which is 32 MiB. LMDB only grows up to 12 factors,
+        which would be 2 ** 25 * 2 ** 12 = 16 TiB, so this is a reasonable default.
+
+        Note that as the original code says, keeping autogrow=True (the default) means that there
+        could be problems with multiple writers.
+        """
+        if 'map_size' not in kw:
+            kw['map_size'] = 2 ** 25 # lmdbm only grows up to 12 factors, and defaults to 2e20
+        # make dirs if needed
+        if mode != 'r':
+            try:
+                os.makedirs(dirname(file), exist_ok=True)
+            except Exception:
+                pass
+        ret = cast(MetadataLmdb, super().open(file, mode, **kw))
+        ret.path = file
+        # now the metadata db
+        ret.md_path = join(file, 'metadata.lmdb')
+        ret.md_db = JsonLmdb.open(ret.md_path, mode=mode, **kw)
+        return ret
+
+    def _pre_key(self, key: str) -> bytes:
+        return key.encode('utf-8', 'ignore')
+
+    def _post_key(self, key: bytes) -> str:
+        return key.decode('utf-8', 'ignore')
+
+    def __repr__(self):
+        return f'MetadataLmdb<{self.path}>'
 
 class NumpyLmdb(Lmdb):
     """Subclass of LMDB database that stores numpy arrays with utf-8 encoded string keys.
