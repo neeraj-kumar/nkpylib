@@ -59,3 +59,7 @@ update-providers:
 ## tests out embeddings main code
 embeddings:
 	@python3 embeddings.py ~/db/nkmovies/embeddings/movie-scalars.lmdb
+
+## syncs nkpylib to src3
+sync:
+	rsync -av ~/src/nkpylib src3:src/
