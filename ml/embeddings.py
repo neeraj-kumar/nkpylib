@@ -117,6 +117,44 @@ class MetadataLmdb(Lmdb):
     def _post_key(self, key: bytes) -> str:
         return key.decode('utf-8', 'ignore')
 
+    @property 
+    def global_key(self) -> str:
+        """Special key name used for global metadata."""
+        return '__global__'
+
+    def md_get(self, key: str) -> dict:
+        """Get metadata for given key."""
+        try:
+            return self.md_db[key]
+        except KeyError:
+            return {}
+
+    def md_set(self, key: str, **kw) -> None:
+        """Set (replace) metadata for given key."""
+        self.md_db[key] = kw
+
+    def md_update(self, key: str, **kw) -> None:
+        """Update metadata for given key, keeping existing values."""
+        md = self.md_get(key)
+        md.update(kw)
+        self.md_db[key] = md
+
+    def md_delete(self, key: str) -> None:
+        """Delete metadata for given key."""
+        try:
+            del self.md_db[key]
+        except KeyError:
+            pass
+
+    def md_iter(self) -> Iterator[tuple[str, dict]]:
+        """Iterate over all metadata keys and values."""
+        return self.md_db.items()
+
+    def md_iter_all(self) -> Iterator[tuple[str, Any, dict]]:
+        """Iterate over (key, value, metadata) triplets."""
+        for key in self:
+            yield key, self[key], self.md_get(key)
+
     def __repr__(self):
         return f'MetadataLmdb<{self.path}>'
 
