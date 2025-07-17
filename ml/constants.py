@@ -22,6 +22,8 @@ DEFAULT_MODELS = dict(
     # clip for image <-> text embeddings in same space
     clip="openai/clip-vit-large-patch14",
     image='openai/clip-vit-large-patch14',
+    # jina-clip-v2 for better image <-> text embeddings in the same space
+    jina="jinaai/jina-clip-v2",
     # llama4 (scout) for top-line perf on text tasks
     llama4='meta-llama/Llama-4-Scout-17B-16E-Instruct',
     # qwen, latest baidu model

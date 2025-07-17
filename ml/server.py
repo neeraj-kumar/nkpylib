@@ -34,11 +34,15 @@ Current ML types and models:
     'BAAI/bge-large-en-v1.5', which is a large English model, and performs well on benchmarks for longish text.
   - `clip`: The OpenAI CLIP model, which can embed both text and images. Use this for cases where
     you expect to be matching text against images. Note that the text cannot be too long.
+  - `jina`: The jina-clip-v2 model, which can embed both text and images. This is a better version
+    of CLIP.
 - String similarity:
   - This embeds two strings using any of the text embedding models, and then computes the cosine
     similarity between the two embeddings. Higher is more similar.
 - Image embeddings:
   - `clip`: The OpenAI CLIP model, which can embed both text and images (in the same space).
+  - `jina`: The jina-clip-v2 model, which can embed both text and images (in the same space). Prefer
+    this to clip, except that it's quite a bit slower.
 """
 
 from __future__ import annotations
@@ -113,6 +117,27 @@ def load_clip(model_name=DEFAULT_MODELS['clip']):
     def get_text_features(text):
         with torch.no_grad():
             return model.get_text_features(**processor(text=text, return_tensors="pt"))[0]
+
+    return get_text_features, get_image_features
+
+@functools.cache
+def load_jina(model_name=DEFAULT_MODELS['jina'], dims:int =768):
+    """Loads jina and returns two embedding functions: one for text, one for images.
+
+    Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance at
+    all (and might even slightly improve it for some tasks).
+    """
+    from sentence_transformers import SentenceTransformer
+    assert dims <= 1024, "Jina-clip-v2 only supports up to 1024 dimensions"
+    model = SentenceTransformer(model_name, trust_remote_code=True, truncate_dim=dims)
+
+    def get_image_features(image_or_path):
+        return model.encode([image_or_path], normalize_embeddings=True)[0]
+
+    def get_text_features(text):
+        # note that in the example code, for "query" embeddings,
+        # they also set prompt_name='retrieval.query'...
+        return model.encode([text], normalize_embeddings=True)[0]
 
     return get_text_features, get_image_features
 
@@ -283,7 +308,7 @@ class Model(ABC):
         self.timing['generate_all'] += t1 - t0
         self.timing['load_elapsed'] = t1 - self.timing.get('load_ts', t0)
         self.timing['throughput'] = self.timing['n_inferences'] / self.timing['load_elapsed']
-        self.timing['avg_generate'] = self.timing['generate_all'] / self.timing['n_inferences']
+        self.timing['avg_generate'] = self.timing['generate_all'] / (self.timing['n_inferences']+1)
         ret['timing'] = dict(self.timing, generate=t1-t0, found_cache=cache_key in self.cache)
         logger.debug(f"Model {self.model_name} run in {t1-t0:.2f}s")
         return ret
@@ -400,18 +425,19 @@ class EmbeddingModel(Model):
             n_dims=len(embedding),
         )
 
-
-@Singleton
-class ClipEmbeddingModel(EmbeddingModel):
-    """Model subclass for handling CLIP text/image embeddings."""
+class ImageTextEmbeddingModel(EmbeddingModel):
+    """Model subclass for handling joint text/image embeddings."""
     def __init__(self, mode='text', model_name: str='', use_cache: bool=True, **kw):
         super().__init__(model_name=model_name, use_cache=use_cache, **kw)
         assert mode in ('text', 'image')
-        assert self.model_name == DEFAULT_MODELS['clip']
         self.mode = mode
 
+    async def load_feature_funcs(self):
+        """Returns two functions: one for text features, one for image features."""
+        raise NotImplementedError("This method should be overridden in subclasses")
+
     async def _load(self, **kw) -> Any:
-        get_text_features, get_image_features = load_clip()
+        get_text_features, get_image_features = await self.load_feature_funcs()
         if self.mode == 'text':
             return get_text_features
         elif self.mode == 'image':
@@ -420,12 +446,28 @@ class ClipEmbeddingModel(EmbeddingModel):
 
     async def _run(self, input: Any, **kw) -> dict:
         try:
-            ret = await asyncio.to_thread(self.model, input) # clip doesn't use any kw
-            ret = ret.numpy()
+            ret = await asyncio.to_thread(self.model, input) # no kw options at runtime
+            if not isinstance(ret, np.ndarray):
+                ret = ret.numpy()
             return self.postprocess(ret)
         except Exception as e:
-            logger.error(f"Error running CLIP embedding model: {e}")
+            logger.error(f"Error running {self.model_name} embedding model: {e}")
             return {}
+
+@Singleton
+class ClipEmbeddingModel(ImageTextEmbeddingModel):
+    """Model subclass for handling CLIP text/image embeddings."""
+    async def load_feature_funcs(self):
+        """Returns two functions: one for text features, one for image features."""
+        return load_clip()
+
+
+@Singleton
+class JinaEmbeddingModel(ImageTextEmbeddingModel):
+    """Model subclass for handling Jina text/image embeddings."""
+    async def load_feature_funcs(self):
+        """Returns two functions: one for text features, one for image features."""
+        return load_jina()
 
 
 @Singleton
@@ -527,6 +569,7 @@ ALL_SINGLETON_MODELS = [
     ExternalChatModel,
     VLMModel,
     ClipEmbeddingModel,
+    JinaEmbeddingModel,
     SentenceTransformerModel,
     ExternalEmbeddingModel,
     TextExtractionModel,
@@ -613,6 +656,7 @@ async def text_embeddings(req: TextEmbeddingRequest):
         req.model = DEFAULT_MODELS[req.model]
     model_class_by_name = {
         DEFAULT_MODELS['clip']: lambda **kw: ClipEmbeddingModel(mode='text', **kw),
+        DEFAULT_MODELS['jina']: lambda **kw: JinaEmbeddingModel(mode='text', **kw),
         DEFAULT_MODELS['sentence']: SentenceTransformerModel,
     }
     ModelClass: Any = model_class_by_name.get(req.model, ExternalEmbeddingModel)
@@ -634,7 +678,14 @@ class ImageEmbeddingRequest(BaseModel):
 @app.post("/v1/image_embeddings")
 async def image_embeddings(req: ImageEmbeddingRequest):
     """Generates embeddings for the given image url (or local path) using the given model."""
-    model = ClipEmbeddingModel(model_name=req.model, mode='image', use_cache=req.use_cache)
+    req.model = DEFAULT_MODELS.get(req.model, req.model)
+    if req.model == DEFAULT_MODELS['clip']:
+        Cls = ClipEmbeddingModel
+    elif req.model == DEFAULT_MODELS['jina']:
+        Cls = JinaEmbeddingModel
+    else:
+        raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
+    model = Cls(model_name=req.model, mode='image', use_cache=req.use_cache)
     ret = await model.run(input=req.url)
     return ret
 
