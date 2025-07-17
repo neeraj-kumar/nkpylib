@@ -11,10 +11,13 @@ from __future__ import annotations
 import logging
 import os
 import random
+import sys
+import time
 
+from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter
-from os.path import dirname
+from os.path import abspath, dirname, exists
 from typing import Any, cast, Sequence, Generic, TypeVar, Union, Iterator
 
 import numpy as np
@@ -27,6 +30,8 @@ from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
 from sklearn.svm import SVC # type: ignore
 from tqdm import tqdm
+
+from nkpylib.utils import specialize
 
 nparray1d = np.ndarray
 nparray2d = np.ndarray
@@ -78,12 +83,12 @@ class NumpyLmdb(Lmdb):
         value = np.array(value, dtype=self.dtype)
         assert isinstance(value, np.ndarray), f'Value must be a numpy array, not {type(value)}'
         assert value.dtype == self.dtype, f'Value must be of type {self.dtype}, not {value.dtype}'
-        print(f'set: value of type {type(value)} with shape {value.shape} and dtype {value.dtype}: {value}')
+        #print(f'set: value of type {type(value)} with shape {value.shape} and dtype {value.dtype}: {value}')
         return value.tobytes()
 
     def _post_value(self, value: bytes) -> np.ndarray:
         a = np.frombuffer(value, dtype=self.dtype)
-        print(f'get: value of type {type(a)} with shape {a.shape} and dtype {a.dtype}: {a}')
+        #print(f'get: value of type {type(a)} with shape {a.shape} and dtype {a.dtype}: {a}')
         return a
 
     def __repr__(self):
@@ -338,11 +343,67 @@ class FeatureSet(Mapping, Generic[KeyT]):
         clf.fit(X, y, sample_weight=weights)
         return clf
 
-
-if __name__ == '__main__':
-    import sys, time
-    db = NumpyLmdb.open(sys.argv[1])
+def quick_test(path: str, **kw):
+    """Prints the first embeddings from given `path`"""
+    db = NumpyLmdb.open(path)
     print(f'Opened {db}, {len(db)} items, {db.dtype} dtype, {db.map_size} map size.')
+    num = 0
     for key, value in db.items():
         print(f'Key: {key}, Value: {value}')
-        break
+        num += 1
+        if num > 2:
+            break
+
+def image_extract(path: str, mode: str='c', model_name='jina', **kw):
+    """Does image feature extraction with given `model_name`.
+
+    Reads filenames from stdin and writes the embeddings to the given `path`.
+    """
+    from nkpylib.ml.client import embed_image
+    db = NumpyLmdb.open(path, mode=mode)
+    futures = []
+    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and mode {mode}')
+    for line in sys.stdin:
+        path = line.strip()
+        if not exists(path):
+            continue
+        if path in db:
+            continue
+        f = embed_image.single_future(abspath(path), model_name=model_name, use_cache=False)
+        futures.append((path, f))
+    print(f'Extracting {len(futures)} images with model {model_name} to {db.path}')
+    num = 0
+    for path, future in tqdm(futures):
+        try:
+            emb = future.result()
+            if emb is None:
+                logger.warning(f'No embedding for {path}')
+                continue
+            db[path] = np.array(emb, dtype=db.dtype)
+            num += 1
+            if num % 100 == 0:
+                db.sync()
+        except Exception as e:
+            logger.error(f'Error extracting {path}: {e}', exc_info=True)
+    db.sync()
+    print(f'Wrote {len(db)} items to {db.path} in {mode} mode.')
+
+
+if __name__ == '__main__':
+    funcs = {f.__name__: f for f in [quick_test, image_extract]}
+    parser = ArgumentParser(description='Test embeddings utilities.')
+    parser.add_argument('func', choices=funcs, help='Function to run')
+    parser.add_argument('path', help='Path to the embeddings lmdb file')
+    parser.add_argument('-m', '--mode', default='r', choices=['r', 'w', 'c', 'n'],
+                        help='Mode to open the lmdb file (default: r)')
+    parser.add_argument('keyvalue', nargs='*', help='Key=value pairs to pass to the function')
+    args = parser.parse_args()
+    kwargs = vars(args)
+    for keyvalue in kwargs.pop('keyvalue', []):
+        if '=' not in keyvalue:
+            raise ValueError(f'Invalid key=value pair: {keyvalue}')
+        key, value = keyvalue.split('=', 1)
+        value = specialize(value)
+        kwargs[key] = value
+    func = funcs[kwargs.pop('func')]
+    func(**kwargs)
