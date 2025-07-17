@@ -1,8 +1,5 @@
 """Utilities to deal with embeddings"""
 
-#TODO overall metadata
-#TODO metadata for each embedding
-#TODO I think I can handle metadata by creating a second lmdbm, inside the first one, with the same keys, plus a global key.
 #TODO sparse
 #TODO in-memory
 
@@ -19,7 +16,7 @@ from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter
 from os.path import abspath, dirname, exists, join
-from typing import Any, cast, Sequence, Generic, TypeVar, Union, Iterator
+from typing import Any, cast, Sequence, Generic, TypeVar, Iterator
 
 import numpy as np
 
@@ -71,20 +68,25 @@ class MetadataLmdb(Lmdb):
     - md_iter(): Iterate over all metadata keys and values.
     - md_iter_all(): Iterate over (key, value, metadata) triplets
 
+    You can also access the metadata database directly via the `md_db` property, e.g. to check for
+    existence of certain keys, etc.
+
     There's also a property `global_key` which is a special key name used for global metadata.
+
+    Note that the metadata is not indexed, i.e. there's no way to search for keys based on metadata.
     """
     path: str
     md_path: str
     md_db: JsonLmdb
 
     @classmethod
-    def open(cls, file: str, mode: str='r', **kw) -> MetadataLmdb: # type: ignore[override]
+    def open(cls, file: str, flag: str='r', **kw) -> MetadataLmdb: # type: ignore[override]
         """Opens the main LMDB database at given `file` path.
 
         Opens a 2nd metadata-only LMDB database inside the first one, with name 'metadata.lmdb',
-        with the same `mode` and `kw` as the main db.
+        with the same `flag` and `kw` as the main db.
 
-        The mode is one of:
+        The flag is one of:
         - 'r': read-only, existing
         - 'w': read and write, existing
         - 'c': read and write, create if not exists
@@ -99,16 +101,16 @@ class MetadataLmdb(Lmdb):
         if 'map_size' not in kw:
             kw['map_size'] = 2 ** 25 # lmdbm only grows up to 12 factors, and defaults to 2e20
         # make dirs if needed
-        if mode != 'r':
+        if flag != 'r':
             try:
                 os.makedirs(dirname(file), exist_ok=True)
             except Exception:
                 pass
-        ret = cast(MetadataLmdb, super().open(file, mode, **kw))
+        ret = cast(MetadataLmdb, super().open(file, flag, **kw))
         ret.path = file
         # now the metadata db
         ret.md_path = join(file, 'metadata.lmdb')
-        ret.md_db = JsonLmdb.open(ret.md_path, mode=mode, **kw)
+        ret.md_db = cast(JsonLmdb, JsonLmdb.open(ret.md_path, flag=flag, **kw))
         return ret
 
     def _pre_key(self, key: str) -> bytes:
@@ -117,13 +119,13 @@ class MetadataLmdb(Lmdb):
     def _post_key(self, key: bytes) -> str:
         return key.decode('utf-8', 'ignore')
 
-    @property 
+    @property
     def global_key(self) -> str:
         """Special key name used for global metadata."""
         return '__global__'
 
     def md_get(self, key: str) -> dict:
-        """Get metadata for given key."""
+        """Get metadata for given key, or empty dict if not present."""
         try:
             return self.md_db[key]
         except KeyError:
@@ -151,25 +153,38 @@ class MetadataLmdb(Lmdb):
         return self.md_db.items()
 
     def md_iter_all(self) -> Iterator[tuple[str, Any, dict]]:
-        """Iterate over (key, value, metadata) triplets."""
+        """Iterate over (key, value, metadata) triplets.
+
+        Note that this only iterates over keys in the main database.
+        If you set metadata on other keys (or the global one), this doesn't include them.
+        """
         for key in self:
             yield key, self[key], self.md_get(key)
+
+    def sync(self) -> None:
+        """Sync both the main database and the metadata database."""
+        super().sync()
+        self.md_db.sync()
+
+    def close(self) -> None:
+        """Close both the main database and the metadata database."""
+        super().close()
+        self.md_db.close()
 
     def __repr__(self):
         return f'MetadataLmdb<{self.path}>'
 
 
-class NumpyLmdb(Lmdb):
-    """Subclass of LMDB database that stores numpy arrays with utf-8 encoded string keys.
-    """
+class NumpyLmdb(MetadataLmdb):
+    """Subclass of MetadataLmdb database that stores numpy arrays with utf-8 encoded string keys."""
     dtype: Any
     path: str
 
     @classmethod
-    def open(cls, file: str, mode: str='r', dtype=np.float32, **kw) -> NumpyLmdb: # type: ignore[override]
+    def open(cls, file: str, flag: str='r', dtype=np.float32, **kw) -> NumpyLmdb: # type: ignore[override]
         """Opens the LMDB database at given `file` path.
 
-        The mode is one of:
+        The flag is one of:
         - 'r': read-only, existing
         - 'w': read and write, existing
         - 'c': read and write, create if not exists
@@ -177,24 +192,10 @@ class NumpyLmdb(Lmdb):
 
         We enforce that all np array values will be of `dtype` type.
         """
-        if 'map_size' not in kw:
-            kw['map_size'] = 2 ** 25 # lmdbm only grows up to 12 factors, and defaults to 2e20
-        # make dirs if needed
-        if mode != 'r':
-            try:
-                os.makedirs(dirname(file), exist_ok=True)
-            except Exception:
-                pass
-        ret = cast(NumpyLmdb, super().open(file, mode, **kw))
+        ret = cast(NumpyLmdb, super().open(file, flag, **kw))
         ret.dtype = dtype
         ret.path = file
         return ret
-
-    def _pre_key(self, key: str) -> bytes:
-        return key.encode('utf-8', 'ignore')
-
-    def _post_key(self, key: bytes) -> str:
-        return key.decode('utf-8', 'ignore')
 
     def _pre_value(self, value: np.ndarray) -> bytes:
         value = np.array(value, dtype=self.dtype)
@@ -220,7 +221,7 @@ class NumpyLmdb(Lmdb):
         """
         vecs = {}
         for i, path in tqdm(enumerate(paths)):
-            cur = NumpyLmdb.open(path, mode='r', dtype=dtype)
+            cur = NumpyLmdb.open(path, flag='r', dtype=dtype)
             if i == 0:
                 vecs = dict(cur.items())
             else:
@@ -266,7 +267,7 @@ class FeatureSet(Mapping, Generic[KeyT]):
         """
         # remap any path inputs to NumpyLmdb objects
         self.inputs = [
-            inp if is_mapping(inp) else NumpyLmdb.open(inp, mode='r', dtype=dtype)
+            inp if is_mapping(inp) else NumpyLmdb.open(inp, flag='r', dtype=dtype)
             for inp in inputs
         ]
         self._keys = self.get_keys()
@@ -471,15 +472,15 @@ def quick_test(path: str, **kw):
         if num > 2:
             break
 
-def image_extract(path: str, mode: str='c', model_name='jina', **kw):
+def image_extract(path: str, flag: str='c', model_name='jina', **kw):
     """Does image feature extraction with given `model_name`.
 
     Reads filenames from stdin and writes the embeddings to the given `path`.
     """
     from nkpylib.ml.client import embed_image
-    db = NumpyLmdb.open(path, mode=mode)
+    db = NumpyLmdb.open(path, flag=flag)
     futures = []
-    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and mode {mode}')
+    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}')
     for line in sys.stdin:
         path = line.strip()
         if not exists(path):
@@ -503,7 +504,7 @@ def image_extract(path: str, mode: str='c', model_name='jina', **kw):
         except Exception as e:
             logger.error(f'Error extracting {path}: {e}', exc_info=True)
     db.sync()
-    print(f'Wrote {len(db)} items to {db.path} in {mode} mode.')
+    print(f'Wrote {len(db)} items to {db.path}.')
 
 
 if __name__ == '__main__':
@@ -511,8 +512,8 @@ if __name__ == '__main__':
     parser = ArgumentParser(description='Test embeddings utilities.')
     parser.add_argument('func', choices=funcs, help='Function to run')
     parser.add_argument('path', help='Path to the embeddings lmdb file')
-    parser.add_argument('-m', '--mode', default='r', choices=['r', 'w', 'c', 'n'],
-                        help='Mode to open the lmdb file (default: r)')
+    parser.add_argument('-f', '--flag', default='r', choices=['r', 'w', 'c', 'n'],
+                        help='Flag to open the lmdb file (default: r)')
     parser.add_argument('keyvalue', nargs='*', help='Key=value pairs to pass to the function')
     args = parser.parse_args()
     kwargs = vars(args)
@@ -523,4 +524,4 @@ if __name__ == '__main__':
         value = specialize(value)
         kwargs[key] = value
     func = funcs[kwargs.pop('func')]
-    func(**kwargs)
+    func(**kwargs) # type: ignore[operator]
