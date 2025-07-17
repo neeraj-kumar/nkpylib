@@ -120,6 +120,7 @@ class MetadataLmdb(Lmdb):
     def __repr__(self):
         return f'MetadataLmdb<{self.path}>'
 
+
 class NumpyLmdb(Lmdb):
     """Subclass of LMDB database that stores numpy arrays with utf-8 encoded string keys.
     """
