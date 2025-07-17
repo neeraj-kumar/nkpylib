@@ -119,15 +119,19 @@ class LetterboxdArchive:
         if not queries:
             return
         #queries = queries[:15]
-        ret = search_movies(queries)
-        # add new imdb ids to the diary, and to our list which we will save
-        for entry, matches in zip(to_search, ret):
-            if not matches:
-                continue
-            logger.debug(f'For entry {entry}: {matches}')
-            entry['imdb_id'] = matches[0].id
-            self.diary_by_imdb_id.setdefault(entry['imdb_id'], []).append(entry)
-            imdb_ids.append(dict(title=entry['Name'], year=entry['Year'], letterboxd_uri=entry['Letterboxd URI'], imdb_id=entry['imdb_id']))
+        try:
+            ret = search_movies(queries, max_workers=1)
+            # add new imdb ids to the diary, and to our list which we will save
+            for entry, matches in zip(to_search, ret):
+                if not matches:
+                    continue
+                logger.debug(f'For entry {entry}: {matches}')
+                entry['imdb_id'] = matches[0].id
+                self.diary_by_imdb_id.setdefault(entry['imdb_id'], []).append(entry)
+                imdb_ids.append(dict(title=entry['Name'], year=entry['Year'], letterboxd_uri=entry['Letterboxd URI'], imdb_id=entry['imdb_id']))
+        except Exception as e:
+            logger.error(f'Error searching for movies: {e}')
+            return
         # save the new list of imdb ids to a temp file then rename
         with open(imdb_ids_path+'.tmp', 'w') as f:
             json.dump(imdb_ids, f, indent=2)
