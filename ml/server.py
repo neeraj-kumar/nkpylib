@@ -59,7 +59,7 @@ import time
 import uuid
 
 from abc import ABC, abstractmethod
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from hashlib import sha256
 from pprint import pformat
 from asyncio import Lock, Condition
@@ -227,6 +227,7 @@ class Model(ABC):
             inference_time=0,
         )
         self.current: set[Any] = set() # what's currently running
+        self.callers: Counter = Counter() # current set of callers
 
 
     async def _load(self, **kw) -> Any:
@@ -270,11 +271,12 @@ class Model(ABC):
         """Run implementation. Override this in your subclass"""
         ...
 
-    async def run(self, input: Any, **kw) -> dict:
+    async def run(self, input: Any, caller: str='', **kw) -> dict:
         """Runs the model with given `input`"""
         t0 = time.time()
         cache_key = None
         kw = self.update_kw(input, **kw)
+        self.callers[caller] += 1
         if self.use_cache or self.model is None:
             cache_key, self.timing['did_load'] = await asyncio.gather(
                 self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
@@ -304,6 +306,7 @@ class Model(ABC):
                 async with self.condition:
                     self.condition.notify_all()
         t1 = time.time()
+        self.callers[caller] -= 1
         self.timing['n_calls'] += 1
         self.timing['generate_all'] += t1 - t0
         self.timing['load_elapsed'] = t1 - self.timing.get('load_ts', t0)
@@ -555,16 +558,6 @@ class ExternalTranscriptionModel(TranscriptionModel):
         )
         return ret
 
-
-# setup fastapi chat endpoint
-class ChatRequest(BaseModel):
-    prompts: str|list[Msg]
-    model: str='chat' # this will get mapped based on DEFAULT_MODELS['chat']
-    max_tokens: int=1024
-    kwargs: dict={}
-    use_cache: bool=False
-    provider: str=''
-
 ALL_SINGLETON_MODELS = [
     ExternalChatModel,
     VLMModel,
@@ -597,8 +590,34 @@ async def status():
                 'loaded': el.model is not None,
                 'timing': el.timing,
                 'current': list(el.current),
+                'callers': dict(el.callers),
             }
     return ret
+
+
+class BaseRequest(BaseModel):
+    """Base request model for all API requests.
+
+    This provides a common structure for requests:
+    - model: a string representing the model name to use, or a short string that gets looked up in
+      DEFAULT_MODELS
+    - use_cache: a boolean indicating whether to use the cache for this request (by default no)
+    - kwargs: a dictionary of additional keyword arguments to pass to the model
+      (not actually used by all models)
+    - provider: a string representing the external provider to use (e.g. 'deepinfra')
+    - caller: a string representing the caller of the API (e.g. 'nkpylib')
+    """
+    model: str
+    use_cache: bool=False
+    kwargs: dict={}
+    provider: str=''
+    caller: str=''
+
+# setup fastapi chat endpoint
+class ChatRequest(BaseRequest):
+    prompts: str|list[Msg]
+    model: str='chat' # this will get mapped based on DEFAULT_MODELS['chat']
+    max_tokens: int=1024
 
 @app.post("/v1/chat")
 async def chat(req: ChatRequest):
@@ -615,19 +634,17 @@ async def chat(req: ChatRequest):
         input=req.prompts,
         max_tokens=req.max_tokens,
         provider=req.provider,
+        caller=req.caller,
         **req.kwargs
     )
     return ret
 
 # setup fastapi VLM endpoint
-class VLMRequest(BaseModel):
+class VLMRequest(BaseRequest):
     image: str # path/url/image directly?
     prompts: str|list[Msg]
     model: str='vlm' # this will get mapped based on DEFAULT_MODELS['vlm']
     max_tokens: int=1024
-    kwargs: dict={}
-    use_cache: bool=False
-    provider: str=''
 
 @app.post("/v1/vlm")
 async def vlm(req: VLMRequest):
@@ -637,16 +654,15 @@ async def vlm(req: VLMRequest):
         input=(req.image, req.prompts),
         max_tokens=req.max_tokens,
         provider=req.provider,
+        caller=req.caller,
         **req.kwargs
     )
     return ret
 
 
-class TextEmbeddingRequest(BaseModel):
+class TextEmbeddingRequest(BaseRequest):
     input: str
     model: str=DEFAULT_MODELS['st']
-    provider: str=''
-    use_cache: bool=False
 
 
 @app.post("/v1/embeddings")
@@ -663,16 +679,15 @@ async def text_embeddings(req: TextEmbeddingRequest):
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
     if 0: #FIXME what was this code even doing??
         async with dl_temp_file(req.input) as path:
-            ret = await model.run(input=path, provider=req.provider)
+            ret = await model.run(input=path, provider=req.provider, caller=req.caller)
     else:
-        ret = await model.run(input=req.input, provider=req.provider)
+        ret = await model.run(input=req.input, provider=req.provider, caller=req.caller)
     return ret
 
 
-class ImageEmbeddingRequest(BaseModel):
+class ImageEmbeddingRequest(BaseRequest):
     url: str
     model: str=DEFAULT_MODELS['image']
-    use_cache: bool=False
 
 
 @app.post("/v1/image_embeddings")
@@ -686,15 +701,14 @@ async def image_embeddings(req: ImageEmbeddingRequest):
     else:
         raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
     model = Cls(model_name=req.model, mode='image', use_cache=req.use_cache)
-    ret = await model.run(input=req.url)
+    ret = await model.run(input=req.url, caller=req.caller)
     return ret
 
 
-class StrSimRequest(BaseModel):
+class StrSimRequest(BaseRequest):
     a: str
     b: str
     model: str=DEFAULT_MODELS['clip']
-    use_cache: bool=False
 
 @app.post("/v1/strsim")
 async def strsim(req: StrSimRequest):
@@ -727,28 +741,24 @@ async def strsim(req: StrSimRequest):
     )
 
 
-class GetTextRequest(BaseModel):
+class GetTextRequest(BaseRequest):
     url: str
-    use_cache: bool=False
-    kw: Any=None
 
 @app.post("/v1/get_text")
 async def get_text_api(req: GetTextRequest, cache={}):
     """Gets the text from the given URL or path of pdf, image, or text."""
     model = TextExtractionModel(model_name='text', use_cache=req.use_cache)
-    ret = await model.run(input=req.url, **(req.kw or {}))
+    ret = await model.run(input=req.url, caller=req.caller, **(req.kwargs or {}))
     if req.use_cache:
         cache[req.url] = ret
     return ret
 
 
-class TranscriptionRequest(BaseModel):
+class TranscriptionRequest(BaseRequest):
     url: str # path/url to file or base64 encoded audio bytes
     model: str='transcription' # this will get mapped based on DEFAULT_MODELS['Transcription']
     language: str='en'
     chunk_level: str='segment'
-    kwargs: dict={}
-    use_cache: bool=False
     provider: str='deepinfra'
 
 @app.post("/v1/transcription")
@@ -764,7 +774,7 @@ async def speech_transcription(req: TranscriptionRequest):
             chunk_level=req.chunk_level,
             provider=req.provider,
         )
-        ret = await model.run(input=path, **kw)
+        ret = await model.run(input=path, caller=req.caller, **kw)
     return ret
 
 

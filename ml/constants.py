@@ -9,7 +9,7 @@ import os
 from os.path import dirname, join
 from typing import Literal
 
-SERVER_BASE_URL = "http://aphex.local:8234"
+SERVER_BASE_URL = "http://localhost:8234"
 
 SERVER_API_VERSION = "1"
 

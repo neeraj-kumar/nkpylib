@@ -106,6 +106,7 @@ class FunctionWrapper:
                  final_func: Optional[Callable[[ResponseT], Any]] = None,
                  mode: str = 'final',
                  executor: Optional[ThreadPoolExecutor] = None,
+                 caller: str = '',
                  progress_msg: str = ''):
         """Initialize the FunctionWrapper with the core function and optional final function.
 
@@ -136,6 +137,7 @@ class FunctionWrapper:
         self.executor = executor
         self.final_func = final_func
         self.progress_msg = progress_msg
+        self.caller = caller
         if not final_func:
             mode = "raw"
         self.mode = mode
@@ -151,13 +153,26 @@ class FunctionWrapper:
             raise ValueError("This function does not have a final output processor.")
         self._mode = value
 
+    def _preprocess(self, kwargs: Any) -> dict[str, Any]:
+        """Common preprocessing before any core_func() invocation."""
+        if 'caller' in kwargs:
+            self.caller = kwargs['caller']
+        if not self.caller:
+            # look up in the stack to find the calling module's filesystem path and function name
+            frame = sys._getframe(2)
+            self.caller = f"{frame.f_globals['__file__']}:{frame.f_code.co_name}"
+        kwargs['caller'] = self.caller
+        return kwargs
+
     def single(self, input: Any, *args: Any, **kwargs: Any) -> Any:
         """Single input synchronous mode, passing a single input"""
+        kwargs = self._preprocess(kwargs)
         result = self.core_func(input, *args, **kwargs)
         return self._process_output(result)
 
     def batch(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Batch input synchronous mode, processing a list of inputs"""
+        kwargs = self._preprocess(kwargs)
         futures = self.batch_futures(inputs, *args, **kwargs)
         if self.progress_msg:
             return [f.result() for f in tqdm(futures, desc=self.progress_msg)]
@@ -166,6 +181,7 @@ class FunctionWrapper:
 
     def __call__(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Call the batch sync function"""
+        kwargs = self._preprocess(kwargs)
         return self.batch(inputs, *args, **kwargs)
 
     async def single_async(self, input: Any, *args: Any, **kwargs: Any) -> Any:
@@ -173,6 +189,7 @@ class FunctionWrapper:
 
         This is an async function that can be awaited.
         """
+        kwargs = self._preprocess(kwargs)
         loop = asyncio.get_running_loop()
         # async executor doesn't allow kwargs, so make a partial
         task = partial(self.core_func, input, *args, **kwargs)
@@ -182,6 +199,7 @@ class FunctionWrapper:
 
     async def batch_async(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Batch input asynchronous mode, processing a list of inputs."""
+        kwargs = self._preprocess(kwargs)
         loop = asyncio.get_running_loop()
         task = partial(self.core_func, *args, **kwargs)
         tasks = [loop.run_in_executor(None, task, inp) for inp in inputs]
@@ -192,6 +210,7 @@ class FunctionWrapper:
 
     def single_future(self, input: Any, *args: Any, **kwargs: Any) -> Any:
         """Single input futures mode which returns a future with the started computation."""
+        kwargs = self._preprocess(kwargs)
         def task():
             ret = self.core_func(input, *args, **kwargs)
             return self._process_output(ret)
@@ -200,6 +219,7 @@ class FunctionWrapper:
 
     def batch_futures(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
         """Batch input futures mode which returns a list of futures with the started computations."""
+        kwargs = self._preprocess(kwargs)
         return [self.single_future(inp, *args, **kwargs) for inp in inputs]
 
     def _process_output(self, result: Any) -> Any:

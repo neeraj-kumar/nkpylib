@@ -472,39 +472,41 @@ def quick_test(path: str, **kw):
         if num > 2:
             break
 
-def image_extract(path: str, flag: str='c', model_name='jina', **kw):
-    """Does image feature extraction with given `model_name`.
+def image_extract(path: str, flag: str='c', model='jina', batch_size=20, **kw):
+    """Does image feature extraction with given `model`.
 
     Reads filenames from stdin and writes the embeddings to the given `path`.
     """
-    from nkpylib.ml.client import embed_image
+    from tqdm import tqdm
+    from nkpylib.ml.client import chunked, embed_image
     db = NumpyLmdb.open(path, flag=flag)
-    futures = []
-    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}')
+    paths = []
     for line in sys.stdin:
         path = line.strip()
-        if not exists(path):
-            continue
         if path in db:
             continue
-        f = embed_image.single_future(abspath(path), model_name=model_name, use_cache=False)
-        futures.append((path, f))
-    print(f'Extracting {len(futures)} images with model {model_name} to {db.path}')
+        paths.append(path)
+    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}, {len(paths)} new images to process.')
     num = 0
-    for path, future in tqdm(futures):
-        try:
-            emb = future.result()
-            if emb is None:
-                logger.warning(f'No embedding for {path}')
-                continue
-            db[path] = np.array(emb, dtype=db.dtype)
-            num += 1
-            if num % 100 == 0:
-                db.sync()
-        except Exception as e:
-            logger.error(f'Error extracting {path}: {e}', exc_info=True)
+    # create a progress bar we can manually move
+    bar = tqdm(total=len(paths), desc='Extracting features from images', unit='image')
+    # interleave reading files from stdin and processing them, in batches
+    for batch in chunked(paths, batch_size):
+        futures = embed_image.batch_futures([abspath(path) for path in batch], model=model, use_cache=False)
+        for path, future in zip(batch, futures):
+            try:
+                emb = future.result()
+                if emb is None:
+                    logger.warning(f'No embedding for {path}')
+                    continue
+                db[path] = np.array(emb, dtype=db.dtype)
+                num += 1
+                bar.update(1)
+            except Exception as e:
+                logger.error(f'Error extracting {path}: {e}', exc_info=True)
+        db.sync()
     db.sync()
-    print(f'Wrote {len(db)} items to {db.path}.')
+    print(f'Wrote {num} items to {db.path}.')
 
 
 if __name__ == '__main__':
