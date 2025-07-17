@@ -84,7 +84,7 @@ class OurGroceries:
         obj = r.json()
         assert 'list' in obj, f'No list in response: {obj}'
         self.items = self.parse_list(obj.pop('list')['items'], include_deleted=include_deleted)
-        self.update_embeddings()
+        #self.update_embeddings()
         return obj
 
     def update_embeddings(self):
