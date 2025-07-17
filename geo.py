@@ -26,6 +26,7 @@ import urllib
 
 from abc import ABC, abstractmethod
 from functools import partial
+from math import radians, sin, cos, sqrt, atan2
 from os.path import dirname, basename
 from typing import Any, Iterator, Optional
 
@@ -34,12 +35,28 @@ import requests
 from tqdm import tqdm
 
 from nkpylib.cacheutils import APICache
-from nkpylib.geometry import haversinedist
 
 wm_cache = partial(APICache, cachedir='cache/wikimapia/%(fn)s/', mindelay=5, serializer='json')
 ga_cache = partial(APICache, cachedir='cache/geoapify/%(fn)s/', mindelay=5, serializer='json')
 
 logger = logging.getLogger(__name__)
+
+def haversinedist(loc1, loc2):
+    """Returns the haversine great circle distance (in meters) between two locations.
+    The input locations must be given as ``(lat, long)`` pairs (decimal values).
+
+    See http://en.wikipedia.org/wiki/Haversine_formula
+    """
+    lat1, lon1 = loc1
+    lat2, lon2 = loc2
+    R = 6378100.0 # mean radius of earth, in meters
+    dlat = radians(lat2-lat1)
+    dlon = radians(lon2-lon1)
+    sdlat2 = sin(dlat/2)
+    sdlon2 = sin(dlon/2)
+    a = sdlat2*sdlat2 + cos(radians(lat1))*cos(radians(lat2))*sdlon2*sdlon2
+    d = R * 2 * atan2(sqrt(a), sqrt(1-a))
+    return d
 
 class CacheException(Exception):
     pass

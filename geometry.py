@@ -2,8 +2,9 @@
 
 from PIL import Image, ImageDraw, ImageChops
 
-from nkpylib.utils import lerp, timed, uniqueize, lpdist
+from nkpylib.geo import haversinedist
 from nkpylib.imageutils import combineImages, createRadialMask # type: ignore
+from nkpylib.utils import lerp, timed, uniqueize, lpdist
 
 ## GEOMETRY UTILS
 # All triangle functions take (x,y) pairs as inputs for points
@@ -129,23 +130,6 @@ def trialtitude(pt1, pt2, pt3):
     angles = a1, a2, a3 = getTriAngles(pt1, pt2, pt3)
     dfrom2 = cos(a2)*l3
     return distAlong(dfrom2, pt2, pt3)
-
-def haversinedist(loc1, loc2):
-    """Returns the haversine great circle distance (in meters) between two locations.
-    The input locations must be given as ``(lat, long)`` pairs (decimal values).
-
-    See http://en.wikipedia.org/wiki/Haversine_formula
-    """
-    lat1, lon1 = loc1
-    lat2, lon2 = loc2
-    R = 6378100.0 # mean radius of earth, in meters
-    dlat = radians(lat2-lat1)
-    dlon = radians(lon2-lon1)
-    sdlat2 = sin(dlat/2)
-    sdlon2 = sin(dlon/2)
-    a = sdlat2*sdlat2 + cos(radians(lat1))*cos(radians(lat2))*sdlon2*sdlon2
-    d = R * 2 * atan2(sqrt(a), sqrt(1-a))
-    return d
 
 def polyarea(poly):
     """Returns the signed area of the given polygon.
