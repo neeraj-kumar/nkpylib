@@ -1,4 +1,20 @@
-"""A simple feature container."""
+"""Feature management and manipulation utilities.
+
+This module provides classes and functions for working with feature vectors, particularly
+in machine learning contexts. The main components are:
+
+- Feature: Base class for all feature types, providing a common interface
+- ConstantFeature: A feature that returns constant values
+- PairwiseMax: Computes maximum similarity between two sets using a comparison function
+- TimeContext: Extracts temporal features from timestamps
+- Recency: Computes time differences between pairs of timestamps
+- MappingFeature: Wraps dictionary-like objects as features
+- FunctionFeature: Wraps arbitrary functions as features
+- FeatureMap: A mapping interface to a collection of features
+
+Features can be combined, transformed, and used as inputs to machine learning models.
+The module handles proper typing, validation, and efficient computation of features.
+"""
 
 from __future__ import annotations
 

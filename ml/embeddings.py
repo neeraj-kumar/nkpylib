@@ -1,4 +1,28 @@
-"""Utilities to deal with embeddings"""
+"""Embedding storage, manipulation and similarity search utilities.
+
+This module provides tools for working with high-dimensional embeddings, particularly
+for machine learning applications. Key functionality includes:
+
+Storage:
+- JsonLmdb: LMDB database for JSON-serialized data
+- MetadataLmdb: LMDB with additional metadata support
+- NumpyLmdb: Efficient storage of numpy arrays in LMDB
+
+Feature Management:
+- FeatureSet: Collection of embeddings with similarity search capabilities
+- Support for multiple input sources (files or mapping objects)
+- Automatic key intersection across sources
+
+Operations:
+- Clustering with multiple algorithms (k-means, agglomerative, affinity propagation)
+- Nearest neighbor search with customizable metrics
+- Classification-based similarity search
+- Feature extraction from images
+
+The module emphasizes efficient disk storage, batch processing capabilities,
+and flexible similarity computation methods. It's particularly useful for
+applications requiring persistent storage of embeddings with fast retrieval.
+"""
 
 #TODO sparse
 #TODO in-memory
