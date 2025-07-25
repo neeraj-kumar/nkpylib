@@ -1,7 +1,6 @@
-"""Feature management and manipulation utilities.
+"""Basic feature classes and utilities.
 
-This module provides classes and functions for working with feature vectors, particularly
-in machine learning contexts. The main components are:
+This module provides classes and functions for working with features (in the ML sense):
 
 - Feature: Base class for all feature types, providing a common interface
 - ConstantFeature: A feature that returns constant values
