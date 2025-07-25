@@ -36,7 +36,40 @@ from nkpylib.time_utils import parse_ts
 logger = logging.getLogger(__name__)
 
 class Feature(ABC):
-    """Base class for all features"""
+    """Base class for all features in the ML feature extraction system.
+
+    This class provides a common interface for working with features that can be:
+    - Single values or arrays
+    - Computed on demand or cached
+    - Combined hierarchically (via children features)
+    
+    Key methods that subclasses must implement:
+    - _get(): Returns the feature as a numpy array
+    - _len(): (optional) Returns the length of the feature, defaults to len(self.get())
+    
+    Optional methods subclasses may implement:
+    - update(**kw): Update the feature's internal state
+    - validate(arr, feat): Validate feature array output (default checks len > 0)
+
+    Attributes:
+        name (str): Name of the feature, defaults to class name
+        description (str): Human-readable description of what this feature represents
+        children (list[Feature]): Child features that get concatenated with this one
+    
+    Usage:
+        Features can be used individually or composed into feature hierarchies:
+        
+        # Single feature
+        feat = MyFeature(name='example', description='An example feature')
+        arr = feat.get()  # Returns numpy array
+        
+        # Composite features
+        parent = ParentFeature(children=[
+            ChildFeature1(),
+            ChildFeature2()
+        ])
+        arr = parent.get()  # Returns concatenated arrays from children
+    """
     def __init__(self,
                  name: str='',
                  description: str='',
