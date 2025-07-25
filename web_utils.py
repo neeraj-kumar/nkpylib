@@ -25,15 +25,18 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from os.path import dirname, splitext
 from pprint import pformat
 from typing import Any, Optional, Callable
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, urlencode, quote_plus
 
+import pytz
 import requests
 
 from bs4 import BeautifulSoup, Comment
 from bs4.element import NavigableString
+from pytz import timezone
 from tornado.ioloop import IOLoop
 from tornado.web import Application, RequestHandler, StaticFileHandler
 
@@ -759,6 +762,47 @@ def simplify_html(html: str, idx: int|None=None) -> str:
         with open(f'streeteasy_clean_{idx}.html', 'w') as f:
             f.write(soup.prettify())
     return ret
+
+def make_google_calendar_link(start: datetime,
+                              end: datetime|timedelta,
+                              title: str,
+                              address: str,
+                              description: str='',
+                              default_tz='US/Eastern') -> str:
+    """Makes a google calendar link for an event.
+
+    Provide at least a `start` datetime, an `end` (either datetime, or timedelta), a `title` for the
+    event, and an `address` for the location.
+
+    Optionally, you can provide a `description` for the event.
+    """
+    if isinstance(end, timedelta):
+        end = start + end
+    assert isinstance(start, datetime) and isinstance(end, datetime)
+    times = []
+    tz = pytz.timezone(default_tz)
+    for t in [start, end]:
+        if t.tzinfo is None:
+            # physically adjust the time (not just tzinfo) to match default_tz
+            #t = t.astimezone(tz)
+            t = (t-tz.utcoffset(t)).astimezone(tz)
+            ctz = default_tz
+        else:
+            # get the name of the tz in the format 'US/Eastern'
+            ctz = t.tzinfo.zone if hasattr(t.tzinfo, 'zone') else t.tzinfo
+        times.append(t.strftime('%Y%m%dT%H%M%SZ'))
+    start_str, end_str = times
+    base_url = 'https://www.google.com/calendar/render'
+    obj = dict(action='TEMPLATE',
+               text=title,
+               dates=f'{start_str}/{end_str}',
+               ctz=ctz,
+               details=description,
+               location=address,
+               sf='true',
+               output='xml')
+    url = f'{base_url}?{urlencode(obj)}'
+    return url
 
 
 if __name__ == '__main__':
