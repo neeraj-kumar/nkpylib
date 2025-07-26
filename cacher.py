@@ -396,8 +396,8 @@ class SeparateFileBackend(FileBackend[KeyT]):
     Good for large objects like embeddings or images where you want
     to manage each cached item independently.
     """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, formatter: CacheFormatter, cache_dir: str|Path, **kwargs):
+        super().__init__(formatter=formatter, **kwargs)
         self.cache_dir = Path(kwargs['cache_dir'])
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -453,8 +453,8 @@ class JointFileBackend(FileBackend[KeyT]):
     - `del cache[key]`: Delete key
     - `cache.clear()`: Clear all entries
     """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, formatter: CacheFormatter, cache_path: str|Path, **kwargs):
+        super().__init__(formatter=formatter, **kwargs)
         self.cache_path = Path(kwargs['cache_path'])
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._cache: dict[KeyT, Any] = {}
@@ -497,8 +497,8 @@ class MemoryBackend(CacheBackend[KeyT]):
 
     Good for temporary caching and testing. Data is lost when process exits.
     """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *, formatter: CacheFormatter, **kwargs):
+        super().__init__(formatter=formatter, **kwargs)
         self._cache: dict[KeyT, Any] = {}
 
     def get(self, key: KeyT) -> Any:
