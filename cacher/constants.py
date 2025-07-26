@@ -1,3 +1,4 @@
+from typing import TypeVar
 
 # type for cache keys
 KeyT = TypeVar('KeyT')
