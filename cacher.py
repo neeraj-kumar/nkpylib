@@ -188,7 +188,39 @@ class JsonFormatter(CacheFormatter):
         return json.loads(data.decode('utf-8'), cls=self.DecoderCls)
 
 
-class SeparateFileBackend(CacheBackend[KeyT]):
+class FileBackend(CacheBackend[KeyT], ABC):
+    """Abstract base class for file-based cache backends.
+    
+    Provides common utilities for atomic file operations.
+    """
+    def _write_atomic(self, path: Path, data: bytes) -> None:
+        """Write data to a file atomically using a temporary file."""
+        # Create temporary file in same directory to ensure atomic rename
+        with tempfile.NamedTemporaryFile(
+            mode='wb',
+            dir=path.parent,
+            prefix=path.name + '.',
+            suffix='.tmp',
+            delete=False
+        ) as tf:
+            tf.write(data)
+            # Ensure all data is written to disk
+            tf.flush()
+            os.fsync(tf.fileno())
+        
+        # Atomic rename to final path
+        os.replace(tf.name, path)
+
+    def _read_file(self, path: Path) -> bytes|None:
+        """Read file contents, returning None if file doesn't exist or is invalid."""
+        try:
+            with open(path, 'rb') as f:
+                return f.read()
+        except (FileNotFoundError, IOError):
+            return None
+
+
+class SeparateFileBackend(FileBackend[KeyT]):
     """Backend that stores each key in a separate file.
 
     Good for large objects like embeddings or images where you want
@@ -208,22 +240,19 @@ class SeparateFileBackend(CacheBackend[KeyT]):
 
     def get(self, key: KeyT) -> Any|None:
         path = self._key_to_path(key)
+        data = self._read_file(path)
+        if data is None:
+            return None
         try:
-            with open(path, 'rb') as f:
-                return self.formatter.loads(f.read())
+            return self.formatter.loads(data)
         except Exception:
             return None
 
     def set(self, key: KeyT, value: Any) -> None:
         path = self._key_to_path(key)
-        # Write to temporary file first
-        tmp_path = path.with_suffix('.tmp')
-        with open(tmp_path, 'wb') as f:
-            f.write(self.formatter.dumps(value))
-        # Atomic rename to final path
-        os.replace(tmp_path, path)
+        self._write_atomic(path, self.formatter.dumps(value))
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: KeyT) -> None:
         path = self._key_to_path(key)
         try:
             path.unlink()
@@ -238,7 +267,7 @@ class SeparateFileBackend(CacheBackend[KeyT]):
                 pass
 
 
-class JointFileBackend(CacheBackend[str]):
+class JointFileBackend(FileBackend[str]):
     """Backend that stores all keys in a single file.
     
     Good for small objects like metadata or settings where you want
@@ -261,12 +290,7 @@ class JointFileBackend(CacheBackend[str]):
 
     def _save(self) -> None:
         """Save cache to file."""
-        # Write to temporary file first
-        tmp_path = self.cache_file.with_suffix('.tmp')
-        with open(tmp_path, 'wb') as f:
-            f.write(self.formatter.dumps(self._cache))
-        # Atomic rename to final path
-        os.replace(tmp_path, self.cache_file)
+        self._write_atomic(self.cache_file, self.formatter.dumps(self._cache))
 
     def get(self, key: str) -> Optional[Any]:
         return self._cache.get(key)
