@@ -31,7 +31,8 @@ Design for new version:
 - archival
 - expiration
 - delay + variance
-- different formats - json, pickle, ...
+- different formats:
+  - pickle
 - different backing stores - mem, fs, lmdb, numpylmdb
 - one file per key, or one file overall, or ...?
 - stats/timing
@@ -139,6 +140,7 @@ class CachePolicy(ABC, Generic[KeyT]):
     def should_evict(self, key: KeyT, value: Any, metadata: dict) -> bool:
         """Return True if entry should be evicted."""
         pass
+
 
 class Cacher(Generic[KeyT]):
     """Main cacher class supporting multiple backends and policies."""
@@ -299,14 +301,18 @@ class JointFileBackend(FileBackend[KeyT]):
     Good for small objects like metadata or settings where you want
     to keep everything in one place.
 
-    The formatter should be dict-like at the top-level.
-    Keys must be strings or have a stable string representation.
+    The formatter should be dict-like at the top-level, supporting:
+    - `key in cache`: Check if key exists
+    - `cache[key]`: Get value for key
+    - `cache[key] = value`: Set value for key
+    - `del cache[key]`: Delete key
+    - `cache.clear()`: Clear all entries
     """
     def __init__(self, cache_path: str|Path, formatter: CacheFormatter):
         super().__init__(formatter)
         self.cache_path = Path(cache_path)
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self._cache: dict[str, Any] = {}
+        self._cache: dict[KeyT, Any] = {}
         self._load()
 
     def _load(self) -> None:
@@ -314,33 +320,26 @@ class JointFileBackend(FileBackend[KeyT]):
         try:
             with open(self.cache_path, 'rb') as f:
                 self._cache = self.formatter.loads(f.read())
-        except (FileNotFoundError, json.JSONDecodeError):
+        except Exception:
             self._cache = {}
 
     def _save(self) -> None:
         """Save cache to file."""
         self._write_atomic(self.cache_path, self.formatter.dumps(self._cache))
 
-    def _key_to_str(self, key: KeyT) -> str:
-        """Convert key to string for storage.
-        
-        Keys must have a stable string representation.
-        """
-        return str(key)
-
     def get(self, key: KeyT) -> Any:
-        key_str = self._key_to_str(key)
-        value = self._cache.get(key_str)
-        if value is None:
+        if key not in self._cache:
             return self.not_found(key)
-        return value
+        return self._cache[key]
 
     def set(self, key: KeyT, value: Any) -> None:
-        self._cache[self._key_to_str(key)] = value
+        self._cache[key] = value
         self._save()
 
     def delete(self, key: KeyT) -> None:
-        self._cache.pop(self._key_to_str(key), None)
+        if key not in self._cache:
+            return
+        del self._cache[key]
         self._save()
 
     def clear(self) -> None:
