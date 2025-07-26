@@ -69,20 +69,18 @@ class CacheBackend(ABC, Generic[KeyT]):
         """Get cache statistics."""
         return self.stats.copy()
 
-    def get(self, key: Any) -> Any:
+    def get(self, key: KeyT) -> Any:
         """Get value for key, running it through all strategies."""
-        cache_key = self.keyer.make_key((key,), {})
-        
         # Run ALL pre-get hooks
         proceed = all(
-            strategy.pre_get(cache_key)
+            strategy.pre_get(key)
             for strategy in self.strategies
         )
         if not proceed:
-            return self.not_found(cache_key)
+            return self.not_found(key)
 
         # Get the value
-        value = self._get_value(cache_key)
+        value = self._get_value(key)
         if value is None:
             self.stats['misses'] += 1
             return self.not_found(key)
@@ -94,13 +92,11 @@ class CacheBackend(ABC, Generic[KeyT]):
 
         return value
 
-    def set(self, key: Any, value: Any) -> None:
+    def set(self, key: KeyT, value: Any) -> None:
         """Set value after running it through all strategies."""
-        cache_key = self.keyer.make_key((key,), {})
-        
         # Run ALL pre-set hooks
         proceed = all(
-            strategy.pre_set(cache_key, value)
+            strategy.pre_set(key, value)
             for strategy in self.strategies
         )
         if not proceed:
@@ -113,21 +109,19 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in self.strategies:
             strategy.post_set(key, value)
 
-    def delete(self, key: Any) -> None:
+    def delete(self, key: KeyT) -> None:
         """Delete key after checking with all strategies."""
-        cache_key = self.keyer.make_key((key,), {})
-        
         # Run pre-delete hooks
         for strategy in self.strategies:
-            if not strategy.pre_delete(cache_key):
+            if not strategy.pre_delete(key):
                 return
 
         # Delete the value
-        self._delete_value(cache_key)
+        self._delete_value(key)
 
         # Run post-delete hooks
         for strategy in self.strategies:
-            strategy.post_delete(cache_key)
+            strategy.post_delete(key)
 
     def clear(self) -> None:
         """Clear all entries after checking with strategies."""
