@@ -289,21 +289,6 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in self.strategies:
             strategy.post_delete(key)
 
-    @abstractmethod
-    def _get_value(self, key: KeyT) -> Any:
-        """Actually get the value from storage."""
-        pass
-
-    @abstractmethod
-    def _set_value(self, key: KeyT, value: Any) -> None:
-        """Actually set the value in storage."""
-        pass
-
-    @abstractmethod
-    def _delete_value(self, key: KeyT) -> None:
-        """Actually delete the value from storage."""
-        pass
-
     def clear(self) -> None:
         """Clear all entries after checking with strategies."""
         # Run ALL pre-clear hooks
@@ -320,6 +305,21 @@ class CacheBackend(ABC, Generic[KeyT]):
         # Run post-clear hooks
         for strategy in self.strategies:
             strategy.post_clear()
+
+    @abstractmethod
+    def _get_value(self, key: KeyT) -> Any:
+        """Actually get the value from storage."""
+        pass
+
+    @abstractmethod
+    def _set_value(self, key: KeyT, value: Any) -> None:
+        """Actually set the value in storage."""
+        pass
+
+    @abstractmethod
+    def _delete_value(self, key: KeyT) -> None:
+        """Actually delete the value from storage."""
+        pass
 
     @abstractmethod
     def _clear(self) -> None:
