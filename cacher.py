@@ -52,7 +52,10 @@ Design for new version:
 
 from __future__ import annotations
 
+import json
+import os
 import time
+from pathlib import Path
 
 from abc import ABC, abstractmethod
 from typing import Any, Optional, TypeVar, Generic
@@ -169,7 +172,106 @@ class Cacher(Generic[KeyT]):
         """Get cache statistics."""
         return self.stats.copy()
 
-# Example concrete implementations would go here:
-# - JsonFormatter, PickleFormatter
-# - MemoryBackend, FileSystemBackend, LmdbBackend
-# - TTLPolicy, CountPolicy, MemoryPolicy
+
+class JsonFormatter(CacheFormatter):
+    """JSON serialization format."""
+    def dumps(self, obj: Any) -> bytes:
+        return json.dumps(obj).encode('utf-8')
+
+    def loads(self, data: bytes) -> Any:
+        return json.loads(data.decode('utf-8'))
+
+
+class SeparateFileBackend(CacheBackend[str]):
+    """Backend that stores each key in a separate file.
+    
+    Good for large objects like embeddings or images where you want
+    to manage each cached item independently.
+    """
+    def __init__(self, cache_dir: str|Path, formatter: CacheFormatter):
+        super().__init__(formatter)
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def _key_to_path(self, key: str) -> Path:
+        """Convert cache key to filesystem path."""
+        # Use key as filename, replacing invalid chars
+        safe_key = "".join(c if c.isalnum() else '_' for c in key)
+        return self.cache_dir / safe_key
+
+    def get(self, key: str) -> Optional[Any]:
+        path = self._key_to_path(key)
+        try:
+            with open(path, 'rb') as f:
+                return self.formatter.loads(f.read())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+
+    def set(self, key: str, value: Any) -> None:
+        path = self._key_to_path(key)
+        # Write to temporary file first
+        tmp_path = path.with_suffix('.tmp')
+        with open(tmp_path, 'wb') as f:
+            f.write(self.formatter.dumps(value))
+        # Atomic rename to final path
+        os.replace(tmp_path, path)
+
+    def delete(self, key: str) -> None:
+        path = self._key_to_path(key)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def clear(self) -> None:
+        for path in self.cache_dir.iterdir():
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+class JointFileBackend(CacheBackend[str]):
+    """Backend that stores all keys in a single file.
+    
+    Good for small objects like metadata or settings where you want
+    to keep everything in one place.
+    """
+    def __init__(self, cache_file: str|Path, formatter: CacheFormatter):
+        super().__init__(formatter)
+        self.cache_file = Path(cache_file)
+        self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+        self._cache: dict[str, Any] = {}
+        self._load()
+
+    def _load(self) -> None:
+        """Load cache from file."""
+        try:
+            with open(self.cache_file, 'rb') as f:
+                self._cache = self.formatter.loads(f.read())
+        except (FileNotFoundError, json.JSONDecodeError):
+            self._cache = {}
+
+    def _save(self) -> None:
+        """Save cache to file."""
+        # Write to temporary file first
+        tmp_path = self.cache_file.with_suffix('.tmp')
+        with open(tmp_path, 'wb') as f:
+            f.write(self.formatter.dumps(self._cache))
+        # Atomic rename to final path
+        os.replace(tmp_path, self.cache_file)
+
+    def get(self, key: str) -> Optional[Any]:
+        return self._cache.get(key)
+
+    def set(self, key: str, value: Any) -> None:
+        self._cache[key] = value
+        self._save()
+
+    def delete(self, key: str) -> None:
+        self._cache.pop(key, None)
+        self._save()
+
+    def clear(self) -> None:
+        self._cache.clear()
+        self._save()
