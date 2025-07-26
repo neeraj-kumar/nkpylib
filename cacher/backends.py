@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import wraps
 from pathlib import Path
-from typing import Any, Generic, Iterator
+from typing import Any, Callable, Generic, Iterator
 
 from nkpylib.cacher.constants import KeyT, CacheNotFound
 from nkpylib.cacher.formatters import CacheFormatter
@@ -18,14 +19,14 @@ class CacheBackend(ABC, Generic[KeyT]):
     """
     def __init__(self, *,
                  formatter: CacheFormatter,
+                 keyer: Keyer|None = None,
                  strategies: list[CacheStrategy]|None = None,
                  error_on_missing: bool = True,
-                 keyer: Keyer|None = None,
                  **kwargs):
         self.formatter = formatter
+        self.keyer = keyer or TupleKeyer()
         self.strategies = strategies or []
         self.error_on_missing = error_on_missing
-        self.keyer = keyer or TupleKeyer()
         self.stats: dict[str, int] = {
             'hits': 0,
             'misses': 0,
@@ -48,7 +49,7 @@ class CacheBackend(ABC, Generic[KeyT]):
             def wrapper(*args, **kwargs) -> Any:
                 # Convert function arguments to cache key using provided or default keyer
                 key = use_keyer.make_key(args, kwargs)
-                
+
                 # Try to get from cache
                 result = self.get(key)
                 if result is not None:
