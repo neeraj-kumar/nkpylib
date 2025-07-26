@@ -1,50 +1,5 @@
 """A fully-functional cacher with all the bells-and-whistles.
 
-Implementation consists of:
-- Cache: Main class managing multiple backends and policies
-- CacheBackend: Base class for storage+formatter combinations
-- CachePolicy: Base class for cache policies (TTL, limits, etc)
-- CacheFormatter: Base class for serialization formats
-
-Design for new version:
-- different key_funcs
-- runnable in background/async/futures/threads
-- batchable
-- decorable
-- ignore certain args
-- cache a list or dict:
-  - figure out which are already cached and which aren't
-  - where underlying function takes a batch
-- something for imdb data dump updates -> either run function or read from db/cache?
-- expiration criteria
-  - time (either relative from now, or absolute time)
-  - count
-  - memory
-  - other?
-- single-value cache with different keys
-  - e.g. the embeddings cache which checks for current normed, scale_mean, scale_std
-- TTL
-- ignore cache for individual calls
-- archival
-- delay + variance
-- different formats:
-  - pickle
-- different backing stores - mem, fs, lmdb, numpylmdb
-- one file per key, or one file overall, or ...?
-- stats/timing
-- prefetch?
-- caching binary files (e.g. web fetch request)
-- per-host timers (like in make_request)?
-- works on class methods (how to check for other instance var dependencies?)
-- store revisions?
-- named revisions?
-- external dependencies:
-    external_counter = 0
-    @cache(depends_on=lambda:[external_counter])
-    def things_with_external(a,b,c):
-        global external_counter
-        from time import sleep; sleep(1) # <- simulating a long-running process
-        return external_counter + a + b + c
 """
 
 from __future__ import annotations
