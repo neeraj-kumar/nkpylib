@@ -53,6 +53,7 @@ Design for new version:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -133,6 +134,27 @@ class StringKeyMaker(KeyMaker[str]):
     def make_key(self, args: tuple, kwargs: dict) -> str:
         tuple_key = self._tuple_maker.make_key(args, kwargs)
         return str(tuple_key)
+
+
+class HashKeyMaker(KeyMaker[str]):
+    """Converts function arguments into a hashed string key.
+    
+    Uses StringKeyMaker internally to convert args to a string,
+    then applies a hash function to get a fixed-length key.
+    
+    Args:
+        hash_func: Function that takes a string and returns a hash string.
+                  Defaults to SHA-256 hexdigest.
+    """
+    def __init__(self, hash_func=None):
+        self._string_maker = StringKeyMaker()
+        if hash_func is None:
+            hash_func = lambda s: hashlib.sha256(s.encode('utf-8')).hexdigest()
+        self._hash_func = hash_func
+    
+    def make_key(self, args: tuple, kwargs: dict) -> str:
+        string_key = self._string_maker.make_key(args, kwargs)
+        return self._hash_func(string_key)
 
 
 class CacheFormatter(ABC):
