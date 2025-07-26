@@ -62,7 +62,7 @@ import time
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Optional, TypeVar, Generic
+from typing import Any, Callable, Optional, TypeVar, Generic
 
 
 KeyT = TypeVar('KeyT')
