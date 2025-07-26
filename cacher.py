@@ -136,8 +136,8 @@ class StringKeyer(Keyer[str]):
         return str(tuple_key)
 
 
-class HashKeyer(Keyer[str]):
-    """Converts function arguments into a hashed string key.
+class BaseHashKeyer(Keyer[Any]):
+    """Base class for hash-based keyers.
 
     Uses StringKeyer internally to convert args to a string,
     then applies a hash function to get a fixed-length key.
@@ -145,22 +145,38 @@ class HashKeyer(Keyer[str]):
     Args:
         hash_func: Either:
             - A string naming a hashlib algorithm (e.g. 'sha256', 'md5')
-            - A callable that takes a string and returns a hash string
+            - A callable that takes a string and returns a hash object
             Defaults to 'sha256'.
     """
-    def __init__(self, hash_func: str|Callable[[str], str] = 'sha256'):
+    def __init__(self, hash_func: str|Callable[[str], Any] = 'sha256'):
         self._string_maker = StringKeyer()
         if isinstance(hash_func, str):
             if not hasattr(hashlib, hash_func):
                 raise ValueError(f"Hash algorithm '{hash_func}' not found in hashlib")
-            hash_obj = getattr(hashlib, hash_func)
-            self._hash_func = lambda s: hash_obj(s.encode('utf-8')).hexdigest()
+            self._hash_obj = lambda s: getattr(hashlib, hash_func)(s.encode('utf-8'))
         else:
-            self._hash_func = hash_func
+            self._hash_obj = hash_func
 
-    def make_key(self, args: tuple, kwargs: dict) -> str:
+    def make_key(self, args: tuple, kwargs: dict) -> Any:
         string_key = self._string_maker.make_key(args, kwargs)
-        return self._hash_func(string_key)
+        return self._get_hash(string_key)
+
+    @abstractmethod
+    def _get_hash(self, s: str) -> Any:
+        """Convert string to final hash form."""
+        pass
+
+
+class HashStringKeyer(BaseHashKeyer):
+    """Hash keyer that returns hexadecimal string digests."""
+    def _get_hash(self, s: str) -> str:
+        return self._hash_obj(s).hexdigest()
+
+
+class HashBytesKeyer(BaseHashKeyer):
+    """Hash keyer that returns raw byte digests."""
+    def _get_hash(self, s: str) -> bytes:
+        return self._hash_obj(s).digest()
 
 
 class CacheFormatter(ABC):
