@@ -426,39 +426,34 @@ class JsonFormatter(CacheFormatter):
         return json.loads(data.decode('utf-8'), cls=self.DecoderCls)
 
 
-class FileBackend(CacheBackend[KeyT], ABC):
-    """Abstract base class for file-based cache backends.
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Write data to a file atomically using a temporary file."""
+    # Create temporary file in same directory to ensure atomic rename
+    with tempfile.NamedTemporaryFile(
+        mode='wb',
+        dir=path.parent,
+        prefix=path.name + '.',
+        suffix='.tmp',
+        delete=False
+    ) as tf:
+        tf.write(data)
+        # Ensure all data is written to disk
+        tf.flush()
+        os.fsync(tf.fileno())
 
-    Provides common utilities for atomic file operations.
-    """
-    def _write_atomic(self, path: Path, data: bytes) -> None:
-        """Write data to a file atomically using a temporary file."""
-        # Create temporary file in same directory to ensure atomic rename
-        with tempfile.NamedTemporaryFile(
-            mode='wb',
-            dir=path.parent,
-            prefix=path.name + '.',
-            suffix='.tmp',
-            delete=False
-        ) as tf:
-            tf.write(data)
-            # Ensure all data is written to disk
-            tf.flush()
-            os.fsync(tf.fileno())
+    # Atomic rename to final path
+    os.replace(tf.name, path)
 
-        # Atomic rename to final path
-        os.replace(tf.name, path)
-
-    def _read_file(self, path: Path) -> bytes|None:
-        """Read file contents, returning None if file doesn't exist or is invalid."""
-        try:
-            with open(path, 'rb') as f:
-                return f.read()
-        except (FileNotFoundError, IOError):
-            return None
+def _read_file(path: Path) -> bytes|None:
+    """Read file contents, returning None if file doesn't exist or is invalid."""
+    try:
+        with open(path, 'rb') as f:
+            return f.read()
+    except (FileNotFoundError, IOError):
+        return None
 
 
-class SeparateFileBackend(FileBackend[KeyT]):
+class SeparateFileBackend(CacheBackend[KeyT]):
     """Backend that stores each key in a separate file.
 
     Good for large objects like embeddings or images where you want
@@ -479,18 +474,18 @@ class SeparateFileBackend(FileBackend[KeyT]):
     def _get_value(self, key: KeyT) -> Any:
         """Get value from file storage."""
         path = self._key_to_path(key)
-        data = self._read_file(path)
+        data = _read_file(path)
         if data is None:
-            return None
+            return self.not_found(key)
         try:
             return self.formatter.loads(data)
         except Exception:
-            return None
+            return self.not_found(key)
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in file storage."""
         path = self._key_to_path(key)
-        self._write_atomic(path, self.formatter.dumps(value))
+        _write_atomic(path, self.formatter.dumps(value))
 
     def _delete_value(self, key: KeyT) -> None:
         """Delete value from file storage."""
@@ -509,7 +504,7 @@ class SeparateFileBackend(FileBackend[KeyT]):
                 pass
 
 
-class JointFileBackend(FileBackend[KeyT]):
+class JointFileBackend(CacheBackend[KeyT]):
     """Backend that stores all keys in a single file.
 
     Good for small objects like metadata or settings where you want
@@ -539,7 +534,7 @@ class JointFileBackend(FileBackend[KeyT]):
 
     def _save(self) -> None:
         """Save cache to file."""
-        self._write_atomic(self.cache_path, self.formatter.dumps(self._cache))
+        _write_atomic(self.cache_path, self.formatter.dumps(self._cache))
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from cache dict."""
