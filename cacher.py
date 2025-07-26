@@ -153,13 +153,19 @@ class BaseHashKeyer(Keyer[Any]):
         if isinstance(hash_func, str):
             if not hasattr(hashlib, hash_func):
                 raise ValueError(f"Hash algorithm '{hash_func}' not found in hashlib")
-            self._hash_obj = lambda s: getattr(hashlib, hash_func)(s.encode('utf-8'))
+            self._hash_func = lambda s: getattr(hashlib, hash_func)(s.encode('utf-8'))
+            self._is_hashlib = True
         else:
-            self._hash_obj = hash_func
+            self._hash_func = hash_func
+            self._is_hashlib = False
 
     def make_key(self, args: tuple, kwargs: dict) -> Any:
         string_key = self._string_maker.make_key(args, kwargs)
         return self._get_hash(string_key)
+
+    def _get_raw_hash(self, s: str) -> Any:
+        """Get hash value, either as hashlib object or direct value."""
+        return self._hash_func(s)
 
     @abstractmethod
     def _get_hash(self, s: str) -> Any:
@@ -168,15 +174,34 @@ class BaseHashKeyer(Keyer[Any]):
 
 
 class HashStringKeyer(BaseHashKeyer):
-    """Hash keyer that returns hexadecimal string digests."""
+    """Hash keyer that returns hexadecimal string digests.
+    
+    If using a hashlib algorithm, returns hexdigest().
+    If using a custom hash function, converts result to string.
+    """
     def _get_hash(self, s: str) -> str:
-        return self._hash_obj(s).hexdigest()
+        h = self._get_raw_hash(s)
+        if self._is_hashlib:
+            return h.hexdigest()
+        return str(h)
 
 
 class HashBytesKeyer(BaseHashKeyer):
-    """Hash keyer that returns raw byte digests."""
+    """Hash keyer that returns raw byte digests.
+    
+    If using a hashlib algorithm, returns digest().
+    If using a custom hash function, converts result to bytes.
+    """
     def _get_hash(self, s: str) -> bytes:
-        return self._hash_obj(s).digest()
+        h = self._get_raw_hash(s)
+        if self._is_hashlib:
+            return h.digest()
+        # Convert custom hash to bytes
+        if isinstance(h, bytes):
+            return h
+        if isinstance(h, str):
+            return h.encode('utf-8')
+        return str(h).encode('utf-8')
 
 
 class CacheFormatter(ABC):
