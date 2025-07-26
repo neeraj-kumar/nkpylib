@@ -23,6 +23,15 @@ class CacheBackend(ABC, Generic[KeyT]):
         self.formatter = formatter
         self.strategies = strategies or []
         self.error_on_missing = error_on_missing
+        self.stats: dict[str, int] = {
+            'hits': 0,
+            'misses': 0,
+            'evictions': 0
+        }
+
+    def get_stats(self) -> dict[str, int]:
+        """Get cache statistics."""
+        return self.stats.copy()
 
     def get(self, key: KeyT) -> Any:
         """Get value for key, running it through all strategies."""
@@ -37,7 +46,9 @@ class CacheBackend(ABC, Generic[KeyT]):
         # Get the value
         value = self._get_value(key)
         if value is None:
+            self.stats['misses'] += 1
             return self.not_found(key)
+        self.stats['hits'] += 1
 
         # Run post-get hooks
         for strategy in self.strategies:

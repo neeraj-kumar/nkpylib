@@ -12,11 +12,14 @@ from nkpylib.cacher.constants import KeyT
 from nkpylib.cacher.keyers import Keyer, TupleKeyer
 
 
-class Cacher(Generic[KeyT]):
-    """Main cacher class supporting multiple backends.
+class MultiplexBackend(CacheBackend[KeyT]):
+    """Backend that multiplexes operations across multiple other backends.
+    
+    Gets return the first hit from any backend.
+    Sets/deletes/clears apply to all backends.
 
     Can be used directly:
-        cache = Cacher([...backends...])
+        cache = MultiplexBackend([...backends...])
         value = cache.get(key)
         cache.set(key, value)
 
@@ -25,42 +28,32 @@ class Cacher(Generic[KeyT]):
         def expensive_function(x, y):
             return x + y
     """
-    def __init__(self, backends: list[CacheBackend]):
+    def __init__(self, backends: list[CacheBackend], **kwargs):
+        super().__init__(formatter=backends[0].formatter if backends else None, **kwargs)
         self.backends = backends
-        self.stats: dict[str, int] = {
-            'hits': 0,
-            'misses': 0,
-            'evictions': 0
-        }
 
-    def get(self, key: KeyT) -> Optional[Any]:
+    def _get_value(self, key: KeyT) -> Any:
         """Get value from first backend that has it."""
         for backend in self.backends:
             value = backend.get(key)
             if value is not None:
-                self.stats['hits'] += 1
                 return value
-        self.stats['misses'] += 1
         return None
 
-    def set(self, key: KeyT, value: Any) -> None:
+    def _set_value(self, key: KeyT, value: Any) -> None:
         """Set value in all backends."""
         for backend in self.backends:
             backend.set(key, value)
 
-    def delete(self, key: KeyT) -> None:
+    def _delete_value(self, key: KeyT) -> None:
         """Delete from all backends."""
         for backend in self.backends:
             backend.delete(key)
 
-    def clear(self) -> None:
+    def _clear(self) -> None:
         """Clear all backends."""
         for backend in self.backends:
             backend.clear()
-
-    def get_stats(self) -> dict[str, int]:
-        """Get cache statistics."""
-        return self.stats.copy()
 
     def as_decorator(self, keyer: Keyer|None = None) -> Callable:
         """Create a decorator that will cache function results.
