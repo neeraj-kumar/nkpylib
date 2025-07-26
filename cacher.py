@@ -304,9 +304,26 @@ class CacheBackend(ABC, Generic[KeyT]):
         """Actually delete the value from storage."""
         pass
 
-    @abstractmethod
     def clear(self) -> None:
-        """Clear all entries."""
+        """Clear all entries after checking with strategies."""
+        # Run ALL pre-clear hooks
+        proceed = all(
+            strategy.pre_clear()
+            for strategy in self.strategies
+        )
+        if not proceed:
+            return
+
+        # Clear the storage
+        self._clear()
+
+        # Run post-clear hooks
+        for strategy in self.strategies:
+            strategy.post_clear()
+
+    @abstractmethod
+    def _clear(self) -> None:
+        """Actually clear all entries from storage."""
         pass
 
     def iter_keys(self) -> Iterator[KeyT]:
@@ -374,6 +391,18 @@ class CacheStrategy(ABC, Generic[KeyT]):
 
     def post_delete(self, key: KeyT) -> None:
         """Called after deleting a value."""
+        pass
+
+    def pre_clear(self) -> bool:
+        """Called before clearing all entries.
+        
+        Returns:
+            False to skip clearing, True to proceed
+        """
+        return True
+
+    def post_clear(self) -> None:
+        """Called after clearing all entries."""
         pass
 
 
@@ -499,7 +528,7 @@ class SeparateFileBackend(CacheBackend[KeyT]):
         except FileNotFoundError:
             pass
 
-    def clear(self) -> None:
+    def _clear(self) -> None:
         """Deletes all files in our cache directory."""
         for path in self.cache_dir.iterdir():
             try:
@@ -561,7 +590,7 @@ class JointFileBackend(CacheBackend[KeyT]):
             del self._cache[key]
             self._save()
 
-    def clear(self) -> None:
+    def _clear(self) -> None:
         self._cache.clear()
 
     def iter_keys(self) -> Iterator[KeyT]:
