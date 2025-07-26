@@ -65,7 +65,10 @@ from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar, Generic
 
 
+# type for cache keys
 KeyT = TypeVar('KeyT')
+
+# type for hash function outputs
 HashT = TypeVar('HashT', str, bytes, int)
 
 class Keyer(ABC, Generic[KeyT]):
@@ -165,32 +168,30 @@ class BaseHashKeyer(Keyer[Any]):
         string_key = self._string_maker.make_key(args, kwargs)
         return self._get_hash(string_key)
 
-    def _get_raw_hash(self, s: str) -> HashT | Any:
+    def _get_raw_hash(self, s: str) -> Any:
         """Get hash value, either as hashlib object or direct value."""
         return self._hash_func(s)
 
     @abstractmethod
-    def _get_hash(self, s: str) -> Any:
+    def _get_hash(self, s: str) -> HashT:
         """Convert string to final hash form."""
         pass
 
 
 class HashStringKeyer(BaseHashKeyer):
-    """Hash keyer that returns hexadecimal string digests.
-    
+    """Hash keyer that returns string digests.
+
     If using a hashlib algorithm, returns hexdigest().
     If using a custom hash function, converts result to string.
     """
     def _get_hash(self, s: str) -> str:
         h = self._get_raw_hash(s)
-        if self._is_hashlib:
-            return h.hexdigest()
-        return str(h)
+        return h.hexdigest() if self._is_hashlib else str(h)
 
 
 class HashBytesKeyer(BaseHashKeyer):
     """Hash keyer that returns raw byte digests.
-    
+
     If using a hashlib algorithm, returns digest().
     If using a custom hash function, converts result to bytes.
     """
@@ -217,6 +218,7 @@ class CacheFormatter(ABC):
     def loads(self, data: bytes) -> Any:
         """Deserialize bytes to object."""
         pass
+
 
 class CacheNotFound(Exception):
     """Exception raised when a cache key is not found."""
