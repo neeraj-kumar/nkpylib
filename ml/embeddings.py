@@ -1,4 +1,4 @@
-"""Embedding storage, manipulation and similarity search utilities.
+"""Embeddings and utilities.
 
 This module provides tools for working with high-dimensional embeddings, particularly
 for machine learning applications. Key functionality includes:
@@ -9,7 +9,7 @@ Storage:
 - NumpyLmdb: Efficient storage of numpy arrays in LMDB
 
 Feature Management:
-- FeatureSet: Collection of embeddings with similarity search capabilities
+- FeatureSet: Collection of features with similarity search capabilities
 - Support for multiple input sources (files or mapping objects)
 - Automatic key intersection across sources
 
@@ -19,9 +19,82 @@ Operations:
 - Classification-based similarity search
 - Feature extraction from images
 
-The module emphasizes efficient disk storage, batch processing capabilities,
-and flexible similarity computation methods. It's particularly useful for
-applications requiring persistent storage of embeddings with fast retrieval.
+Ways to validate embeddings:
+
+Single embedding, no labels
+- Clustering
+  - cluster size distribution
+  - are there tight clusters and well-separated?
+  - Can use silhouette score, Davies-Bouldin index, etc.
+- knn-graph
+  - See what are selected as neighbors
+  - assess connectivity and local density — good embeddings will have more meaningful local neighborhoods
+- visualize
+  - t-SNE, UMAP, Isomap, PCA, etc. Overlaps, clusters, "cloudiness" tells a lot
+- By dimension:
+  - min-spectrum-max
+  - And after PCA?
+  - mean/std, min, max values
+  - histogram of values
+    - particularly 0s
+  - PCA can reveal how much variance each dimension explains
+  - VAE is good non-linear way to disentangle dimensions (particularly Beta-VAE)
+- Compute pairwise Pearson/Spearman correlations between dimensions. Strong correlations suggest redundant or entangled dimensions.
+- How compressible are the embeddings?
+  - PCA, autoencoder, quantization, Kernel PCA?, VAE
+  - estimate "intrinsic dimensionality" of the embeddings via MLE or TwoNN
+- Look at distances from examples
+  - e.g., how many neighbors are within 0.1, 0.2, etc. distance?
+  - How similar are different examples' distances
+  - Aggregate distances across all examples into histograms
+- Check various stats:
+  - Mean/std
+  - Norm
+- Compare cosine vs euclidean distances
+  - How correlated
+  - Pairs with big differences between two metrics
+- Look at local neighborhoods
+  - Compare geodesic (manifold) distances in high-dimensional space vs. Euclidean distances — e.g., via Isomap. Indicates whether embeddings preserve underlying structure
+  - Use Locally Linear Embedding (LLE) to test whether local patches of embedding space behave linearly — good embeddings often have locally linear structure.
+- Detect outliers
+  - Run unsupervised outlier detection algorithms (e.g., Isolation Forest, LOF) on the embedding space — helpful to spot anomalies or collapsed modes.
+- Visualize full pairwise cosine similarity heatmaps — useful for spotting large dense cliques (bad) or disconnected islands (good/bad, depending).
+- Compute pairwise angles between random vector pairs. For high-quality, high-dimensional embeddings, the distribution should be tightly centered.
+- 
+
+Multiple embeddings, no labels
+- compare clusters
+- compare knn-graphs
+  - i.e., common neighbors, reciprocal ranks
+- embedding similarity
+  - use procrustes or CCA
+- assess drift over time or other meaningful slices of the data between embeddings
+
+Single embedding, with labels
+- Clustering purity on metadata - compute purity/ARI/NMI
+- For items with labels, compute proportion of neighbors with the same label
+- Does label propagation work?
+- Train simple classifier/regressor on attributes
+  - Helpful even if attributes were used to train embeddings - how well does it learn the attr?
+  - Look at PR-curves, AUC, ROC
+- Recommendation system
+- Few-shot classifier
+- Pairwise/triplet-loss task eval
+- Analogies, e.g., "comedy - dark + romance" ≈ "romcom"
+- Sequence modeling using embeddings as input
+- Calibration of similarity scores
+  - Compare histograms or CDFs of same-class vs diff-class scores
+- Look at NNs of examples with labels - closest, spectrum, farthest
+- Simulate synthetic user with known prefs and test how well NN align with prefs?
+- Sort by label and plot value of each dimension of embedding
+- Sort by each dim of embedding and plot label value
+- See which dims correlate strongest with labels
+  - E.g. dim 45 = horror movies
+
+Misc
+- Can you get text or images out of the embeddings?
+  - Or map from embeddings to text/images?
+
 """
 
 #TODO sparse
