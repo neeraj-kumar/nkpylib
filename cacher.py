@@ -476,23 +476,24 @@ class SeparateFileBackend(FileBackend[KeyT]):
         safe_key = "".join(c if c.isalnum() else '_' for c in key)
         return self.cache_dir / safe_key
 
-    def get(self, key: KeyT) -> Any:
-        """Get value for `key`"""
+    def _get_value(self, key: KeyT) -> Any:
+        """Get value from file storage."""
         path = self._key_to_path(key)
         data = self._read_file(path)
         if data is None:
-            return self.not_found(key)
+            return None
         try:
             return self.formatter.loads(data)
         except Exception:
-            return self.not_found(key)
+            return None
 
     def _set_value(self, key: KeyT, value: Any) -> None:
+        """Store value in file storage."""
         path = self._key_to_path(key)
         self._write_atomic(path, self.formatter.dumps(value))
 
-    def delete(self, key: KeyT) -> None:
-        """Deletes the file corresponding to `key`."""
+    def _delete_value(self, key: KeyT) -> None:
+        """Delete value from file storage."""
         path = self._key_to_path(key)
         try:
             path.unlink()
@@ -540,20 +541,20 @@ class JointFileBackend(FileBackend[KeyT]):
         """Save cache to file."""
         self._write_atomic(self.cache_path, self.formatter.dumps(self._cache))
 
-    def get(self, key: KeyT) -> Any:
-        if key not in self._cache:
-            return self.not_found(key)
-        return self._cache[key]
+    def _get_value(self, key: KeyT) -> Any:
+        """Get value from cache dict."""
+        return self._cache.get(key)
 
     def _set_value(self, key: KeyT, value: Any) -> None:
+        """Store value in cache dict and save to file."""
         self._cache[key] = value
         self._save()
 
-    def delete(self, key: KeyT) -> None:
-        if key not in self._cache:
-            return
-        del self._cache[key]
-        self._save()
+    def _delete_value(self, key: KeyT) -> None:
+        """Delete value from cache dict and save to file."""
+        if key in self._cache:
+            del self._cache[key]
+            self._save()
 
     def clear(self) -> None:
         self._cache.clear()
@@ -569,15 +570,16 @@ class MemoryBackend(CacheBackend[KeyT]):
         super().__init__(**kwargs)
         self._cache: dict[KeyT, Any] = {}
 
-    def get(self, key: KeyT) -> Any:
-        if key not in self._cache:
-            return self.not_found(key)
-        return self._cache[key]
+    def _get_value(self, key: KeyT) -> Any:
+        """Get value from memory cache."""
+        return self._cache.get(key)
 
     def _set_value(self, key: KeyT, value: Any) -> None:
+        """Store value in memory cache."""
         self._cache[key] = value
 
-    def delete(self, key: KeyT) -> None:
+    def _delete_value(self, key: KeyT) -> None:
+        """Delete value from memory cache."""
         if key in self._cache:
             del self._cache[key]
 
