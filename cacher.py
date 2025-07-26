@@ -410,6 +410,62 @@ class CacheStrategy(ABC, Generic[KeyT]):
         pass
 
 
+class RateLimiter(CacheStrategy[KeyT]):
+    """Strategy that enforces a minimum interval between operations on each key.
+    
+    This is useful for rate-limiting API calls or other resources that need
+    to be accessed with some delay between requests.
+    """
+    def __init__(self, min_interval: float):
+        """Initialize with minimum interval between requests.
+        
+        Args:
+            min_interval: Minimum time (in seconds) between operations on same key
+        """
+        self.min_interval = min_interval
+        self.last_request_time: dict[Any, float] = {}
+
+    def pre_get(self, key: KeyT) -> bool:
+        now = time.time()
+        if key in self.last_request_time:
+            elapsed = now - self.last_request_time[key]
+            if elapsed < self.min_interval:
+                time.sleep(self.min_interval - elapsed)
+        self.last_request_time[key] = time.time()
+        return True
+
+
+class TTLPolicy(CacheStrategy[KeyT]):
+    """Strategy that enforces a time-to-live (TTL) on cached items.
+    
+    Items older than the TTL are considered invalid and will be re-fetched.
+    """
+    def __init__(self, ttl_seconds: float):
+        """Initialize with TTL duration.
+        
+        Args:
+            ttl_seconds: Time-to-live in seconds for cached items
+        """
+        self.ttl = ttl_seconds
+        self.timestamps: dict[Any, float] = {}
+
+    def pre_get(self, key: KeyT) -> bool:
+        if key in self.timestamps:
+            age = time.time() - self.timestamps[key]
+            if age > self.ttl:
+                return False  # Skip cache lookup, forcing a miss
+        return True
+
+    def post_set(self, key: KeyT, value: Any) -> None:
+        self.timestamps[key] = time.time()
+
+    def post_delete(self, key: KeyT) -> None:
+        self.timestamps.pop(key, None)
+
+    def post_clear(self) -> None:
+        self.timestamps.clear()
+
+
 class Cacher(Generic[KeyT]):
     """Main cacher class supporting multiple backends."""
     def __init__(self, backends: list[CacheBackend]):
