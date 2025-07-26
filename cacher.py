@@ -230,11 +230,11 @@ class CacheBackend(ABC, Generic[KeyT]):
     """
     def __init__(self, *,
                  formatter: CacheFormatter,
-                 policies: list[CachePolicy]|None = None,
+                 strategies: list[CacheStrategy]|None = None,
                  error_on_missing: bool = True,
                  **kwargs):
         self.formatter = formatter
-        self.policies = policies or []
+        self.strategies = strategies or []
         self.error_on_missing = error_on_missing
 
     @abstractmethod
@@ -261,13 +261,13 @@ class CacheBackend(ABC, Generic[KeyT]):
         metadata = {'timestamp': time.time()}
 
         # Check if we should cache
-        for policy in self.policies:
-            if not policy.should_cache(key, value):
+        for strategy in self.strategies:
+            if not strategy.should_cache(key, value):
                 return
 
         # Check if we should evict
-        for policy in self.policies:
-            if policy.should_evict(key, value, metadata):
+        for strategy in self.strategies:
+            if strategy.should_evict(key, value, metadata):
                 self.delete(key)
                 return
 
@@ -292,8 +292,8 @@ class CacheBackend(ABC, Generic[KeyT]):
             return None
 
 
-class CachePolicy(ABC, Generic[KeyT]):
-    """Base class for cache policies."""
+class CacheStrategy(ABC, Generic[KeyT]):
+    """Base class for cache strategies."""
     @abstractmethod
     def should_cache(self, key: KeyT, value: Any) -> bool:
         """Return True if value should be cached."""
