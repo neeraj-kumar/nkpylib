@@ -15,11 +15,9 @@ Design for new version:
 - cache a list or dict:
   - figure out which are already cached and which aren't
   - where underlying function takes a batch
-- use tempfile + rename when writing files
-- JSON encoder/decoder class
 - something for imdb data dump updates -> either run function or read from db/cache?
 - expiration criteria
-  - time
+  - time (either relative from now, or absolute time)
   - count
   - memory
   - other?
@@ -27,9 +25,7 @@ Design for new version:
   - e.g. the embeddings cache which checks for current normed, scale_mean, scale_std
 - TTL
 - ignore cache for individual calls
-- force invalidate, either single key or all
 - archival
-- expiration
 - delay + variance
 - different formats:
   - pickle
@@ -232,10 +228,14 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     Each backend is initialized with a formatter that handles serialization.
     """
-    def __init__(self, **kwargs):
-        self.formatter = kwargs['formatter']
-        self.error_on_missing = kwargs.get('error_on_missing', True)
-        self.policies = kwargs.get('policies', [])
+    def __init__(self, *,
+                 formatter: CacheFormatter,
+                 policies: list[CachePolicy]|None = None,
+                 error_on_missing: bool = True,
+                 **kwargs):
+        self.formatter = formatter
+        self.policies = policies or []
+        self.error_on_missing = error_on_missing
 
     @abstractmethod
     def get(self, key: KeyT) -> Any:
@@ -396,7 +396,7 @@ class SeparateFileBackend(FileBackend[KeyT]):
     Good for large objects like embeddings or images where you want
     to manage each cached item independently.
     """
-    def __init__(self, *, formatter: CacheFormatter, cache_dir: str|Path, **kwargs):
+    def __init__(self, cache_dir: str|Path, *, formatter: CacheFormatter, **kwargs):
         super().__init__(formatter=formatter, **kwargs)
         self.cache_dir = Path(kwargs['cache_dir'])
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -453,7 +453,7 @@ class JointFileBackend(FileBackend[KeyT]):
     - `del cache[key]`: Delete key
     - `cache.clear()`: Clear all entries
     """
-    def __init__(self, *, formatter: CacheFormatter, cache_path: str|Path, **kwargs):
+    def __init__(self, cache_path: str|Path, *, formatter: CacheFormatter, **kwargs):
         super().__init__(formatter=formatter, **kwargs)
         self.cache_path = Path(kwargs['cache_path'])
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -497,8 +497,8 @@ class MemoryBackend(CacheBackend[KeyT]):
 
     Good for temporary caching and testing. Data is lost when process exits.
     """
-    def __init__(self, *, formatter: CacheFormatter, **kwargs):
-        super().__init__(formatter=formatter, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._cache: dict[KeyT, Any] = {}
 
     def get(self, key: KeyT) -> Any:
