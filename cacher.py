@@ -293,13 +293,14 @@ class SeparateFileBackend(FileBackend[KeyT]):
                 pass
 
 
-class JointFileBackend(FileBackend[str]):
+class JointFileBackend(FileBackend[KeyT]):
     """Backend that stores all keys in a single file.
 
     Good for small objects like metadata or settings where you want
     to keep everything in one place.
 
     The formatter should be dict-like at the top-level.
+    Keys must be strings or have a stable string representation.
     """
     def __init__(self, cache_path: str|Path, formatter: CacheFormatter):
         super().__init__(formatter)
@@ -320,15 +321,26 @@ class JointFileBackend(FileBackend[str]):
         """Save cache to file."""
         self._write_atomic(self.cache_path, self.formatter.dumps(self._cache))
 
-    def get(self, key: str) -> Optional[Any]:
-        return self._cache.get(key)
+    def _key_to_str(self, key: KeyT) -> str:
+        """Convert key to string for storage.
+        
+        Keys must have a stable string representation.
+        """
+        return str(key)
 
-    def set(self, key: str, value: Any) -> None:
-        self._cache[key] = value
+    def get(self, key: KeyT) -> Any:
+        key_str = self._key_to_str(key)
+        value = self._cache.get(key_str)
+        if value is None:
+            return self.not_found(key)
+        return value
+
+    def set(self, key: KeyT, value: Any) -> None:
+        self._cache[self._key_to_str(key)] = value
         self._save()
 
-    def delete(self, key: str) -> None:
-        self._cache.pop(key, None)
+    def delete(self, key: KeyT) -> None:
+        self._cache.pop(self._key_to_str(key), None)
         self._save()
 
     def clear(self) -> None:
