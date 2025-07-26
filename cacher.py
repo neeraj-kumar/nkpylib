@@ -67,7 +67,7 @@ from typing import Any, Optional, TypeVar, Generic
 
 KeyT = TypeVar('KeyT')
 
-class KeyMaker(ABC, Generic[KeyT]):
+class Keyer(ABC, Generic[KeyT]):
     """Base class for converting function arguments into cache keys."""
     @abstractmethod
     def make_key(self, args: tuple, kwargs: dict) -> KeyT:
@@ -83,7 +83,7 @@ class KeyMaker(ABC, Generic[KeyT]):
         pass
 
 
-class TupleKeyMaker(KeyMaker[tuple]):
+class TupleKeyer(Keyer[tuple]):
     """Converts function arguments into an immutable tuple-based key.
 
     Handles nested data structures by converting:
@@ -122,24 +122,24 @@ class TupleKeyMaker(KeyMaker[tuple]):
         return hash(obj)
 
 
-class StringKeyMaker(KeyMaker[str]):
+class StringKeyer(Keyer[str]):
     """Converts function arguments into a string key.
 
-    Uses `TupleKeyMaker` internally to handle conversion to hashable types,
+    Uses `TupleKeyer` internally to handle conversion to hashable types,
     then converts the resulting tuple to a string representation.
     """
     def __init__(self):
-        self._tuple_maker = TupleKeyMaker()
+        self._tuple_maker = TupleKeyer()
 
     def make_key(self, args: tuple, kwargs: dict) -> str:
         tuple_key = self._tuple_maker.make_key(args, kwargs)
         return str(tuple_key)
 
 
-class HashKeyMaker(KeyMaker[str]):
+class HashKeyer(Keyer[str]):
     """Converts function arguments into a hashed string key.
     
-    Uses StringKeyMaker internally to convert args to a string,
+    Uses StringKeyer internally to convert args to a string,
     then applies a hash function to get a fixed-length key.
     
     Args:
@@ -147,7 +147,7 @@ class HashKeyMaker(KeyMaker[str]):
                   Defaults to SHA-256 hexdigest.
     """
     def __init__(self, hash_func=None):
-        self._string_maker = StringKeyMaker()
+        self._string_maker = StringKeyer()
         if hash_func is None:
             hash_func = lambda s: hashlib.sha256(s.encode('utf-8')).hexdigest()
         self._hash_func = hash_func
