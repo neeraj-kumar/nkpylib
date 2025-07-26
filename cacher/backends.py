@@ -1,10 +1,4 @@
 
-class CacheNotFound(Exception):
-    """Exception raised when a cache key is not found."""
-    def __init__(self, key: KeyT):
-        super().__init__(f"Cache key '{key}' not found")
-        self.key = key
-
 
 class CacheBackend(ABC, Generic[KeyT]):
     """Base class for storage backends.
