@@ -232,11 +232,10 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     Each backend is initialized with a formatter that handles serialization.
     """
-    def __init__(self,
-                 formatter: CacheFormatter,
-                 error_on_missing: bool = True):
-        self.formatter = formatter
-        self.error_on_missing = error_on_missing
+    def __init__(self, **kwargs):
+        self.formatter = kwargs['formatter']
+        self.error_on_missing = kwargs.get('error_on_missing', True)
+        self.policies = kwargs.get('policies', [])
 
     @abstractmethod
     def get(self, key: KeyT) -> Any:
@@ -255,6 +254,29 @@ class CacheBackend(ABC, Generic[KeyT]):
     @abstractmethod
     def delete(self, key: KeyT) -> None:
         """Delete `key` from cache"""
+        pass
+
+    def set(self, key: KeyT, value: Any) -> None:
+        """Set value if policies allow."""
+        metadata = {'timestamp': time.time()}
+
+        # Check if we should cache
+        for policy in self.policies:
+            if not policy.should_cache(key, value):
+                return
+
+        # Check if we should evict
+        for policy in self.policies:
+            if policy.should_evict(key, value, metadata):
+                self.delete(key)
+                return
+
+        # Store the value
+        self._set_value(key, value)
+
+    @abstractmethod
+    def _set_value(self, key: KeyT, value: Any) -> None:
+        """Actually set the value in storage."""
         pass
 
     @abstractmethod
@@ -284,12 +306,9 @@ class CachePolicy(ABC, Generic[KeyT]):
 
 
 class Cacher(Generic[KeyT]):
-    """Main cacher class supporting multiple backends and policies."""
-    def __init__(self,
-                 backends: list[CacheBackend],
-                 policies: Optional[list[CachePolicy]] = None):
+    """Main cacher class supporting multiple backends."""
+    def __init__(self, backends: list[CacheBackend]):
         self.backends = backends
-        self.policies = policies or []
         self.stats: dict[str, int] = {
             'hits': 0,
             'misses': 0,
@@ -307,22 +326,7 @@ class Cacher(Generic[KeyT]):
         return None
 
     def set(self, key: KeyT, value: Any) -> None:
-        """Set value in all backends if policies allow."""
-        metadata = {'timestamp': time.time()}
-
-        # Check if we should cache
-        for policy in self.policies:
-            if not policy.should_cache(key, value):
-                return
-
-        # Check if we should evict
-        for policy in self.policies:
-            if policy.should_evict(key, value, metadata):
-                self.delete(key)
-                self.stats['evictions'] += 1
-                return
-
-        # Store in all backends
+        """Set value in all backends."""
         for backend in self.backends:
             backend.set(key, value)
 
@@ -392,8 +396,8 @@ class SeparateFileBackend(FileBackend[KeyT]):
     Good for large objects like embeddings or images where you want
     to manage each cached item independently.
     """
-    def __init__(self, cache_dir: str|Path, formatter: CacheFormatter):
-        super().__init__(formatter)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -415,7 +419,7 @@ class SeparateFileBackend(FileBackend[KeyT]):
         except Exception:
             return self.not_found(key)
 
-    def set(self, key: KeyT, value: Any) -> None:
+    def _set_value(self, key: KeyT, value: Any) -> None:
         path = self._key_to_path(key)
         self._write_atomic(path, self.formatter.dumps(value))
 
@@ -449,8 +453,8 @@ class JointFileBackend(FileBackend[KeyT]):
     - `del cache[key]`: Delete key
     - `cache.clear()`: Clear all entries
     """
-    def __init__(self, cache_path: str|Path, formatter: CacheFormatter):
-        super().__init__(formatter)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.cache_path = Path(cache_path)
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._cache: dict[KeyT, Any] = {}
@@ -473,7 +477,7 @@ class JointFileBackend(FileBackend[KeyT]):
             return self.not_found(key)
         return self._cache[key]
 
-    def set(self, key: KeyT, value: Any) -> None:
+    def _set_value(self, key: KeyT, value: Any) -> None:
         self._cache[key] = value
         self._save()
 
@@ -493,8 +497,8 @@ class MemoryBackend(CacheBackend[KeyT]):
 
     Good for temporary caching and testing. Data is lost when process exits.
     """
-    def __init__(self, formatter: CacheFormatter):
-        super().__init__(formatter)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._cache: dict[KeyT, Any] = {}
 
     def get(self, key: KeyT) -> Any:
@@ -502,7 +506,7 @@ class MemoryBackend(CacheBackend[KeyT]):
             return self.not_found(key)
         return self._cache[key]
 
-    def set(self, key: KeyT, value: Any) -> None:
+    def _set_value(self, key: KeyT, value: Any) -> None:
         self._cache[key] = value
 
     def delete(self, key: KeyT) -> None:
