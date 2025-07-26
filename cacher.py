@@ -143,14 +143,20 @@ class HashKeyer(Keyer[str]):
     then applies a hash function to get a fixed-length key.
     
     Args:
-        hash_func: Function that takes a string and returns a hash string.
-                  Defaults to SHA-256 hexdigest.
+        hash_func: Either:
+            - A string naming a hashlib algorithm (e.g. 'sha256', 'md5')
+            - A callable that takes a string and returns a hash string
+            Defaults to 'sha256'.
     """
-    def __init__(self, hash_func=None):
+    def __init__(self, hash_func: str|Callable[[str], str] = 'sha256'):
         self._string_maker = StringKeyer()
-        if hash_func is None:
-            hash_func = lambda s: hashlib.sha256(s.encode('utf-8')).hexdigest()
-        self._hash_func = hash_func
+        if isinstance(hash_func, str):
+            if not hasattr(hashlib, hash_func):
+                raise ValueError(f"Hash algorithm '{hash_func}' not found in hashlib")
+            hash_obj = getattr(hashlib, hash_func)
+            self._hash_func = lambda s: hash_obj(s.encode('utf-8')).hexdigest()
+        else:
+            self._hash_func = hash_func
     
     def make_key(self, args: tuple, kwargs: dict) -> str:
         string_key = self._string_maker.make_key(args, kwargs)
