@@ -239,10 +239,13 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def get(self, key: KeyT) -> Any:
         """Get value for key, running it through all strategies."""
-        # Run pre-get hooks
-        for strategy in self.strategies:
-            if not strategy.pre_get(key):
-                return self.not_found(key)
+        # Run ALL pre-get hooks
+        proceed = all(
+            strategy.pre_get(key)
+            for strategy in self.strategies
+        )
+        if not proceed:
+            return self.not_found(key)
 
         # Get the value
         value = self._get_value(key)
