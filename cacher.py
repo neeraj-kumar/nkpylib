@@ -138,10 +138,10 @@ class StringKeyer(Keyer[str]):
 
 class HashKeyer(Keyer[str]):
     """Converts function arguments into a hashed string key.
-    
+
     Uses StringKeyer internally to convert args to a string,
     then applies a hash function to get a fixed-length key.
-    
+
     Args:
         hash_func: Either:
             - A string naming a hashlib algorithm (e.g. 'sha256', 'md5')
@@ -157,7 +157,7 @@ class HashKeyer(Keyer[str]):
             self._hash_func = lambda s: hash_obj(s.encode('utf-8')).hexdigest()
         else:
             self._hash_func = hash_func
-    
+
     def make_key(self, args: tuple, kwargs: dict) -> str:
         string_key = self._string_maker.make_key(args, kwargs)
         return self._hash_func(string_key)
@@ -189,10 +189,8 @@ class CacheBackend(ABC, Generic[KeyT]):
     """
     def __init__(self,
                  formatter: CacheFormatter,
-                 key_type: type[KeyT] = str,
                  error_on_missing: bool = True):
         self.formatter = formatter
-        self.key_type = key_type
         self.error_on_missing = error_on_missing
 
     @abstractmethod
