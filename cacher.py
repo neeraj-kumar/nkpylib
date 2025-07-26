@@ -411,27 +411,27 @@ class CacheStrategy(ABC, Generic[KeyT]):
 
 
 class RateLimiter(CacheStrategy[KeyT]):
-    """Strategy that enforces a minimum interval between operations on each key.
+    """Strategy that enforces a global minimum interval between operations.
     
     This is useful for rate-limiting API calls or other resources that need
-    to be accessed with some delay between requests.
+    to be accessed with some delay between requests, regardless of which key
+    is being accessed.
     """
     def __init__(self, min_interval: float):
         """Initialize with minimum interval between requests.
         
         Args:
-            min_interval: Minimum time (in seconds) between operations on same key
+            min_interval: Minimum time (in seconds) between any operations
         """
         self.min_interval = min_interval
-        self.last_request_time: dict[Any, float] = {}
+        self.last_request_time = 0.0
 
     def pre_get(self, key: KeyT) -> bool:
         now = time.time()
-        if key in self.last_request_time:
-            elapsed = now - self.last_request_time[key]
-            if elapsed < self.min_interval:
-                time.sleep(self.min_interval - elapsed)
-        self.last_request_time[key] = time.time()
+        elapsed = now - self.last_request_time
+        if elapsed < self.min_interval:
+            time.sleep(self.min_interval - elapsed)
+        self.last_request_time = time.time()
         return True
 
 
