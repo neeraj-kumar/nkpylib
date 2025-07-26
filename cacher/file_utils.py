@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import os
 import tempfile
+
 from pathlib import Path
 
 def _write_atomic(path: Path, data: bytes) -> None:
@@ -27,4 +30,3 @@ def _read_file(path: Path) -> bytes|None:
             return f.read()
     except (FileNotFoundError, IOError):
         return None
-

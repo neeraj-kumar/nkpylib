@@ -1,5 +1,8 @@
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
 import hashlib
+
+from abc import ABC, abstractmethod
 from typing import Any, Callable, Generic, Type, TypeVar
 
 from .constants import KeyT, HashT

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import json
+
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -24,4 +28,3 @@ class JsonFormatter(CacheFormatter):
 
     def loads(self, data: bytes) -> Any:
         return json.loads(data.decode('utf-8'), cls=self.DecoderCls)
-

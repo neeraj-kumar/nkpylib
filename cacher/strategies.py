@@ -1,12 +1,14 @@
 """Cache strategies: ways to modify caching behavior."""
 
+from __future__ import annotations
+
 from abc import ABC
 import time
 from typing import Any, Generic
 
 from .constants import KeyT
 
-class CacheStrategy(ABC, Generic[KeyT]):
+class CacheStrategy(Generic[KeyT]):
     """Base class for cache strategies.
 
     Strategies can hook into different stages of cache operations:
