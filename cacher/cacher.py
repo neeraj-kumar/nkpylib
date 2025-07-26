@@ -49,16 +49,10 @@ Design for new version:
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import tempfile
-import time
+from typing import Any, Generic, Optional
 
-
-from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any, Callable, Iterator, Optional, TypeVar, Generic
+from .backends import CacheBackend
+from .constants import KeyT
 
 
 class Cacher(Generic[KeyT]):
