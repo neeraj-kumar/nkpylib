@@ -1,6 +1,10 @@
-"""Cache strategies: ways to modify caching behavior.
+"""Cache strategies: ways to modify caching behavior."""
 
-"""
+from abc import ABC
+import time
+from typing import Any, Generic
+
+from .constants import KeyT
 
 class CacheStrategy(ABC, Generic[KeyT]):
     """Base class for cache strategies.
