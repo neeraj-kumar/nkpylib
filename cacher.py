@@ -272,7 +272,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
 class CacheStrategy(ABC, Generic[KeyT]):
     """Base class for cache strategies.
-    
+
     Strategies can hook into different stages of cache operations:
     - pre_get: Before retrieving a value
     - post_get: After retrieving a value
@@ -283,7 +283,7 @@ class CacheStrategy(ABC, Generic[KeyT]):
     """
     def pre_get(self, key: KeyT) -> bool:
         """Called before retrieving a value.
-        
+
         Returns:
             False to skip cache lookup, True to proceed
         """
@@ -291,11 +291,11 @@ class CacheStrategy(ABC, Generic[KeyT]):
 
     def post_get(self, key: KeyT, value: Any) -> Any:
         """Called after retrieving a value.
-        
+
         Args:
             key: The cache key
             value: The retrieved value
-            
+
         Returns:
             Potentially modified value
         """
@@ -303,7 +303,7 @@ class CacheStrategy(ABC, Generic[KeyT]):
 
     def pre_set(self, key: KeyT, value: Any) -> bool:
         """Called before setting a value.
-        
+
         Returns:
             False to skip caching, True to proceed
         """
@@ -315,7 +315,7 @@ class CacheStrategy(ABC, Generic[KeyT]):
 
     def pre_delete(self, key: KeyT) -> bool:
         """Called before deleting a value.
-        
+
         Returns:
             False to skip deletion, True to proceed
         """
