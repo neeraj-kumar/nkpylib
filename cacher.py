@@ -239,40 +239,54 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     @abstractmethod
     def get(self, key: KeyT) -> Any:
-        """Get value for `key`.
-
-        If `error_on_missing` is True, raises CacheNotFound if key is not found.
+        """Get value for key, running it through all strategies.
+        
+        If error_on_missing is True, raises CacheNotFound if key is not found.
         Else, returns None.
         """
-        pass
-
-    @abstractmethod
-    def set(self, key: KeyT, value: Any) -> None:
-        """Set `value` for `key`"""
-        pass
-
-    @abstractmethod
-    def delete(self, key: KeyT) -> None:
-        """Delete `key` from cache"""
-        pass
-
-    def set(self, key: KeyT, value: Any) -> None:
-        """Set value if policies allow."""
-        metadata = {'timestamp': time.time()}
-
-        # Check if we should cache
+        # Run pre-get hooks
         for strategy in self.strategies:
-            if not strategy.should_cache(key, value):
-                return
+            if not strategy.pre_get(key):
+                return self.not_found(key)
 
-        # Check if we should evict
+        # Get the value
+        value = self._get_value(key)
+        if value is None:
+            return self.not_found(key)
+
+        # Run post-get hooks
         for strategy in self.strategies:
-            if strategy.should_evict(key, value, metadata):
-                self.delete(key)
+            value = strategy.post_get(key, value)
+
+        return value
+
+    def set(self, key: KeyT, value: Any) -> None:
+        """Set value after running it through all strategies."""
+        # Run pre-set hooks
+        for strategy in self.strategies:
+            if not strategy.pre_set(key, value):
                 return
 
         # Store the value
         self._set_value(key, value)
+
+        # Run post-set hooks
+        for strategy in self.strategies:
+            strategy.post_set(key, value)
+
+    def delete(self, key: KeyT) -> None:
+        """Delete key after checking with all strategies."""
+        # Run pre-delete hooks
+        for strategy in self.strategies:
+            if not strategy.pre_delete(key):
+                return
+
+        # Delete the value
+        self._delete_value(key)
+
+        # Run post-delete hooks
+        for strategy in self.strategies:
+            strategy.post_delete(key)
 
     @abstractmethod
     def _set_value(self, key: KeyT, value: Any) -> None:
@@ -293,15 +307,58 @@ class CacheBackend(ABC, Generic[KeyT]):
 
 
 class CacheStrategy(ABC, Generic[KeyT]):
-    """Base class for cache strategies."""
-    @abstractmethod
-    def should_cache(self, key: KeyT, value: Any) -> bool:
-        """Return True if value should be cached."""
+    """Base class for cache strategies.
+    
+    Strategies can hook into different stages of cache operations:
+    - pre_get: Before retrieving a value
+    - post_get: After retrieving a value
+    - pre_set: Before setting a value
+    - post_set: After setting a value
+    - pre_delete: Before deleting a value
+    - post_delete: After deleting a value
+    """
+    def pre_get(self, key: KeyT) -> bool:
+        """Called before retrieving a value.
+        
+        Returns:
+            False to skip cache lookup, True to proceed
+        """
+        return True
+
+    def post_get(self, key: KeyT, value: Any) -> Any:
+        """Called after retrieving a value.
+        
+        Args:
+            key: The cache key
+            value: The retrieved value
+            
+        Returns:
+            Potentially modified value
+        """
+        return value
+
+    def pre_set(self, key: KeyT, value: Any) -> bool:
+        """Called before setting a value.
+        
+        Returns:
+            False to skip caching, True to proceed
+        """
+        return True
+
+    def post_set(self, key: KeyT, value: Any) -> None:
+        """Called after setting a value."""
         pass
 
-    @abstractmethod
-    def should_evict(self, key: KeyT, value: Any, metadata: dict) -> bool:
-        """Return True if entry should be evicted."""
+    def pre_delete(self, key: KeyT) -> bool:
+        """Called before deleting a value.
+        
+        Returns:
+            False to skip deletion, True to proceed
+        """
+        return True
+
+    def post_delete(self, key: KeyT) -> None:
+        """Called after deleting a value."""
         pass
 
 
