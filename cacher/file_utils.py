@@ -1,3 +1,6 @@
+import os
+import tempfile
+from pathlib import Path
 
 def _write_atomic(path: Path, data: bytes) -> None:
     """Write data to a file atomically using a temporary file."""
