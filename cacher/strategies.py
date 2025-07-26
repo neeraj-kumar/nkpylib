@@ -6,7 +6,7 @@ from abc import ABC
 import time
 from typing import Any, Generic
 
-from .constants import KeyT
+from nkpylib.cacher.constants import KeyT
 
 class CacheStrategy(Generic[KeyT]):
     """Base class for cache strategies.

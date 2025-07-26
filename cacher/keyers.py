@@ -5,7 +5,7 @@ import hashlib
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Generic, Type, TypeVar
 
-from .constants import KeyT, HashT
+from nkpylib.cacher.constants import KeyT, HashT
 
 class Keyer(ABC, Generic[KeyT]):
     """Base class for converting function arguments into cache keys."""

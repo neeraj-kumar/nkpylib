@@ -51,8 +51,8 @@ from __future__ import annotations
 
 from typing import Any, Generic, Optional
 
-from .backends import CacheBackend
-from .constants import KeyT
+from nkpylib.cacher.backends import CacheBackend
+from nkpylib.cacher.constants import KeyT
 
 
 class Cacher(Generic[KeyT]):
