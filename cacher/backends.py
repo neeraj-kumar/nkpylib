@@ -22,47 +22,61 @@ class CacheBackend(ABC, Generic[KeyT]):
                  keyer: Keyer|None = None,
                  strategies: list[CacheStrategy]|None = None,
                  error_on_missing: bool = True,
+                 fn: Callable|None = None,
                  **kwargs):
         self.formatter = formatter
         self.keyer = keyer or TupleKeyer()
         self.strategies = strategies or []
         self.error_on_missing = error_on_missing
+        self.fn = fn
         self.stats: dict[str, int] = {
             'hits': 0,
             'misses': 0,
             'evictions': 0
         }
 
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Call the cached function with the given arguments.
+        
+        If no function was provided at initialization, raises TypeError.
+        """
+        if self.fn is None:
+            raise TypeError("No function provided to cache")
+            
+        # Convert function arguments to cache key
+        key = self.keyer.make_key(args, kwargs)
+        
+        # Try to get from cache
+        result = self.get(key)
+        if result is not None:
+            return result
+            
+        # Not in cache, call function
+        result = self.fn(*args, **kwargs)
+        
+        # Store in cache
+        self.set(key, result)
+        
+        return result
+
     def as_decorator(self, keyer: Keyer|None = None) -> Callable:
         """Create a decorator that will cache function results.
-
+        
         Args:
             keyer: Optional Keyer instance to override the default one.
-
+            
         Returns:
             A decorator function that will cache results of the decorated function.
         """
-        use_keyer = keyer or self.keyer
-
-        def decorator(func: Callable) -> Callable:
-            @wraps(func)
-            def wrapper(*args, **kwargs) -> Any:
-                # Convert function arguments to cache key using provided or default keyer
-                key = use_keyer.make_key(args, kwargs)
-
-                # Try to get from cache
-                result = self.get(key)
-                if result is not None:
-                    return result
-
-                # Not in cache, call function
-                result = func(*args, **kwargs)
-
-                # Store in cache
-                self.set(key, result)
-
-                return result
-            return wrapper
+        def decorator(func: Callable) -> CacheBackend:
+            # Create new instance with same config but with the function
+            return self.__class__(
+                formatter=self.formatter,
+                keyer=keyer or self.keyer,
+                strategies=self.strategies,
+                error_on_missing=self.error_on_missing,
+                fn=func
+            )
         return decorator
 
     def get_stats(self) -> dict[str, int]:
