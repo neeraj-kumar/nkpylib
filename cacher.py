@@ -54,10 +54,12 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
-from pathlib import Path
+
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Optional, TypeVar, Generic
 
 class CacheFormatter(ABC):
@@ -175,16 +177,20 @@ class Cacher(Generic[KeyT]):
 
 class JsonFormatter(CacheFormatter):
     """JSON serialization format."""
+    def __init__(self, EncoderCls=json.JSONEncoder, DecoderCls=json.JSONDecoder):
+        self.EncoderCls = EncoderCls
+        self.DecoderCls = DecoderCls
+
     def dumps(self, obj: Any) -> bytes:
-        return json.dumps(obj).encode('utf-8')
+        return json.dumps(obj, cls=self.EncoderCls, ensure_ascii=False).encode('utf-8')
 
     def loads(self, data: bytes) -> Any:
-        return json.loads(data.decode('utf-8'))
+        return json.loads(data.decode('utf-8'), cls=self.DecoderCls)
 
 
-class SeparateFileBackend(CacheBackend[str]):
+class SeparateFileBackend(CacheBackend[KeyT]):
     """Backend that stores each key in a separate file.
-    
+
     Good for large objects like embeddings or images where you want
     to manage each cached item independently.
     """
@@ -193,21 +199,22 @@ class SeparateFileBackend(CacheBackend[str]):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def _key_to_path(self, key: str) -> Path:
+    def _key_to_path(self, key: KeyT) -> Path:
         """Convert cache key to filesystem path."""
         # Use key as filename, replacing invalid chars
+        #FIXME
         safe_key = "".join(c if c.isalnum() else '_' for c in key)
         return self.cache_dir / safe_key
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: KeyT) -> Any|None:
         path = self._key_to_path(key)
         try:
             with open(path, 'rb') as f:
                 return self.formatter.loads(f.read())
-        except (FileNotFoundError, json.JSONDecodeError):
+        except Exception:
             return None
 
-    def set(self, key: str, value: Any) -> None:
+    def set(self, key: KeyT, value: Any) -> None:
         path = self._key_to_path(key)
         # Write to temporary file first
         tmp_path = path.with_suffix('.tmp')
