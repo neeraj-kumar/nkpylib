@@ -398,7 +398,7 @@ class SeparateFileBackend(FileBackend[KeyT]):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.cache_dir = Path(cache_dir)
+        self.cache_dir = Path(kwargs['cache_dir'])
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _key_to_path(self, key: KeyT) -> Path:
@@ -455,7 +455,7 @@ class JointFileBackend(FileBackend[KeyT]):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.cache_path = Path(cache_path)
+        self.cache_path = Path(kwargs['cache_path'])
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._cache: dict[KeyT, Any] = {}
         self._load()
