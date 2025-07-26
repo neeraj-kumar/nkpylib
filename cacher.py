@@ -139,16 +139,17 @@ class StringKeyer(Keyer[str]):
 class BaseHashKeyer(Keyer[Any]):
     """Base class for hash-based keyers.
 
-    Uses StringKeyer internally to convert args to a string,
-    then applies a hash function to get a fixed-length key.
-
-    Args:
-        hash_func: Either:
-            - A string naming a hashlib algorithm (e.g. 'sha256', 'md5')
-            - A callable that takes a string and returns a hash object
-            Defaults to 'sha256'.
+    Uses `StringKeyer` internally to convert args to a string, then applies a hash function to get a
+    fixed-length key.
     """
     def __init__(self, hash_func: str|Callable[[str], Any] = 'sha256'):
+        """The input `hash_func` should be either:
+
+        - A string naming a `hashlib` algorithm (e.g. 'sha256', 'md5')
+        - A callable that takes a string and returns a hash object
+
+        Defaults to 'sha256'.
+        """
         self._string_maker = StringKeyer()
         if isinstance(hash_func, str):
             if not hasattr(hashlib, hash_func):
