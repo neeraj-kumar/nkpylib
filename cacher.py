@@ -322,7 +322,11 @@ class CacheBackend(ABC, Generic[KeyT]):
         pass
 
     def _clear(self) -> None:
-        """Clear all entries by iterating through keys and deleting each one."""
+        """Clear all entries.
+
+        This version does it by iterating through our keys and deleting each one.
+        You can implement a more efficient version in your subclass.
+        """
         for key in list(self.iter_keys()):
             self._delete_value(key)
 
@@ -528,12 +532,13 @@ class SeparateFileBackend(CacheBackend[KeyT]):
         except FileNotFoundError:
             pass
 
-
-    def iter_keys(self) -> Iterator[KeyT]:
-        """Iterate over all keys by listing directory."""
+    def _clear(self) -> None:
+        """Clear all entries. This deletes all files in our cache dir."""
         for path in self.cache_dir.iterdir():
-            if path.is_file() and not path.name.endswith('.tmp'):
-                yield path.name  # type: ignore
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 class JointFileBackend(CacheBackend[KeyT]):
@@ -583,6 +588,10 @@ class JointFileBackend(CacheBackend[KeyT]):
             del self._cache[key]
             self._save()
 
+    def _clear(self) -> None:
+        """Clear all entries in cache dict and save to file."""
+        self._cache.clear()
+        self._save()
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache dict."""
@@ -598,6 +607,10 @@ class MemoryBackend(CacheBackend[KeyT]):
         super().__init__(**kwargs)
         self._cache: dict[KeyT, Any] = {}
 
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Iterate over all keys in memory cache."""
+        yield from self._cache.keys()
+
     def _get_value(self, key: KeyT) -> Any:
         """Get value from memory cache."""
         return self._cache.get(key)
@@ -611,3 +624,6 @@ class MemoryBackend(CacheBackend[KeyT]):
         if key in self._cache:
             del self._cache[key]
 
+    def _clear(self) -> None:
+        """Clear all entries in memory cache."""
+        self._cache.clear()
