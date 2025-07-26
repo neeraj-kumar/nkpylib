@@ -345,3 +345,28 @@ class JointFileBackend(FileBackend[KeyT]):
     def clear(self) -> None:
         self._cache.clear()
         self._save()
+
+
+class MemoryBackend(CacheBackend[KeyT]):
+    """Backend that stores everything in memory.
+    
+    Good for temporary caching and testing. Data is lost when process exits.
+    """
+    def __init__(self, formatter: CacheFormatter):
+        super().__init__(formatter)
+        self._cache: dict[KeyT, Any] = {}
+
+    def get(self, key: KeyT) -> Any:
+        if key not in self._cache:
+            return self.not_found(key)
+        return self._cache[key]
+
+    def set(self, key: KeyT, value: Any) -> None:
+        self._cache[key] = value
+
+    def delete(self, key: KeyT) -> None:
+        if key in self._cache:
+            del self._cache[key]
+
+    def clear(self) -> None:
+        self._cache.clear()
