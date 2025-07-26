@@ -58,7 +58,7 @@ import time
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar, Generic
+from typing import Any, Callable, Iterator, Optional, TypeVar, Generic
 
 
 # type for cache keys
@@ -309,6 +309,10 @@ class CacheBackend(ABC, Generic[KeyT]):
         """Clear all entries."""
         pass
 
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Iterate over all keys in the cache."""
+        raise NotImplementedError("iter_keys not implemented")
+
     def not_found(self, key: KeyT) -> None:
         """Return `None` or raise `CacheNotFound` based on `error_on_missing`."""
         if self.error_on_missing:
@@ -503,6 +507,12 @@ class SeparateFileBackend(CacheBackend[KeyT]):
             except FileNotFoundError:
                 pass
 
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Iterate over all keys by listing directory."""
+        for path in self.cache_dir.iterdir():
+            if path.is_file() and not path.name.endswith('.tmp'):
+                yield path.name  # type: ignore
+
 
 class JointFileBackend(CacheBackend[KeyT]):
     """Backend that stores all keys in a single file.
@@ -553,7 +563,15 @@ class JointFileBackend(CacheBackend[KeyT]):
 
     def clear(self) -> None:
         self._cache.clear()
+
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Iterate over all keys in the memory cache."""
+        yield from self._cache
         self._save()
+
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Iterate over all keys in the cache dict."""
+        yield from self._cache
 
 
 class MemoryBackend(CacheBackend[KeyT]):
