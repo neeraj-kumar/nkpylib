@@ -76,7 +76,7 @@ class StringKeyer(Keyer[str]):
         return str(tuple_key)
 
 
-class BaseHashKeyer(Keyer[Any]):
+class BaseHashKeyer(Keyer[HashT]):
     """Base class for hash-based keyers.
 
     Uses `StringKeyer` internally to convert args to a string, then applies a hash function to get a
