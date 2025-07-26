@@ -62,10 +62,11 @@ import time
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar, Generic
+from typing import Any, Callable, Optional, TypeVar, Generic, Union
 
 
 KeyT = TypeVar('KeyT')
+HashT = TypeVar('HashT', str, bytes, int)
 
 class Keyer(ABC, Generic[KeyT]):
     """Base class for converting function arguments into cache keys."""
@@ -142,7 +143,7 @@ class BaseHashKeyer(Keyer[Any]):
     Uses `StringKeyer` internally to convert args to a string, then applies a hash function to get a
     fixed-length key.
     """
-    def __init__(self, hash_func: str|Callable[[str], Any] = 'sha256'):
+    def __init__(self, hash_func: Union[str, Callable[[str], HashT]] = 'sha256'):
         """The input `hash_func` should be either:
 
         - A string naming a `hashlib` algorithm (e.g. 'sha256', 'md5')
@@ -164,7 +165,7 @@ class BaseHashKeyer(Keyer[Any]):
         string_key = self._string_maker.make_key(args, kwargs)
         return self._get_hash(string_key)
 
-    def _get_raw_hash(self, s: str) -> Any:
+    def _get_raw_hash(self, s: str) -> Union[HashT, Any]:
         """Get hash value, either as hashlib object or direct value."""
         return self._hash_func(s)
 
