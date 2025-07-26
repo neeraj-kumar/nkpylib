@@ -63,6 +63,64 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Optional, TypeVar, Generic
 
+class KeyMaker(ABC, Generic[KeyT]):
+    """Base class for converting function arguments into cache keys."""
+    @abstractmethod
+    def make_key(self, args: tuple, kwargs: dict) -> KeyT:
+        """Convert function arguments into a cache key.
+        
+        Args:
+            args: Tuple of positional arguments
+            kwargs: Dict of keyword arguments
+            
+        Returns:
+            A hashable key suitable for the cache backend
+        """
+        pass
+
+
+class TupleKeyMaker(KeyMaker[tuple]):
+    """Converts function arguments into an immutable tuple-based key.
+    
+    Handles nested data structures by converting:
+    - lists/tuples → tuples
+    - sets → frozensets
+    - dicts → frozenset of items
+    - other objects → their hash
+    
+    The final key is a tuple of:
+    (converted_args..., frozenset_of_converted_kwargs)
+    """
+    def make_key(self, args: tuple, kwargs: dict) -> tuple:
+        # Convert kwargs to sorted, frozen items
+        kw_items = frozenset(
+            (k, self._make_hashable(v)) 
+            for k, v in sorted(kwargs.items())
+        )
+        # Convert args and combine with kwargs
+        return tuple(self._make_hashable(arg) for arg in args) + (kw_items,)
+    
+    def _make_hashable(self, obj: Any) -> Any:
+        """Recursively convert an object into a hashable form."""
+        # Already hashable types
+        if isinstance(obj, (str, int, float, bool, type(None))):
+            return obj
+        # Convert sequences
+        if isinstance(obj, (list, tuple)):
+            return tuple(self._make_hashable(x) for x in obj)
+        # Convert mappings
+        if isinstance(obj, dict):
+            return frozenset(
+                (k, self._make_hashable(v)) 
+                for k, v in sorted(obj.items())
+            )
+        # Convert sets
+        if isinstance(obj, set):
+            return frozenset(self._make_hashable(x) for x in obj)
+        # Fall back to object's hash
+        return hash(obj)
+
+
 class CacheFormatter(ABC):
     """Base class for serialization formats."""
     @abstractmethod
