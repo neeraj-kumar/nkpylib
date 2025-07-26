@@ -321,10 +321,10 @@ class CacheBackend(ABC, Generic[KeyT]):
         """Actually delete the value from storage."""
         pass
 
-    @abstractmethod
     def _clear(self) -> None:
-        """Actually clear all entries from storage."""
-        pass
+        """Clear all entries by iterating through keys and deleting each one."""
+        for key in list(self.iter_keys()):
+            self._delete_value(key)
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache."""
@@ -528,13 +528,6 @@ class SeparateFileBackend(CacheBackend[KeyT]):
         except FileNotFoundError:
             pass
 
-    def _clear(self) -> None:
-        """Deletes all files in our cache directory."""
-        for path in self.cache_dir.iterdir():
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys by listing directory."""
@@ -590,9 +583,6 @@ class JointFileBackend(CacheBackend[KeyT]):
             del self._cache[key]
             self._save()
 
-    def _clear(self) -> None:
-        self._cache.clear()
-        self._save()
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache dict."""
@@ -621,5 +611,3 @@ class MemoryBackend(CacheBackend[KeyT]):
         if key in self._cache:
             del self._cache[key]
 
-    def _clear(self) -> None:
-        self._cache.clear()
