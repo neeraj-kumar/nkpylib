@@ -592,10 +592,6 @@ class JointFileBackend(CacheBackend[KeyT]):
 
     def _clear(self) -> None:
         self._cache.clear()
-
-    def iter_keys(self) -> Iterator[KeyT]:
-        """Iterate over all keys in the memory cache."""
-        yield from self._cache
         self._save()
 
     def iter_keys(self) -> Iterator[KeyT]:
