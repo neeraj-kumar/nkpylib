@@ -14,12 +14,12 @@ from nkpylib.cacher.keyers import Keyer, TupleKeyer
 
 class Cacher(Generic[KeyT]):
     """Main cacher class supporting multiple backends.
-    
+
     Can be used directly:
         cache = Cacher([...backends...])
         value = cache.get(key)
         cache.set(key, value)
-    
+
     Or as a decorator:
         @cache.as_decorator()
         def expensive_function(x, y):
@@ -64,11 +64,11 @@ class Cacher(Generic[KeyT]):
 
     def as_decorator(self, keyer: Keyer|None = None) -> Callable:
         """Create a decorator that will cache function results.
-        
+
         Args:
             keyer: Optional Keyer instance to convert function args to cache keys.
                   Defaults to TupleKeyer if not specified.
-        
+
         Returns:
             A decorator function that will cache results of the decorated function.
         """
@@ -80,18 +80,18 @@ class Cacher(Generic[KeyT]):
             def wrapper(*args, **kwargs) -> Any:
                 # Convert function arguments to cache key
                 key = keyer.make_key(args, kwargs)
-                
+
                 # Try to get from cache
                 result = self.get(key)
                 if result is not None:
                     return result
-                
+
                 # Not in cache, call function
                 result = func(*args, **kwargs)
-                
+
                 # Store in cache
                 self.set(key, result)
-                
+
                 return result
             return wrapper
         return decorator
