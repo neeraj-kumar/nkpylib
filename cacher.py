@@ -625,5 +625,5 @@ class MemoryBackend(CacheBackend[KeyT]):
         if key in self._cache:
             del self._cache[key]
 
-    def clear(self) -> None:
+    def _clear(self) -> None:
         self._cache.clear()
