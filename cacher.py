@@ -349,7 +349,7 @@ class JointFileBackend(FileBackend[KeyT]):
 
 class MemoryBackend(CacheBackend[KeyT]):
     """Backend that stores everything in memory.
-    
+
     Good for temporary caching and testing. Data is lost when process exits.
     """
     def __init__(self, formatter: CacheFormatter):
