@@ -238,55 +238,19 @@ class CacheBackend(ABC, Generic[KeyT]):
         self.error_on_missing = error_on_missing
 
     @abstractmethod
-    def get(self, key: KeyT) -> Any:
-        """Get value for key, running it through all strategies.
-        
-        If error_on_missing is True, raises CacheNotFound if key is not found.
-        Else, returns None.
-        """
-        # Run pre-get hooks
-        for strategy in self.strategies:
-            if not strategy.pre_get(key):
-                return self.not_found(key)
+    def _get_value(self, key: KeyT) -> Any:
+        """Actually get the value from storage."""
+        pass
 
-        # Get the value
-        value = self._get_value(key)
-        if value is None:
-            return self.not_found(key)
+    @abstractmethod
+    def _set_value(self, key: KeyT, value: Any) -> None:
+        """Actually set the value in storage."""
+        pass
 
-        # Run post-get hooks
-        for strategy in self.strategies:
-            value = strategy.post_get(key, value)
-
-        return value
-
-    def set(self, key: KeyT, value: Any) -> None:
-        """Set value after running it through all strategies."""
-        # Run pre-set hooks
-        for strategy in self.strategies:
-            if not strategy.pre_set(key, value):
-                return
-
-        # Store the value
-        self._set_value(key, value)
-
-        # Run post-set hooks
-        for strategy in self.strategies:
-            strategy.post_set(key, value)
-
-    def delete(self, key: KeyT) -> None:
-        """Delete key after checking with all strategies."""
-        # Run pre-delete hooks
-        for strategy in self.strategies:
-            if not strategy.pre_delete(key):
-                return
-
-        # Delete the value
-        self._delete_value(key)
-
-        # Run post-delete hooks
-        for strategy in self.strategies:
-            strategy.post_delete(key)
+    @abstractmethod
+    def _delete_value(self, key: KeyT) -> None:
+        """Actually delete the value from storage."""
+        pass
 
     @abstractmethod
     def _set_value(self, key: KeyT, value: Any) -> None:
