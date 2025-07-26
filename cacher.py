@@ -260,10 +260,13 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def set(self, key: KeyT, value: Any) -> None:
         """Set value after running it through all strategies."""
-        # Run pre-set hooks
-        for strategy in self.strategies:
-            if not strategy.pre_set(key, value):
-                return
+        # Run ALL pre-set hooks
+        proceed = all(
+            strategy.pre_set(key, value)
+            for strategy in self.strategies
+        )
+        if not proceed:
+            return
 
         # Store the value
         self._set_value(key, value)
