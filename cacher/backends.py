@@ -226,8 +226,8 @@ class MemoryBackend(CacheBackend[KeyT]):
 
     Good for temporary caching and testing. Data is lost when process exits.
     """
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, fn: Callable|None=None, **kwargs):
+        super().__init__(fn=fn, **kwargs)
         self._cache: dict[KeyT, Any] = {}
 
     def iter_keys(self) -> Iterator[KeyT]:
@@ -257,8 +257,8 @@ class SeparateFileBackend(CacheBackend[KeyT]):
     Good for large objects like embeddings or images where you want
     to manage each cached item independently.
     """
-    def __init__(self, cache_dir: str|Path, *, formatter: CacheFormatter, **kwargs):
-        super().__init__(formatter=formatter, **kwargs)
+    def __init__(self, cache_dir: str|Path, fn: Callable|None=None, *, formatter: CacheFormatter, **kwargs):
+        super().__init__(fn=fn, formatter=formatter, **kwargs)
         self.cache_dir = Path(kwargs['cache_dir'])
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -315,8 +315,8 @@ class JointFileBackend(CacheBackend[KeyT]):
     - `del cache[key]`: Delete key
     - `cache.clear()`: Clear all entries
     """
-    def __init__(self, cache_path: str|Path, *, formatter: CacheFormatter, **kwargs):
-        super().__init__(formatter=formatter, **kwargs)
+    def __init__(self, cache_path: str|Path, fn: Callable|None=None, *, formatter: CacheFormatter, **kwargs):
+        super().__init__(fn=fn, formatter=formatter, **kwargs)
         self.cache_path = Path(kwargs['cache_path'])
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._cache: dict[KeyT, Any] = {}

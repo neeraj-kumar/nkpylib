@@ -9,6 +9,59 @@ Implementation consists of:
 - CachePolicy: Base class for cache policies (TTL, limits, etc)
 - CacheFormatter: Base class for serialization formats
 
+
+# Examples
+
+Let's say we want to cache the results of a function that fetches some data from a remote API:
+
+```python
+
+from cacher import Cache, CacheBackend, CachePolicy, CacheFormatter
+
+
+def fetch_from_api(endpoint: str, **kwargs) -> dict:
+    print(f'fetching from api at {endpoint} with kw {kwargs}')
+    ...
+
+
+user1_posts = fetch_from_api('/posts', userId=1, sort='asc')
+#> fetching from api at /posts with kw {'userId': 1, 'sort': 'asc'}
+
+# Define a simple cache backend that stores data in memory
+cacher = MemoryBackend(fn=fetch_from_api)
+user1_posts_cached = cacher('/posts', userId=1, sort='asc')
+#> fetching from api at /posts with kw {'userId': 1, 'sort': 'asc'}
+assert user1_posts == user1_posts_cached
+user1_posts_cached = cacher('/posts', userId=1, sort='asc')
+#> (no output, cached result returned)
+assert user1_posts == user1_posts_cached
+```
+
+Or if you always want to cache outputs from that function, you can apply it as a decorator:
+
+```python
+cacher = MemoryBackend()
+
+@cacher
+def fetch_from_api(endpoint: str, **kwargs) -> dict:
+    ...
+
+user1_posts_cached = fetch_from_api('/posts', userId=1, sort='asc')
+
+```
+
+
+# OLD STUFF, ignore
+
+                 fn: Callable|None=None,
+                 *,
+                 formatter: CacheFormatter,
+                 keyer: Keyer|None = None,
+                 strategies: list[CacheStrategy]|None = None,
+                 error_on_missing: bool = True,
+                 **kwargs):
+
+
 Design for new version:
 - different key_funcs
 - runnable in background/async/futures/threads
