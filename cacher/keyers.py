@@ -52,8 +52,8 @@ class TupleKeyer(Keyer[tuple]):
         # Convert mappings
         if isinstance(obj, dict):
             return frozenset(
-                (k, self._make_hashable(v))
-                for k, v in sorted(obj.items())
+                (str(k), self._make_hashable(v))
+                for k, v in sorted(obj.items(), key=lambda x: str(x[0]))
             )
         # Convert sets
         if isinstance(obj, set):
