@@ -158,10 +158,10 @@ def test_json_formatter_basic():
     """Test basic JSON serialization/deserialization."""
     formatter = JsonFormatter()
     obj = {'a': 1, 'b': [2, 3], 'c': {'d': 4}}
-    
+
     data = formatter.dumps(obj)
     assert isinstance(data, bytes)
-    
+
     decoded = formatter.loads(data)
     assert decoded == obj
 
@@ -172,10 +172,10 @@ def test_json_formatter_custom_encoder():
             if isinstance(obj, set):
                 return list(obj)
             return super().default(obj)
-    
+
     formatter = JsonFormatter(EncoderCls=CustomEncoder)
     obj = {'a': {1, 2, 3}}  # Sets aren't normally JSON serializable
-    
+
     data = formatter.dumps(obj)
     decoded = formatter.loads(data)
     assert decoded == {'a': [1, 2, 3]}
@@ -189,13 +189,12 @@ def test_json_formatter_custom_decoder():
             if isinstance(obj, list):
                 return tuple(obj)
             if isinstance(obj, dict):
-                return {k: tuple(v) if isinstance(v, list) else v 
-                       for k, v in obj.items()}
+                return {k: tuple(v) if isinstance(v, list) else v for k, v in obj.items()}
             return obj
-    
+
     formatter = JsonFormatter(DecoderCls=CustomDecoder)
     obj = {'a': [1, 2, 3]}
-    
+
     data = formatter.dumps(obj)
     decoded = formatter.loads(data)
     assert decoded == {'a': (1, 2, 3)}
@@ -203,14 +202,14 @@ def test_json_formatter_custom_decoder():
 def test_json_formatter_invalid_input():
     """Test JSON formatter with invalid input."""
     formatter = JsonFormatter()
-    
+
     # Test invalid JSON bytes
     with pytest.raises(json.JSONDecodeError):
         formatter.loads(b'invalid json')
-    
+
     # Test non-serializable object
     class UnserializableObject:
         pass
-    
+
     with pytest.raises(TypeError):
         formatter.dumps(UnserializableObject())
