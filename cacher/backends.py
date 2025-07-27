@@ -17,6 +17,9 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     Each backend is initialized with a formatter that handles serialization.
     """
+    # Sentinel object for cache misses
+    CACHE_MISS = object()
+
     def __init__(self,
                  fn: Callable|None=None,
                  *,
@@ -202,14 +205,14 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def is_cache_miss(self, value: Any) -> bool:
         """Check if a value represents a cache miss."""
-        return value is None
+        return value is self.CACHE_MISS
 
-    def handle_cache_miss(self, key: KeyT) -> None:
+    def handle_cache_miss(self, key: KeyT) -> Any:
         """Handle a cache miss based on error_on_missing setting."""
         self.stats['misses'] += 1
         if self.error_on_missing:
             raise CacheNotFound(key)
-        return None
+        return self.CACHE_MISS
 
     def handle_cache_hit(self, key: KeyT, value: Any) -> Any:
         """Handle a cache hit."""
@@ -233,7 +236,7 @@ class MemoryBackend(CacheBackend[KeyT]):
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from memory cache."""
-        return self._cache.get(key)
+        return self._cache.get(key, self.CACHE_MISS)
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in memory cache."""
