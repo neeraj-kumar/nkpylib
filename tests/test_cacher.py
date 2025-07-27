@@ -3,12 +3,15 @@ import json
 import os
 import tempfile
 import time
+
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Callable
 
 import pytest
 
 from nkpylib.cacher.backends import CacheBackend, MemoryBackend
+from nkpylib.cacher.constants import CacheNotFound
 from nkpylib.cacher.file_utils import _write_atomic, _read_file
 from nkpylib.cacher.formatters import JsonFormatter
 from nkpylib.cacher.keyers import (
@@ -35,10 +38,11 @@ def expensive_instance():
     """Create an ExpensiveClass instance."""
     return ExpensiveClass(multiplier=2)
 
-class TestCacheBackend:
+class TestCacheBackend(ABC):
     """Base test class for all cache backends."""
-    
+
     @pytest.fixture
+    @abstractmethod
     def backend(self):
         """Default backend fixture that should be overridden by subclasses."""
         raise NotImplementedError("Subclasses must provide a backend fixture")
@@ -53,7 +57,8 @@ class TestCacheBackend:
         assert backend.get('key1') == 'value2'
 
         # Test missing key
-        assert backend.get('nonexistent') is None
+        with pytest.raises(CacheNotFound):
+            backend.get('nonexistent')
 
     def test_delete(self, backend: CacheBackend):
         """Test delete operation."""
@@ -61,7 +66,8 @@ class TestCacheBackend:
         assert backend.get('key1') == 'value1'
 
         backend.delete('key1')
-        assert backend.get('key1') is None
+        with pytest.raises(CacheNotFound):
+            backend.get('key1')
 
         # Delete nonexistent key should not raise
         backend.delete('nonexistent')
@@ -72,18 +78,22 @@ class TestCacheBackend:
         backend.set('key2', 'value2')
 
         backend.clear()
-        assert backend.get('key1') is None
-        assert backend.get('key2') is None
+        with pytest.raises(CacheNotFound):
+            backend.get('key1')
+            backend.get('key2')
 
     def test_stats(self, backend: CacheBackend):
         """Test hit/miss statistics."""
         # Test miss
-        backend.get('key1')
+        with pytest.raises(CacheNotFound):
+            backend.get('key1')
         assert backend.get_stats()['misses'] == 1
 
         # Test hit
         backend.set('key1', 'value1')
-        backend.get('key1')
+        assert backend.get('key1') == 'value1'
+        print(backend.get_stats())
+        assert backend.get_stats()['misses'] == 1
         assert backend.get_stats()['hits'] == 1
 
     def test_function_caching(self, backend: CacheBackend):
@@ -169,7 +179,8 @@ class TestMemoryBackend(TestCacheBackend):
 
         # New instance should start empty
         new_backend = MemoryBackend(formatter=JsonFormatter())
-        assert new_backend.get('key1') is None
+        with pytest.raises(CacheNotFound):
+            new_backend.get('key1')
 
 def test_write_atomic_creates_file():
     """Test that _write_atomic creates a file with the correct contents."""

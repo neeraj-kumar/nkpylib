@@ -1,3 +1,3 @@
 include ~/nk.mk
 
-BASE_PY_FILES=cacher.py keyers.py
+BASE_PY_FILES=cacher.py

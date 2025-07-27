@@ -7,6 +7,8 @@ from pathlib import Path
 
 def _write_atomic(path: Path, data: bytes) -> None:
     """Write data to a file atomically using a temporary file."""
+    # create parent dirs if they don't exist
+    path.parent.mkdir(parents=True, exist_ok=True)
     # Create temporary file in same directory to ensure atomic rename
     with tempfile.NamedTemporaryFile(
         mode='wb',

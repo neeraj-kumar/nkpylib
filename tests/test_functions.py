@@ -7,7 +7,7 @@ class ExpensiveClass:
     """A class with some expensive methods to test method caching."""
     def __init__(self, multiplier: int = 1):
         self.multiplier = multiplier
-    
+
     def expensive_method(self, x: int, y: int) -> int:
         """An expensive method that we'll want to cache."""
         time.sleep(0.1)  # Simulate expensive work

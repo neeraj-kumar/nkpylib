@@ -59,9 +59,16 @@ class CacheBackend(ABC, Generic[KeyT]):
         key = self._to_key(args, kwargs)
 
         # Try to get from cache
-        result = self.get(key)
-        if not self.is_cache_miss(result):
-            return self.handle_cache_hit(result)
+        if self.error_on_missing:
+            try:
+                result = self.get(key)
+                return result
+            except CacheNotFound:
+                pass
+        else:
+            result = self.get(key)
+            if not self.is_cache_miss(result):
+                return result
 
         # Not in cache, call function
         result = fn(*args, **kwargs)
@@ -114,7 +121,8 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in self.strategies:
             value = strategy.post_get(key, value)
 
-        return value
+        print(f'for key {key}, got value: {value}')
+        return self.handle_cache_hit(key, value)
 
     def set(self, key: KeyT, value: Any) -> None:
         """Set value after running it through all strategies."""
@@ -203,8 +211,9 @@ class CacheBackend(ABC, Generic[KeyT]):
             raise CacheNotFound(key)
         return None
 
-    def handle_cache_hit(self, value: Any) -> Any:
+    def handle_cache_hit(self, key: KeyT, value: Any) -> Any:
         """Handle a cache hit."""
+        print(f'handling cache hit for value: {value}')
         self.stats['hits'] += 1
         return value
 
