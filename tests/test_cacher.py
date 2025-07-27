@@ -1,7 +1,8 @@
+import hashlib
+import json
 import os
 import tempfile
 from pathlib import Path
-import hashlib
 
 import pytest
 
