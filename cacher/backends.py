@@ -278,7 +278,7 @@ class SeparateFileBackend(CacheBackend[KeyT]):
         try:
             return self.formatter.loads(data)
         except Exception:
-            return self.not_found(key)
+            return self.CACHE_MISS
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in file storage."""
