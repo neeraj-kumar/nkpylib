@@ -257,17 +257,22 @@ class SeparateFileBackend(CacheBackend[KeyT]):
     Good for large objects like embeddings or images where you want
     to manage each cached item independently.
     """
-    def __init__(self, cache_dir: str|Path, fn: Callable|None=None, *, formatter: CacheFormatter, **kwargs):
+    def __init__(self, cache_dir: str|Path, filename_fn: Callable|None=None, fn: Callable|None=None, *, formatter: CacheFormatter, **kwargs):
         super().__init__(fn=fn, formatter=formatter, **kwargs)
+        self.filename_fn = filename_fn
         self.cache_dir = Path(kwargs['cache_dir'])
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _key_to_path(self, key: KeyT) -> Path:
         """Convert cache key to filesystem path."""
-        # Use key as filename, replacing invalid chars
-        #FIXME
-        safe_key = "".join(c if c.isalnum() else '_' for c in key)
-        return self.cache_dir / safe_key
+        if self.filename_fn:
+            # Use custom filename function if provided
+            filename = self.filename_fn(key)
+        else:
+            filename = str(key)
+        # replace invalid chars #FIXME
+        filename = "".join(c if c.isalnum() else '_' for c in filename)
+        return self.cache_dir / filename
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from file storage."""
