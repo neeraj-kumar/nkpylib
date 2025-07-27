@@ -37,6 +37,11 @@ def expensive_instance():
 
 class TestCacheBackend:
     """Base test class for all cache backends."""
+    
+    @pytest.fixture
+    def backend(self):
+        """Default backend fixture that should be overridden by subclasses."""
+        raise NotImplementedError("Subclasses must provide a backend fixture")
 
     def test_basic_get_set(self, backend: CacheBackend):
         """Test basic get/set operations."""
