@@ -60,8 +60,8 @@ class CacheBackend(ABC, Generic[KeyT]):
 
         # Try to get from cache
         result = self.get(key)
-        if result is not None:
-            return result
+        if not self.is_cache_miss(result):
+            return self.handle_cache_hit(result)
 
         # Not in cache, call function
         result = fn(*args, **kwargs)
@@ -103,14 +103,12 @@ class CacheBackend(ABC, Generic[KeyT]):
             for strategy in self.strategies
         )
         if not proceed:
-            return self.not_found(key)
+            return self.handle_cache_miss(key)
 
         # Get the value
         value = self._get_value(key)
-        if value is None:
-            self.stats['misses'] += 1
-            return self.not_found(key)
-        self.stats['hits'] += 1
+        if self.is_cache_miss(value):
+            return self.handle_cache_miss(key)
 
         # Run post-get hooks
         for strategy in self.strategies:
@@ -194,12 +192,21 @@ class CacheBackend(ABC, Generic[KeyT]):
         """Iterate over all keys in the cache."""
         raise NotImplementedError("iter_keys not implemented")
 
-    def not_found(self, key: KeyT) -> None:
-        """Return `None` or raise `CacheNotFound` based on `error_on_missing`."""
+    def is_cache_miss(self, value: Any) -> bool:
+        """Check if a value represents a cache miss."""
+        return value is None
+
+    def handle_cache_miss(self, key: KeyT) -> None:
+        """Handle a cache miss based on error_on_missing setting."""
+        self.stats['misses'] += 1
         if self.error_on_missing:
             raise CacheNotFound(key)
-        else:
-            return None
+        return None
+
+    def handle_cache_hit(self, value: Any) -> Any:
+        """Handle a cache hit."""
+        self.stats['hits'] += 1
+        return value
 
 
 class MemoryBackend(CacheBackend[KeyT]):
@@ -254,8 +261,8 @@ class SeparateFileBackend(CacheBackend[KeyT]):
         """Get value from file storage."""
         path = self._key_to_path(key)
         data = _read_file(path)
-        if data is None:
-            return self.not_found(key)
+        if self.is_cache_miss(data):
+            return self.handle_cache_miss(key)
         try:
             return self.formatter.loads(data)
         except Exception:
