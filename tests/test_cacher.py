@@ -67,7 +67,6 @@ def test_read_file_permission_error():
         assert _read_file(path) is None
 
 # Keyer Tests
-
 def test_tuple_keyer_basic():
     """Test TupleKeyer with basic types."""
     keyer = TupleKeyer()
@@ -83,7 +82,7 @@ def test_tuple_keyer_nested():
     args = ([1, 2], {"a": [3, 4]}, {5, 6})
     kwargs = {"x": [7, 8], "y": {"b": 9}}
     key = keyer.make_key(args, kwargs)
-    
+
     # Check types are converted
     assert isinstance(key[0], tuple)  # list -> tuple
     assert isinstance(key[1], frozenset)  # dict -> frozenset
@@ -95,18 +94,18 @@ def test_tuple_keyer_unhashable():
     class UnhashableObject:
         def __hash__(self):
             raise TypeError("unhashable")
-    
+
     keyer = TupleKeyer()
     obj = UnhashableObject()
-    key = keyer.make_key((obj,), {})
-    assert isinstance(key[0], int)  # Should use object's hash
+    with pytest.raises(TypeError):
+        key = keyer.make_key((obj,), {})
 
 def test_string_keyer():
     """Test StringKeyer produces consistent string keys."""
     keyer = StringKeyer()
-    key1 = keyer.make_key((1, "test"), {"x": 2})
-    key2 = keyer.make_key((1, "test"), {"x": 2})
-    
+    key1 = keyer.make_key((1, "test"), {1: 'a', "x": 2})
+    key2 = keyer.make_key((1, "test"), {"x": 2, 1: 'a'})
+
     assert isinstance(key1, str)
     assert key1 == key2
 
@@ -114,7 +113,7 @@ def test_hash_string_keyer_builtin():
     """Test HashStringKeyer with builtin hash function."""
     keyer = HashStringKeyer('sha256')
     key = keyer.make_key((1, "test"), {"x": 2})
-    
+
     assert isinstance(key, str)
     assert len(key) == 64  # sha256 hex digest length
 
@@ -122,7 +121,7 @@ def test_hash_string_keyer_custom():
     """Test HashStringKeyer with custom hash function."""
     def custom_hash(s: str) -> str:
         return 'hash_' + s
-    
+
     keyer = HashStringKeyer(custom_hash)
     key = keyer.make_key((1,), {})
     assert key.startswith('hash_')
@@ -131,7 +130,7 @@ def test_hash_bytes_keyer_builtin():
     """Test HashBytesKeyer with builtin hash function."""
     keyer = HashBytesKeyer('sha256')
     key = keyer.make_key((1, "test"), {"x": 2})
-    
+
     assert isinstance(key, bytes)
     assert len(key) == 32  # sha256 raw digest length
 
@@ -139,7 +138,7 @@ def test_hash_bytes_keyer_custom():
     """Test HashBytesKeyer with custom hash function."""
     def custom_hash(s: str) -> bytes:
         return b'hash_' + s.encode()
-    
+
     keyer = HashBytesKeyer(custom_hash)
     key = keyer.make_key((1,), {})
     assert key.startswith(b'hash_')
@@ -148,6 +147,6 @@ def test_hash_keyer_invalid_algorithm():
     """Test HashKeyers raise error for invalid hash algorithm."""
     with pytest.raises(ValueError):
         HashStringKeyer('invalid_algorithm')
-    
+
     with pytest.raises(ValueError):
         HashBytesKeyer('invalid_algorithm')
