@@ -17,65 +17,77 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     Each backend is initialized with a formatter that handles serialization.
     """
-    def __init__(self, *,
+    def __init__(self,
+                 fn: Callable|None=None,
+                 *,
                  formatter: CacheFormatter,
                  keyer: Keyer|None = None,
                  strategies: list[CacheStrategy]|None = None,
                  error_on_missing: bool = True,
-                 fn: Callable|None = None,
                  **kwargs):
+        self.fn = fn
         self.formatter = formatter
         self.keyer = keyer or TupleKeyer()
         self.strategies = strategies or []
         self.error_on_missing = error_on_missing
-        self.fn = fn
         self.stats: dict[str, int] = {
             'hits': 0,
             'misses': 0,
             'evictions': 0
         }
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        """Call the cached function with the given arguments.
-        
-        If no function was provided at initialization, raises TypeError.
+    def _to_key(self, args: tuple, kwargs: dict) -> KeyT:
+        """Convert function arguments to a cache key using the keyer."""
+        return self.keyer.make_key(args, kwargs)
+
+    def call_with_cache(self, fn: Callable, *args: Any, **kwargs: Any) -> Any:
+        """Call a function with caching.
+
+        Note that we do not use the instance's `fn` attribute here, and we also don't check our
+        cache for the function itself, and hence the cache might not be for the right thing if
+        you're not careful.
+
+        Args:
+            fn: The function to call
+            *args: Positional arguments for the function
+            **kwargs: Keyword arguments for the function
+
+        Returns:
+            The cached result or the result of the function call.
         """
-        if self.fn is None:
-            raise TypeError("No function provided to cache")
-            
         # Convert function arguments to cache key
-        key = self.keyer.make_key(args, kwargs)
-        
+        key = self._to_key(args, kwargs)
+
         # Try to get from cache
         result = self.get(key)
         if result is not None:
             return result
-            
+
         # Not in cache, call function
-        result = self.fn(*args, **kwargs)
-        
+        result = fn(*args, **kwargs)
+
         # Store in cache
         self.set(key, result)
-        
         return result
 
-    def as_decorator(self, keyer: Keyer|None = None) -> Callable:
-        """Create a decorator that will cache function results.
-        
-        Args:
-            keyer: Optional Keyer instance to override the default one.
-            
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        """Call our cached function with the given arguments."""
+        return self.call_with_cache(self.fn, *args, **kwargs)
+
+    def as_decorator(self) -> Callable:
+        """Returns this cacher as a decorator that will cache function results.
+
         Returns:
             A decorator function that will cache results of the decorated function.
         """
         def decorator(func: Callable) -> CacheBackend:
             # Create new instance with same config but with the function
             return self.__class__(
+                fn=func,
                 formatter=self.formatter,
-                keyer=keyer or self.keyer,
+                keyer=self.keyer,
                 strategies=self.strategies,
                 error_on_missing=self.error_on_missing,
-                fn=func
             )
         return decorator
 
