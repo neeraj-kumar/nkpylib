@@ -10,7 +10,7 @@ import pytest
 
 from nkpylib.cacher.backends import CacheBackend, MemoryBackend
 from nkpylib.cacher.file_utils import _write_atomic, _read_file
-from nkpylib.cacher.formatters import CacheFormatter, JsonFormatter
+from nkpylib.cacher.formatters import JsonFormatter
 from nkpylib.cacher.keyers import (
     TupleKeyer, StringKeyer, HashStringKeyer, HashBytesKeyer
 )
@@ -37,101 +37,101 @@ def expensive_instance():
 
 class TestCacheBackend:
     """Base test class for all cache backends."""
-    
+
     def test_basic_get_set(self, backend: CacheBackend):
         """Test basic get/set operations."""
         backend.set('key1', 'value1')
         assert backend.get('key1') == 'value1'
-        
+
         # Test overwrite
         backend.set('key1', 'value2')
         assert backend.get('key1') == 'value2'
-        
+
         # Test missing key
         assert backend.get('nonexistent') is None
-    
+
     def test_delete(self, backend: CacheBackend):
         """Test delete operation."""
         backend.set('key1', 'value1')
         assert backend.get('key1') == 'value1'
-        
+
         backend.delete('key1')
         assert backend.get('key1') is None
-        
+
         # Delete nonexistent key should not raise
         backend.delete('nonexistent')
-    
+
     def test_clear(self, backend: CacheBackend):
         """Test clear operation."""
         backend.set('key1', 'value1')
         backend.set('key2', 'value2')
-        
+
         backend.clear()
         assert backend.get('key1') is None
         assert backend.get('key2') is None
-    
+
     def test_stats(self, backend: CacheBackend):
         """Test hit/miss statistics."""
         # Test miss
         backend.get('key1')
         assert backend.get_stats()['misses'] == 1
-        
+
         # Test hit
         backend.set('key1', 'value1')
         backend.get('key1')
         assert backend.get_stats()['hits'] == 1
-    
+
     def test_function_caching(self, backend: CacheBackend):
         """Test caching a pure function."""
         cached_fib = backend.__class__(
             fn=fibonacci,
             formatter=backend.formatter
         )
-        
+
         # First call should compute
         result1 = cached_fib(10)
         assert result1 == fibonacci(10)
         assert cached_fib.get_stats()['misses'] == 1
-        
+
         # Second call should hit cache
         result2 = cached_fib(10)
         assert result2 == result1
         assert cached_fib.get_stats()['hits'] == 1
-    
+
     def test_method_caching(self, backend: CacheBackend, expensive_instance):
         """Test caching an instance method."""
         cached_method = backend.__class__(
             fn=expensive_instance.expensive_method,
             formatter=backend.formatter
         )
-        
+
         # First call should compute
         result1 = cached_method(3, 4)
         assert result1 == 24  # (3 * 4) * multiplier(2)
         assert cached_method.get_stats()['misses'] == 1
-        
+
         # Second call should hit cache
         result2 = cached_method(3, 4)
         assert result2 == result1
         assert cached_method.get_stats()['hits'] == 1
-    
+
     def test_network_caching(self, backend: CacheBackend, test_url):
         """Test caching network requests."""
         cached_fetch = backend.__class__(
             fn=fetch_url_size,
             formatter=backend.formatter
         )
-        
+
         # First call should fetch
         size1 = cached_fetch(test_url)
         assert isinstance(size1, int)
         assert cached_fetch.get_stats()['misses'] == 1
-        
+
         # Second call should hit cache
         size2 = cached_fetch(test_url)
         assert size2 == size1
         assert cached_fetch.get_stats()['hits'] == 1
-    
+
     def test_nondeterministic_caching(self, backend: CacheBackend):
         """Test caching non-deterministic function."""
         items = ['a', 'b', 'c']
@@ -139,12 +139,12 @@ class TestCacheBackend:
             fn=random_choice,
             formatter=backend.formatter
         )
-        
+
         # First call gets random choice
         result1 = cached_choice(items)
         assert result1 in items
         assert cached_choice.get_stats()['misses'] == 1
-        
+
         # Subsequent calls should return same value
         for _ in range(10):
             assert cached_choice(items) == result1
@@ -152,16 +152,16 @@ class TestCacheBackend:
 
 class TestMemoryBackend(TestCacheBackend):
     """Test MemoryBackend specific functionality."""
-    
+
     @pytest.fixture
     def backend(self, memory_backend):
         """Provide backend for base class tests."""
         return memory_backend
-    
+
     def test_memory_persistence(self, memory_backend):
         """Test that MemoryBackend persists only in memory."""
         memory_backend.set('key1', 'value1')
-        
+
         # New instance should start empty
         new_backend = MemoryBackend(formatter=JsonFormatter())
         assert new_backend.get('key1') is None
