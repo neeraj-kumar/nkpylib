@@ -9,6 +9,7 @@ from nkpylib.cacher.file_utils import _write_atomic, _read_file
 from nkpylib.cacher.keyers import (
     TupleKeyer, StringKeyer, HashStringKeyer, HashBytesKeyer
 )
+from nkpylib.cacher.formatters import CacheFormatter, JsonFormatter
 
 def test_write_atomic_creates_file():
     """Test that _write_atomic creates a file with the correct contents."""
@@ -150,3 +151,65 @@ def test_hash_keyer_invalid_algorithm():
 
     with pytest.raises(ValueError):
         HashBytesKeyer('invalid_algorithm')
+
+# Formatter Tests
+def test_json_formatter_basic():
+    """Test basic JSON serialization/deserialization."""
+    formatter = JsonFormatter()
+    obj = {'a': 1, 'b': [2, 3], 'c': {'d': 4}}
+    
+    data = formatter.dumps(obj)
+    assert isinstance(data, bytes)
+    
+    decoded = formatter.loads(data)
+    assert decoded == obj
+
+def test_json_formatter_custom_encoder():
+    """Test JSON formatter with custom encoder."""
+    class CustomEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, set):
+                return list(obj)
+            return super().default(obj)
+    
+    formatter = JsonFormatter(EncoderCls=CustomEncoder)
+    obj = {'a': {1, 2, 3}}  # Sets aren't normally JSON serializable
+    
+    data = formatter.dumps(obj)
+    decoded = formatter.loads(data)
+    assert decoded == {'a': [1, 2, 3]}
+
+def test_json_formatter_custom_decoder():
+    """Test JSON formatter with custom decoder."""
+    class CustomDecoder(json.JSONDecoder):
+        def decode(self, s):
+            obj = super().decode(s)
+            # Convert all lists to tuples
+            if isinstance(obj, list):
+                return tuple(obj)
+            if isinstance(obj, dict):
+                return {k: tuple(v) if isinstance(v, list) else v 
+                       for k, v in obj.items()}
+            return obj
+    
+    formatter = JsonFormatter(DecoderCls=CustomDecoder)
+    obj = {'a': [1, 2, 3]}
+    
+    data = formatter.dumps(obj)
+    decoded = formatter.loads(data)
+    assert decoded == {'a': (1, 2, 3)}
+
+def test_json_formatter_invalid_input():
+    """Test JSON formatter with invalid input."""
+    formatter = JsonFormatter()
+    
+    # Test invalid JSON bytes
+    with pytest.raises(json.JSONDecodeError):
+        formatter.loads(b'invalid json')
+    
+    # Test non-serializable object
+    class UnserializableObject:
+        pass
+    
+    with pytest.raises(TypeError):
+        formatter.dumps(UnserializableObject())
