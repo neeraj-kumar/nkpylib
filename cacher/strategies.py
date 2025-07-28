@@ -24,6 +24,7 @@ class CacheStrategy(Generic[KeyT]):
     """
     def __init__(self, backend=None):
         self._backend = backend
+
     def pre_get(self, key: KeyT) -> bool:
         """Called before retrieving a value.
 
@@ -181,11 +182,15 @@ class BackgroundWriteStrategy(CacheStrategy[KeyT]):
 
     def pre_clear(self) -> bool:
         """Queue the clear operation."""
-        try:
-            self.write_queue.put(('clear', None, None), block=False)
-            return False  # Skip the normal clear
-        except queue.Full:
-            return True  # Queue full, do normal clear
+        # clear our queue
+        while not self.write_queue.empty():
+            try:
+                self.write_queue.get_nowait()
+                self.write_queue.task_done()
+            except queue.Empty:
+                break
+        self.write_queue.put(('clear', None, None), block=False)
+        return False  # Skip the normal clear
 
     def wait(self, timeout: float|None = None) -> bool:
         """Wait for all queued operations to complete.
