@@ -50,7 +50,7 @@ user1_posts_cached = fetch_from_api('/posts', userId=1, sort='asc')
 ```
 
 Now let's say you want to store the cache to disk as JSON files, one per separate set of request
-parameters:
+parameters. This is useful for longer-term caching, across multiple runs of your program.
 ```python
 from cacher import SeparateFileBackend, JsonFormatter
 
@@ -109,6 +109,9 @@ class ApiClient:
         print(f'fetching from api at {endpoint} with kw {kwargs}')
         ...
 ```
+
+## Keyers
+
 So far, we've been using the default `Keyer`, which generates a filename based on the input args and
 kwargs to the function. This works fine for many cases, and has the advantage that the filenames are
 human-readable, which is useful for debugging and manual inspection of the cache. However,
@@ -149,6 +152,8 @@ cacher('/posts', userId=1, sort='asc')
 # Now the results of that call are stored in '/cache/dir/5f4d/5f4dcc3b5aa765d61d8327deb882cf99.json'
 ```
 
+## Strategies
+
 Of course, one problem with using a disk cache is that it stores stuff forever, which can lead to
 results being out of date. You can use a `TTLPolicy` (which is a type of `Strategy`) to automatically
 invalidate cached entries after a day:
@@ -187,6 +192,13 @@ cacher = SeparateFileBackend(
     ],
 )
 ```
+Strategies are implemented as set of hooks that run pre- and post- various operations, such as
+checking for a cached value, writing to the cache, etc. You can add as many strategies to a cacher
+as you like (they are applied in the order specified, in case that matters). You can also implement
+your own strategies.
+
+## Other backends
+
 An alternate way to store the cached data is in a single JSON file, where each top-level key is a
 hash of the input parameters. You can do that by using a `JointFileBackend` instead of the
 `SeparateFileBackend`:
@@ -207,6 +219,47 @@ cacher = JointFileBackend(
 
 cacher('/posts', userId=1, sort='asc')
 # Now the results of that call are stored in '/cache/dir/api_cache.json', under the key '5f4dcc3b5aa765d61d8327deb882cf99'
+```
+
+While this can be useful for some limited cases, keep in mind that there are limitations in using a
+single json file for caching. In particular, it has to be read and parsed every time you want to
+read or write to it. A simple strategy if you want both speed and durability is to use multiple
+cachers. This can be done via the `MultiplexBackend`:
+
+```python
+from cacher import MultiplexBackend, SeparateFileBackend, JsonFormatter, HashStringKeyer, TTLPolicy, RateLimiter
+
+mem_cacher = MemoryBackend(fn=fetch_from_api)
+disk_cacher = SeparateFileBackend(
+    fn=fetch_from_api,
+    formatter=JsonFormatter(),
+    cache_dir='/cache/dir',
+    keyer=HashStringKeyer(),
+    strategies=[
+        TTLPolicy(ttl_seconds=60*60*24),
+        RateLimiter(min_interval=1.0),
+    ],
+)
+
+cacher = MultiplexBackend(backends=[mem_cacher, disk_cacher])
+cacher('/posts', userId=1, sort='asc')
+```
+
+TODO explanation of how this deals with write-through, etc
+
+However, in many cases you are probably better off using a database of some kind as your cache
+backend. We currently offer support for sql-based databases, LMDB, and redis:
+```python
+from cacher import SQLBackend, LMDBBackend, RedisBackend, JsonFormatter, HashStringKeyer
+
+std_kw = dict(fn=fetch_from_api, formatter=JsonFormatter(), keyer=HashStringKeyer())
+
+sql_cacher = SQLBackend(engine='sqlite:///cache.db', table='api_cache', **std_kw)
+
+lmdb_cacher = LMDBBackend(db_path='/cache/dir/cache.lmdb', **std_kw)
+
+redis_kw = dict(host='localhost', port=6379, db=0, password=None)
+redis_cacher = RedisBackend(**redis_kw, **std_kw)
 ```
 
 

@@ -4,6 +4,9 @@ Design for new version:
   - maybe backends can specify a prefix that gets prepended to all (or some?) keys
 - different key_funcs
 - runnable in background/async/futures/threads
+- backends
+  - sql db
+- write-through vs write-back
 - batchable
 - decorable
 - ignore certain args
