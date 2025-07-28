@@ -22,6 +22,8 @@ class CacheStrategy(Generic[KeyT]):
     - pre_delete: Before deleting a value
     - post_delete: After deleting a value
     """
+    def __init__(self, backend=None):
+        self._backend = backend
     def pre_get(self, key: KeyT) -> bool:
         """Called before retrieving a value.
 

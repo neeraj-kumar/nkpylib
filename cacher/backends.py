@@ -31,7 +31,10 @@ class CacheBackend(ABC, Generic[KeyT]):
         self.fn = fn
         self.formatter = formatter
         self.keyer = keyer or TupleKeyer()
-        self.strategies = strategies or []
+        self.strategies = []
+        for strategy in (strategies or []):
+            strategy._backend = self
+            self.strategies.append(strategy)
         self.error_on_missing = error_on_missing
         self.stats: dict[str, int] = {
             'hits': 0,
