@@ -1,5 +1,7 @@
 Design for new version:
 - deal with errors in the API
+- caching many different functions and including function in the cache key
+  - maybe backends can specify a prefix that gets prepended to all (or some?) keys
 - different key_funcs
 - runnable in background/async/futures/threads
 - batchable
