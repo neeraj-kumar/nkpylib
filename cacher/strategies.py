@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC
+import queue
+import threading
 import time
 from typing import Any, Generic
 
@@ -122,5 +124,91 @@ class TTLPolicy(CacheStrategy[KeyT]):
 
     def post_clear(self) -> None:
         self.timestamps.clear()
+
+
+class AsyncWriteStrategy(CacheStrategy[KeyT]):
+    """Strategy that performs cache writes in a background thread.
+    
+    This is useful when:
+    - Cache writes are slow (e.g., to disk or network)
+    - You want to return to the caller quickly
+    - Write order doesn't matter
+    - It's ok if the most recent writes are lost on crash
+    """
+    def __init__(self, queue_size: int = 1000):
+        """Initialize with maximum queue size."""
+        self.write_queue: queue.Queue[tuple[str, KeyT, Any]] = queue.Queue(maxsize=queue_size)
+        self.stop_event = threading.Event()
+        self.worker = threading.Thread(target=self._worker, daemon=True)
+        self.worker.start()
+    
+    def _worker(self):
+        """Background thread that processes writes."""
+        while not self.stop_event.is_set():
+            try:
+                # Wait for work with timeout to check stop_event periodically
+                op, key, value = self.write_queue.get(timeout=0.1)
+                if op == 'set':
+                    self._backend._set_value(key, value)
+                elif op == 'delete':
+                    self._backend._delete_value(key)
+                elif op == 'clear':
+                    self._backend._clear()
+                self.write_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error in async write worker: {e}")
+    
+    def pre_set(self, key: KeyT, value: Any) -> bool:
+        """Queue the write operation."""
+        try:
+            self.write_queue.put(('set', key, value), block=False)
+            return False  # Skip the normal write
+        except queue.Full:
+            return True  # Queue full, do normal write
+    
+    def pre_delete(self, key: KeyT) -> bool:
+        """Queue the delete operation."""
+        try:
+            self.write_queue.put(('delete', key, None), block=False)
+            return False  # Skip the normal delete
+        except queue.Full:
+            return True  # Queue full, do normal delete
+    
+    def pre_clear(self) -> bool:
+        """Queue the clear operation."""
+        try:
+            self.write_queue.put(('clear', None, None), block=False)
+            return False  # Skip the normal clear
+        except queue.Full:
+            return True  # Queue full, do normal clear
+    
+    def wait(self, timeout: float|None = None) -> bool:
+        """Wait for all queued operations to complete.
+        
+        Args:
+            timeout: Maximum time to wait in seconds, or None to wait forever
+            
+        Returns:
+            True if all operations completed, False if timeout occurred
+        """
+        try:
+            self.write_queue.join()
+            return True
+        except TimeoutError:
+            return False
+    
+    def stop(self, timeout: float|None = None):
+        """Stop the background thread and wait for it to finish.
+        
+        Args:
+            timeout: Maximum time to wait in seconds, or None to wait forever
+        """
+        self.stop_event.set()
+        if timeout is not None:
+            self.worker.join(timeout)
+        else:
+            self.worker.join()
 
 
