@@ -202,6 +202,83 @@ class CacheBackend(ABC, Generic[KeyT]):
         for key in list(self.iter_keys()):
             self._delete_value(key)
 
+    def get_many(self, keys: list[KeyT]) -> dict[KeyT, Any]:
+        """Get multiple values at once.
+        
+        Args:
+            keys: List of cache keys to retrieve
+            
+        Returns:
+            Dict mapping keys to their values, only including found items
+        """
+        results = {}
+        for key in keys:
+            try:
+                value = self.get(key)
+                if not self.is_cache_miss(value):
+                    results[key] = value
+            except CacheNotFound:
+                continue
+        return results
+
+    def set_many(self, items: dict[KeyT, Any]) -> None:
+        """Set multiple key/value pairs at once.
+        
+        Args:
+            items: Dict mapping keys to values to cache
+        """
+        for key, value in items.items():
+            self.set(key, value)
+
+    def call_with_batch_cache(self, fn: Callable[[list], list], items: list) -> list:
+        """Call function with batched input, using cache where possible.
+        
+        Args:
+            fn: Function that takes a list of items and returns list of results
+            items: List of items to process
+            
+        Returns:
+            List of results in same order as input items
+        """
+        # Convert each item to a cache key
+        keys = [self._to_key((item,), {}) for item in items]
+        key_to_idx = {key: i for i, key in enumerate(keys)}
+        
+        # Get cached results
+        cached = self.get_many(keys)
+        
+        # Find items that need computing
+        uncached_indices = [i for i, key in enumerate(keys) if key not in cached]
+        if not uncached_indices:
+            # Everything was cached
+            return [cached[key] for key in keys]
+        
+        # Compute uncached items
+        uncached_items = [items[i] for i in uncached_indices]
+        new_results = fn(uncached_items)
+        
+        if len(new_results) != len(uncached_items):
+            raise ValueError(
+                f"Batch function returned {len(new_results)} results "
+                f"for {len(uncached_items)} inputs"
+            )
+        
+        # Cache new results
+        new_items = {
+            keys[uncached_indices[i]]: result
+            for i, result in enumerate(new_results)
+        }
+        self.set_many(new_items)
+        
+        # Combine cached and new results
+        all_results = list(items)  # Make same size as input
+        for key, value in cached.items():
+            all_results[key_to_idx[key]] = value
+        for i, value in zip(uncached_indices, new_results):
+            all_results[i] = value
+            
+        return all_results
+
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache."""
         raise NotImplementedError("iter_keys not implemented")
