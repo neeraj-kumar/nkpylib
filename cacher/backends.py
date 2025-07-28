@@ -38,6 +38,8 @@ class CacheBackend(ABC, Generic[KeyT]):
             strategy._backend = self
             self.strategies.append(strategy)
         self.error_on_missing = error_on_missing
+        self.batch_extractor = batch_extractor
+        self.batch_combiner = batch_combiner
         self.stats: dict[str, int] = {
             'hits': 0,
             'misses': 0,
