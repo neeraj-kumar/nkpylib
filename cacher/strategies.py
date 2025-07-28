@@ -6,6 +6,7 @@ import queue
 import threading
 import time
 
+import atexit
 from abc import ABC
 from typing import Any, Generic
 
@@ -139,12 +140,14 @@ class BackgroundWriteStrategy(CacheStrategy[KeyT]):
     - Write order doesn't matter
     - It's ok if the most recent writes are lost on crash
     """
-    def __init__(self, queue_size: int = 1000):
-        """Initialize with maximum queue size."""
+    def __init__(self, queue_size: int = 1000, daemon: bool = True):
+        """Initialize with maximum queue size and daemon thread setting."""
         self.write_queue: queue.Queue[tuple[str, KeyT, Any]] = queue.Queue(maxsize=queue_size)
         self.stop_event = threading.Event()
-        self.worker = threading.Thread(target=self._worker, daemon=True)
+        self.worker = threading.Thread(target=self._worker, daemon=daemon)
         self.worker.start()
+        # Register shutdown handler
+        atexit.register(self.shutdown)
 
     def _worker(self):
         """Background thread that processes writes."""
@@ -207,16 +210,30 @@ class BackgroundWriteStrategy(CacheStrategy[KeyT]):
         except TimeoutError:
             return False
 
-    def stop(self, timeout: float|None = None):
-        """Stop the background thread and wait for it to finish.
-
+    def shutdown(self, timeout: float|None = None):
+        """Process remaining items and stop the worker thread.
+        
+        This:
+        1. Stops accepting new items
+        2. Processes remaining items in queue
+        3. Stops the worker thread
+        4. Waits for the thread to finish
+        
         Args:
             timeout: Maximum time to wait in seconds, or None to wait forever
         """
+        # Stop accepting new items and wait for queue to empty
+        self.wait(timeout)
+        
+        # Stop the worker and wait for it to finish
         self.stop_event.set()
         if timeout is not None:
             self.worker.join(timeout)
         else:
             self.worker.join()
+    
+    def stop(self, timeout: float|None = None):
+        """Deprecated: Use shutdown() instead."""
+        self.shutdown(timeout)
 
 
