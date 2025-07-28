@@ -7,7 +7,15 @@ Design for new version:
 - backends
   - sql db
 - write-through vs write-back
+- multiple backends can reuse same strategy?
 - batchable
+  - first input as list
+  - multiple inputs as parallel lists
+  - cartesian product of input args
+  - one output per input
+  - single output, with multiple in subkey
+  - input as dict
+  - output as dict
 - decorable
 - ignore certain args
 - cache a list or dict:
@@ -21,7 +29,6 @@ Design for new version:
   - other?
 - single-value cache with different keys
   - e.g. the embeddings cache which checks for current normed, scale_mean, scale_std
-- TTL
 - ignore cache for individual calls
 - archival
 - delay + variance
@@ -44,3 +51,22 @@ Design for new version:
         from time import sleep; sleep(1) # <- simulating a long-running process
         return external_counter + a + b + c
 
+
+error_on_missing controls whether a cache miss raises a CacheNotFound exception (when True) or returns the CACHE_MISS 
+sentinel value (when False).                                                                                          
+
+Reasons you might want error_on_missing=False:                                                                        
+
+ 1 When using the cache as an optimization but want to handle misses silently                                         
+ 2 When checking if something exists in cache without wanting to handle exceptions                                    
+ 3 When implementing a multi-level cache where misses should fall through to the next level                           
+ 4 When the cache is optional/best-effort and shouldn't affect program flow                                           
+
+Reasons you might want error_on_missing=True:                                                                         
+
+ 1 To force explicit handling of cache misses                                                                         
+ 2 When cache misses indicate a programming error                                                                     
+ 3 When the cache is required for correct operation                                                                   
+ 4 To make it obvious where cache misses occur during development                                                     
+
+The choice often depends on whether cache misses are exceptional conditions or normal operation in your use case.     

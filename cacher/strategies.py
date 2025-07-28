@@ -195,45 +195,27 @@ class BackgroundWriteStrategy(CacheStrategy[KeyT]):
         self.write_queue.put(('clear', None, None), block=False)
         return False  # Skip the normal clear
 
-    def wait(self, timeout: float|None = None) -> bool:
-        """Wait for all queued operations to complete.
-
-        Args:
-            timeout: Maximum time to wait in seconds, or None to wait forever
-
-        Returns:
-            True if all operations completed, False if timeout occurred
-        """
-        try:
-            self.write_queue.join()
-            return True
-        except TimeoutError:
-            return False
-
     def shutdown(self, timeout: float|None = None):
         """Process remaining items and stop the worker thread.
-        
+
         This:
         1. Stops accepting new items
         2. Processes remaining items in queue
         3. Stops the worker thread
         4. Waits for the thread to finish
-        
+
         Args:
             timeout: Maximum time to wait in seconds, or None to wait forever
         """
         # Stop accepting new items and wait for queue to empty
-        self.wait(timeout)
-        
+        try:
+            self.write_queue.join(timeout=timeout)
+        except TimeoutError:
+            pass
+
         # Stop the worker and wait for it to finish
         self.stop_event.set()
         if timeout is not None:
             self.worker.join(timeout)
         else:
             self.worker.join()
-    
-    def stop(self, timeout: float|None = None):
-        """Deprecated: Use shutdown() instead."""
-        self.shutdown(timeout)
-
-

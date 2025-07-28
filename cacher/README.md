@@ -6,11 +6,12 @@ Written by Neeraj Kumar <me@neerajkumar.org>
 Implementation consists of:
 - Cache: Main class managing multiple backends and policies
 - CacheBackend: Base class for storage+formatter combinations
-- CachePolicy: Base class for cache policies (TTL, limits, etc)
+- CacheStrategy: Base class for cache strategies (TTL, rate limits, etc)
 - CacheFormatter: Base class for serialization formats
 
 
 # Examples
+## Basic Usage
 
 Let's say we want to cache the results of a function that fetches some data from a remote API:
 
@@ -197,6 +198,11 @@ checking for a cached value, writing to the cache, etc. You can add as many stra
 as you like (they are applied in the order specified, in case that matters). You can also implement
 your own strategies.
 
+Another very helpful strategy is `BackgroundWriteStrategy`, which allows you to write to the backend
+using a background thread. This is useful if you want to avoid blocking the main thread, with the
+tradeoff that not every write will be reflected immediately in the cache (and you might lose some
+cache entries if the program ends unexpectedly).
+
 ## Other backends
 
 An alternate way to store the cached data is in a single JSON file, where each top-level key is a
@@ -261,14 +267,7 @@ lmdb_cacher = LMDBBackend(db_path='/cache/dir/cache.lmdb', **std_kw)
 redis_kw = dict(host='localhost', port=6379, db=0, password=None)
 redis_cacher = RedisBackend(**redis_kw, **std_kw)
 ```
+## Batching
+Many functions operate on batches of inputs rather than one at a time. For example, you might want
+to fetch multiple posts in a single API call. Cacher supports this vi
 
-
-# OLD STUFF, ignore
-
-                 fn: Callable|None=None,
-                 *,
-                 formatter: CacheFormatter,
-                 keyer: Keyer|None = None,
-                 strategies: list[CacheStrategy]|None = None,
-                 error_on_missing: bool = True,
-                 **kwargs):

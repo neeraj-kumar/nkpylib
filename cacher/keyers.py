@@ -39,7 +39,7 @@ class TupleKeyer(Keyer[tuple]):
     def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> tuple:
         # Get function info if available
         fn_key = (fn.__module__, fn.__qualname__) if fn else ('', '')
-        
+
         # Convert kwargs to sorted, frozen items
         kw_items = self._make_hashable(kwargs)
         # Convert args and combine with kwargs
@@ -145,5 +145,3 @@ class HashBytesKeyer(BaseHashKeyer):
         if isinstance(h, str):
             return h.encode('utf-8')
         return str(h).encode('utf-8')
-
-

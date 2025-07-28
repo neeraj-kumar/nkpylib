@@ -89,32 +89,27 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Call our cached function with the given arguments.
-        
+
         If batch_extractor and batch_combiner are set, treats this as a batch operation.
         Otherwise, treats it as a normal function call.
         """
         if self.batch_extractor is not None and self.batch_combiner is not None:
             # Extract batch items
+            #FIXME does this do what we want?
             items = self.batch_extractor(args, kwargs)
-            
+
             # Process batch with caching
             results = self.call_with_batch_cache(self.fn, items)
-            
+
             # Combine results back into expected format
             return self.batch_combiner(results, args, kwargs)
         else:
             # Normal function call
             return self.call_with_cache(self.fn, *args, **kwargs)
 
-    def as_decorator(self, 
-                    batch_extractor: Callable[[tuple, dict], list]|None = None,
-                    batch_combiner: Callable[[list, tuple, dict], Any]|None = None) -> Callable:
+    def as_decorator(self) -> Callable:
         """Returns this cacher as a decorator that will cache function results.
-        
-        Args:
-            batch_extractor: Optional function to extract batch items from args/kwargs
-            batch_combiner: Optional function to combine results with args/kwargs
-            
+
         Returns:
             A decorator function that will cache results of the decorated function.
         """
@@ -126,8 +121,8 @@ class CacheBackend(ABC, Generic[KeyT]):
                 keyer=self.keyer,
                 strategies=self.strategies,
                 error_on_missing=self.error_on_missing,
-                batch_extractor=batch_extractor,
-                batch_combiner=batch_combiner,
+                batch_extractor=self.batch_extractor,
+                batch_combiner=self.batch_combiner,
             )
         return decorator
 
@@ -305,20 +300,6 @@ class CacheBackend(ABC, Generic[KeyT]):
             all_results[i] = value
 
         return all_results
-
-    def flexible_batch(self):
-        """Interface for flexible batch caching.
-
-        Deals with different kinds of inputs to batching functions, like:
-        - first input arg is a list of inputs (simple case)
-        - multiple input args are parallel lists
-        - first input arg is a dict of inputs
-
-        As well as different kinds of outputs:
-        - list of outputs, same length as first input arg
-        - single output dict, with one output per input in some subkey
-        """
-        raise NotImplementedError("flexible_batch not implemented")
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache."""
