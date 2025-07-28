@@ -10,10 +10,11 @@ from nkpylib.cacher.constants import KeyT, HashT
 class Keyer(ABC, Generic[KeyT]):
     """Base class for converting function arguments into cache keys."""
     @abstractmethod
-    def make_key(self, args: tuple, kwargs: dict) -> KeyT:
+    def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> KeyT:
         """Convert function arguments into a cache key.
 
         Args:
+            fn: Function being cached, or None
             args: Tuple of positional arguments
             kwargs: Dict of keyword arguments
 
@@ -35,11 +36,14 @@ class TupleKeyer(Keyer[tuple]):
     The final key is a tuple of:
     (converted_args..., frozenset_of_converted_kwargs)
     """
-    def make_key(self, args: tuple, kwargs: dict) -> tuple:
+    def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> tuple:
+        # Get function info if available
+        fn_key = (fn.__module__, fn.__qualname__) if fn else ('', '')
+        
         # Convert kwargs to sorted, frozen items
         kw_items = self._make_hashable(kwargs)
         # Convert args and combine with kwargs
-        return tuple(self._make_hashable(arg) for arg in args) + (kw_items,)
+        return (fn_key,) + tuple(self._make_hashable(arg) for arg in args) + (kw_items,)
 
     def _make_hashable(self, obj: Any) -> Any:
         """Recursively convert an object into a hashable form."""
@@ -71,8 +75,8 @@ class StringKeyer(Keyer[str]):
     def __init__(self):
         self._tuple_maker = TupleKeyer()
 
-    def make_key(self, args: tuple, kwargs: dict) -> str:
-        tuple_key = self._tuple_maker.make_key(args, kwargs)
+    def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> str:
+        tuple_key = self._tuple_maker.make_key(fn, args, kwargs)
         return str(tuple_key)
 
 
@@ -100,8 +104,8 @@ class BaseHashKeyer(Keyer[HashT]):
             self._hash_func = hash_func
             self._is_hashlib = False
 
-    def make_key(self, args: tuple, kwargs: dict) -> Any:
-        string_key = self._string_maker.make_key(args, kwargs)
+    def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> Any:
+        string_key = self._string_maker.make_key(fn, args, kwargs)
         return self._get_hash(string_key)
 
     def _get_raw_hash(self, s: str) -> Any:

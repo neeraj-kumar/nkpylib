@@ -44,7 +44,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def _to_key(self, args: tuple, kwargs: dict) -> KeyT:
         """Convert function arguments to a cache key using the keyer."""
-        return self.keyer.make_key(args, kwargs)
+        return self.keyer.make_key(self.fn, args, kwargs)
 
     def call_with_cache(self, fn: Callable, *args: Any, **kwargs: Any) -> Any:
         """Call a function with caching.
