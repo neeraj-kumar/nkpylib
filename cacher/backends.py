@@ -42,9 +42,9 @@ class CacheBackend(ABC, Generic[KeyT]):
             'evictions': 0
         }
 
-    def _to_key(self, args: tuple, kwargs: dict) -> KeyT:
+    def _to_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> KeyT:
         """Convert function arguments to a cache key using the keyer."""
-        return self.keyer.make_key(self.fn, args, kwargs)
+        return self.keyer.make_key(fn, args, kwargs)
 
     def call_with_cache(self, fn: Callable, *args: Any, **kwargs: Any) -> Any:
         """Call a function with caching.
@@ -62,7 +62,7 @@ class CacheBackend(ABC, Generic[KeyT]):
             The cached result or the result of the function call.
         """
         # Convert function arguments to cache key
-        key = self._to_key(args, kwargs)
+        key = self._to_key(fn, args, kwargs)
 
         # Try to get from cache
         if self.error_on_missing:
@@ -204,10 +204,10 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def get_many(self, keys: list[KeyT]) -> dict[KeyT, Any]:
         """Get multiple values at once.
-        
+
         Args:
             keys: List of cache keys to retrieve
-            
+
         Returns:
             Dict mapping keys to their values, only including found items
         """
@@ -223,7 +223,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def set_many(self, items: dict[KeyT, Any]) -> None:
         """Set multiple key/value pairs at once.
-        
+
         Args:
             items: Dict mapping keys to values to cache
         """
@@ -232,52 +232,66 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def call_with_batch_cache(self, fn: Callable[[list], list], items: list) -> list:
         """Call function with batched input, using cache where possible.
-        
+
         Args:
             fn: Function that takes a list of items and returns list of results
             items: List of items to process
-            
+
         Returns:
             List of results in same order as input items
         """
         # Convert each item to a cache key
         keys = [self._to_key((item,), {}) for item in items]
         key_to_idx = {key: i for i, key in enumerate(keys)}
-        
+
         # Get cached results
         cached = self.get_many(keys)
-        
+
         # Find items that need computing
         uncached_indices = [i for i, key in enumerate(keys) if key not in cached]
         if not uncached_indices:
             # Everything was cached
             return [cached[key] for key in keys]
-        
+
         # Compute uncached items
         uncached_items = [items[i] for i in uncached_indices]
         new_results = fn(uncached_items)
-        
+
         if len(new_results) != len(uncached_items):
             raise ValueError(
                 f"Batch function returned {len(new_results)} results "
                 f"for {len(uncached_items)} inputs"
             )
-        
+
         # Cache new results
         new_items = {
             keys[uncached_indices[i]]: result
             for i, result in enumerate(new_results)
         }
         self.set_many(new_items)
-        
+
         # Combine cached and new results
         all_results = list(items)  # Make same size as input
         for key, value in cached.items():
             all_results[key_to_idx[key]] = value
         for i, value in zip(uncached_indices, new_results):
             all_results[i] = value
-            
+
         return all_results
+
+    def flexible_batch(self):
+        """Interface for flexible batch caching.
+
+        Deals with different kinds of inputs to batching functions, like:
+        - first input arg is a list of inputs (simple case)
+        - multiple input args are parallel lists
+        - first input arg is a dict of inputs
+
+        As well as different kinds of outputs:
+        - list of outputs, same length as first input arg
+        - single output dict, with one output per input in some subkey
+        """
+        raise NotImplementedError("flexible_batch not implemented")
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache."""
