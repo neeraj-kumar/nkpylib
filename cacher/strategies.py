@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from abc import ABC
 import queue
 import threading
 import time
+
+from abc import ABC
 from typing import Any, Generic
 
 from nkpylib.cacher.constants import KeyT
@@ -126,9 +127,9 @@ class TTLPolicy(CacheStrategy[KeyT]):
         self.timestamps.clear()
 
 
-class AsyncWriteStrategy(CacheStrategy[KeyT]):
+class BackgroundWriteStrategy(CacheStrategy[KeyT]):
     """Strategy that performs cache writes in a background thread.
-    
+
     This is useful when:
     - Cache writes are slow (e.g., to disk or network)
     - You want to return to the caller quickly
@@ -141,7 +142,7 @@ class AsyncWriteStrategy(CacheStrategy[KeyT]):
         self.stop_event = threading.Event()
         self.worker = threading.Thread(target=self._worker, daemon=True)
         self.worker.start()
-    
+
     def _worker(self):
         """Background thread that processes writes."""
         while not self.stop_event.is_set():
@@ -158,8 +159,8 @@ class AsyncWriteStrategy(CacheStrategy[KeyT]):
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"Error in async write worker: {e}")
-    
+                print(f"Error in bg write worker: {e}")
+
     def pre_set(self, key: KeyT, value: Any) -> bool:
         """Queue the write operation."""
         try:
@@ -167,7 +168,7 @@ class AsyncWriteStrategy(CacheStrategy[KeyT]):
             return False  # Skip the normal write
         except queue.Full:
             return True  # Queue full, do normal write
-    
+
     def pre_delete(self, key: KeyT) -> bool:
         """Queue the delete operation."""
         try:
@@ -175,7 +176,7 @@ class AsyncWriteStrategy(CacheStrategy[KeyT]):
             return False  # Skip the normal delete
         except queue.Full:
             return True  # Queue full, do normal delete
-    
+
     def pre_clear(self) -> bool:
         """Queue the clear operation."""
         try:
@@ -183,13 +184,13 @@ class AsyncWriteStrategy(CacheStrategy[KeyT]):
             return False  # Skip the normal clear
         except queue.Full:
             return True  # Queue full, do normal clear
-    
+
     def wait(self, timeout: float|None = None) -> bool:
         """Wait for all queued operations to complete.
-        
+
         Args:
             timeout: Maximum time to wait in seconds, or None to wait forever
-            
+
         Returns:
             True if all operations completed, False if timeout occurred
         """
@@ -198,10 +199,10 @@ class AsyncWriteStrategy(CacheStrategy[KeyT]):
             return True
         except TimeoutError:
             return False
-    
+
     def stop(self, timeout: float|None = None):
         """Stop the background thread and wait for it to finish.
-        
+
         Args:
             timeout: Maximum time to wait in seconds, or None to wait forever
         """
