@@ -263,12 +263,53 @@ The timeline file is a JSON file with the following structure:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import Any
+import json
 
+from argparse import ArgumentParser
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any, Generic, TypeVar
+
+import pytz
+
+from nkpylib.google.constants import BACKUPS_DIR
 
 GPS = tuple[float, float]  # Latitude, Longitude
+
+class ActivityType(Enum):
+    UNKNOWN_ACTIVITY_TYPE = "UNKNOWN_ACTIVITY_TYPE"
+    CYCLING = "CYCLING"
+    FLYING = "FLYING"
+    IN_BUS = "IN_BUS"
+    IN_FERRY = "IN_FERRY"
+    IN_PASSENGER_VEHICLE = "IN_PASSENGER_VEHICLE"
+    IN_SUBWAY = "IN_SUBWAY"
+    IN_TRAIN = "IN_TRAIN"
+    IN_TRAM = "IN_TRAM"
+    MOTORCYCLING = "MOTORCYCLING"
+    WALKING = "WALKING"
+    # the following are from raw signals, not sure why they are different
+    ON_FOOT = "ON_FOOT"
+    IN_VEHICLE = "IN_VEHICLE"
+    IN_RAIL_VEHICLE = "IN_RAIL_VEHICLE"
+    IN_ROAD_VEHICLE = "IN_ROAD_VEHICLE"
+    ON_BICYCLE = "ON_BICYCLE"
+    UNKNOWN = "UNKNOWN"
+    RUNNING = "RUNNING"
+    STILL = "STILL"
+    TILTING = "TILTING"
+    EXITING_VEHICLE = "EXITING_VEHICLE"
+
+class PlaceType(Enum):
+    UNKNOWN = "UNKNOWN"
+    HOME = "HOME"
+    INFERRED_HOME = "INFERRED_HOME"
+    WORK = "WORK"
+    INFERRED_WORK = "INFERRED_WORK"
+    SEARCHED_ADDRESS = "SEARCHED_ADDRESS"
+    ALIASED_LOCATION = "ALIASED_LOCATION"
 
 @dataclass
 class Estimate:
@@ -280,38 +321,15 @@ class Place(Estimate):
 
 @dataclass
 class TimePoint:
-    ts0: float
+    t0: float
 
 @dataclass
 class SemanticSegment(TimePoint):
-    ts1: float
+    t1: float
 
 @dataclass
-class Path(SemanticSegment):
+class TimelinePath(SemanticSegment):
     points: list[tuple[GPS, float]]  # List of tuples (GPS, timestamp in seconds since epoch)
-
-class ActivityType(Enum):
-    UNKNOWN = "UNKNOWN"
-    STILL = "STILL"
-    IN_VEHICLE = "IN_VEHICLE"
-    IN_RAIL_VEHICLE = "IN_RAIL_VEHICLE"
-    ON_FOOT = "ON_FOOT"
-    WALKING = "WALKING"
-    IN_ROAD_VEHICLE = "IN_ROAD_VEHICLE"
-    ON_BICYCLE = "ON_BICYCLE"
-    IN_BUS = "IN_BUS"
-    IN_SUBWAY = "IN_SUBWAY"
-    IN_TRAIN = "IN_TRAIN"
-    FLYING = "FLYING"
-
-class PlaceType(Enum):
-    UNKNOWN = "UNKNOWN"
-    HOME = "HOME"
-    WORK = "WORK"
-    SHOPPING = "SHOPPING"
-    RESTAURANT = "RESTAURANT"
-    PARK = "PARK"
-    OTHER = "OTHER"
 
 @dataclass
 class Activity(SemanticSegment, Estimate):
@@ -328,14 +346,23 @@ class Visit(SemanticSegment, Estimate):
     loc: GPS
     place_prob: float
 
+@dataclass
+class TimelineMemory(SemanticSegment):
+    place_id: str
+    distance: float
+
 class SourceType(Enum):
     WIFI = "WIFI"
-    CELLULAR = "CELLULAR"
     GPS = "GPS"
     UNKNOWN = "UNKNOWN"
+    CELL = "CELL"
 
 @dataclass
-class RawPosition(TimePoint):
+class RawSignal(TimePoint):
+    pass
+
+@dataclass
+class RawPosition(RawSignal):
     source: SourceType
     loc: GPS
     accuracy: float
@@ -343,9 +370,138 @@ class RawPosition(TimePoint):
     speed: float
 
 @dataclass
-class WifiScan(TimePoint):
+class WifiScan(RawSignal):
     devices: list[tuple[int, int]] # List of tuples (MAC address, RSSI)
 
 @dataclass
-class ActivityRecord(TimePoint):
-    activities: list[tuple[ActivityType, float]  # List of tuples (ActivityType, probability)
+class ActivityRecord(RawSignal):
+    activities: list[tuple[ActivityType, float]]  # List of tuples (ActivityType, probability)
+
+TimeT = TypeVar("TimeT", bound=TimePoint)
+
+class TimeSortedLst(Generic[TimeT]):
+    """A class to keep a list of items sorted by their timestamp."""
+    def __init__(self, items: list[TimeT]):
+        self.items = sorted(items, key=lambda x: x.t0) #FIXME what about t1?
+
+    def __repr__(self):
+        return f"TSList<{len(self.items)} items>"
+
+@dataclass
+class Timeline:
+    semantic: TimeSortedLst[SemanticSegment]
+    raw: TimeSortedLst[RawSignal]
+
+def ts_to_seconds(ts: str) -> float:
+    """Convert a timestamp string (with tz) to seconds since epoch."""
+    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    dt = dt.astimezone(pytz.utc)  # Convert to UTC
+    return dt.timestamp()  # Return seconds since epoch
+
+def parse_gps(gps_str: str) -> GPS:
+    """Parse a GPS string in the format 'lat,lon' into a tuple of floats."""
+    # remove degree symbols and whitespace
+    gps_str = gps_str.replace('°', '').replace(' ', '')
+    lat, lon = map(float, gps_str.split(','))
+    return (lat, lon)
+
+def read_timeline(path: str) -> Timeline:
+    """Reads the timeline json from `path` and converts to Timeline object."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    print(data.keys())
+    semantic_segments: list[SemanticSegment] = []
+    counts: Counter = Counter()
+    for obj in data['semanticSegments']:
+        start_ts = ts_to_seconds(obj['startTime'])
+        end_ts = ts_to_seconds(obj['endTime'])
+        if 'timelinePath' in obj:
+            points = [(parse_gps(p['point']), ts_to_seconds(p['time'])) for p in obj['timelinePath']]
+            semantic_segments.append(TimelinePath(t0=start_ts, t1=end_ts, points=points))
+            counts['timelinePath'] += 1
+        elif 'activity' in obj:
+            a = obj['activity']
+            semantic_segments.append(Activity(
+                t0=start_ts,
+                t1=end_ts,
+                start=parse_gps(a['start']['latLng']),
+                end=parse_gps(a['end']['latLng']),
+                distance=a.get('distanceMeters', 0.0),
+                type=ActivityType(a['topCandidate']['type']),
+                prob=a['topCandidate'].get('probability', 0.0),
+            ))
+            counts['activity'] += 1
+            #counts[f'activity-{a["topCandidate"]["type"]}'] += 1
+        elif 'visit' in obj:
+            visit = obj['visit']
+            semantic_segments.append(Visit(
+                t0=start_ts,
+                t1=end_ts,
+                level=visit['hierarchyLevel'],
+                place_id=visit['topCandidate']['placeId'],
+                type=PlaceType(visit['topCandidate']['semanticType']),
+                prob=visit.get('probability', 0.0),
+                loc=parse_gps(visit['topCandidate']['placeLocation']['latLng']),
+                place_prob=visit['topCandidate'].get('probability', 0.0),
+            ))
+            counts['visit'] += 1
+            #counts[f'place-{visit["topCandidate"]["semanticType"]}'] += 1
+        elif 'timelineMemory' in obj: # very few of these, so probably don't matter
+            mem = obj['timelineMemory']['trip']
+            dst = mem['destinations'][0]['identifier']
+            #print(json.dumps(obj, indent=2))
+            semantic_segments.append(TimelineMemory(
+                t0=start_ts,
+                t1=end_ts,
+                place_id=dst['placeId'],
+                distance=mem.get('distanceFromOriginKms', 0.0)*1000.0,
+            ))
+            counts['timelineMemory'] += 1
+        else:
+            raise NotImplementedError(f"Unknown semantic segment type: {obj}")
+    print(f'Got {len(semantic_segments)} semantic segments: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
+    counts.clear()
+    raw_signals: list[RawSignal] = []
+    for obj in data['rawSignals']:
+        if 'position' in obj:
+            pos = obj['position']
+            raw_signals.append(RawPosition(
+                t0=ts_to_seconds(pos['timestamp']),
+                source=SourceType(pos['source']),
+                loc=parse_gps(pos['LatLng']),
+                accuracy=pos.get('accuracyMeters', 0.0),
+                altitude=pos.get('altitudeMeters', 0.0),
+                speed=pos.get('speedMetersPerSecond', 0.0),
+            ))
+            counts['position'] += 1
+        elif 'wifiScan' in obj:
+            scan = obj['wifiScan']
+            devices = [(d['mac'], d['rawRssi']) for d in scan['devicesRecords']]
+            raw_signals.append(WifiScan(
+                t0=ts_to_seconds(scan['deliveryTime']),
+                devices=devices,
+            ))
+            counts['wifiScan'] += 1
+        elif 'activityRecord' in obj:
+            act_rec = obj['activityRecord']
+            activities = [(ActivityType(a['type']), a['confidence']) for a in act_rec['probableActivities']]
+            raw_signals.append(ActivityRecord(
+                t0=ts_to_seconds(act_rec['timestamp']),
+                activities=activities,
+            ))
+            counts['activityRecord'] += 1
+        else:
+            raise NotImplementedError(f"Unknown raw signal type: {obj}")
+    print(f'Got {len(raw_signals)} raw signals: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
+    return Timeline(
+        semantic=TimeSortedLst(semantic_segments),
+        raw=TimeSortedLst(raw_signals),
+    )
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser(description="Read Google Timeline JSON file.")
+    parser.add_argument("path", type=str, help="Path to the timeline JSON file.")
+    args = parser.parse_args()
+    timeline = read_timeline(args.path)
+    print(timeline)
