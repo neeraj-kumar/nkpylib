@@ -30,19 +30,14 @@ def parse_ts(ts: str, tz=DEFAULT_TZ) -> int:
     """Parse a timestamp string in the format 'dd/mm/yyyy HH:MM:SS' into epoch seconds.
 
     Since there is no timezone information in the raw data, we assume the timestamps are in the
-    default timezone. During DST transitions when the time is ambiguous (e.g. during fall-back),
-    we assume it's the first occurrence (is_dst=True)."""
+    default timezone. For efficiency, we first parse as naive datetime, get UTC timestamp, then
+    apply timezone offset at the end. During DST transitions, we assume the first occurrence."""
     naive_dt = datetime.strptime(ts, '%d/%m/%Y %H:%M:%S')
-    try:
-        # Try to localize the datetime, assuming DST if ambiguous
-        dt = tz.localize(naive_dt, is_dst=True)
-    except pytz.AmbiguousTimeError:
-        # During fall-back transition, assume it's the first occurrence
-        dt = tz.localize(naive_dt, is_dst=True)
-    except pytz.NonExistentTimeError:
-        # During spring-forward transition, use the next valid time
-        dt = tz.localize(naive_dt + tz.dst(naive_dt))
-    return int(dt.timestamp())
+    # Get UTC timestamp without timezone info
+    ts_utc = int(naive_dt.timestamp())
+    # Add timezone offset, using is_dst=True for ambiguous times
+    offset = tz.utcoffset(naive_dt, is_dst=True).total_seconds()  # type: ignore
+    return int(ts_utc + offset)
 
 @dataclass
 class Reading:
