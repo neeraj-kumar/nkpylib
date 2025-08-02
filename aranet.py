@@ -12,8 +12,6 @@ We parse each row into a `Reading` dataclass, which contains the timestamp (as e
 
 from __future__ import annotations
 
-import bisect
-
 from argparse import ArgumentParser
 from csv import DictReader
 from collections.abc import Callable
@@ -55,7 +53,11 @@ class Reading:
         Any other fields are allowed to be empty strings, in which case those values in the
         `Reading` will be set to None, but we will still return a valid Reading object.
         """
-        ts = parse_ts(data.get('Time(dd/mm/yyyy)'))
+        try:
+            ts = parse_ts(data.get('Time(dd/mm/yyyy)'))
+        except Exception as e:
+            print(f'Error parsing timestamp in row {data}: {e}, skipping')
+            return None
         if ts is None:
             print(f'Invalid timestamp in row {data}, skipping')
             return None
@@ -148,7 +150,7 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
             if not file_path.is_file():
                 continue
             if not path_filter(file_path):
-                print(f'Skipping file {file_path} due to filter')
+                #print(f'Skipping file {file_path} due to filter')
                 continue
             print(f'Reading file {file_path} ({len(readings)} existing readings)')
             readings, ts_to_idx = read_dump(file_path, readings, ts_to_idx)
