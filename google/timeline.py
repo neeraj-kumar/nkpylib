@@ -270,7 +270,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, Protocol
 
 import pytz
 
@@ -377,12 +377,29 @@ class WifiScan(RawSignal):
 class ActivityRecord(RawSignal):
     activities: list[tuple[ActivityType, float]]  # List of tuples (ActivityType, probability)
 
-TimeT = TypeVar("TimeT", bound=TimePoint)
+class HasTimestamp(Protocol):
+    """Protocol for objects with a single timestamp."""
+    t0: float
+
+class HasTimeRange(HasTimestamp, Protocol):
+    """Protocol for objects with a time range (start and end timestamps)."""
+    t1: float
+
+TimeT = TypeVar("TimeT", bound=HasTimestamp, covariant=True)
 
 class TimeSortedLst(Generic[TimeT]):
-    """A class to keep a list of items sorted by their timestamp."""
+    """A class to keep a list of items sorted by their timestamp(s).
+    
+    Works with both single-timestamp objects (t0) and time-range objects (t0, t1).
+    Items are primarily sorted by t0, and secondarily by t1 if it exists.
+    """
     def __init__(self, items: list[TimeT]):
-        self.items = sorted(items, key=lambda x: x.t0) #FIXME what about t1?
+        self.items = sorted(items, key=self._get_sort_key)
+
+    def _get_sort_key(self, x: TimeT) -> tuple[float, float]:
+        if hasattr(x, 't1'):
+            return (x.t0, x.t1)  # type: ignore
+        return (x.t0, x.t0)
 
     def __repr__(self):
         return f"TSList<{len(self.items)} items>"
