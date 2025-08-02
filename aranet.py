@@ -16,7 +16,7 @@ from argparse import ArgumentParser
 from csv import DictReader
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytz
@@ -27,16 +27,45 @@ DEFAULT_TZ = pytz.timezone('America/New_York')
 DST_OFFSET = -4 * 3600  # EDT is UTC-4
 STD_OFFSET = -5 * 3600  # EST is UTC-5
 
+def get_offset(ts: int, transition_cache: dict[int, tuple[int, int]] = {}) -> int:
+    """Get timezone offset for timestamp, caching DST transitions by year.
+    
+    Args:
+        ts: Timestamp in epoch seconds
+        transition_cache: Optional cache of DST transitions by year
+        
+    Returns:
+        Offset in seconds from UTC (e.g. -14400 for EDT, -18000 for EST)
+    """
+    year = datetime.fromtimestamp(ts, pytz.UTC).year
+    if year not in transition_cache:
+        # Find transitions by checking March and November
+        spring = datetime(year, 3, 1, tzinfo=pytz.UTC)
+        summer = datetime(year, 7, 1, tzinfo=pytz.UTC)
+        # Check each day until we find the transitions
+        for dt in (spring + timedelta(days=i) for i in range(45)):
+            if DEFAULT_TZ.utcoffset(dt) != DEFAULT_TZ.utcoffset(spring):
+                spring_forward = int(dt.timestamp())
+                break
+        for dt in (summer + timedelta(days=i) for i in range(180)):
+            if DEFAULT_TZ.utcoffset(dt) != DEFAULT_TZ.utcoffset(summer):
+                fall_back = int(dt.timestamp())
+                break
+        transition_cache[year] = (spring_forward, fall_back)
+    
+    spring, fall = transition_cache[year]
+    return DST_OFFSET if spring <= ts < fall else STD_OFFSET
+
 def parse_ts(ts: str) -> int:
     """Parse a timestamp string in the format 'dd/mm/yyyy HH:MM:SS' into epoch seconds.
 
-    Since there is no timezone information in the raw data, we assume EDT (UTC-4).
-    For simplicity and speed, we always assume DST is in effect."""
+    Since there is no timezone information in the raw data, we determine the correct
+    offset based on whether DST was in effect at that time."""
     naive_dt = datetime.strptime(ts, '%d/%m/%Y %H:%M:%S')
     # Get UTC timestamp without timezone info
     ts_utc = int(naive_dt.timestamp())
-    # Add constant DST offset
-    return ts_utc + DST_OFFSET
+    # Add the appropriate offset based on whether DST was in effect
+    return ts_utc + get_offset(ts_utc)
 
 @dataclass
 class Reading:
