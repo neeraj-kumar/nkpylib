@@ -15,6 +15,8 @@ We parse each row into a `Reading` dataclass, which contains the timestamp (as e
 
 from __future__ import annotations
 
+import json
+
 from argparse import ArgumentParser
 from csv import DictReader
 from collections.abc import Callable
@@ -23,6 +25,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytz
+
+from nkpylib.stringutils import GeneralJSONEncoder
 
 DATA_DIR = Path('/home/neeraj/dp/Aranet4')
 DEFAULT_TZ = pytz.timezone('America/New_York')
@@ -226,7 +230,14 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
 if __name__ == '__main__':
     parser = ArgumentParser(description='Aranet4 data dump utilities')
     parser.add_argument('--data-dir', type=Path, default=DATA_DIR, help='Directory containing Aranet4 data dumps')
-    parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='2024-03')
+    parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='')
+    parser.add_argument('output_path', type=Path, nargs='?', default=None,
+                        help='Optional output path to save the readings as JSON')
     args = parser.parse_args()
     print(args.filter)
     readings = read_all_dumps(args.data_dir, lambda p: args.filter in str(p) if args.filter else True)
+    print(f'Loaded {len(readings)} readings from {args.data_dir}, first: {readings[0]}, last: {readings[-1]}')
+    if args.output_path:
+        with args.output_path.open('w') as f:
+            json.dump(readings, f, cls=GeneralJSONEncoder, indent=2)
+        print(f'Saved {len(readings)} readings to {args.output_path}')
