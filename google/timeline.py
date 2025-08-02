@@ -388,9 +388,19 @@ class HasTimeRange(HasTimestamp, Protocol):
 
 TimeT = TypeVar("TimeT", bound=HasTimestamp, covariant=True)
 
+class _TimeKey:
+    """Helper class for binary search comparisons."""
+    def __init__(self, ts: float):
+        self.ts = ts
+
+    def __lt__(self, other) -> bool:
+        if isinstance(other, tuple):
+            return self.ts < other[0]
+        return self.ts < other.t0
+
 class TimeSortedLst(Generic[TimeT]):
     """A class to keep a list of items sorted by their timestamp(s).
-    
+
     Works with both single-timestamp objects (t0) and time-range objects (t0, t1).
     Items are primarily sorted by t0, and secondarily by t1 if it exists.
     """
@@ -412,10 +422,10 @@ class TimeSortedLst(Generic[TimeT]):
 
     def find_at_time(self, ts: float|str) -> list[TimeT]:
         """Find items that contain or are closest to the given timestamp.
-        
+
         Args:
             ts: Either seconds since epoch, or a timestamp string parseable by ts_to_seconds()
-        
+
         Returns:
             List of matching items, sorted by proximity to timestamp.
             For time ranges (t0,t1), returns exact matches that contain the timestamp.
@@ -423,10 +433,10 @@ class TimeSortedLst(Generic[TimeT]):
         """
         if isinstance(ts, str):
             ts = ts_to_seconds(ts)
-        
+
         key = self._make_search_key(ts)
         idx = bisect.bisect_left(self.items, key, key=self._get_sort_key)
-        
+
         # Check for exact matches first
         matches = []
         if idx < len(self.items):
@@ -436,25 +446,15 @@ class TimeSortedLst(Generic[TimeT]):
                     return [item]
             elif item.t0 == ts:  # Single timestamp exact match
                 return [item]
-        
+
         # No exact match, return closest items
         closest = []
         if idx > 0:
             closest.append(self.items[idx - 1])
         if idx < len(self.items):
             closest.append(self.items[idx])
-        
-        return sorted(closest, key=lambda x: abs(x.t0 - ts))
 
-class _TimeKey:
-    """Helper class for binary search comparisons."""
-    def __init__(self, ts: float):
-        self.ts = ts
-    
-    def __lt__(self, other) -> bool:
-        if isinstance(other, tuple):
-            return self.ts < other[0]
-        return self.ts < other.t0
+        return sorted(closest, key=lambda x: abs(x.t0 - ts))
 
 @dataclass
 class Timeline:
@@ -599,3 +599,16 @@ if __name__ == "__main__":
     args = parser.parse_args()
     timeline = read_timeline(args.path)
     print(timeline)
+    for ts in [
+        '2025-07-29T23:23:56.000-04:00',
+        '2025-07-19T23:37:14.000-04:00',
+    ]:
+        print(f"Finding semantic at {ts}:")
+        found = timeline.semantic.find_at_time(ts)
+        for item in found:
+            print(f"  - {item} (t0: {item.t0}, t1: {getattr(item, 't1', 'N/A')})")
+        print("Finding raw at {ts}:")
+        found = timeline.raw.find_at_time(ts)
+        for item in found:
+            print(f"  - {item} (t0: {item.t0})")
+
