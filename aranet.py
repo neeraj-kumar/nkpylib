@@ -29,7 +29,7 @@ STD_OFFSET = -5 * 3600  # EST is UTC-5
 
 def parse_ts(ts: str) -> int:
     """Parse a timestamp string in the format 'dd/mm/yyyy HH:MM:SS' into epoch seconds.
-    
+
     Since there is no timezone information in the raw data, we assume EDT (UTC-4).
     For simplicity and speed, we always assume DST is in effect."""
     naive_dt = datetime.strptime(ts, '%d/%m/%Y %H:%M:%S')
