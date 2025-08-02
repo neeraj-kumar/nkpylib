@@ -77,11 +77,10 @@ def read_dump(file_path: Path, existing: list[Reading]) -> list[Reading]:
     """Read a single CSV dump file and extends its `Readings` to the existing list of `Readings`.
 
     We overwrite any existing readings with the same timestamp, keeping only the latest one.
-    We also sort all readings into ascending order by timestamp.
+    The list remains sorted by timestamp at all times.
     """
     with file_path.open('r') as f:
         reader = DictReader(f)
-        new_readings = []
         for row in reader:
             reading = Reading.from_dict(row)
             if not reading:
@@ -93,10 +92,9 @@ def read_dump(file_path: Path, existing: list[Reading]) -> list[Reading]:
                 # Replace the existing reading
                 existing[idx] = reading
             else:
-                new_readings.append(reading)
-        # Combine new readings with existing ones and sort by timestamp
-        combined_readings = sorted(existing + new_readings, key=lambda r: r.ts)
-    return combined_readings
+                # Insert the new reading at the correct position
+                existing.insert(idx, reading)
+    return existing
 
 def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
     """Read all CSV dump files under the specified directory and return their contents.
