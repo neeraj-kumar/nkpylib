@@ -2,7 +2,7 @@
 
 from PIL import Image, ImageDraw, ImageChops
 
-from nkpylib.geo import haversinedist
+from nkpylib.geo import haversine_dist
 from nkpylib.imageutils import combineImages, createRadialMask # type: ignore
 from nkpylib.utils import lerp, timed, uniqueize, lpdist
 

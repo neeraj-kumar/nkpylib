@@ -41,7 +41,7 @@ ga_cache = partial(APICache, cachedir='cache/geoapify/%(fn)s/', mindelay=5, seri
 
 logger = logging.getLogger(__name__)
 
-def haversinedist(loc1, loc2):
+def haversine_dist(loc1, loc2):
     """Returns the haversine great circle distance (in meters) between two locations.
     The input locations must be given as ``(lat, long)`` pairs (decimal values).
 

@@ -655,6 +655,7 @@ def localizeTime(t, loc, tzlookup=None):
     If `loc` is not given or is invalid, returns an un-normalized :class:`datetime` object.
     """
     import pytz
+    from nkpylib.geo import haversine_dist
     # convert to datetime
     if not isinstance(t, datetime):
         t = datetime.fromtimestamp(t)
@@ -665,7 +666,7 @@ def localizeTime(t, loc, tzlookup=None):
     if not tzlookup:
         tzlookup = getTZLookup()
     # compute dists and find closest point
-    dists = [(haversinedist(loc, l), l, tz) for l, tz in tzlookup]
+    dists = [(haversine_dist(loc, l), l, tz) for l, tz in tzlookup]
     dists.sort(key=lambda pair: pair[0])
     # get the right timezone
     tzname = dists[0][-1]

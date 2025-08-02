@@ -275,6 +275,7 @@ from typing import Any, Generic, TypeVar, Protocol
 
 import pytz
 
+from nkpylib.geo import haversine_dist
 from nkpylib.google.constants import BACKUPS_DIR
 
 GPS = tuple[float, float]  # Latitude, Longitude
@@ -588,14 +589,14 @@ if __name__ == "__main__":
     print(timeline)
     for ts in [
         '2025-07-29T23:23:56.000-04:00',
-        '2025-07-19T23:37:14.000-04:00',
+        '2025-07-28T14:17:14.000-04:00',
     ]:
-        print(f"Finding semantic at {ts}:")
+        print(f"\nFinding semantic at {ts}:")
+        ts = ts_to_seconds(ts)
         found = timeline.semantic.find_at_time(ts)
         for item in found:
-            print(f"  - {item} (t0: {item.t0}, t1: {getattr(item, 't1', 'N/A')})")
+            print(f"  - {item} (t0: {item.t0}, t1: {getattr(item, 't1', 'N/A')}, inside? {item.t0 <= ts <= getattr(item, 't1', item.t0)})")
         print("Finding raw at {ts}:")
         found = timeline.raw.find_at_time(ts)
         for item in found:
-            print(f"  - {item} (t0: {item.t0})")
-
+            print(f"  - {item} (t0: {item.t0} vs {ts} = {item.t0 - ts})")
