@@ -79,28 +79,50 @@ class Reading:
         return (f'Reading<ts={self.ts}, co2={self.co2}, temp={self.temp}, '
                 f'humidity={self.humidity}, pressure={self.pressure}>')
 
-def read_dump(file_path: Path, existing: list[Reading]) -> list[Reading]:
+def read_dump(file_path: Path, existing: list[Reading], ts_to_idx: dict[int, int]|None=None) -> tuple[list[Reading], dict[int, int]]:
     """Read a single CSV dump file and extends its `Readings` to the existing list of `Readings`.
 
     We overwrite any existing readings with the same timestamp, keeping only the latest one.
-    The list remains sorted by timestamp at all times.
+    Uses a timestamp->index mapping for O(1) lookups of existing readings.
+
+    Args:
+        file_path: Path to the CSV file to read
+        existing: List of existing readings
+        ts_to_idx: Optional mapping of timestamp->index in existing list. Will be created if None.
+
+    Returns:
+        Tuple of (updated readings list, updated timestamp->index mapping)
     """
+    if ts_to_idx is None:
+        ts_to_idx = {r.ts: i for i, r in enumerate(existing)}
+
+    new_readings = []  # Buffer for readings that need to be appended
     with file_path.open('r') as f:
         reader = DictReader(f)
         for row in reader:
             reading = Reading.from_dict(row)
             if not reading:
                 continue
-            # Find where this timestamp would go in existing readings
-            idx = bisect.bisect_left(existing, reading.ts, key=lambda r: r.ts)
-            # Check if we found an exact match
-            if idx < len(existing) and existing[idx].ts == reading.ts:
-                # Replace the existing reading
-                existing[idx] = reading
+            
+            if reading.ts in ts_to_idx:
+                # Update existing reading
+                existing[ts_to_idx[reading.ts]] = reading
             else:
-                # Insert the new reading at the correct position
-                existing.insert(idx, reading)
-    return existing
+                # Add to buffer of new readings
+                new_readings.append(reading)
+    
+    if new_readings:
+        # Add all new readings at once and update mapping
+        start_idx = len(existing)
+        existing.extend(new_readings)
+        for i, reading in enumerate(new_readings, start=start_idx):
+            ts_to_idx[reading.ts] = i
+        # Sort once at the end
+        existing.sort(key=lambda r: r.ts)
+        # Rebuild mapping after sort
+        ts_to_idx = {r.ts: i for i, r in enumerate(existing)}
+
+    return existing, ts_to_idx
 
 def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
     """Read all CSV dump files under the specified directory and return their contents.
@@ -113,6 +135,7 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
     It is given the full path of the file, and should return `True` if the file should be read,
     """
     readings = []
+    ts_to_idx = {}
     for year_dir in sorted(data_dir.iterdir()):
         print('Processing year directory:', year_dir)
         if not year_dir.is_dir():
@@ -124,7 +147,7 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
                 print(f'Skipping file {file_path} due to filter')
                 continue
             print(f'Reading file {file_path} ({len(readings)} existing readings)')
-            readings = read_dump(file_path, readings)
+            readings, ts_to_idx = read_dump(file_path, readings, ts_to_idx)
     print(f'Reading {len(readings)} readings from {data_dir}, first {readings[0]}, last {readings[-1]}')
     return readings
 
