@@ -405,94 +405,120 @@ def parse_gps(gps_str: str) -> GPS:
     lat, lon = map(float, gps_str.split(','))
     return (lat, lon)
 
+# Parsers for different types of semantic segments
+SEMANTIC_SEGMENT_PARSERS = {
+    'timelinePath': {
+        'class': TimelinePath,
+        'fields': {
+            'points': lambda obj: [(parse_gps(p['point']), ts_to_seconds(p['time'])) 
+                                 for p in obj['timelinePath']]
+        }
+    },
+    'activity': {
+        'class': Activity,
+        'fields': {
+            'start': lambda a: parse_gps(a['activity']['start']['latLng']),
+            'end': lambda a: parse_gps(a['activity']['end']['latLng']),
+            'distance': lambda a: a['activity'].get('distanceMeters', 0.0),
+            'type': lambda a: ActivityType(a['activity']['topCandidate']['type']),
+            'prob': lambda a: a['activity']['topCandidate'].get('probability', 0.0)
+        }
+    },
+    'visit': {
+        'class': Visit,
+        'fields': {
+            'level': lambda a: a['visit']['hierarchyLevel'],
+            'place_id': lambda a: a['visit']['topCandidate']['placeId'],
+            'type': lambda a: PlaceType(a['visit']['topCandidate']['semanticType']),
+            'prob': lambda a: a['visit'].get('probability', 0.0),
+            'loc': lambda a: parse_gps(a['visit']['topCandidate']['placeLocation']['latLng']),
+            'place_prob': lambda a: a['visit']['topCandidate'].get('probability', 0.0)
+        }
+    },
+    'timelineMemory': {
+        'class': TimelineMemory,
+        'fields': {
+            'place_id': lambda a: a['timelineMemory']['trip']['destinations'][0]['identifier']['placeId'],
+            'distance': lambda a: a['timelineMemory']['trip'].get('distanceFromOriginKms', 0.0) * 1000.0
+        }
+    }
+}
+
+# Parsers for different types of raw signals
+RAW_SIGNAL_PARSERS = {
+    'position': {
+        'class': RawPosition,
+        'time_field': lambda a: ts_to_seconds(a['position']['timestamp']),
+        'fields': {
+            'source': lambda a: SourceType(a['position']['source']),
+            'loc': lambda a: parse_gps(a['position']['LatLng']),
+            'accuracy': lambda a: a['position'].get('accuracyMeters', 0.0),
+            'altitude': lambda a: a['position'].get('altitudeMeters', 0.0),
+            'speed': lambda a: a['position'].get('speedMetersPerSecond', 0.0)
+        }
+    },
+    'wifiScan': {
+        'class': WifiScan,
+        'time_field': lambda a: ts_to_seconds(a['wifiScan']['deliveryTime']),
+        'fields': {
+            'devices': lambda a: [(d['mac'], d['rawRssi']) 
+                                for d in a['wifiScan']['devicesRecords']]
+        }
+    },
+    'activityRecord': {
+        'class': ActivityRecord,
+        'time_field': lambda a: ts_to_seconds(a['activityRecord']['timestamp']),
+        'fields': {
+            'activities': lambda a: [(ActivityType(act['type']), act['confidence']) 
+                                   for act in a['activityRecord']['probableActivities']]
+        }
+    }
+}
+
+def parse_segment(obj: dict, parsers: dict, is_semantic: bool=True) -> TimePoint:
+    """Parse a segment using the appropriate parser from the given parsers dict."""
+    for key, parser in parsers.items():
+        if key in obj:
+            fields = {
+                name: fn(obj) for name, fn in parser['fields'].items()
+            }
+            if is_semantic:
+                return parser['class'](
+                    t0=ts_to_seconds(obj['startTime']),
+                    t1=ts_to_seconds(obj['endTime']),
+                    **fields
+                )
+            else:
+                return parser['class'](
+                    t0=parser['time_field'](obj),
+                    **fields
+                )
+    raise NotImplementedError(f"Unknown segment type: {obj}")
+
 def read_timeline(path: str) -> Timeline:
     """Reads the timeline json from `path` and converts to Timeline object."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     print(data.keys())
-    semantic_segments: list[SemanticSegment] = []
+    
+    # Parse semantic segments
     counts: Counter = Counter()
+    semantic_segments = []
     for obj in data['semanticSegments']:
-        start_ts = ts_to_seconds(obj['startTime'])
-        end_ts = ts_to_seconds(obj['endTime'])
-        if 'timelinePath' in obj:
-            points = [(parse_gps(p['point']), ts_to_seconds(p['time'])) for p in obj['timelinePath']]
-            semantic_segments.append(TimelinePath(t0=start_ts, t1=end_ts, points=points))
-            counts['timelinePath'] += 1
-        elif 'activity' in obj:
-            a = obj['activity']
-            semantic_segments.append(Activity(
-                t0=start_ts,
-                t1=end_ts,
-                start=parse_gps(a['start']['latLng']),
-                end=parse_gps(a['end']['latLng']),
-                distance=a.get('distanceMeters', 0.0),
-                type=ActivityType(a['topCandidate']['type']),
-                prob=a['topCandidate'].get('probability', 0.0),
-            ))
-            counts['activity'] += 1
-            #counts[f'activity-{a["topCandidate"]["type"]}'] += 1
-        elif 'visit' in obj:
-            visit = obj['visit']
-            semantic_segments.append(Visit(
-                t0=start_ts,
-                t1=end_ts,
-                level=visit['hierarchyLevel'],
-                place_id=visit['topCandidate']['placeId'],
-                type=PlaceType(visit['topCandidate']['semanticType']),
-                prob=visit.get('probability', 0.0),
-                loc=parse_gps(visit['topCandidate']['placeLocation']['latLng']),
-                place_prob=visit['topCandidate'].get('probability', 0.0),
-            ))
-            counts['visit'] += 1
-            #counts[f'place-{visit["topCandidate"]["semanticType"]}'] += 1
-        elif 'timelineMemory' in obj: # very few of these, so probably don't matter
-            mem = obj['timelineMemory']['trip']
-            dst = mem['destinations'][0]['identifier']
-            #print(json.dumps(obj, indent=2))
-            semantic_segments.append(TimelineMemory(
-                t0=start_ts,
-                t1=end_ts,
-                place_id=dst['placeId'],
-                distance=mem.get('distanceFromOriginKms', 0.0)*1000.0,
-            ))
-            counts['timelineMemory'] += 1
-        else:
-            raise NotImplementedError(f"Unknown semantic segment type: {obj}")
+        segment = parse_segment(obj, SEMANTIC_SEGMENT_PARSERS, is_semantic=True)
+        semantic_segments.append(segment)
+        counts[next(k for k in SEMANTIC_SEGMENT_PARSERS if k in obj)] += 1
     print(f'Got {len(semantic_segments)} semantic segments: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
+    
+    # Parse raw signals
     counts.clear()
-    raw_signals: list[RawSignal] = []
+    raw_signals = []
     for obj in data['rawSignals']:
-        if 'position' in obj:
-            pos = obj['position']
-            raw_signals.append(RawPosition(
-                t0=ts_to_seconds(pos['timestamp']),
-                source=SourceType(pos['source']),
-                loc=parse_gps(pos['LatLng']),
-                accuracy=pos.get('accuracyMeters', 0.0),
-                altitude=pos.get('altitudeMeters', 0.0),
-                speed=pos.get('speedMetersPerSecond', 0.0),
-            ))
-            counts['position'] += 1
-        elif 'wifiScan' in obj:
-            scan = obj['wifiScan']
-            devices = [(d['mac'], d['rawRssi']) for d in scan['devicesRecords']]
-            raw_signals.append(WifiScan(
-                t0=ts_to_seconds(scan['deliveryTime']),
-                devices=devices,
-            ))
-            counts['wifiScan'] += 1
-        elif 'activityRecord' in obj:
-            act_rec = obj['activityRecord']
-            activities = [(ActivityType(a['type']), a['confidence']) for a in act_rec['probableActivities']]
-            raw_signals.append(ActivityRecord(
-                t0=ts_to_seconds(act_rec['timestamp']),
-                activities=activities,
-            ))
-            counts['activityRecord'] += 1
-        else:
-            raise NotImplementedError(f"Unknown raw signal type: {obj}")
+        signal = parse_segment(obj, RAW_SIGNAL_PARSERS, is_semantic=False)
+        raw_signals.append(signal)
+        counts[next(k for k in RAW_SIGNAL_PARSERS if k in obj)] += 1
     print(f'Got {len(raw_signals)} raw signals: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
+    
     return Timeline(
         semantic=TimeSortedLst(semantic_segments),
         raw=TimeSortedLst(raw_signals),
