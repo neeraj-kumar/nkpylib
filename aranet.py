@@ -29,10 +29,14 @@ DEFAULT_TZ = pytz.timezone('America/New_York')
 def parse_ts(ts: str, tz=DEFAULT_TZ) -> int:
     """Parse a timestamp string in the format 'dd/mm/yyyy HH:MM:SS' into epoch seconds.
 
-    Since there is no timezone information in the raw data, we assume the timestamps are in the default timezone."""
+    Since there is no timezone information in the raw data, we assume the timestamps are in the default timezone.
+    For efficiency, we first parse as naive datetime, get UTC timestamp, then apply timezone offset."""
     dt = datetime.strptime(ts, '%d/%m/%Y %H:%M:%S')
-    dt = tz.localize(dt)  # Localize to the default timezone
-    return int(dt.timestamp())
+    # Get UTC timestamp without timezone info
+    ts_utc = int(dt.timestamp())
+    # Add timezone offset
+    offset = tz.utcoffset(dt).total_seconds()  # type: ignore
+    return int(ts_utc + offset)
 
 @dataclass
 class Reading:
