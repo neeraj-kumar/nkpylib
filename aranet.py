@@ -29,11 +29,11 @@ STD_OFFSET = -5 * 3600  # EST is UTC-5
 
 def get_offset(ts: int, transition_cache: dict[int, tuple[int, int]] = {}) -> int:
     """Get timezone offset for timestamp, caching DST transitions by year.
-    
+
     Args:
         ts: Timestamp in epoch seconds
         transition_cache: Optional cache of DST transitions by year
-        
+
     Returns:
         Offset in seconds from UTC (e.g. -14400 for EDT, -18000 for EST)
     """
@@ -52,7 +52,7 @@ def get_offset(ts: int, transition_cache: dict[int, tuple[int, int]] = {}) -> in
                 fall_back = int(dt.timestamp())
                 break
         transition_cache[year] = (spring_forward, fall_back)
-    
+
     spring, fall = transition_cache[year]
     return DST_OFFSET if spring <= ts < fall else STD_OFFSET
 
@@ -66,6 +66,7 @@ def parse_ts(ts: str) -> int:
     ts_utc = int(naive_dt.timestamp())
     # Add the appropriate offset based on whether DST was in effect
     return ts_utc + get_offset(ts_utc)
+
 
 @dataclass
 class Reading:
