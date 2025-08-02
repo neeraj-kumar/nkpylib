@@ -395,7 +395,11 @@ class _TimeKey:
 
     def __lt__(self, other) -> bool:
         if isinstance(other, tuple):
+            # Compare with first element of tuple (t0)
             return self.ts < other[0]
+        if isinstance(other, _TimeKey):
+            return self.ts < other.ts
+        # Compare with t0 of TimePoint objects
         return self.ts < other.t0
 
 class TimeSortedLst(Generic[TimeT]):
