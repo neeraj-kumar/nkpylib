@@ -7,6 +7,9 @@ Time(dd/mm/yyyy),Carbon dioxide(ppm),Temperature(°F),Relative humidity(%),Atmos
 05/10/2023 13:39:35,"704","77.4","60","765"
 05/10/2023 13:40:35,"681","77.5","60","766"
 
+Or the first field name might be in the format:
+Time(DD/MM/YYYY H:mm:ss)
+
 We parse each row into a `Reading` dataclass, which contains the timestamp (as epoch seconds) and the other readings.
 """
 
@@ -39,6 +42,7 @@ def get_offset(ts: int, transition_cache: dict[int, tuple[int, int]] = {}) -> in
     """
     year = datetime.fromtimestamp(ts, pytz.UTC).year
     if year not in transition_cache:
+        print(f'Calculating DST transitions for year {year}')
         # Find transitions by checking March and November
         # Use naive datetimes for checking offsets
         spring = datetime(year, 3, 1)
@@ -86,7 +90,8 @@ class Reading:
         `Reading` will be set to None, but we will still return a valid Reading object.
         """
         try:
-            ts = parse_ts(data.get('Time(dd/mm/yyyy)'))
+            time_str = data.get('Time(dd/mm/yyyy)') or data.get('Time(DD/MM/YYYY H:mm:ss)')
+            ts = parse_ts(time_str) if time_str else None
         except Exception as e:
             print(f'Error parsing timestamp in row {data}: {e}, skipping')
             return None
@@ -193,7 +198,7 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
 if __name__ == '__main__':
     parser = ArgumentParser(description='Aranet4 data dump utilities')
     parser.add_argument('--data-dir', type=Path, default=DATA_DIR, help='Directory containing Aranet4 data dumps')
-    parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='/2024/')
+    parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='2024-03-0')
     args = parser.parse_args()
     print(args.filter)
     readings = read_all_dumps(args.data_dir, lambda p: args.filter in str(p) if args.filter else True)
