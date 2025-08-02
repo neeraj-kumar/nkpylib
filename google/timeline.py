@@ -263,6 +263,7 @@ The timeline file is a JSON file with the following structure:
 
 from __future__ import annotations
 
+import bisect
 import json
 
 from argparse import ArgumentParser
@@ -403,6 +404,57 @@ class TimeSortedLst(Generic[TimeT]):
 
     def __repr__(self):
         return f"TSList<{len(self.items)} items>"
+
+    @staticmethod
+    def _make_search_key(ts: float) -> _TimeKey:
+        """Create a comparable key for binary search."""
+        return _TimeKey(ts)
+
+    def find_at_time(self, ts: float|str) -> list[TimeT]:
+        """Find items that contain or are closest to the given timestamp.
+        
+        Args:
+            ts: Either seconds since epoch, or a timestamp string parseable by ts_to_seconds()
+        
+        Returns:
+            List of matching items, sorted by proximity to timestamp.
+            For time ranges (t0,t1), returns exact matches that contain the timestamp.
+            For single timestamps (t0), returns the closest items.
+        """
+        if isinstance(ts, str):
+            ts = ts_to_seconds(ts)
+        
+        key = self._make_search_key(ts)
+        idx = bisect.bisect_left(self.items, key, key=self._get_sort_key)
+        
+        # Check for exact matches first
+        matches = []
+        if idx < len(self.items):
+            item = self.items[idx]
+            if hasattr(item, 't1'):  # TimeRange
+                if item.t0 <= ts <= item.t1:  # type: ignore
+                    return [item]
+            elif item.t0 == ts:  # Single timestamp exact match
+                return [item]
+        
+        # No exact match, return closest items
+        closest = []
+        if idx > 0:
+            closest.append(self.items[idx - 1])
+        if idx < len(self.items):
+            closest.append(self.items[idx])
+        
+        return sorted(closest, key=lambda x: abs(x.t0 - ts))
+
+class _TimeKey:
+    """Helper class for binary search comparisons."""
+    def __init__(self, ts: float):
+        self.ts = ts
+    
+    def __lt__(self, other) -> bool:
+        if isinstance(other, tuple):
+            return self.ts < other[0]
+        return self.ts < other.t0
 
 @dataclass
 class Timeline:
