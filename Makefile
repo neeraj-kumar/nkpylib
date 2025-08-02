@@ -78,3 +78,7 @@ copy-chroma:
 	#python3 chroma.py 8102 8103 clip-images
 	#python3 chroma.py 8102 8103 clip-faces
 	#python3 chroma.py 8102 8103 images-text
+
+## tests out aranet reading
+aranet:
+	python3 aranet.py
