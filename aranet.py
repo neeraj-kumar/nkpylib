@@ -23,19 +23,20 @@ import pytz
 
 DATA_DIR = Path('/home/neeraj/dp/Aranet4')
 DEFAULT_TZ = pytz.timezone('America/New_York')
+# Pre-calculate DST and non-DST offsets for our timezone
+DST_OFFSET = -4 * 3600  # EDT is UTC-4
+STD_OFFSET = -5 * 3600  # EST is UTC-5
 
-def parse_ts(ts: str, tz=DEFAULT_TZ) -> int:
+def parse_ts(ts: str) -> int:
     """Parse a timestamp string in the format 'dd/mm/yyyy HH:MM:SS' into epoch seconds.
-
-    Since there is no timezone information in the raw data, we assume the timestamps are in the
-    default timezone. For efficiency, we first parse as naive datetime, get UTC timestamp, then
-    apply timezone offset at the end. During DST transitions, we assume the first occurrence."""
+    
+    Since there is no timezone information in the raw data, we assume EDT (UTC-4).
+    For simplicity and speed, we always assume DST is in effect."""
     naive_dt = datetime.strptime(ts, '%d/%m/%Y %H:%M:%S')
     # Get UTC timestamp without timezone info
     ts_utc = int(naive_dt.timestamp())
-    # Add timezone offset, using is_dst=True for ambiguous times
-    offset = tz.utcoffset(naive_dt, is_dst=True).total_seconds()  # type: ignore
-    return int(ts_utc + offset)
+    # Add constant DST offset
+    return ts_utc + DST_OFFSET
 
 @dataclass
 class Reading:
