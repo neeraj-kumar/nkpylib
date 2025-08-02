@@ -450,10 +450,16 @@ class Timeline:
     raw: TimeSortedLst[RawSignal]
 
 def ts_to_seconds(ts: str) -> float:
-    """Convert a timestamp string (with tz) to seconds since epoch."""
-    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    dt = dt.astimezone(pytz.utc)  # Convert to UTC
-    return dt.timestamp()  # Return seconds since epoch
+    """Convert a timestamp string (with tz) to seconds since epoch.
+    
+    The input timestamp should include timezone info. If it ends with 'Z',
+    it's interpreted as UTC."""
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = dt.astimezone(pytz.utc)  # Convert to UTC
+        return dt.timestamp()  # Return seconds since epoch
+    except Exception as e:
+        raise ValueError(f"Failed to parse timestamp '{ts}': {e}")
 
 def parse_gps(gps_str: str) -> GPS:
     """Parse a GPS string in the format 'lat,lon' into a tuple of floats."""
