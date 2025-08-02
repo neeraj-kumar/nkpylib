@@ -15,6 +15,7 @@ from __future__ import annotations
 import bisect
 from argparse import ArgumentParser
 from csv import DictReader
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
