@@ -388,21 +388,6 @@ class HasTimeRange(HasTimestamp, Protocol):
 
 TimeT = TypeVar("TimeT", bound=HasTimestamp, covariant=True)
 
-class _TimeKey:
-    """Helper class for binary search comparisons."""
-    def __init__(self, ts: float):
-        self.ts = ts
-        # For comparison with tuples from _get_sort_key
-        self.t0 = ts
-        self.t1 = ts
-
-    def __lt__(self, other) -> bool:
-        if isinstance(other, tuple):
-            return (self.t0, self.t1) < other
-        if isinstance(other, _TimeKey):
-            return self.ts < other.ts
-        # Compare with t0 of TimePoint objects
-        return self.ts < other.t0
 
 class TimeSortedLst(Generic[TimeT]):
     """A class to keep a list of items sorted by their timestamp(s).
@@ -421,10 +406,6 @@ class TimeSortedLst(Generic[TimeT]):
     def __repr__(self):
         return f"TSList<{len(self.items)} items>"
 
-    @staticmethod
-    def _make_search_key(ts: float) -> _TimeKey:
-        """Create a comparable key for binary search."""
-        return _TimeKey(ts)
 
     def find_at_time(self, ts: float|str) -> list[TimeT]:
         """Find items that contain or are closest to the given timestamp.
@@ -440,7 +421,7 @@ class TimeSortedLst(Generic[TimeT]):
         if isinstance(ts, str):
             ts = ts_to_seconds(ts)
 
-        key = self._make_search_key(ts)
+        key = (ts, ts)  # Create search key in same format as _get_sort_key
         idx = bisect.bisect_left(self.items, key, key=self._get_sort_key)
 
         # Check for exact matches first
