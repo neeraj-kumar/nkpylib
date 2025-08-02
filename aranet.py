@@ -103,14 +103,13 @@ def read_dump(file_path: Path, existing: list[Reading], ts_to_idx: dict[int, int
             reading = Reading.from_dict(row)
             if not reading:
                 continue
-            
             if reading.ts in ts_to_idx:
                 # Update existing reading
                 existing[ts_to_idx[reading.ts]] = reading
             else:
                 # Add to buffer of new readings
                 new_readings.append(reading)
-    
+
     if new_readings:
         # Add all new readings at once and update mapping
         start_idx = len(existing)
@@ -155,5 +154,7 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
 if __name__ == '__main__':
     parser = ArgumentParser(description='Aranet4 data dump utilities')
     parser.add_argument('--data-dir', type=Path, default=DATA_DIR, help='Directory containing Aranet4 data dumps')
+    parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='/2024/')
     args = parser.parse_args()
-    readings = read_all_dumps(args.data_dir)
+    print(args.filter)
+    readings = read_all_dumps(args.data_dir, lambda p: args.filter in str(p) if args.filter else True)
