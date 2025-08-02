@@ -13,6 +13,7 @@ We parse each row into a `Reading` dataclass, which contains the timestamp (as e
 from __future__ import annotations
 
 import bisect
+
 from argparse import ArgumentParser
 from csv import DictReader
 from collections.abc import Callable
@@ -73,6 +74,10 @@ class Reading:
                     print(f'Error parsing field {field} with value {value} in row {data}: {e}, skipping')
                     return None
         return cls(**parsed_data)
+
+    def __repr__(self):
+        return (f'Reading<ts={self.ts}, co2={self.co2}, temp={self.temp}, '
+                f'humidity={self.humidity}, pressure={self.pressure}>')
 
 def read_dump(file_path: Path, existing: list[Reading]) -> list[Reading]:
     """Read a single CSV dump file and extends its `Readings` to the existing list of `Readings`.
