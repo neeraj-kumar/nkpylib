@@ -16,6 +16,7 @@ We parse each row into a `Reading` dataclass, which contains the timestamp (as e
 from __future__ import annotations
 
 import json
+import logging
 
 from argparse import ArgumentParser
 from csv import DictReader
@@ -27,6 +28,8 @@ from pathlib import Path
 import pytz
 
 from nkpylib.stringutils import GeneralJSONEncoder
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path('/home/neeraj/dp/Aranet4')
 DEFAULT_TZ = pytz.timezone('America/New_York')
@@ -46,7 +49,7 @@ def get_offset(ts: int, transition_cache: dict[int, tuple[int, int]] = {}) -> in
     """
     year = datetime.fromtimestamp(ts, pytz.UTC).year
     if year not in transition_cache:
-        print(f'Calculating DST transitions for year {year}')
+        logger.debug(f'Calculating DST transitions for year {year}')
         # Find transitions by checking March and November
         # Use naive datetimes for checking offsets
         spring = datetime(year, 3, 1)
@@ -125,10 +128,10 @@ class Reading:
             time_str = data.get('Time(dd/mm/yyyy)') or data.get('Time(DD/MM/YYYY H:mm:ss)')
             ts = parse_ts(time_str) if time_str else None
         except Exception as e:
-            print(f'Error parsing timestamp in row {data}: {e}, skipping')
+            logger.debug(f'Error parsing timestamp in row {data}: {e}, skipping')
             return None
         if ts is None:
-            print(f'Invalid timestamp in row {data}, skipping')
+            logger.debug(f'Invalid timestamp in row {data}, skipping')
             return None
         # mapping from CSV field names to Reading attributes and cast types
         field_map = {
@@ -147,7 +150,7 @@ class Reading:
                 try:
                     parsed_data[attr] = cast_type(value)
                 except ValueError as e:
-                    print(f'Error parsing field {field} with value {value} in row {data}: {e}, skipping')
+                    logger.debug(f'Error parsing field {field} with value {value} in row {data}: {e}, skipping')
                     return None
         return cls(**parsed_data)
 
@@ -212,22 +215,23 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
     readings = []
     ts_to_idx = {}
     for year_dir in sorted(data_dir.iterdir()):
-        print('Processing year directory:', year_dir)
+        logger.debug('Processing year directory:', year_dir)
         if not year_dir.is_dir():
             continue
         for file_path in sorted(year_dir.glob('*.csv')):
             if not file_path.is_file():
                 continue
             if not path_filter(file_path):
-                #print(f'Skipping file {file_path} due to filter')
+                #logger.debug(f'Skipping file {file_path} due to filter')
                 continue
-            print(f'Reading file {file_path} ({len(readings)} existing readings)')
+            logger.debug(f'Reading file {file_path} ({len(readings)} existing readings)')
             readings, ts_to_idx = read_dump(file_path, readings, ts_to_idx)
-    print(f'Reading {len(readings)} readings from {data_dir}, first {readings[0]}, last {readings[-1]}')
+    logger.debug(f'Reading {len(readings)} readings from {data_dir}, first {readings[0]}, last {readings[-1]}')
     return readings
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     parser = ArgumentParser(description='Aranet4 data dump utilities')
     parser.add_argument('--data-dir', type=Path, default=DATA_DIR, help='Directory containing Aranet4 data dumps')
     parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='')

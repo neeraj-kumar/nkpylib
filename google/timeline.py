@@ -265,6 +265,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import logging
 
 from argparse import ArgumentParser
 from collections import Counter
@@ -277,6 +278,8 @@ import pytz
 
 from nkpylib.geo import haversine_dist
 from nkpylib.google.constants import BACKUPS_DIR
+
+logger = logging.getLogger(__name__)
 
 GPS = tuple[float, float]  # Latitude, Longitude
 
@@ -561,7 +564,6 @@ def read_timeline(path: str) -> Timeline:
     """Reads the timeline json from `path` and converts to Timeline object."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    print(data.keys())
 
     # Parse semantic segments
     counts: Counter = Counter()
@@ -570,7 +572,7 @@ def read_timeline(path: str) -> Timeline:
         segment = parse_segment(obj, SEMANTIC_SEGMENT_PARSERS, is_semantic=True)
         semantic_segments.append(segment)
         counts[next(k for k in SEMANTIC_SEGMENT_PARSERS if k in obj)] += 1
-    print(f'Got {len(semantic_segments)} semantic segments: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
+    logger.debug(f'Got {len(semantic_segments)} semantic segments: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
 
     # Parse raw signals
     counts.clear()
@@ -579,7 +581,7 @@ def read_timeline(path: str) -> Timeline:
         signal = parse_segment(obj, RAW_SIGNAL_PARSERS, is_semantic=False)
         raw_signals.append(signal)
         counts[next(k for k in RAW_SIGNAL_PARSERS if k in obj)] += 1
-    print(f'Got {len(raw_signals)} raw signals: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
+    logger.debug(f'Got {len(raw_signals)} raw signals: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
 
     return Timeline(
         semantic=TimeSortedLst(semantic_segments),
@@ -588,6 +590,7 @@ def read_timeline(path: str) -> Timeline:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     parser = ArgumentParser(description="Read Google Timeline JSON file.")
     parser.add_argument("path", type=str, help="Path to the timeline JSON file.")
     args = parser.parse_args()
