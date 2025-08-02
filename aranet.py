@@ -12,6 +12,7 @@ We parse each row into a `Reading` dataclass, which contains the timestamp (as e
 
 from __future__ import annotations
 
+import bisect
 from argparse import ArgumentParser
 from csv import DictReader
 from dataclasses import dataclass
@@ -65,11 +66,14 @@ def read_dump(file_path: Path, existing: list[Reading]) -> list[Reading]:
         new_readings = []
         for row in reader:
             reading = Reading.from_dict(row)
-            # Replace this timestamp in existing readings
-            existing_reading = next((r for r in existing if r.ts == reading.ts), None)
-            if existing_reading:
-                existing.remove(existing_reading)
-            new_readings.append(reading)
+            # Find where this timestamp would go in existing readings
+            idx = bisect.bisect_left(existing, reading.ts, key=lambda r: r.ts)
+            # Check if we found an exact match
+            if idx < len(existing) and existing[idx].ts == reading.ts:
+                # Replace the existing reading
+                existing[idx] = reading
+            else:
+                new_readings.append(reading)
         # Combine new readings with existing ones and sort by timestamp
         combined_readings = sorted(existing + new_readings, key=lambda r: r.ts)
     return combined_readings
