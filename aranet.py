@@ -63,7 +63,7 @@ def get_offset(ts: int, transition_cache: dict[int, tuple[int, int]] = {}) -> in
 
 def fast_parse_ts(ts: str) -> int:
     """Fast parse of timestamp string in format 'dd/mm/yyyy HH:MM:SS' into UTC seconds.
-    
+
     Much faster than strptime by doing direct integer math instead of datetime objects.
     Handles leap years correctly."""
     # Split into date and time
@@ -85,12 +85,20 @@ def fast_parse_ts(ts: str) -> int:
     # Add timezone offset based on whether DST was in effect
     return ts_utc + get_offset(ts_utc)
 
-def parse_ts(ts: str) -> int:
+def parse_ts(ts: str, fmt: str='%D/%m/%Y %H:%M:%S') -> int:
     """Parse a timestamp string in the format 'dd/mm/yyyy HH:MM:SS' into epoch seconds.
 
     Since there is no timezone information in the raw data, we determine the correct
     offset based on whether DST was in effect at that time."""
-    return fast_parse_ts(ts)
+    if fmt == '%D/%m/%Y %H:%M:%S':
+        # Fast path for our specific format
+        return fast_parse_ts(ts)
+    else:
+        # Use strptime for other formats
+        dt = datetime.strptime(ts, fmt)
+        # Convert to UTC seconds, adjusting for DST
+        ts_utc = int(dt.timestamp())
+        return ts_utc + get_offset(ts_utc)
 
 
 @dataclass
@@ -218,7 +226,7 @@ def read_all_dumps(data_dir: Path, path_filter: Callable = lambda p: True):
 if __name__ == '__main__':
     parser = ArgumentParser(description='Aranet4 data dump utilities')
     parser.add_argument('--data-dir', type=Path, default=DATA_DIR, help='Directory containing Aranet4 data dumps')
-    parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='2024-03-0')
+    parser.add_argument('-f', '--filter', type=str, help='Optional substring filter for file paths to read', default='2024-03')
     args = parser.parse_args()
     print(args.filter)
     readings = read_all_dumps(args.data_dir, lambda p: args.filter in str(p) if args.filter else True)

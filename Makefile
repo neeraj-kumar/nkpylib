@@ -82,3 +82,4 @@ copy-chroma:
 ## tests out aranet reading
 aranet:
 	python3 aranet.py
+	#python3 -m cProfile -s tottime aranet.py
