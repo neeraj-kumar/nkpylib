@@ -392,11 +392,13 @@ class _TimeKey:
     """Helper class for binary search comparisons."""
     def __init__(self, ts: float):
         self.ts = ts
+        # For comparison with tuples from _get_sort_key
+        self.t0 = ts
+        self.t1 = ts
 
     def __lt__(self, other) -> bool:
         if isinstance(other, tuple):
-            # Compare with first element of tuple (t0)
-            return self.ts < other[0]
+            return (self.t0, self.t1) < other
         if isinstance(other, _TimeKey):
             return self.ts < other.ts
         # Compare with t0 of TimePoint objects
