@@ -40,16 +40,17 @@ def get_offset(ts: int, transition_cache: dict[int, tuple[int, int]] = {}) -> in
     year = datetime.fromtimestamp(ts, pytz.UTC).year
     if year not in transition_cache:
         # Find transitions by checking March and November
-        spring = datetime(year, 3, 1, tzinfo=pytz.UTC)
-        summer = datetime(year, 7, 1, tzinfo=pytz.UTC)
+        # Use naive datetimes for checking offsets
+        spring = datetime(year, 3, 1)
+        summer = datetime(year, 7, 1)
         # Check each day until we find the transitions
         for dt in (spring + timedelta(days=i) for i in range(45)):
             if DEFAULT_TZ.utcoffset(dt) != DEFAULT_TZ.utcoffset(spring):
-                spring_forward = int(dt.timestamp())
+                spring_forward = int(DEFAULT_TZ.localize(dt).timestamp())
                 break
         for dt in (summer + timedelta(days=i) for i in range(180)):
             if DEFAULT_TZ.utcoffset(dt) != DEFAULT_TZ.utcoffset(summer):
-                fall_back = int(dt.timestamp())
+                fall_back = int(DEFAULT_TZ.localize(dt).timestamp())
                 break
         transition_cache[year] = (spring_forward, fall_back)
 
