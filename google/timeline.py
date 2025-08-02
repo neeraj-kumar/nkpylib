@@ -410,7 +410,7 @@ SEMANTIC_SEGMENT_PARSERS = {
     'timelinePath': {
         'class': TimelinePath,
         'fields': {
-            'points': lambda obj: [(parse_gps(p['point']), ts_to_seconds(p['time'])) 
+            'points': lambda obj: [(parse_gps(p['point']), ts_to_seconds(p['time']))
                                  for p in obj['timelinePath']]
         }
     },
@@ -461,15 +461,14 @@ RAW_SIGNAL_PARSERS = {
         'class': WifiScan,
         'time_field': lambda a: ts_to_seconds(a['wifiScan']['deliveryTime']),
         'fields': {
-            'devices': lambda a: [(d['mac'], d['rawRssi']) 
-                                for d in a['wifiScan']['devicesRecords']]
+            'devices': lambda a: [(d['mac'], d['rawRssi']) for d in a['wifiScan']['devicesRecords']]
         }
     },
     'activityRecord': {
         'class': ActivityRecord,
         'time_field': lambda a: ts_to_seconds(a['activityRecord']['timestamp']),
         'fields': {
-            'activities': lambda a: [(ActivityType(act['type']), act['confidence']) 
+            'activities': lambda a: [(ActivityType(act['type']), act['confidence'])
                                    for act in a['activityRecord']['probableActivities']]
         }
     }
@@ -500,7 +499,7 @@ def read_timeline(path: str) -> Timeline:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     print(data.keys())
-    
+
     # Parse semantic segments
     counts: Counter = Counter()
     semantic_segments = []
@@ -509,7 +508,7 @@ def read_timeline(path: str) -> Timeline:
         semantic_segments.append(segment)
         counts[next(k for k in SEMANTIC_SEGMENT_PARSERS if k in obj)] += 1
     print(f'Got {len(semantic_segments)} semantic segments: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
-    
+
     # Parse raw signals
     counts.clear()
     raw_signals = []
@@ -518,7 +517,7 @@ def read_timeline(path: str) -> Timeline:
         raw_signals.append(signal)
         counts[next(k for k in RAW_SIGNAL_PARSERS if k in obj)] += 1
     print(f'Got {len(raw_signals)} raw signals: {json.dumps(dict(counts), indent=2, sort_keys=True)}')
-    
+
     return Timeline(
         semantic=TimeSortedLst(semantic_segments),
         raw=TimeSortedLst(raw_signals),
