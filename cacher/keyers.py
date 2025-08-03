@@ -122,7 +122,6 @@ class BaseHashKeyer(Keyer[HashT]):
 
     def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> Any:
         string_key = self._string_maker.make_key(fn, args, kwargs)
-        print(f'Got string key: {string_key}')
         return self._get_hash(string_key)
 
     def _get_raw_hash(self, s: str) -> Any:

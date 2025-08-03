@@ -410,6 +410,11 @@ class TimeSortedLst(Generic[TimeT]):
     def __repr__(self):
         return f"TSList<{len(self.items)} items>"
 
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __getitem__(self, idx: int) -> TimeT:
+        return self.items[idx]
 
     def find_at_time(self, ts: float|str) -> list[TimeT]:
         """Find items that contain or are closest to the given timestamp.
