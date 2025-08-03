@@ -35,6 +35,8 @@ import requests
 from tqdm import tqdm
 
 from nkpylib.cacheutils import APICache
+from nkpylib.web_utils import make_request
+from nkpylib.cacher import SeparateFileBackend, HashStringKeyer
 
 wm_cache = partial(APICache, cachedir='cache/wikimapia/%(fn)s/', mindelay=5, serializer='json')
 ga_cache = partial(APICache, cachedir='cache/geoapify/%(fn)s/', mindelay=5, serializer='json')
@@ -179,6 +181,72 @@ class Geocoder(ABC):
         place_id = self.get_id(places[0])
         place = self.place_info(place_id)
         print(f'Got place info for {place_id}:\n{j(place)}')
+
+
+class GooglePlaces(Geocoder):
+    """Google maps geocoder"""
+    def __init__(self):
+        super().__init__(api_key_env='GOOGLE_MAPS_API_KEY')
+        self.cacher = SeparateFileBackend(fn=self._api_call, cache_dir='cache/google_places/')
+
+    def _api_call(self, endpoint: str, **kw: Any) -> dict[str, Any]:
+        url = f'https://places.googleapis.com/v1/{endpoint}'
+        method = kw.pop('method', 'post')
+        field_mask = kw.pop('field_mask', '*')
+        headers = {
+            'X-Goog-Api-Key': self.api_key,
+            'X-Goog-FieldMask': field_mask,
+        }
+        logging.info(f'Calling Google places API with url: {url} and headers {headers} and kw {kw}')
+        resp = make_request(url, method=method, min_delay=0, headers=headers, **kw)
+        ret = resp.json()
+        if 'error' in ret:
+            raise ValueError(f'Google Places API Error: {ret["error"]}')
+        return ret
+
+    def api_call(self, endpoint: str, **kw: Any) -> dict[str, Any]:
+        """Low-level function to call the API at given `endpoint` and `kw`"""
+        return self.cacher(endpoint, **kw)
+
+    def place_info(self, place_id: Any, **kw: Any) -> dict[str, Any]:
+        """Returns information about a specific place."""
+        return self.api_call(f'places/{place_id}', method='get', **kw)
+
+    def nearby_places(self, lat: float, lon: float, radius: float=1000, limit:int=20, include_extra_cats: bool=False, **kw: Any) -> list[dict[str, Any]]:
+        """Returns upto `limit` places near the given `lat` and `lon`, within `radius`.
+
+        You can optionally specify:
+        - includedPrimaryTypes
+        - excludedPrimaryTypes
+        - includedTypes
+        - excludedTypes
+
+        Each of which are lists of categories (from `categories()`), which will be used to filter results.
+        """
+        assert 0 < radius <= 50000
+        assert 1 <= limit <= 20
+        payload = dict(
+            locationRestriction=dict(circle=dict(center=dict(latitude=lat, longitude=lon), radius=radius)),
+            maxResultCount=limit,
+        )
+        for key in ['includedPrimaryTypes', 'excludedPrimaryTypes', 'includedTypes', 'excludedTypes']:
+            if key in kw:
+                payload[key] = kw[key]
+        ret = self.api_call(f'places:searchNearby', json=payload)
+        return ret['places']
+
+    def get_id(self, obj: dict[str, Any]) -> Any:
+        return obj['id']
+
+    def categories(self, obj: Optional[Any]=None, type: str='', **kw: Any) -> CategoryResp:
+        """Returns a list of categories of places accepted as inputs to google places.
+
+        Note that we ignore obj and type and kw.
+        """
+        assert obj is None, 'GooglePlaces.categories() does not support obj'
+        assert not type, 'GooglePlaces.categories() does not support type'
+        with open('google-place-types.json') as f:
+            return json.load(f)
 
 
 class Wikimapia(Geocoder):
@@ -360,10 +428,9 @@ class Geoapify(Geocoder):
         return self.api_call(f'place-details', id=place_id, **kw)
 
 
-
 if __name__ == '__main__':
     # enable logging with a verbose tab-separated format including ts, func, line no, level, msg
     logging.basicConfig(level=logging.INFO, format='%(asctime)s\t%(funcName)s\t%(lineno)d\t%(levelname)s\t%(message)s')
     lat, lon = 40.78, -73.98
-    geocoder = Geoapify()
+    geocoder = GooglePlaces()
     geocoder.test(lat, lon)
