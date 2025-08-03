@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Generic, Type, TypeVar
 
 from nkpylib.cacher.constants import KeyT, HashT
+from nkpylib.stringutils import GeneralJSONEncoder
 
 class Keyer(ABC, Generic[KeyT]):
     """Base class for converting function arguments into cache keys."""
@@ -38,7 +40,9 @@ class TupleKeyer(Keyer[tuple]):
     """
     def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> tuple:
         # Get function info if available
-        fn_key = (fn.__module__, fn.__qualname__) if fn else ('', '')
+        #fn_key = (fn.__module__, fn.__qualname__) if fn else ('', '')
+        fn_key = ('', fn.__qualname__) if fn else ('', '')
+        #print(f'for fn {fn} got fn_key {fn_key}')
 
         # Convert kwargs to sorted, frozen items
         kw_items = self._make_hashable(kwargs)
@@ -46,6 +50,18 @@ class TupleKeyer(Keyer[tuple]):
         return (fn_key,) + tuple(self._make_hashable(arg) for arg in args) + (kw_items,)
 
     def _make_hashable(self, obj: Any) -> Any:
+        """Convert an object into a hashable form.
+
+        This just uses json.dumps(obj, sort_keys=True), but it requires it to be JSON serializable
+        (with GeneralJSONEncoder)
+        """
+        try:
+            return json.dumps(obj, sort_keys=True, cls=GeneralJSONEncoder, ensure_ascii=False)
+        except TypeError:
+            # If not JSON serializable, fall back to old method
+            return self.old_make_hashable(obj)
+
+    def old_make_hashable(self, obj: Any) -> Any:
         """Recursively convert an object into a hashable form."""
         # Already hashable types
         if isinstance(obj, (str, int, float, bool, type(None))):
@@ -57,7 +73,7 @@ class TupleKeyer(Keyer[tuple]):
         if isinstance(obj, dict):
             return frozenset(
                 (str(k), self._make_hashable(v))
-                for k, v in sorted(obj.items(), key=lambda x: str(x[0]))
+                for k, v in sorted(obj.items(), key=lambda x: str(self._make_hashable(x[0])))
             )
         # Convert sets
         if isinstance(obj, set):
@@ -106,6 +122,7 @@ class BaseHashKeyer(Keyer[HashT]):
 
     def make_key(self, fn: Callable|None, args: tuple, kwargs: dict) -> Any:
         string_key = self._string_maker.make_key(fn, args, kwargs)
+        print(f'Got string key: {string_key}')
         return self._get_hash(string_key)
 
     def _get_raw_hash(self, s: str) -> Any:

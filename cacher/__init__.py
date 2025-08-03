@@ -12,7 +12,7 @@ from .strategies import CacheStrategy, RateLimiter, TTLPolicy
 __all__ = [
     'CacheBackend',
     'MemoryBackend',
-    'SeparateFileBackend', 
+    'SeparateFileBackend',
     'JointFileBackend',
     'MultiplexBackend',
     'CacheFormatter',

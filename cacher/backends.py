@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any, Callable, Generic, Iterator
 
 from nkpylib.cacher.constants import KeyT, CacheNotFound
-from nkpylib.cacher.formatters import CacheFormatter
+from nkpylib.cacher.formatters import CacheFormatter, JsonFormatter
 from nkpylib.cacher.strategies import CacheStrategy
 from nkpylib.cacher.file_utils import _read_file, _write_atomic
-from nkpylib.cacher.keyers import Keyer, TupleKeyer
+from nkpylib.cacher.keyers import Keyer, TupleKeyer, HashStringKeyer
 
 
 class CacheBackend(ABC, Generic[KeyT]):
@@ -32,7 +32,7 @@ class CacheBackend(ABC, Generic[KeyT]):
                  **kwargs):
         self.fn = fn
         self.formatter = formatter
-        self.keyer = keyer or TupleKeyer()
+        self.keyer = keyer or HashStringKeyer()
         self.strategies = []
         for strategy in (strategies or []):
             strategy._backend = self
@@ -149,7 +149,6 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in self.strategies:
             value = strategy.post_get(key, value)
 
-        print(f'for key {key}, got value: {value}')
         return self.handle_cache_hit(key, value)
 
     def set(self, key: KeyT, value: Any) -> None:
@@ -318,7 +317,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     def handle_cache_hit(self, key: KeyT, value: Any) -> Any:
         """Handle a cache hit."""
-        print(f'handling cache hit for value: {value}')
+        #print(f'handling cache hit for value: {value}')
         self.stats['hits'] += 1
         return value
 
@@ -359,10 +358,16 @@ class SeparateFileBackend(CacheBackend[KeyT]):
     Good for large objects like embeddings or images where you want
     to manage each cached item independently.
     """
-    def __init__(self, cache_dir: str|Path, filename_fn: Callable|None=None, fn: Callable|None=None, *, formatter: CacheFormatter, **kwargs):
-        super().__init__(fn=fn, formatter=formatter, **kwargs)
+    def __init__(self,
+                 cache_dir: str|Path,
+                 filename_fn: Callable|None=None,
+                 fn: Callable|None=None,
+                 *,
+                 formatter: CacheFormatter|None=None,
+                 **kwargs):
+        super().__init__(fn=fn, formatter=formatter or JsonFormatter(), **kwargs)
         self.filename_fn = filename_fn
-        self.cache_dir = Path(kwargs['cache_dir'])
+        self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _key_to_path(self, key: KeyT) -> Path:
@@ -374,6 +379,9 @@ class SeparateFileBackend(CacheBackend[KeyT]):
             filename = str(key)
         # replace invalid chars #FIXME
         filename = "".join(c if c.isalnum() else '_' for c in filename)
+        # add extension based on formatter
+        if not filename.endswith(self.formatter.EXT):
+            filename += self.formatter.EXT
         return self.cache_dir / filename
 
     def _get_value(self, key: KeyT) -> Any:
@@ -422,8 +430,8 @@ class JointFileBackend(CacheBackend[KeyT]):
     - `del cache[key]`: Delete key
     - `cache.clear()`: Clear all entries
     """
-    def __init__(self, cache_path: str|Path, fn: Callable|None=None, *, formatter: CacheFormatter, **kwargs):
-        super().__init__(fn=fn, formatter=formatter, **kwargs)
+    def __init__(self, cache_path: str|Path, fn: Callable|None=None, *, formatter: CacheFormatter|None=None, **kwargs):
+        super().__init__(fn=fn, formatter=formatter or JsonFormatter(), **kwargs)
         self.cache_path = Path(kwargs['cache_path'])
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._cache: dict[KeyT, Any] = {}

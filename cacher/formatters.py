@@ -7,6 +7,8 @@ from typing import Any
 
 class CacheFormatter(ABC):
     """Base class for serialization formats."""
+    EXT: str = '.cache'
+
     @abstractmethod
     def dumps(self, obj: Any) -> bytes:
         """Serialize object to bytes."""
@@ -19,12 +21,15 @@ class CacheFormatter(ABC):
 
 class JsonFormatter(CacheFormatter):
     """JSON serialization format."""
-    def __init__(self, EncoderCls=json.JSONEncoder, DecoderCls=json.JSONDecoder):
+    EXT = '.json'
+
+    def __init__(self, EncoderCls=json.JSONEncoder, DecoderCls=json.JSONDecoder, indent=2):
         self.EncoderCls = EncoderCls
         self.DecoderCls = DecoderCls
+        self.indent = indent
 
     def dumps(self, obj: Any) -> bytes:
-        return json.dumps(obj, cls=self.EncoderCls, ensure_ascii=False).encode('utf-8')
+        return json.dumps(obj, cls=self.EncoderCls, ensure_ascii=False, indent=self.indent).encode('utf-8')
 
     def loads(self, data: bytes) -> Any:
         return json.loads(data.decode('utf-8'), cls=self.DecoderCls)
