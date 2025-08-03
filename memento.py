@@ -326,6 +326,13 @@ class MovieDB(MementoDB):
         print(f'Got {len(matches)} matches for "4alicia": {matches}')
 
 
+class LifeLog(MementoDB):
+    """Subclass of MementoDB specialized for handling my life log entries."""
+
+    def __init__(self, update_interval_s=60 * 60):
+        super().__init__(name="life log", key_field="Title", update_interval_s=1e9)
+
+
 class Restaurants(MementoDB):
     """Subclass of MementoDB specialized for handling the restaurant list."""
 

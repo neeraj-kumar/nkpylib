@@ -197,7 +197,7 @@ class GooglePlaces(Geocoder):
             'X-Goog-Api-Key': self.api_key,
             'X-Goog-FieldMask': field_mask,
         }
-        logging.info(f'Calling Google places API with url: {url} and headers {headers} and kw {kw}')
+        logging.debug(f'Calling Google places API with url: {url} and headers {headers} and kw {kw}')
         resp = make_request(url, method=method, min_delay=0, headers=headers, **kw)
         ret = resp.json()
         if 'error' in ret:
