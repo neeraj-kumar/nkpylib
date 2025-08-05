@@ -321,10 +321,6 @@ class Estimate:
     prob: float
 
 @dataclass
-class Place(Estimate):
-    prob: float
-
-@dataclass
 class TimePoint:
     t0: float
 
