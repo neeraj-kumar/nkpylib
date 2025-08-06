@@ -556,6 +556,8 @@ def simple_react_tornado_server(jsx_path: str,
                                 parser: argparse.ArgumentParser|None=None,
                                 post_parse_fn: Callable[[dict],None]|None=None,
                                 data_dir: str|None='.',
+                                static_path: str='/static',
+                                css_filename: str='app.css',
                                 **kw):
     """Call this to start a tornado server to serve a single page react app from.
 
@@ -586,7 +588,7 @@ def simple_react_tornado_server(jsx_path: str,
     logger.debug(f'Setting parent to {parent} and base to {basename}')
     class DefaultIndexHandler(RequestHandler):
         def get(self):
-            self.write(default_index(js_filename=basename))
+            self.write(default_index(js_filename=basename, static_path=static_path, css_filename=css_filename))
 
     class DefaultApplication(Application):
         def __init__(self):
