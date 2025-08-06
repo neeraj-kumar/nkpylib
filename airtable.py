@@ -120,7 +120,7 @@ class AirtableUpdater:
 
         You can optionally specify a list of tables that are referenced in this one, and we will
         preload them.
-        
+
         If you set `needs_review` to True (default), then we will automatically set the 'needs
         review' field on all updates.
         """
