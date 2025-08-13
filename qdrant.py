@@ -9,6 +9,8 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 
 from nkpylib.thread_utils import CollectionUpdater
 
+Array1D = list[float] | tuple[float, ...]  # Assuming a 1D array of floats
+
 def get_qdrant(collection_name: str, dist_fn=Distance.COSINE, vectors: dict[str, int]|None=None) -> tuple[QdrantClient, str]:
     """Returns (qdrant client, col name).
 

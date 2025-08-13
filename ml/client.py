@@ -460,6 +460,7 @@ def embed_image(img: str, model='image', use_cache=True, **kw) -> ResponseT:
     # else it's an image object, so write to disk temporarily and use that
     with tempfile.NamedTemporaryFile(suffix=".png") as f:
         img.save(f.name)
+        #print(f'saving temp image to {f.name}')
         return single_call("image_embeddings", url=f.name, model=model, use_cache=use_cache, **kw)
 
 @execution_wrapper(final_func=lambda x: x['text'])
