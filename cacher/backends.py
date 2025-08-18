@@ -518,3 +518,92 @@ class MultiplexBackend(CacheBackend[KeyT]):
         """Clear all backends."""
         for backend in self.backends:
             backend.clear()
+
+
+class SQLBackend(CacheBackend[KeyT]):
+    """Backend that stores cache entries in a SQL database.
+
+    Uses SQLAlchemy to handle database connections. Creates the cache table
+    if it doesn't exist.
+
+    Args:
+        url: Database URL (e.g. 'sqlite:///cache.db' or 'postgresql://user:pass@localhost/dbname')
+        table_name: Name of table to use for cache storage
+        fn: Optional function to cache
+        **kwargs: Additional arguments passed to CacheBackend
+    """
+    def __init__(self, 
+                 url: str,
+                 table_name: str,
+                 fn: Callable|None=None,
+                 **kwargs):
+        super().__init__(fn=fn, **kwargs)
+        
+        # Create parent dirs if needed for sqlite
+        if url.startswith('sqlite:///'):
+            db_path = url.replace('sqlite:///', '')
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Create engine and table
+        self.engine = sqlalchemy.create_engine(url)
+        self.metadata = sqlalchemy.MetaData()
+        self.table = sqlalchemy.Table(
+            table_name,
+            self.metadata,
+            sqlalchemy.Column('key', sqlalchemy.String, primary_key=True),
+            sqlalchemy.Column('value', sqlalchemy.LargeBinary),
+        )
+        
+        # Create table if it doesn't exist
+        self.metadata.create_all(self.engine)
+
+    def _get_value(self, key: KeyT) -> Any:
+        """Get value from database."""
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                sqlalchemy.select(self.table.c.value)
+                .where(self.table.c.key == str(key))
+            ).first()
+            
+            if result is None:
+                return self.CACHE_MISS
+                
+            try:
+                return self.formatter.loads(result[0])
+            except Exception:
+                return self.CACHE_MISS
+
+    def _set_value(self, key: KeyT, value: Any) -> None:
+        """Store value in database."""
+        serialized = self.formatter.dumps(value)
+        with self.engine.connect() as conn:
+            stmt = sqlalchemy.dialects.sqlite.insert(self.table).values(
+                key=str(key),
+                value=serialized
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['key'],
+                set_=dict(value=serialized)
+            )
+            conn.execute(stmt)
+            conn.commit()
+
+    def _delete_value(self, key: KeyT) -> None:
+        """Delete value from database."""
+        with self.engine.connect() as conn:
+            conn.execute(
+                self.table.delete().where(self.table.c.key == str(key))
+            )
+            conn.commit()
+
+    def _clear(self) -> None:
+        """Clear all entries from database."""
+        with self.engine.connect() as conn:
+            conn.execute(self.table.delete())
+            conn.commit()
+
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Iterate over all keys in the database."""
+        with self.engine.connect() as conn:
+            for row in conn.execute(sqlalchemy.select(self.table.c.key)):
+                yield row[0]
