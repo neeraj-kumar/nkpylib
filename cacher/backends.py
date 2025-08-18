@@ -5,6 +5,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Generic, Iterator
 
+import sqlalchemy
+
 from nkpylib.cacher.constants import KeyT, CacheNotFound
 from nkpylib.cacher.formatters import CacheFormatter, JsonFormatter
 from nkpylib.cacher.strategies import CacheStrategy
