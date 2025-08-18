@@ -5,7 +5,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Generic, Iterator
 
-import sqlalchemy
+import sqlalchemy as sa
 
 from nkpylib.cacher.constants import KeyT, CacheNotFound
 from nkpylib.cacher.formatters import CacheFormatter, JsonFormatter
@@ -431,10 +431,12 @@ class JointFileBackend(CacheBackend[KeyT]):
     - `cache[key] = value`: Set value for key
     - `del cache[key]`: Delete key
     - `cache.clear()`: Clear all entries
+
+    Note that this NOT thread-safe.
     """
     def __init__(self, cache_path: str|Path, fn: Callable|None=None, *, formatter: CacheFormatter|None=None, **kwargs):
         super().__init__(fn=fn, formatter=formatter or JsonFormatter(), **kwargs)
-        self.cache_path = Path(kwargs['cache_path'])
+        self.cache_path = Path(cache_path)
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._cache: dict[KeyT, Any] = {}
         self._load()
@@ -523,87 +525,99 @@ class MultiplexBackend(CacheBackend[KeyT]):
 class SQLBackend(CacheBackend[KeyT]):
     """Backend that stores cache entries in a SQL database.
 
-    Uses SQLAlchemy to handle database connections. Creates the cache table
-    if it doesn't exist.
-
-    Args:
-        url: Database URL (e.g. 'sqlite:///cache.db' or 'postgresql://user:pass@localhost/dbname')
-        table_name: Name of table to use for cache storage
-        fn: Optional function to cache
-        **kwargs: Additional arguments passed to CacheBackend
+    Uses sa to handle database connections.
     """
-    def __init__(self, 
-                 url: str,
-                 table_name: str,
+    def __init__(self,
+                 url: str='sqlite://',
+                 table_name: str='cache',
+                 *,
                  fn: Callable|None=None,
+                 formatter: CacheFormatter|None=None,
                  **kwargs):
-        super().__init__(fn=fn, **kwargs)
-        
+        """Initializes this cacher.
+
+        Creates the cache table if it doesn't exist.
+
+        Args:
+            url: Database URL (e.g. 'sqlite:///cache.sqlite' or 'postgresql://user:pass@localhost/dbname')
+                [By default, it creates an in-memory SQLite database]
+            table_name: Name of table to use for cache storage (default 'cache')
+            fn: Optional function to cache
+            formatter: Optional formatter to use for serialization (default JsonFormatter)
+            **kwargs: Additional arguments passed to CacheBackend
+        """
+        super().__init__(fn=fn, formatter=formatter or JsonFormatter(), **kwargs)
+
         # Create parent dirs if needed for sqlite
         if url.startswith('sqlite:///'):
             db_path = url.replace('sqlite:///', '')
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Create engine and table
-        self.engine = sqlalchemy.create_engine(url)
-        self.metadata = sqlalchemy.MetaData()
-        self.table = sqlalchemy.Table(
+        self.engine = sa.create_engine(url)
+        metadata = sa.MetaData()
+        self.table = sa.Table(
             table_name,
-            self.metadata,
-            sqlalchemy.Column('key', sqlalchemy.String, primary_key=True),
-            sqlalchemy.Column('value', sqlalchemy.LargeBinary),
+            metadata,
+            sa.Column('id', sa.Integer, primary_key=True, autoincrement=True),
+            sa.Column('key', sa.String),
+            sa.Column('value', sa.LargeBinary),
         )
-        
+        # add an index on 'key' for faster lookups, if it doesn't exist
+        if not self.table.indexes:
+            sa.Index('ix_cache_key', self.table.c.key)
         # Create table if it doesn't exist
-        self.metadata.create_all(self.engine)
+        metadata.create_all(self.engine)
+        # create a connection we can reuse
+        self.conn = self.engine.connect()
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from database."""
-        with self.engine.connect() as conn:
-            result = conn.execute(
-                sqlalchemy.select(self.table.c.value)
-                .where(self.table.c.key == str(key))
-            ).first()
-            
-            if result is None:
-                return self.CACHE_MISS
-                
-            try:
-                return self.formatter.loads(result[0])
-            except Exception:
-                return self.CACHE_MISS
+        result = self.conn.execute(
+            sa.select(self.table.c.value)
+            .where(self.table.c.key == str(key))
+        ).first()
+        #print(f'for key {key} got result: {result}, {type(result[0])}')
+        if result is None:
+            return self.CACHE_MISS
+        r = result[0]
+        if not isinstance(r, (bytes, str)): # already decoded
+            return r
+        try:
+            return self.formatter.loads(r)
+        except Exception as e:
+            return self.CACHE_MISS
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in database."""
         serialized = self.formatter.dumps(value)
-        with self.engine.connect() as conn:
-            stmt = sqlalchemy.dialects.sqlite.insert(self.table).values(
-                key=str(key),
-                value=serialized
+        #print(f'setting value for key {key} in SQL backend: {serialized[:50]}..., {self._get_value(key)}, {self.CACHE_MISS}')  # Debug output
+        exists = (self._get_value(key) != self.CACHE_MISS)
+        #print(f'Exists: {exists}')
+        if exists: # update existing value
+            self.conn.execute(
+                self.table.update()
+                .where(self.table.c.key == str(key))
+                .values(value=serialized)
             )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['key'],
-                set_=dict(value=serialized)
+        else: # insert new value
+            self.conn.execute(
+                self.table.insert()
+                .values(key=str(key), value=serialized)
             )
-            conn.execute(stmt)
-            conn.commit()
+        self.conn.commit()
 
     def _delete_value(self, key: KeyT) -> None:
         """Delete value from database."""
-        with self.engine.connect() as conn:
-            conn.execute(
-                self.table.delete().where(self.table.c.key == str(key))
-            )
-            conn.commit()
+        self.conn.execute(self.table.delete().where(self.table.c.key == str(key)))
+        self.conn.commit()
 
     def _clear(self) -> None:
         """Clear all entries from database."""
-        with self.engine.connect() as conn:
-            conn.execute(self.table.delete())
-            conn.commit()
+        self.conn.execute(self.table.delete())
+        self.conn.commit()
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the database."""
-        with self.engine.connect() as conn:
-            for row in conn.execute(sqlalchemy.select(self.table.c.key)):
-                yield row[0]
+        for row in self.conn.execute(sa.select(self.table.c.key)):
+            yield row.key
