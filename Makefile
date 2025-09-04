@@ -42,7 +42,7 @@ geo:
 
 
 ## test web searcher
-search:
+bing:
 	#python3 web_search.py parrot
 	#python3 web_search.py "lenin imperialism highest stage of capitalism"
 	#python3 web_search.py "thorf - dagrenning"
@@ -50,7 +50,9 @@ search:
 	#python3 web_search.py "rice wine vinegar substitute"
 	#python3 web_search.py "site:wikipedia.org philosophy"
 	#python3 web_search.py "asoid"
-	python3 web_search.py "site:www.the-pasta-project.com busiate pasta with trapani pesto"
+	#python3 web_search.py "site:www.the-pasta-project.com busiate pasta with trapani pesto"
+	python3 web_search.py "site:www.indianhealthyrecipes.com Pudina Rice (Mint Rice Pulao) - Swasthi's Recipes"
+	#python3 web_search.py "Dum Aloo (Punjabi Dhaba Style) - Hebbar's Kitchen"
 
 ## run the CLI utility
 cli:

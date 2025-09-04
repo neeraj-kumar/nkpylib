@@ -1,5 +1,18 @@
-"""A module to do web searches for both normal and images."""
+"""A module to do web searches for both normal and images.
 
+I've built a basic bing searcher, but there are paid options that I'm considering. I've limited to
+those without a monthly subscription, and that do pay-as-you-go. I'm listing prices as ($x/k) for $x
+per 1000 searches. Note that prices tend not to include sales tax.
+
+- serper.dev - $1/k, min $50, expires within 6 months
+- dataforseo.com - $2/k for live (6s), $1.2/k for priority (1m), $0.6/k for std (5m), min $50, free $1 on signup
+- apify - $3.5/k, free plan has $5/month credit -> 1400 searches/mo
+- brightdata - $0.75/k (for 6 months), has google, bing, duckduckgo, yandex, baidu
+
+I signed up for brightdata on Sep 4, 2025.
+"""
+
+#TODO note that using "site:" triggers a captcha
 #TODO aggregate common phrases
 #TODO image search
 #TODO image search + embeddings
@@ -17,12 +30,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
+from dataclasses import dataclass, asdict
 from os.path import dirname, basename, splitext, exists
 from typing import Any, Iterable
 from urllib.parse import quote_plus, urlparse
@@ -36,24 +51,79 @@ from nkpylib.web_utils import make_request
 
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class SearchResult:
+    title: str
+    url: str
+    description: str
+    site: str = ''
+    snippet_url: str = '' # snippet of the url shown in the search result
+    searcher_url: str = '' # the url used by the search engine, may redirect
+    tags: list[str] = None
+    snippet_list: list[str] = None
+    image_url: str = '' # image url for result (optional)
+
 class Searcher(ABC):
     """An abstract class for searching the web."""
     @abstractmethod
-    def search(self, query: str, **kw) -> Iterable[dict]:
+    def search(self, query: str, site: str='', **kw) -> Iterable[SearchResult]:
         """Search the web for the given query and yield an iterator over results."""
         pass
 
 
+class BrightDataSearch(Searcher):
+    def __init__(self, site:str='google', api_key_env_var: str='BRIGHTDATA_API_KEY'):
+        self.api_key = os.getenv(api_key_env_var)
+        self.zone_name = 'serp_api1'
+        self.site = site
+
+    def _url_by_query(self, query: str, site: str='') -> str:
+        if self.site == 'google':
+            url = f'https://www.google.com/search?brd_json=1&q={quote_plus(query)}'
+            if site:
+                url += f'+site:{quote_plus(site)}'
+        else:
+            raise NotImplementedError(f'Unsupported site: {self.site}')
+        return url
+
+
+    def search(self, query: str, site: str='', **kw) -> Iterable[SearchResult]:
+        url = 'https://api.brightdata.com/request'
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}',
+        }
+        payload = dict(zone=self.zone_name, format='json', url=self._url_by_query(query, site))
+        logger.debug(f'Payload: {payload}')
+        req = make_request(url=url, method='post', headers=headers, json=payload)
+        #req.raise_for_status()
+        data = json.loads(req.json()['body'])
+        logger.debug(f'Searching {self.site} for: {query}, got {req.url} -> {json.dumps(data, indent=2)}')
+        results = []
+        sr_map = dict(title='title', url='link', description='description', image_url='image_base64')
+        for r in data['organic']:
+            r = {k: r.get(v, '') for k, v in sr_map.items()}
+            # extract the site from the url field
+            r['site'] = urlparse(r['url']).netloc
+            sr = SearchResult(**r)
+            yield sr
+
+
 class BingWebSearch(Searcher):
-    """Does bing web searches"""
-    def search(self, query: str, resolve_urls: bool=True) -> Iterable[dict]: # type: ignore[override]
+    """Does bing web searches (manual parsing)"""
+    def search(self, query: str, site: str='', resolve_urls: bool=True) -> Iterable[SearchResult]: # type: ignore[override]
         """Search bing for the given query"""
         url = "https://www.bing.com/search"
-        params = {'q': query}
+        params = dict(q=query, qs='n', form='QBRE', sp=-1, pq=query)
         req = make_request(url, params=params)
         req.raise_for_status()
         logger.info(f'Searching bing for: {query}, got {req.url} -> {req.text[:100]}...')
+        with open('bing.html', 'w', encoding='utf-8') as f:
+            f.write(req.text)
         d = pq(req.text)
+        algos = d('.b_algo')
+        #print(f'Got {algos} results')
         results = []
         # first check the top-section
         # we want the parent div of the .b_tpcn class within the top section (if it exists)
@@ -62,7 +132,7 @@ class BingWebSearch(Searcher):
             results.extend(top_section.items())
         # now add remaining results
         results.extend(d('.b_algo').items())
-        logger.info(f'Found {len(results)} results: {results[:2]}...')
+        #logger.info(f'Found {len(results)} results: {results[:2]}...')
         for result in results:
             r: dict[str, Any] = {}
             orig = result('a').text() # this has a bunch of stuff, that we get in other ways
@@ -82,7 +152,9 @@ class BingWebSearch(Searcher):
             else:
                 r['url'] = r['searcher_url']
             r['snippet_list'] = [s.text() for s in result('.lisn_content li').items()]
-            yield r
+            # convert to a search result
+            sr = SearchResult(**r)
+            yield sr
 
     def resolve_bing_url(self, url: str) -> str:
         """Resolves the given bing url to the final destination.
@@ -101,11 +173,15 @@ class BingWebSearch(Searcher):
             return ''
 
 
+#DefaultWebSearch = BingWebSearch
+DefaultWebSearch = BrightDataSearch
+
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     parser = ArgumentParser()
     parser.add_argument('query', help='The query to search for')
     args = parser.parse_args()
 
-    b = BingWebSearch()
-    for result in b.search(args.query):
-        print(json.dumps(result, indent=2))
+    w = DefaultWebSearch()
+    for result in w.search(args.query):
+        print(json.dumps(asdict(result), indent=2))
