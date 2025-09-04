@@ -51,6 +51,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import asdict, dataclass
+from os.path import abspath
 from subprocess import check_output
 from typing import Any, Iterable, Optional, Union
 from urllib.parse import urlparse
@@ -61,7 +62,7 @@ from nkpylib.constants import URL_REGEXP
 from nkpylib.ml.client import call_llm, get_text
 from nkpylib.ml.llm_utils import llm_transform_list, batched_llm_call
 from nkpylib.stringutils import GeneralJSONEncoder
-from nkpylib.web_search import BingWebSearch
+from nkpylib.web_search import DefaultWebSearch
 from nkpylib.web_utils import make_request
 
 logger = logging.getLogger(__name__)
@@ -109,10 +110,7 @@ def get_urls_from_pdf(path: str) -> Iterable[tuple[str, str]]:
     These are sorted by most common hostname.
     """
     urls_by_host = defaultdict(set)
-    out = get_text.single(path)
-    if 0:
-        args = ["pdftotext", path, "-"]
-        out = check_output(args).decode("utf-8", "replace")
+    out = get_text.single(abspath(path))
     urls = [m.group(0) for m in URL_REGEXP.finditer(out)]
     # group links by hostname
     for url in urls:
@@ -137,7 +135,7 @@ def get_url_from_recipe(path: str, title: str) -> str:
         return ''
     checked_urls = set()
     checked_hosts = set()
-    ws = BingWebSearch()
+    ws = DefaultWebSearch()
     for host, url in get_urls_from_pdf(path):
         if url in checked_urls:
             break
@@ -154,18 +152,19 @@ def get_url_from_recipe(path: str, title: str) -> str:
         if host in checked_hosts:
             continue
         checked_hosts.add(host)
-        results = ws.search(f'site:{host} {title}')
+        #results = ws.search(f'site:{host} {title}') #FIXME using site: requires a captcha
+        results = ws.search(f'{title}')
         for i, r in enumerate(results):
-            logger.debug(f'    {i}: {json.dumps(r, indent=2)}\n')
-            if not r['url']:
+            logger.debug(f'    {i}: {json.dumps(asdict(r), indent=2)}\n')
+            if not r.url:
                 continue
             try:
-                recipe = fetch_recipe_from_url(r['url'])
-                logger.debug(f'    Got recipe at {r["url"]}: {json.dumps(recipe, indent=2)[:500]}')
+                recipe = fetch_recipe_from_url(r.url)
+                logger.debug(f'    Got recipe at {r.url}: {json.dumps(recipe, indent=2)[:500]}')
                 if isinstance(recipe, dict):
-                    return r['url']
+                    return r.url
             except Exception as e:
-                logger.warning(f'Error fetching recipe from {r["url"]}: {type(e)}: {e}')
+                logger.warning(f'Error fetching recipe from {r.url}: {type(e)}: {e}')
                 continue
     return ''
 

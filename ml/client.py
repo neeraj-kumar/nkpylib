@@ -563,6 +563,7 @@ def quick_test():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
     image_url = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
     image_path = './simple-sales-invoice-modern-simple-1-1-f54b9a4c7ad8.webp'
+    pdf_path = './bpm.pdf'
     from PIL import Image
     image = Image.open(image_path)
     if not test:
@@ -608,7 +609,7 @@ def quick_test():
             ret = strsim.batch(inputs, model=model)
             print(f'Similarity using {model} for {inputs}: {ret}')
     if 'text' in test:
-        for input in [image_path, 'client.py']:
+        for input in [image_path, pdf_path, 'client.py']:
             ret = get_text.single(input)
             print(f'Extracted text from {input} of len {len(ret)}: {ret[:100]}')
     if 'speech' in test:

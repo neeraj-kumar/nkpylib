@@ -33,7 +33,10 @@ def load_llm_json(s: str) -> Any:
         raise ValueError("No JSON delimiters found")
     start, delim = min(starts)
     # look for the last matching delim
-    end = s.rindex(endlims[delims.index(delim)])
+    try:
+        end = s.rindex(endlims[delims.index(delim)])
+    except ValueError:
+        end = len(s)-1
     # extract the JSON
     json_str = s[start:end+1]
     # try to load it

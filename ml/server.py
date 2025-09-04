@@ -743,14 +743,13 @@ async def strsim(req: StrSimRequest):
 
 class GetTextRequest(BaseRequest):
     url: str
+    model: str='get_text' # this is not actually used right now
 
 @app.post("/v1/get_text")
-async def get_text_api(req: GetTextRequest, cache={}):
+async def get_text_api(req: GetTextRequest):
     """Gets the text from the given URL or path of pdf, image, or text."""
     model = TextExtractionModel(model_name='text', use_cache=req.use_cache)
     ret = await model.run(input=req.url, caller=req.caller, **(req.kwargs or {}))
-    if req.use_cache:
-        cache[req.url] = ret
     return ret
 
 
