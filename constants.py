@@ -10,4 +10,4 @@ OLD_URL_REGEXP = re.compile(
 )
 
 # very simple url regexp
-URL_REGEXP = re.compile(r"https?:\/\/\S+")
+SIMPLE_URL_REGEXP = re.compile(r"(https?:\/\/\S+)|([a-zA-Z0-9]+\.(com|org|net|edu|gov|io|co)\/\S+)")

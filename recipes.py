@@ -56,12 +56,11 @@ from subprocess import check_output
 from typing import Any, Iterable, Optional, Union
 from urllib.parse import urlparse
 
-import requests
 import unicodedata
 
 from pyquery import PyQuery as pq # type: ignore
 
-from nkpylib.constants import URL_REGEXP
+from nkpylib.constants import SIMPLE_URL_REGEXP
 from nkpylib.ml.client import call_llm, get_text
 from nkpylib.ml.llm_utils import llm_transform_list, batched_llm_call
 from nkpylib.stringutils import GeneralJSONEncoder
@@ -120,8 +119,9 @@ def get_urls_from_pdf(path: str) -> Iterable[tuple[str, str]]:
     urls_by_host = defaultdict(set)
     out = get_text.single(abspath(path))
     logger.debug(f'Extracted text from pdf ({len(out)} chars): {out[:200]}...')
-    urls = [m.group(0) for m in URL_REGEXP.finditer(out)]
-    # normalize them
+    # extract urls from the text, normalizing them in various ways
+    urls = [m.group(0) for m in SIMPLE_URL_REGEXP.finditer(out)]
+    urls = ['https://' + url if not url.lower().startswith('http') else url for url in urls]
     urls = [unicodedata.normalize('NFKD', url).encode('ascii', 'ignore').decode('ascii') for url in urls]
     logger.debug(f'  Got {len(urls)} urls: {urls}')
     # group links by hostname
