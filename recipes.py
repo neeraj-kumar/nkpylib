@@ -56,6 +56,9 @@ from subprocess import check_output
 from typing import Any, Iterable, Optional, Union
 from urllib.parse import urlparse
 
+import requests
+import unicodedata
+
 from pyquery import PyQuery as pq # type: ignore
 
 from nkpylib.constants import URL_REGEXP
@@ -72,12 +75,15 @@ def fetch_recipe_from_url(url: str) -> Optional[dict[str, Any]]:
 
     This can raise various errors.
     """
-    d = pq(url=url, opener=lambda url, **kw: make_request(url, **kw).text)
-    print(f'Fetched {url}, title: {d("title").text()}')
+    logger.debug(f'Trying to pq {url}')
+    s = make_request(url).text
+    logger.debug(f'Fetched {len(s)} chars from {url}: {s[:200]}...')
+    d = pq(s)
+    logger.debug(f'Fetched {url}, title: {d("title").text()}')
     recipe = None
     # iterate through ld+json sections
     for s in d('script[type="application/ld+json"]'):
-        print(f'  Found ld+json script tag: {s}')
+        logger.debug(f'  Found ld+json script tag: {s}')
         # try to JSON load it directly
         try:
             x = json.loads(s.text)
@@ -115,6 +121,8 @@ def get_urls_from_pdf(path: str) -> Iterable[tuple[str, str]]:
     out = get_text.single(abspath(path))
     logger.debug(f'Extracted text from pdf ({len(out)} chars): {out[:200]}...')
     urls = [m.group(0) for m in URL_REGEXP.finditer(out)]
+    # normalize them
+    urls = [unicodedata.normalize('NFKD', url).encode('ascii', 'ignore').decode('ascii') for url in urls]
     logger.debug(f'  Got {len(urls)} urls: {urls}')
     # group links by hostname
     for url in urls:
@@ -135,17 +143,17 @@ def get_url_from_recipe(path: str, title: str) -> str:
 
     It returns the first url that matches, or '' if none do.
     """
-    print(f'Getting url for recipe titled "{title}" from pdf {path}...{os.path.exists(path)}')
+    logger.debug(f'Getting url for recipe titled "{title}" from pdf {path}...{os.path.exists(path)}')
     if not os.path.exists(path):
         return ''
     checked_urls = set()
     checked_hosts = set()
     ws = DefaultWebSearch()
     for host, url in get_urls_from_pdf(path):
-        print(f'  Host: {host}, URL: {url}')
+        logger.debug(f'  Host: {host}, URL: {url}')
         if url in checked_urls:
             break
-        print(f'Checking url {url}')
+        logger.debug(f'Checking url {url}')
         checked_urls.add(url)
         # try parsing the recipe directly from this url
         try:
@@ -159,7 +167,7 @@ def get_url_from_recipe(path: str, title: str) -> str:
         if host in checked_hosts:
             continue
         checked_hosts.add(host)
-        print(f'Searching for title "{title}" on host {host}')
+        logger.debug(f'Searching for title "{title}" on host {host}')
         results = ws.search(title, site=host)
         for i, r in enumerate(results):
             logger.debug(f'    {i}: {json.dumps(asdict(r), indent=2)}\n')
