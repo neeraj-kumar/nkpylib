@@ -13,22 +13,20 @@ from nkpylib.cacher.strategies import CacheStrategy
 from nkpylib.cacher.file_utils import _read_file, _write_atomic
 from nkpylib.cacher.keyers import Keyer, TupleKeyer, HashStringKeyer
 
+CACHE_MISS = '<NK_cache_miss>'  # Sentinel value for cache misses
+
 
 class CacheBackend(ABC, Generic[KeyT]):
     """Base class for storage backends.
 
     Each backend is initialized with a formatter that handles serialization.
     """
-    # Sentinel object for cache misses
-    CACHE_MISS = object()
-
     def __init__(self,
                  fn: Callable|None=None,
                  *,
                  formatter: CacheFormatter,
                  keyer: Keyer|None = None,
                  strategies: list[CacheStrategy]|None = None,
-                 error_on_missing: bool = True,
                  batch_extractor: Callable[[tuple, dict], list]|None = None,
                  batch_combiner: Callable[[list, tuple, dict], Any]|None = None,
                  **kwargs):
@@ -39,7 +37,6 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in (strategies or []):
             strategy._backend = self
             self.strategies.append(strategy)
-        self.error_on_missing = error_on_missing
         self.batch_extractor = batch_extractor
         self.batch_combiner = batch_combiner
         self.stats: dict[str, int] = {
@@ -71,16 +68,9 @@ class CacheBackend(ABC, Generic[KeyT]):
         key = self._to_key(fn, args, kwargs)
 
         # Try to get from cache
-        if self.error_on_missing:
-            try:
-                result = self.get(key)
-                return result
-            except CacheNotFound:
-                pass
-        else:
-            result = self.get(key)
-            if not self.is_cache_miss(result):
-                return result
+        result = self.get(key)
+        if result != CACHE_MISS:
+            return result
 
         # Not in cache, call function
         result = fn(*args, **kwargs)
@@ -122,7 +112,6 @@ class CacheBackend(ABC, Generic[KeyT]):
                 formatter=self.formatter,
                 keyer=self.keyer,
                 strategies=self.strategies,
-                error_on_missing=self.error_on_missing,
                 batch_extractor=self.batch_extractor,
                 batch_combiner=self.batch_combiner,
             )
@@ -144,7 +133,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
         # Get the value
         value = self._get_value(key)
-        if self.is_cache_miss(value):
+        if value == CACHE_MISS:
             return self.handle_cache_miss(key)
 
         # Run post-get hooks
@@ -164,6 +153,7 @@ class CacheBackend(ABC, Generic[KeyT]):
             return
 
         # Store the value
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         self._set_value(key, value)
 
         # Run post-set hooks
@@ -238,7 +228,7 @@ class CacheBackend(ABC, Generic[KeyT]):
         for key in keys:
             try:
                 value = self.get(key)
-                if not self.is_cache_miss(value):
+                if value != CACHE_MISS:
                     results[key] = value
             except CacheNotFound:
                 continue
@@ -306,20 +296,13 @@ class CacheBackend(ABC, Generic[KeyT]):
         """Iterate over all keys in the cache."""
         raise NotImplementedError("iter_keys not implemented")
 
-    def is_cache_miss(self, value: Any) -> bool:
-        """Check if a value represents a cache miss."""
-        return value is self.CACHE_MISS
-
     def handle_cache_miss(self, key: KeyT) -> Any:
-        """Handle a cache miss based on error_on_missing setting."""
+        """Handle a cache miss setting."""
         self.stats['misses'] += 1
-        if self.error_on_missing:
-            raise CacheNotFound(key)
-        return self.CACHE_MISS
+        return CACHE_MISS
 
     def handle_cache_hit(self, key: KeyT, value: Any) -> Any:
         """Handle a cache hit."""
-        #print(f'handling cache hit for value: {value}')
         self.stats['hits'] += 1
         return value
 
@@ -339,10 +322,11 @@ class MemoryBackend(CacheBackend[KeyT]):
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from memory cache."""
-        return self._cache.get(key, self.CACHE_MISS)
+        return self._cache.get(key, CACHE_MISS)
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in memory cache."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         self._cache[key] = value
 
     def _delete_value(self, key: KeyT) -> None:
@@ -390,15 +374,16 @@ class SeparateFileBackend(CacheBackend[KeyT]):
         """Get value from file storage."""
         path = self._key_to_path(key)
         data = _read_file(path)
-        if self.is_cache_miss(data):
+        if data is None:
             return self.handle_cache_miss(key)
         try:
             return self.formatter.loads(data)
         except Exception:
-            return self.CACHE_MISS
+            return CACHE_MISS
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in file storage."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         path = self._key_to_path(key)
         _write_atomic(path, self.formatter.dumps(value))
 
@@ -432,7 +417,7 @@ class JointFileBackend(CacheBackend[KeyT]):
     - `del cache[key]`: Delete key
     - `cache.clear()`: Clear all entries
 
-    Note that this NOT thread-safe.
+    Note that this NOT thread-safe -- it reads the entire json file in memory on first read.
     """
     def __init__(self, cache_path: str|Path, fn: Callable|None=None, *, formatter: CacheFormatter|None=None, **kwargs):
         super().__init__(fn=fn, formatter=formatter or JsonFormatter(), **kwargs)
@@ -459,6 +444,7 @@ class JointFileBackend(CacheBackend[KeyT]):
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in cache dict and save to file."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         self._cache[key] = value
         self._save()
 
@@ -502,12 +488,13 @@ class MultiplexBackend(CacheBackend[KeyT]):
         """Get value from first backend that has it."""
         for backend in self.backends:
             value = backend.get(key)
-            if value is not None:
+            if value != CACHE_MISS:
                 return value
-        return None
+        return CACHE_MISS
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Set value in all backends."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         for backend in self.backends:
             backend.set(key, value)
 
@@ -565,11 +552,14 @@ class SQLBackend(CacheBackend[KeyT]):
         )
         # add an index on 'key' for faster lookups, if it doesn't exist
         if not self.table.indexes:
-            sa.Index('ix_cache_key', self.table.c.key)
+            sa.Index(f'ix_{table_name}_cache_key', self.table.c.key)
         # Create table if it doesn't exist
         metadata.create_all(self.engine)
         # create a connection we can reuse
         self.conn = self.engine.connect()
+        # if it's sqlite, enable WAL mode for better concurrency
+        if url.startswith('sqlite'):
+            self.conn.execute(sa.text('PRAGMA journal_mode=WAL;'))
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from database."""
@@ -579,20 +569,21 @@ class SQLBackend(CacheBackend[KeyT]):
         ).first()
         #print(f'for key {key} got result: {result}, {type(result[0])}')
         if result is None:
-            return self.CACHE_MISS
+            return CACHE_MISS
         r = result[0]
         if not isinstance(r, (bytes, str)): # already decoded
             return r
         try:
             return self.formatter.loads(r)
         except Exception as e:
-            return self.CACHE_MISS
+            return CACHE_MISS
 
     def _set_value(self, key: KeyT, value: Any) -> None:
         """Store value in database."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         serialized = self.formatter.dumps(value)
-        #print(f'setting value for key {key} in SQL backend: {serialized[:50]}..., {self._get_value(key)}, {self.CACHE_MISS}')  # Debug output
-        exists = (self._get_value(key) != self.CACHE_MISS)
+        #print(f'setting value for key {key} in SQL backend: {serialized[:50]}..., {self._get_value(key)}, {CACHE_MISS}')  # Debug output
+        exists = (self._get_value(key) != CACHE_MISS)
         #print(f'Exists: {exists}')
         if exists: # update existing value
             self.conn.execute(

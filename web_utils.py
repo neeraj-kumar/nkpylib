@@ -525,7 +525,9 @@ def default_index(static_path='/static',
 def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
                          make_app: Callable[[], Application]=lambda: Application(),
                          default_port: int=8000,
-                         post_parse_fn: Callable[[dict],None]|None=None) -> None:
+                         post_parse_fn: Callable[[dict],None]|None=None,
+                         on_start: Callable[[Application],None]|None=None,
+                         ) -> None:
     """Creates a web server and runs it.
 
     We create an `Application` instance using the `make_app` callable (by default just
@@ -534,6 +536,9 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
     (or `default_port` if not specified, which is added to the arg parser).
 
     You can also set a `post_parse_fn` which is called with the `args` object after arg parsing.
+
+    You can also pass in an `on_start` function which is called with the application instance
+    once the server is started, which is useful for doing any initialization, but delayed.
 
     We also setup logging.
     """
@@ -548,6 +553,8 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
     logger.info(f'Starting server on port {args.port}')
     app = make_app()
     app.listen(args.port)
+    if on_start:
+        IOLoop.current().add_callback(lambda: on_start(app))
     IOLoop.current().start()
 
 def simple_react_tornado_server(jsx_path: str,
@@ -558,6 +565,7 @@ def simple_react_tornado_server(jsx_path: str,
                                 data_dir: str|None='.',
                                 static_path: str='/static',
                                 css_filename: str='app.css',
+                                on_start: Callable[[Application],None]|None=None,
                                 **kw):
     """Call this to start a tornado server to serve a single page react app from.
 
@@ -573,6 +581,9 @@ def simple_react_tornado_server(jsx_path: str,
     arg, which should be a list of tuples where the 1st element is the path spec (i.e., with
     regexps), 2nd element is the handler class, and 3rd (optional) one is params. This is useful for
     having an API.
+
+    You can also pass a function `on_start` which is called with the application instance
+    once the server is started, which is useful for doing any initialization, but delayed.
 
     Any **kw you pass in are stored as instance variables on the application class. Your handlers
     can access these via `self.application.<varname>`.
@@ -611,7 +622,8 @@ def simple_react_tornado_server(jsx_path: str,
     setup_and_run_server(parser=parser,
                          make_app=DefaultApplication,
                          default_port=port,
-                         post_parse_fn=post_parse_fn)
+                         post_parse_fn=post_parse_fn,
+                         on_start=on_start)
 
 def bundle_js(js_path: str, css_path: str|None=None) -> str:
     """Bundles standard html index given js & css files into a single html file.
