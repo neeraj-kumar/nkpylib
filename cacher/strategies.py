@@ -407,7 +407,7 @@ class RevisionStrategy(CacheStrategy[KeyT]):
             return self._backend.CACHE_MISS
         try:
             return self.revisions[key][rev][1]
-        except (KeyError, revError):
+        except (KeyError, IndexError):
             return self._backend.CACHE_MISS
 
     def list_revisions(self, key: KeyT) -> dict[RevKey, tuple[float, Any]]:
