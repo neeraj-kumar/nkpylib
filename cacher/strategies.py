@@ -11,7 +11,7 @@ import time
 
 from abc import ABC
 from collections import OrderedDict, defaultdict
-from typing import Any, Callable, Generic, Literal
+from typing import Any, Callable, Generic, Literal, TypeVar
 
 from nkpylib.cacher.constants import KeyT
 
@@ -338,6 +338,92 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                 self.worker.join()
         else:  # memory mode
             self.flush()
+
+
+RevisionT = TypeVar('RevisionT')
+
+class RevisionStrategy(CacheStrategy[KeyT]):
+    """Strategy that maintains a history of revisions for each cached value.
+    
+    Keeps track of multiple versions of each value with timestamps.
+    Supports operations like:
+    - Get latest revision (default behavior)
+    - Get specific revision by index
+    - List all revisions for a key
+    """
+    def __init__(self, max_revisions: int = 10):
+        """Initialize with maximum number of revisions to keep.
+        
+        Args:
+            max_revisions: Maximum number of revisions to keep per key (default 10)
+        """
+        super().__init__()
+        self.max_revisions = max_revisions
+        self.revisions: dict[KeyT, list[tuple[float, Any]]] = {}
+
+    def get_revision(self, key: KeyT, index: int) -> Any:
+        """Get a specific revision of a value.
+        
+        Args:
+            key: Cache key
+            index: Revision index (-1 is latest, -2 is previous, etc.)
+            
+        Returns:
+            The value at that revision, or CACHE_MISS if not found
+        """
+        if key not in self.revisions:
+            return self._backend.CACHE_MISS
+        try:
+            return self.revisions[key][index][1]
+        except IndexError:
+            return self._backend.CACHE_MISS
+
+    def list_revisions(self, key: KeyT) -> list[tuple[float, Any]]:
+        """Get all revisions for a key.
+        
+        Args:
+            key: Cache key
+            
+        Returns:
+            List of (timestamp, value) tuples, newest first
+        """
+        return list(self.revisions.get(key, []))
+
+    def pre_get(self, key: KeyT) -> bool:
+        """Check if we have any revisions."""
+        if key in self.revisions:
+            return False  # Skip backend lookup
+        return True
+
+    def post_get(self, key: KeyT, value: Any) -> Any:
+        """Return latest revision if we have one, otherwise use backend value."""
+        if key in self.revisions:
+            return self.revisions[key][-1][1]  # Return latest
+        if value != self._backend.CACHE_MISS:
+            # Initialize revisions from backend
+            self.revisions[key] = [(time.time(), value)]
+        return value
+
+    def pre_set(self, key: KeyT, value: Any) -> bool:
+        """Add new revision."""
+        if key not in self.revisions:
+            self.revisions[key] = []
+        self.revisions[key].append((time.time(), value))
+        # Trim to max revisions
+        if len(self.revisions[key]) > self.max_revisions:
+            self.revisions[key] = self.revisions[key][-self.max_revisions:]
+        return True  # Still write to backend
+
+    def pre_delete(self, key: KeyT) -> bool:
+        """Clear revisions when key is deleted."""
+        if key in self.revisions:
+            del self.revisions[key]
+        return True
+
+    def pre_clear(self) -> bool:
+        """Clear all revisions."""
+        self.revisions.clear()
+        return True
 
 
 class LimitStrategy(CacheStrategy[KeyT]):
