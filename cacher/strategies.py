@@ -358,20 +358,20 @@ class RevisionStrategy(CacheStrategy[KeyT]):
 
     Example:
         cache = SQLBackend(strategies=[RevisionStrategy(max_revisions=5)])
-        
+
         # Normal revisions (limited by max_revisions)
         cache.set('key', 'v1')
         cache.set('key', 'v2')
-        
+
         # Pin important versions (not limited)
         cache.pin_revision('key', 'stable', 'v1')
         cache.pin_revision('key', 'beta', 'v2')
-        
+
         # Access versions
         stable = cache.get_revision('key', 'stable')  # v1
         beta = cache.get_revision('key', 'beta')      # v2
         latest = cache.get('key')                     # v2
-        
+
         # Remove pin when no longer needed
         cache.unpin_revision('key', 'beta')
     """
@@ -379,8 +379,8 @@ class RevisionStrategy(CacheStrategy[KeyT]):
         """Initialize with maximum number of revisions to keep.
 
         Args:
-            max_revisions: Maximum number of revisions to keep per key (default 10)
-                         Note: Pinned revisions don't count towards this limit
+        - max_revisions: Maximum number of revisions to keep per key (default 10).
+          Note: Pinned revisions don't count towards this limit
         """
         super().__init__()
         self.max_revisions = max_revisions
