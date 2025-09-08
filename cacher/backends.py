@@ -755,12 +755,21 @@ class SQLBackend(CacheBackend[KeyT]):
             db_path = url.replace('sqlite:///', '')
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
+        # Helper to convert sync URL to async
+        def _get_async_url(url: str) -> str:
+            """Convert sync database URL to async version."""
+            if url.startswith('sqlite:///'):
+                return url.replace('sqlite:///', 'sqlite+aiosqlite:///')
+            elif url.startswith('postgresql://'):
+                return url.replace('postgresql://', 'postgresql+asyncpg://')
+            elif url.startswith('mysql://'):
+                return url.replace('mysql://', 'mysql+aiomysql://')
+            return url
+
         # Create engines and table
         self.engine = sa.create_engine(url)
-        if async_url:
-            self.async_engine = create_async_engine(async_url)
-        else:
-            self.async_engine = None
+        async_url = async_url or _get_async_url(url)
+        self.async_engine = create_async_engine(async_url)
         metadata = sa.MetaData()
         self.table = sa.Table(
             table_name,
