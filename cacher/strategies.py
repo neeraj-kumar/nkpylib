@@ -344,10 +344,36 @@ class RevisionStrategy(CacheStrategy[KeyT]):
     """Strategy that maintains a history of revisions for each cached value.
 
     Keeps track of multiple versions of each value with timestamps.
-    Supports operations like:
+    Supports both automatic numbered revisions (limited by max_revisions)
+    and named/pinned revisions that are exempt from the limit.
+
+    Operations:
     - Get latest revision (default behavior)
-    - Get specific revision by index
-    - List all revisions for a key
+    - Get specific revision by index (-1 is latest, -2 is previous, etc.)
+    - Get named/pinned revision by string name
+    - Pin current or new revision with a name
+    - Unpin named revision
+    - List all revisions (both numbered and named)
+    - Clear only unpinned revisions
+
+    Example:
+        cache = SQLBackend(strategies=[RevisionStrategy(max_revisions=5)])
+        
+        # Normal revisions (limited by max_revisions)
+        cache.set('key', 'v1')
+        cache.set('key', 'v2')
+        
+        # Pin important versions (not limited)
+        cache.pin_revision('key', 'stable', 'v1')
+        cache.pin_revision('key', 'beta', 'v2')
+        
+        # Access versions
+        stable = cache.get_revision('key', 'stable')  # v1
+        beta = cache.get_revision('key', 'beta')      # v2
+        latest = cache.get('key')                     # v2
+        
+        # Remove pin when no longer needed
+        cache.unpin_revision('key', 'beta')
     """
     def __init__(self, max_revisions: int = 10):
         """Initialize with maximum number of revisions to keep.
