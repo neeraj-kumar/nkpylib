@@ -135,91 +135,177 @@ class TTLPolicy(CacheStrategy[KeyT]):
         self.timestamps.clear()
 
 
-class BackgroundWriteStrategy(CacheStrategy[KeyT]):
-    """Strategy that performs cache writes in a background thread.
+class DelayedWriteStrategy(CacheStrategy[KeyT]):
+    """Strategy that delays cache writes for better performance.
 
-    This is useful when:
-    - Cache writes are slow (e.g., to disk or network)
-    - You want to return to the caller quickly
-    - Write order doesn't matter
-    - It's ok if the most recent writes are lost on crash
+    Two modes are supported:
+    - "background": Writes happen in a background thread (good for slow backends)
+    - "memory": Writes are cached in memory and flushed periodically (good for fast access)
 
-    Note that the backend should be thread-safe (original thread + 1 worker thread used by this
-    strategy).
+    You can also configure:
+    - batch_size: How many writes to batch together (<=1 means one at a time)
+    - flush_interval: How often to flush to backend (<=0 means immediate)
     """
-    def __init__(self, queue_size: int = 1000, daemon: bool = True):
-        """Initialize with maximum queue size and daemon thread setting."""
-        self.write_queue: queue.Queue[tuple[str, KeyT, Any]] = queue.Queue(maxsize=queue_size)
-        self.stop_event = threading.Event()
-        self.worker = threading.Thread(target=self._worker, daemon=daemon)
-        self.worker.start()
-        # Register shutdown handler
-        atexit.register(self.shutdown)
+    def __init__(self, 
+                 mode: str = "background",
+                 batch_size: int = 1,
+                 flush_interval: float = 0.0):
+        """Initialize with write mode and timing settings.
+        
+        Args:
+            mode: Either "background" (thread) or "memory" (cache)
+            batch_size: Number of writes to batch (<=1 means one at a time)
+            flush_interval: Seconds between flushes (<=0 means immediate)
+        """
+        if mode not in ("background", "memory"):
+            raise ValueError("mode must be 'background' or 'memory'")
+        self.mode = mode
+        self.batch_size = max(1, batch_size)
+        self.flush_interval = max(0.0, flush_interval)
+        
+        # For background mode
+        if mode == "background":
+            self.write_queue: queue.Queue[tuple[str, KeyT, Any]] = queue.Queue(maxsize=batch_size)
+            self.stop_event = threading.Event()
+            self.worker = threading.Thread(target=self._worker, daemon=True)
+            self.worker.start()
+            atexit.register(self.shutdown)
+            self._batch: list[tuple[str, KeyT, Any]] = []
+            
+        # For memory mode
+        else:
+            self._cache: dict[KeyT, Any] = {}
+            self._dirty = set()
+            self._last_flush = time.time()
 
     def _worker(self):
         """Background thread that processes writes."""
+        batch: list[tuple[str, KeyT, Any]] = []
+        last_flush = time.time()
+        
         while not self.stop_event.is_set():
             try:
-                # Wait for work with timeout to check stop_event periodically
-                op, key, value = self.write_queue.get(timeout=0.1)
-                if op == 'set':
-                    self._backend._set_value(key, value)
-                elif op == 'delete':
-                    self._backend._delete_value(key)
-                elif op == 'clear':
-                    self._backend._clear()
-                self.write_queue.task_done()
-            except queue.Empty:
-                continue
+                # Get item with timeout to check stop_event
+                try:
+                    op, key, value = self.write_queue.get(timeout=0.1)
+                    batch.append((op, key, value))
+                    self.write_queue.task_done()
+                except queue.Empty:
+                    pass
+
+                # Check if we should flush
+                should_flush = (
+                    len(batch) >= self.batch_size or
+                    (self.flush_interval > 0 and 
+                     time.time() - last_flush >= self.flush_interval)
+                )
+                
+                if should_flush and batch:
+                    # Group by operation type
+                    sets = [(k,v) for op,k,v in batch if op == 'set']
+                    deletes = [k for op,k,v in batch if op == 'delete']
+                    clears = any(op == 'clear' for op,k,v in batch)
+                    
+                    # Process in order: clear, deletes, sets
+                    if clears:
+                        self._backend._clear()
+                    for key in deletes:
+                        self._backend._delete_value(key)
+                    for key, value in sets:
+                        self._backend._set_value(key, value)
+                        
+                    batch.clear()
+                    last_flush = time.time()
+                    
             except Exception as e:
-                print(f"Error in bg write worker: {e}")
+                print(f"Error in delayed write worker: {e}")
+                batch.clear()
+
+    def pre_get(self, key: KeyT) -> bool:
+        """Check memory cache first in memory mode."""
+        if self.mode == "memory" and key in self._cache:
+            return False
+        return True
+
+    def post_get(self, key: KeyT, value: Any) -> Any:
+        """Return from memory cache in memory mode."""
+        if self.mode == "memory" and key in self._cache:
+            return self._cache[key]
+        return value
 
     def pre_set(self, key: KeyT, value: Any) -> bool:
-        """Queue the write operation."""
-        try:
-            self.write_queue.put(('set', key, value), block=False)
-            return False  # Skip the normal write
-        except queue.Full:
-            return True  # Queue full, do normal write
+        """Handle write based on mode."""
+        if self.mode == "background":
+            try:
+                self.write_queue.put(('set', key, value), block=False)
+                return False
+            except queue.Full:
+                return True
+        else:  # memory mode
+            self._cache[key] = value
+            self._dirty.add(key)
+            self._maybe_flush()
+            return False
 
     def pre_delete(self, key: KeyT) -> bool:
-        """Queue the delete operation."""
-        try:
-            self.write_queue.put(('delete', key, None), block=False)
-            return False  # Skip the normal delete
-        except queue.Full:
-            return True  # Queue full, do normal delete
+        """Handle delete based on mode."""
+        if self.mode == "background":
+            try:
+                self.write_queue.put(('delete', key, None), block=False)
+                return False
+            except queue.Full:
+                return True
+        else:  # memory mode
+            if key in self._cache:
+                del self._cache[key]
+            self._dirty.add(key)
+            self._maybe_flush()
+            return False
 
     def pre_clear(self) -> bool:
-        """Queue the clear operation."""
-        # clear our queue
-        while not self.write_queue.empty():
-            try:
-                self.write_queue.get_nowait()
-                self.write_queue.task_done()
-            except queue.Empty:
-                break
-        self.write_queue.put(('clear', None, None), block=False)
-        return False  # Skip the normal clear
+        """Handle clear based on mode."""
+        if self.mode == "background":
+            # Clear queue
+            while not self.write_queue.empty():
+                try:
+                    self.write_queue.get_nowait()
+                    self.write_queue.task_done()
+                except queue.Empty:
+                    break
+            self.write_queue.put(('clear', None, None), block=False)
+            return False
+        else:  # memory mode
+            self._cache.clear()
+            self._dirty.clear()
+            self._backend._clear()
+            self._last_flush = time.time()
+            return False
+
+    def _maybe_flush(self):
+        """Check if we should flush memory cache."""
+        if not self.flush_interval:
+            self.flush()
+        elif time.time() - self._last_flush >= self.flush_interval:
+            self.flush()
+
+    def flush(self):
+        """Flush pending writes to backend."""
+        if self.mode == "memory" and self._dirty:
+            for key in self._dirty:
+                if key in self._cache:
+                    self._backend._set_value(key, self._cache[key])
+            self._dirty.clear()
+            self._last_flush = time.time()
 
     def shutdown(self, timeout: float|None = None):
-        """Process remaining items and stop the worker thread.
-
-        This:
-        1. Stops accepting new items
-        2. Processes remaining items in queue
-        3. Stops the worker thread
-        4. Waits for the thread to finish
-
-        Args:
-            timeout: Maximum time to wait in seconds, or None to wait forever
-        """
-        # Stop accepting new items and wait for queue to empty
-        self.write_queue.join()
-
-        # Stop the worker and wait for it to finish
-        self.stop_event.set()
-        if timeout is not None:
-            self.worker.join(timeout)
-        else:
-            self.worker.join()
+        """Clean shutdown of background thread or memory cache."""
+        if self.mode == "background":
+            # Process remaining items and stop thread
+            self.write_queue.join()
+            self.stop_event.set()
+            if timeout is not None:
+                self.worker.join(timeout)
+            else:
+                self.worker.join()
+        else:  # memory mode
+            self.flush()
