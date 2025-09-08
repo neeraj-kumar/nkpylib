@@ -413,10 +413,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
         for key in self._backend.iter_keys():
             value = self._backend._get_value(key)
             if value != self._backend.CACHE_MISS:
-                self.items[key] = {
-                    'time': time.time(),
-                    'value': value
-                }
+                self.items[key] = value
         # If we're over limit, start evicting
         current = self._get_total_metric()
         if current > self.limit:
