@@ -676,12 +676,6 @@ class JointFileBackend(CacheBackend[KeyT]):
         """Iterate over all keys in the cache dict."""
         yield from self._cache
 
-    async def iter_keys_async(self) -> AsyncIterator[KeyT]:
-        """Async version of iter_keys."""
-        # Since we already have the cache in memory, just use the sync version
-        async for key in super().iter_keys_async():
-            yield key
-
 
 class MultiplexBackend(CacheBackend[KeyT]):
     """Backend that multiplexes operations across multiple other backends.
@@ -784,17 +778,21 @@ class SQLBackend(CacheBackend[KeyT]):
         # create a connection we can reuse
         #self.conn = self.engine.connect()
 
+    def _get_pragmas(self) -> list[sa.TextClause]:
+        """Get any PRAGMA statements needed for sqlite."""
+        pragmas = []
+        if str(self.engine.url).startswith('sqlite'):
+            pragmas.append(sa.text('PRAGMA journal_mode=WAL;'))
+            pragmas.append(sa.text(f'PRAGMA busy_timeout={self.default_timeout * 1000};'))
+        return pragmas
+
     @property
     def conn(self) -> sa.Connection:
         """Get a thread-local connection to the database."""
         if not hasattr(self.conns_by_thread, 'conn'):
             conn = self.conns_by_thread.conn = self.engine.connect()
-            # special options for sqlite
-            if str(self.engine.url).startswith('sqlite'):
-                # enable WAL mode for better concurrency
-                conn.execute(sa.text('PRAGMA journal_mode=WAL;'))
-                # set default timeout on this connection
-                conn.execute(sa.text(f'PRAGMA busy_timeout={self.default_timeout * 1000};'))
+            for pragma in self._get_pragmas():
+                conn.execute(pragma)
         return self.conns_by_thread.conn
 
     def _contains(self, key: KeyT) -> bool:
@@ -897,9 +895,8 @@ class SQLBackend(CacheBackend[KeyT]):
         if not self.async_engine:
             raise RuntimeError("Async database URL not configured")
         async with self.async_engine.connect() as conn:
-            if str(self.async_engine.url).startswith('sqlite'):
-                await conn.execute(sa.text('PRAGMA journal_mode=WAL;'))
-                await conn.execute(sa.text(f'PRAGMA busy_timeout={self.default_timeout * 1000};'))
+            for pragma in self._get_pragmas():
+                await conn.execute(pragma)
             yield conn
 
     async def _get_value_async(self, key: KeyT) -> Any:
