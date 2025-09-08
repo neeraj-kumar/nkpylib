@@ -146,43 +146,39 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
     - batch_size: How many writes to batch together (<=1 means one at a time)
     - flush_interval: How often to flush to backend (<=0 means immediate)
     """
-    def __init__(self, 
+    def __init__(self,
                  mode: str = "background",
                  batch_size: int = 1,
                  flush_interval: float = 0.0):
         """Initialize with write mode and timing settings.
-        
+
         Args:
             mode: Either "background" (thread) or "memory" (cache)
             batch_size: Number of writes to batch (<=1 means one at a time)
             flush_interval: Seconds between flushes (<=0 means immediate)
         """
-        if mode not in ("background", "memory"):
-            raise ValueError("mode must be 'background' or 'memory'")
         self.mode = mode
         self.batch_size = max(1, batch_size)
         self.flush_interval = max(0.0, flush_interval)
-        
-        # For background mode
-        if mode == "background":
+
+        if mode == "background": # For background mode
             self.write_queue: queue.Queue[tuple[str, KeyT, Any]] = queue.Queue(maxsize=batch_size)
             self.stop_event = threading.Event()
             self.worker = threading.Thread(target=self._worker, daemon=True)
             self.worker.start()
             atexit.register(self.shutdown)
             self._batch: list[tuple[str, KeyT, Any]] = []
-            
-        # For memory mode
-        else:
+        elif mode == 'memory': # For memory mode
             self._cache: dict[KeyT, Any] = {}
             self._dirty = set()
             self._last_flush = time.time()
+        else:
+            raise NotImplementedError(f"Unsupported mode: {mode}")
 
     def _worker(self):
         """Background thread that processes writes."""
         batch: list[tuple[str, KeyT, Any]] = []
         last_flush = time.time()
-        
         while not self.stop_event.is_set():
             try:
                 # Get item with timeout to check stop_event
@@ -196,16 +192,13 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                 # Check if we should flush
                 should_flush = (
                     len(batch) >= self.batch_size or
-                    (self.flush_interval > 0 and 
-                     time.time() - last_flush >= self.flush_interval)
+                    (self.flush_interval > 0 and time.time() - last_flush >= self.flush_interval)
                 )
-                
                 if should_flush and batch:
                     # Group by operation type
                     sets = [(k,v) for op,k,v in batch if op == 'set']
                     deletes = [k for op,k,v in batch if op == 'delete']
                     clears = any(op == 'clear' for op,k,v in batch)
-                    
                     # Process in order: clear, deletes, sets
                     if clears:
                         self._backend._clear()
@@ -213,10 +206,8 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                         self._backend._delete_value(key)
                     for key, value in sets:
                         self._backend._set_value(key, value)
-                        
                     batch.clear()
                     last_flush = time.time()
-                    
             except Exception as e:
                 print(f"Error in delayed write worker: {e}")
                 batch.clear()
