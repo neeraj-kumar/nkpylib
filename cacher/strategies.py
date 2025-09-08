@@ -9,8 +9,9 @@ import sys
 import threading
 import time
 
+import psutil
 from abc import ABC
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from typing import Any, Callable, Generic, Literal
 
 from nkpylib.cacher.constants import KeyT
