@@ -417,7 +417,6 @@ class LimitStrategy(CacheStrategy[KeyT]):
                     'time': time.time(),
                     'value': value
                 }
-        
         # If we're over limit, start evicting
         current = self._get_total_metric()
         if current > self.limit:
