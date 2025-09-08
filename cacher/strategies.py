@@ -340,11 +340,9 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
             self.flush()
 
 
-RevisionT = TypeVar('RevisionT')
-
 class RevisionStrategy(CacheStrategy[KeyT]):
     """Strategy that maintains a history of revisions for each cached value.
-    
+
     Keeps track of multiple versions of each value with timestamps.
     Supports operations like:
     - Get latest revision (default behavior)
@@ -353,7 +351,7 @@ class RevisionStrategy(CacheStrategy[KeyT]):
     """
     def __init__(self, max_revisions: int = 10):
         """Initialize with maximum number of revisions to keep.
-        
+
         Args:
             max_revisions: Maximum number of revisions to keep per key (default 10)
         """
@@ -363,11 +361,11 @@ class RevisionStrategy(CacheStrategy[KeyT]):
 
     def get_revision(self, key: KeyT, index: int) -> Any:
         """Get a specific revision of a value.
-        
+
         Args:
             key: Cache key
             index: Revision index (-1 is latest, -2 is previous, etc.)
-            
+
         Returns:
             The value at that revision, or CACHE_MISS if not found
         """
@@ -380,10 +378,10 @@ class RevisionStrategy(CacheStrategy[KeyT]):
 
     def list_revisions(self, key: KeyT) -> list[tuple[float, Any]]:
         """Get all revisions for a key.
-        
+
         Args:
             key: Cache key
-            
+
         Returns:
             List of (timestamp, value) tuples, newest first
         """
