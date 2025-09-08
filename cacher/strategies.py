@@ -82,11 +82,12 @@ class RateLimiter(CacheStrategy[KeyT]):
     to be accessed with some delay between requests, regardless of which key
     is being accessed.
     """
-    def __init__(self, min_interval: float):
+    def __init__(self, min_interval: float|Callable[[KeyT], float]):
         """Initialize with minimum interval between requests.
 
         Args:
-            min_interval: Minimum time (in seconds) between any operations
+            min_interval: Minimum time (in seconds) between any operations,
+                          or a function that takes in a key and returns the interval to use.
         """
         self.min_interval = min_interval
         self.last_request_time = 0.0
@@ -94,8 +95,9 @@ class RateLimiter(CacheStrategy[KeyT]):
     def pre_get(self, key: KeyT) -> bool:
         now = time.time()
         elapsed = now - self.last_request_time
-        if elapsed < self.min_interval:
-            time.sleep(self.min_interval - elapsed)
+        min_interval = self.min_interval(key) if callable(self.min_interval) else self.min_interval
+        if elapsed < min_interval:
+            time.sleep(min_interval - elapsed)
         self.last_request_time = time.time()
         return True
 
@@ -105,11 +107,12 @@ class TTLPolicy(CacheStrategy[KeyT]):
 
     Items older than the TTL are considered invalid and will be re-fetched.
     """
-    def __init__(self, ttl_seconds: float):
+    def __init__(self, ttl_seconds: float|Callable[[KeyT], float]):
         """Initialize with TTL duration.
 
         Args:
             ttl_seconds: Time-to-live in seconds for cached items
+                         or a function that takes in a key and returns the TTL to use.
         """
         self.ttl = ttl_seconds
         self.timestamps: dict[Any, float] = {}
@@ -117,7 +120,8 @@ class TTLPolicy(CacheStrategy[KeyT]):
     def pre_get(self, key: KeyT) -> bool:
         if key in self.timestamps:
             age = time.time() - self.timestamps[key]
-            if age > self.ttl:
+            ttl = self.ttl(key) if callable(self.ttl) else self.ttl
+            if age > ttl:
                 return False  # Skip cache lookup, forcing a miss
         return True
 
@@ -139,6 +143,9 @@ class BackgroundWriteStrategy(CacheStrategy[KeyT]):
     - You want to return to the caller quickly
     - Write order doesn't matter
     - It's ok if the most recent writes are lost on crash
+
+    Note that the backend should be thread-safe (original thread + 1 worker thread used by this
+    strategy).
     """
     def __init__(self, queue_size: int = 1000, daemon: bool = True):
         """Initialize with maximum queue size and daemon thread setting."""
@@ -208,10 +215,7 @@ class BackgroundWriteStrategy(CacheStrategy[KeyT]):
             timeout: Maximum time to wait in seconds, or None to wait forever
         """
         # Stop accepting new items and wait for queue to empty
-        try:
-            self.write_queue.join(timeout=timeout)
-        except TimeoutError:
-            pass
+        self.write_queue.join()
 
         # Stop the worker and wait for it to finish
         self.stop_event.set()
