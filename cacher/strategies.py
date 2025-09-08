@@ -9,7 +9,6 @@ import sys
 import threading
 import time
 
-import psutil
 from abc import ABC
 from collections import OrderedDict, defaultdict
 from typing import Any, Callable, Generic, Literal
@@ -412,7 +411,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
     @classmethod
     def with_idle_limit(cls, max_idle: float, **kwargs) -> LimitStrategy:
         """Create a strategy that evicts items not accessed for max_idle seconds.
-        
+
         Args:
             max_idle: Maximum time in seconds since last access
             **kwargs: Additional arguments for LimitStrategy
@@ -426,24 +425,28 @@ class LimitStrategy(CacheStrategy[KeyT]):
         )
         # Add access time tracking
         strategy.last_access = {}
-        
+
         # Wrap pre_get to update access times
         original_pre_get = strategy.pre_get
         def wrapped_pre_get(key: KeyT) -> bool:
             strategy.last_access[key] = time.time()
             return original_pre_get(key)
+
         strategy.pre_get = wrapped_pre_get
-        
+
         return strategy
 
     @classmethod
     def with_mem_percent_limit(cls, max_percent: float, **kwargs) -> LimitStrategy:
         """Create a strategy that evicts items when memory usage exceeds threshold.
-        
+
+        Requires the `psutil` library.
+
         Args:
             max_percent: Maximum memory usage as percentage (0-100)
             **kwargs: Additional arguments for LimitStrategy
         """
+        import psutil
         return cls(
             metric_fn=lambda k,v: psutil.Process().memory_percent(),
             agg_fn=max,
@@ -454,7 +457,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
     @classmethod
     def with_frequency_limit(cls, min_accesses: int, window: float, **kwargs) -> LimitStrategy:
         """Create a strategy that keeps frequently accessed items.
-        
+
         Args:
             min_accesses: Minimum number of accesses required in window
             window: Time window in seconds to count accesses
@@ -471,7 +474,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
             times = [t for t in times if t > cutoff]
             v.__dict__['access_times'] = times
             return len(times)
-            
+
         return cls(
             metric_fn=_get_access_count,
             agg_fn=min,
