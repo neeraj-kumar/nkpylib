@@ -195,32 +195,29 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                     (self.flush_interval > 0 and time.time() - last_flush >= self.flush_interval)
                 )
                 if should_flush and batch:
-                    # Process operations in chunks of same type
+                    # Collect operations into chunks by type
+                    chunks: list[tuple[str, list]] = []
                     current_type = None
                     current_chunk = []
+                    
                     for op, key, value in batch:
                         if op != current_type:
-                            # Process previous chunk if it exists
                             if current_chunk:
-                                if current_type == 'set':
-                                    self._backend.set_many(dict(current_chunk))
-                                elif current_type == 'delete':
-                                    self._backend.delete_many([k for k,v in current_chunk])
-                                elif current_type == 'clear':
-                                    self._backend._clear()
-                            # Start new chunk
+                                chunks.append((current_type, current_chunk))
                             current_type = op
                             current_chunk = []
                         if op != 'clear':
                             current_chunk.append((key, value))
-
-                    # Process final chunk
                     if current_chunk:
-                        if current_type == 'set':
-                            self._backend.set_many(dict(current_chunk))
-                        elif current_type == 'delete':
-                            self._backend.delete_many([k for k,v in current_chunk])
-                        elif current_type == 'clear':
+                        chunks.append((current_type, current_chunk))
+                    
+                    # Process all chunks in order
+                    for op_type, chunk in chunks:
+                        if op_type == 'set':
+                            self._backend.set_many(dict(chunk))
+                        elif op_type == 'delete':
+                            self._backend.delete_many([k for k,v in chunk])
+                        elif op_type == 'clear':
                             self._backend._clear()
                     batch.clear()
                     last_flush = time.time()
