@@ -28,6 +28,16 @@ class CacheStrategy(Generic[KeyT]):
     """
     def __init__(self, backend=None):
         self._backend = backend
+        if backend is not None:
+            self.initialize()
+
+    def initialize(self) -> None:
+        """Initialize strategy with existing items from backend.
+        
+        Called when backend is set, allowing strategies to scan existing items.
+        Override this in subclasses that need to track existing items.
+        """
+        pass
 
     def pre_get(self, key: KeyT) -> bool:
         """Called before retrieving a value.
@@ -356,10 +366,29 @@ class LimitStrategy(CacheStrategy[KeyT]):
         self.max_bytes = max_bytes
         self.max_age = max_age
         self.eviction = eviction
-
+        
         # Track items and their metadata
         self.items: OrderedDict[KeyT, dict] = OrderedDict()
         self.total_bytes = 0
+
+    def initialize(self) -> None:
+        """Initialize tracking for existing items in backend."""
+        now = time.time()
+        for key in self._backend.iter_keys():
+            value = self._backend._get_value(key)
+            if value != self._backend.CACHE_MISS:
+                size = self._get_size(value)
+                self.items[key] = {
+                    'time': now,
+                    'size': size
+                }
+                self.total_bytes += size
+                
+        # If we're over limits, start evicting
+        if self.max_items and len(self.items) > self.max_items:
+            self._evict_items()
+        if self.max_bytes and self.total_bytes > self.max_bytes:
+            self._evict_items()
 
     def _get_size(self, value: Any) -> int:
         """Estimate size of value in bytes."""
