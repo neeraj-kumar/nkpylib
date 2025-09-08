@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from contextlib import asynccontextmanager
+from functools import partial
 
 from abc import ABC, abstractmethod
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection, AsyncEngine
@@ -526,6 +527,39 @@ class SeparateFileBackend(CacheBackend[KeyT]):
         except FileNotFoundError:
             pass
 
+    async def _get_value_async(self, key: KeyT) -> Any:
+        """Get value from file storage asynchronously."""
+        path = self._key_to_path(key)
+        data = await asyncio.to_thread(_read_file, path)
+        if data is None:
+            return self.handle_cache_miss(key)
+        try:
+            return self.formatter.loads(data)
+        except Exception:
+            return CACHE_MISS
+
+    async def _set_value_async(self, key: KeyT, value: Any) -> None:
+        """Store value in file storage asynchronously."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
+        path = self._key_to_path(key)
+        data = self.formatter.dumps(value)
+        await asyncio.to_thread(_write_atomic, path, data)
+
+    async def _delete_value_async(self, key: KeyT) -> None:
+        """Delete value from file storage asynchronously."""
+        path = self._key_to_path(key)
+        try:
+            await asyncio.to_thread(path.unlink)
+        except FileNotFoundError:
+            pass
+
+    async def _clear_async(self) -> None:
+        """Clear all entries asynchronously."""
+        paths = list(self.cache_dir.iterdir())
+        await asyncio.gather(
+            *(asyncio.to_thread(path.unlink) for path in paths)
+        )
+
     def _clear(self) -> None:
         """Clear all entries. This deletes all files in our cache dir."""
         for path in self.cache_dir.iterdir():
@@ -568,6 +602,42 @@ class JointFileBackend(CacheBackend[KeyT]):
     def _save(self) -> None:
         """Save cache to file."""
         _write_atomic(self.cache_path, self.formatter.dumps(self._cache))
+
+    async def _load_async(self) -> None:
+        """Load cache from file asynchronously."""
+        try:
+            data = await asyncio.to_thread(partial(open, self.cache_path, 'rb'))
+            with data as f:
+                self._cache = self.formatter.loads(await asyncio.to_thread(f.read))
+        except Exception:
+            self._cache = {}
+
+    async def _save_async(self) -> None:
+        """Save cache to file asynchronously."""
+        data = self.formatter.dumps(self._cache)
+        await asyncio.to_thread(_write_atomic, self.cache_path, data)
+
+    async def _get_value_async(self, key: KeyT) -> Any:
+        """Get value from cache dict asynchronously."""
+        # No need for async since it's in memory
+        return self._get_value(key)
+
+    async def _set_value_async(self, key: KeyT, value: Any) -> None:
+        """Store value in cache dict and save to file asynchronously."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
+        self._cache[key] = value
+        await self._save_async()
+
+    async def _delete_value_async(self, key: KeyT) -> None:
+        """Delete value from cache dict and save to file asynchronously."""
+        if key in self._cache:
+            del self._cache[key]
+            await self._save_async()
+
+    async def _clear_async(self) -> None:
+        """Clear all entries in cache dict and save to file asynchronously."""
+        self._cache.clear()
+        await self._save_async()
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from cache dict."""
