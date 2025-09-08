@@ -111,10 +111,10 @@ class TTLPolicy(CacheStrategy[KeyT]):
         """Initialize with TTL duration.
 
         Args:
-            ttl_seconds: Time-to-live in seconds for cached items
-                         or a function that takes in a key and returns the TTL to use.
-            delete_expired: If True, automatically delete expired items when found.
-                          If False, just force a cache miss (default).
+        - ttl_seconds: Time-to-live in seconds for cached items or a function that takes in a key
+          and returns the TTL to use.
+        - delete_expired: If True, automatically delete expired items when found. If False, just
+          force a cache miss (default).
         """
         self.ttl = ttl_seconds
         self.delete_expired = delete_expired
