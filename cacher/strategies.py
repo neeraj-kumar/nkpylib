@@ -199,7 +199,6 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                     chunks: list[tuple[str, list]] = []
                     current_type = None
                     current_chunk = []
-                    
                     for op, key, value in batch:
                         if op != current_type:
                             if current_chunk:
@@ -210,7 +209,6 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                             current_chunk.append((key, value))
                     if current_chunk:
                         chunks.append((current_type, current_chunk))
-                    
                     # Process all chunks in order
                     for op_type, chunk in chunks:
                         if op_type == 'set':
