@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from abc import ABC, abstractmethod
 from functools import wraps
 from pathlib import Path
@@ -192,6 +194,14 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in self.strategies:
             strategy.post_clear()
 
+    def _contains(self, key: KeyT) -> bool:
+        """Check if `key` is in cache.
+
+        By default, we try to actually get the value using `_get_value`, but you can have a more
+        optimized version.
+        """
+        return self._get_value(key) != CACHE_MISS
+
     @abstractmethod
     def _get_value(self, key: KeyT) -> Any:
         """Actually get the value from storage."""
@@ -215,6 +225,24 @@ class CacheBackend(ABC, Generic[KeyT]):
         """
         for key in list(self.iter_keys()):
             self._delete_value(key)
+
+    def check_many(self, keys: list[KeyT]) -> set[KeyT]:
+        """Check which keys are in the cache.
+
+        By default this calls _contains() on each key, but you can override this for a faster
+        implementation.
+
+        Args:
+            keys: List of cache keys to check
+
+        Returns:
+            Set of keys that are found in the cache
+        """
+        found = set()
+        for key in keys:
+            if self._contains(key):
+                found.add(key)
+        return found
 
     def get_many(self, keys: list[KeyT]) -> dict[KeyT, Any]:
         """Get multiple values at once.
@@ -512,6 +540,7 @@ class SQLBackend(CacheBackend[KeyT]):
 
     Uses sa to handle database connections.
     """
+    default_timeout = 20  # seconds
     def __init__(self,
                  url: str='sqlite://',
                  table_name: str='cache',
@@ -553,11 +582,52 @@ class SQLBackend(CacheBackend[KeyT]):
             sa.Index(f'ix_{table_name}_cache_key', self.table.c.key)
         # Create table if it doesn't exist
         metadata.create_all(self.engine)
+        self.conns_by_thread = threading.local()
         # create a connection we can reuse
-        self.conn = self.engine.connect()
-        # if it's sqlite, enable WAL mode for better concurrency
-        if url.startswith('sqlite'):
-            self.conn.execute(sa.text('PRAGMA journal_mode=WAL;'))
+        #self.conn = self.engine.connect()
+
+    @property
+    def conn(self) -> sa.Connection:
+        """Get a thread-local connection to the database."""
+        if not hasattr(self.conns_by_thread, 'conn'):
+            conn = self.conns_by_thread.conn = self.engine.connect()
+            # special options for sqlite
+            if str(self.engine.url).startswith('sqlite'):
+                # enable WAL mode for better concurrency
+                conn.execute(sa.text('PRAGMA journal_mode=WAL;'))
+                # set default timeout on this connection
+                conn.execute(sa.text(f'PRAGMA busy_timeout={self.default_timeout * 1000};'))
+        return self.conns_by_thread.conn
+
+    def _contains(self, key: KeyT) -> bool:
+        """Check if `key` is in the cache."""
+        result = self.conn.execute(
+            sa.select(self.table.c.key)
+            .where(self.table.c.key == str(key))
+        ).first()
+        return result is not None
+
+    def check_many(self, keys: list[KeyT]) -> set[KeyT]:
+        """Check which keys are in the cache.
+
+        This does a sql query with an IN clause for efficiency.
+
+        Args:
+            keys: List of cache keys to check
+
+        Returns:
+            Set of keys that are found in the cache
+        """
+        found = set()
+        if not keys:
+            return found
+        str_keys = [str(key) for key in keys]
+        result = self.conn.execute(
+            sa.select(self.table.c.key)
+            .where(self.table.c.key.in_(str_keys))
+        )
+        found.update([row.key for row in result])
+        return found
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from database."""
