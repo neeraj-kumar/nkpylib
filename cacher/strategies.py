@@ -349,6 +349,8 @@ class LimitStrategy(CacheStrategy[KeyT]):
     - 'lru': Least recently used items are removed first
     - 'fifo': First in, first out
     - 'random': Random items are removed
+    - 'lfu': Least frequently used items are removed first
+    - 'lifo': Last in, first out (newest items removed first)
 
     You can use the various classmethods to create common limit strategies:
     - `with_count_limit(max_items)`: Limit total number of items
