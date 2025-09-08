@@ -359,23 +359,24 @@ class RevisionStrategy(CacheStrategy[KeyT]):
     - Clear only unpinned revisions
 
     Example:
-        cache = SQLBackend(strategies=[RevisionStrategy(max_revisions=5)])
+        rev_strategy = RevisionStrategy(max_revisions=5)
+        cache = SQLBackend(strategies=[rev_strategy])
 
         # Normal revisions (limited by max_revisions)
         cache.set('key', 'v1')
         cache.set('key', 'v2')
 
         # Pin important versions (not limited)
-        cache.pin_revision('key', 'stable', 'v1')
-        cache.pin_revision('key', 'beta', 'v2')
+        rev_strategy.pin_revision('key', 'stable', 'v1')
+        rev_strategy.pin_revision('key', 'beta', 'v2')
 
         # Access versions
-        stable = cache.get_revision('key', 'stable')  # v1
-        beta = cache.get_revision('key', 'beta')      # v2
-        latest = cache.get('key')                     # v2
+        stable = rev_strategy.get_revision('key', 'stable')  # v1
+        beta = rev_strategy.get_revision('key', 'beta')      # v2
+        latest = cache.get('key')                           # v2
 
         # Remove pin when no longer needed
-        cache.unpin_revision('key', 'beta')
+        rev_strategy.unpin_revision('key', 'beta')
     """
     def __init__(self, max_revisions: int = 10):
         """Initialize with maximum number of revisions to keep.
