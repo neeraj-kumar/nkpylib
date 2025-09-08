@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from functools import partial, wraps
 from pathlib import Path
-from typing import Any, Callable, Generic, Iterator
+from typing import Any, Callable, Generic, Iterator, AsyncIterator
 
 import sqlalchemy as sa
 
@@ -428,6 +428,11 @@ class CacheBackend(ABC, Generic[KeyT]):
         """Iterate over all keys in the cache."""
         raise NotImplementedError("iter_keys not implemented")
 
+    async def iter_keys_async(self) -> AsyncIterator[KeyT]:
+        """Async version of iter_keys."""
+        for key in self.iter_keys():
+            yield key
+
     def handle_cache_miss(self, key: KeyT) -> Any:
         """Handle a cache miss setting."""
         self.stats['misses'] += 1
@@ -568,6 +573,17 @@ class SeparateFileBackend(CacheBackend[KeyT]):
             except FileNotFoundError:
                 pass
 
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Iterate over all keys in the cache directory."""
+        for path in self.cache_dir.iterdir():
+            yield path.stem
+
+    async def iter_keys_async(self) -> AsyncIterator[KeyT]:
+        """Async version of iter_keys."""
+        paths = await asyncio.to_thread(list, self.cache_dir.iterdir())
+        for path in paths:
+            yield path.stem
+
 
 class JointFileBackend(CacheBackend[KeyT]):
     """Backend that stores all keys in a single file.
@@ -659,6 +675,12 @@ class JointFileBackend(CacheBackend[KeyT]):
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache dict."""
         yield from self._cache
+
+    async def iter_keys_async(self) -> AsyncIterator[KeyT]:
+        """Async version of iter_keys."""
+        # Since we already have the cache in memory, just use the sync version
+        async for key in super().iter_keys_async():
+            yield key
 
 
 class MultiplexBackend(CacheBackend[KeyT]):
@@ -856,6 +878,18 @@ class SQLBackend(CacheBackend[KeyT]):
         """Iterate over all keys in the database."""
         for row in self.conn.execute(sa.select(self.table.c.key)):
             yield row.key
+
+    async def iter_keys_async(self) -> AsyncIterator[KeyT]:
+        """Async version of iter_keys."""
+        if not self.async_engine:
+            async for key in super().iter_keys_async():
+                yield key
+            return
+
+        async with self._get_async_conn() as conn:
+            result = await conn.stream(sa.select(self.table.c.key))
+            async for row in result:
+                yield row.key
 
     @asynccontextmanager
     async def _get_async_conn(self) -> AsyncConnection:
