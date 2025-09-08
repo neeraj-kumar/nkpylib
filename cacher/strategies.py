@@ -344,23 +344,16 @@ class LimitStrategy(CacheStrategy[KeyT]):
     """Strategy that enforces limits on the cache using customizable metrics.
 
     Uses a metric function to compute a value for each item, and an aggregation
-    function to combine those values. When the aggregate exceeds the limit,
-    items are evicted according to the chosen policy.
-
-    Built-in metrics:
-    - count: lambda k,v: 1  (count of items)
-    - size: sys.getsizeof  (bytes used)
-    - age: lambda k,v: time.time() - v['time']  (item age)
-
-    Built-in aggregations:
-    - sum: Total across all items
-    - max: Maximum value of any item
-    - min: Minimum value of any item
-
-    When limits are exceeded, items are evicted according to the chosen policy:
+    function to combine those values. When the aggregate exceeds the `limit`,
+    items are evicted according to the chosen `eviction` policy:
     - 'lru': Least recently used items are removed first
     - 'fifo': First in, first out
     - 'random': Random items are removed
+
+    You can use the various classmethods to create common limit strategies:
+    - `with_count_limit(max_items)`: Limit total number of items
+    - `with_size_limit(max_bytes)`: Limit total size in bytes
+    - `with_age_limit(max_age)`: Limit maximum age of items in seconds
     """
     def __init__(self,
                  metric_fn: Callable[[KeyT, Any], float],
@@ -380,7 +373,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
         self.agg_fn = agg_fn
         self.limit = limit
         self.eviction = eviction
-        
+
         # Track items and their metadata
         self.items: OrderedDict[KeyT, dict] = OrderedDict()
         self.total_metric = 0.0
@@ -473,23 +466,23 @@ class LimitStrategy(CacheStrategy[KeyT]):
         """Check limit before setting value."""
         # Calculate metric for new value
         new_metric = self._get_metric(key, value)
-        
+
         # If item exists, remove it from consideration
         if key in self.items:
             old_metric = self._get_metric(key, self.items[key])
             self.items.pop(key)
-            
+
         # Check if we need to evict items
         current = self._get_total_metric()
         if current + new_metric > self.limit:
             self._evict_items(new_metric)
-            
+
         # Update tracking
         self.items[key] = {
             'time': time.time(),
             'value': value
         }
-        
+
         # Move to end if using LRU
         if self.eviction == 'lru':
             self.items.move_to_end(key)
