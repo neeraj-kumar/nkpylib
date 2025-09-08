@@ -473,12 +473,13 @@ class LimitStrategy(CacheStrategy[KeyT]):
             cutoff = time.time() - window
             times = [t for t in times if t > cutoff]
             v.__dict__['access_times'] = times
-            return len(times)
-
+            # Return negative count so max aggregation works for minimum threshold
+            return -len(times)
+            
         return cls(
             metric_fn=_get_access_count,
-            agg_fn=min,
-            limit=min_accesses,
+            agg_fn=max,
+            limit=-min_accesses,  # Negative since we're using negative counts
             **kwargs
         )
 
