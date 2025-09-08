@@ -354,6 +354,12 @@ class LimitStrategy(CacheStrategy[KeyT]):
     - `with_count_limit(max_items)`: Limit total number of items
     - `with_size_limit(max_bytes)`: Limit total size in bytes
     - `with_age_limit(max_age)`: Limit maximum age of items in seconds
+    - `with_idle_limit(max_idle)`: Evict items not accessed for max_idle seconds
+    - `with_mem_percent_limit(max_percent)`: Evict items when memory usage exceeds threshold
+    - `with_frequency_limit(min_accesses, window)`: Keep frequently accessed items
+
+    Note that you can create multiple instances of this strategy with different functions to have
+    multiple kinds of limits enforced simultaneously.
     """
     def __init__(self,
                  metric_fn: Callable[[KeyT, Any], float],
@@ -475,7 +481,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
             v.__dict__['access_times'] = times
             # Return negative count so max aggregation works for minimum threshold
             return -len(times)
-            
+
         return cls(
             metric_fn=_get_access_count,
             agg_fn=max,
