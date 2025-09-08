@@ -341,12 +341,21 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
 
 
 class LimitStrategy(CacheStrategy[KeyT]):
-    """Strategy that enforces limits on the cache size.
+    """Strategy that enforces limits on the cache using customizable metrics.
 
-    Supports three types of limits:
-    - max_items: Maximum number of items in cache
-    - max_bytes: Maximum total size in bytes
-    - max_age: Maximum age of items in seconds
+    Uses a metric function to compute a value for each item, and an aggregation
+    function to combine those values. When the aggregate exceeds the limit,
+    items are evicted according to the chosen policy.
+
+    Built-in metrics:
+    - count: lambda k,v: 1  (count of items)
+    - size: sys.getsizeof  (bytes used)
+    - age: lambda k,v: time.time() - v['time']  (item age)
+
+    Built-in aggregations:
+    - sum: Total across all items
+    - max: Maximum value of any item
+    - min: Minimum value of any item
 
     When limits are exceeded, items are evicted according to the chosen policy:
     - 'lru': Least recently used items are removed first
@@ -354,29 +363,57 @@ class LimitStrategy(CacheStrategy[KeyT]):
     - 'random': Random items are removed
     """
     def __init__(self,
-                 max_items: int|None = None,
-                 max_bytes: int|None = None,
-                 max_age: float|None = None,
+                 metric_fn: Callable[[KeyT, Any], float],
+                 agg_fn: Callable[[list[float]], float],
+                 limit: float,
                  eviction: Literal['lru', 'fifo', 'random'] = 'lru'):
-        """Initialize with size limits and eviction policy.
+        """Initialize with metric function and limit.
 
         Args:
-            max_items: Maximum number of items to keep in cache
-            max_bytes: Maximum total size in bytes
-            max_age: Maximum age of items in seconds
-            eviction: Eviction policy to use when limits are exceeded
+            metric_fn: Function that takes (key, value) and returns a float
+            agg_fn: Function that takes list of metric values and returns aggregate
+            limit: Maximum allowed value for the aggregate
+            eviction: Eviction policy to use when limit is exceeded
         """
         super().__init__()
-        if not any([max_items, max_bytes, max_age]):
-            raise ValueError("At least one limit must be specified")
-        self.max_items = max_items
-        self.max_bytes = max_bytes
-        self.max_age = max_age
+        self.metric_fn = metric_fn
+        self.agg_fn = agg_fn
+        self.limit = limit
         self.eviction = eviction
-
+        
         # Track items and their metadata
         self.items: OrderedDict[KeyT, dict] = OrderedDict()
-        self.total_bytes = 0
+        self.total_metric = 0.0
+
+    @classmethod
+    def with_count_limit(cls, max_items: int, **kwargs) -> LimitStrategy:
+        """Create a strategy that limits total number of items."""
+        return cls(
+            metric_fn=lambda k,v: 1,
+            agg_fn=sum,
+            limit=max_items,
+            **kwargs
+        )
+
+    @classmethod
+    def with_size_limit(cls, max_bytes: int, **kwargs) -> LimitStrategy:
+        """Create a strategy that limits total size in bytes."""
+        return cls(
+            metric_fn=lambda k,v: sys.getsizeof(v),
+            agg_fn=sum,
+            limit=max_bytes,
+            **kwargs
+        )
+
+    @classmethod
+    def with_age_limit(cls, max_age: float, **kwargs) -> LimitStrategy:
+        """Create a strategy that limits maximum item age in seconds."""
+        return cls(
+            metric_fn=lambda k,v: time.time() - v['time'],
+            agg_fn=max,
+            limit=max_age,
+            **kwargs
+        )
 
     def initialize(self) -> None:
         """Initialize tracking for existing items in backend."""
@@ -397,16 +434,29 @@ class LimitStrategy(CacheStrategy[KeyT]):
         if self.max_bytes and self.total_bytes > self.max_bytes:
             self._evict_items()
 
-    def _get_size(self, value: Any) -> int:
-        """Estimate size of value in bytes."""
-        return sys.getsizeof(self.formatter.dumps(value))
+    def _get_metric(self, key: KeyT, value: Any) -> float:
+        """Compute metric value for an item."""
+        try:
+            return float(self.metric_fn(key, value))
+        except Exception as e:
+            print(f"Error computing metric for {key}: {e}")
+            return 0.0
 
-    def _evict_items(self, needed_space: int = 0) -> None:
-        """Remove items until all limits are satisfied."""
+    def _get_total_metric(self) -> float:
+        """Compute current total metric value."""
+        try:
+            values = [self._get_metric(k, v) for k,v in self.items.items()]
+            return self.agg_fn(values) if values else 0.0
+        except Exception as e:
+            print(f"Error computing aggregate metric: {e}")
+            return 0.0
+
+    def _evict_items(self, needed: float = 0.0) -> None:
+        """Remove items until limit is satisfied."""
         while self.items:
-            if self.max_items and len(self.items) <= self.max_items:
-                if not self.max_bytes or self.total_bytes <= self.max_bytes:
-                    break
+            current = self._get_total_metric()
+            if current + needed <= self.limit:
+                break
 
             # Choose item to evict based on policy
             if self.eviction == 'random':
@@ -415,49 +465,43 @@ class LimitStrategy(CacheStrategy[KeyT]):
                 key = next(iter(self.items))
 
             # Remove the item
-            item = self.items.pop(key)
-            self.total_bytes -= item['size']
+            self.items.pop(key)
             self._backend._delete_value(key)
             self.stats['evictions'] += 1
 
-            if needed_space > 0 and self.total_bytes + needed_space <= (self.max_bytes or float('inf')):
-                break
-
     def pre_set(self, key: KeyT, value: Any) -> bool:
-        """Check limits before setting value."""
-        # Calculate size if needed
-        size = self._get_size(value) if self.max_bytes else 0
-        # If item exists, remove its size from total
+        """Check limit before setting value."""
+        # Calculate metric for new value
+        new_metric = self._get_metric(key, value)
+        
+        # If item exists, remove it from consideration
         if key in self.items:
-            self.total_bytes -= self.items[key]['size']
+            old_metric = self._get_metric(key, self.items[key])
+            self.items.pop(key)
+            
         # Check if we need to evict items
-        if self.max_bytes:
-            needed = size - (self.max_bytes - self.total_bytes)
-            if needed > 0:
-                self._evict_items(needed)
-        if self.max_items and key not in self.items and len(self.items) >= self.max_items:
-            self._evict_items()
+        current = self._get_total_metric()
+        if current + new_metric > self.limit:
+            self._evict_items(new_metric)
+            
         # Update tracking
         self.items[key] = {
             'time': time.time(),
-            'size': size
+            'value': value
         }
-        self.total_bytes += size
+        
         # Move to end if using LRU
         if self.eviction == 'lru':
             self.items.move_to_end(key)
         return True
 
     def pre_get(self, key: KeyT) -> bool:
-        """Update access time and check age limit."""
+        """Update access time and check metric."""
         if key in self.items:
-            # Check age limit
-            if self.max_age:
-                age = time.time() - self.items[key]['time']
-                if age > self.max_age:
-                    self.items.pop(key)
-                    self.total_bytes -= self.items[key]['size']
-                    return False
+            # Check if item exceeds limit
+            if self._get_metric(key, self.items[key]) > self.limit:
+                self.items.pop(key)
+                return False
             # Update LRU order
             if self.eviction == 'lru':
                 self.items.move_to_end(key)
@@ -466,12 +510,10 @@ class LimitStrategy(CacheStrategy[KeyT]):
     def pre_delete(self, key: KeyT) -> bool:
         """Update tracking when item is deleted."""
         if key in self.items:
-            self.total_bytes -= self.items[key]['size']
             del self.items[key]
         return True
 
     def pre_clear(self) -> bool:
         """Clear tracking data."""
         self.items.clear()
-        self.total_bytes = 0
         return True
