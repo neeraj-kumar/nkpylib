@@ -461,23 +461,20 @@ class LimitStrategy(CacheStrategy[KeyT]):
         """Check limit before setting value."""
         # Calculate metric for new value
         new_metric = self._get_metric(key, value)
-
+        
         # If item exists, remove it from consideration
         if key in self.items:
             old_metric = self._get_metric(key, self.items[key])
             self.items.pop(key)
-
+            
         # Check if we need to evict items
         current = self._get_total_metric()
         if current + new_metric > self.limit:
             self._evict_items(new_metric)
-
+            
         # Update tracking
-        self.items[key] = {
-            'time': time.time(),
-            'value': value
-        }
-
+        self.items[key] = value
+        
         # Move to end if using LRU
         if self.eviction == 'lru':
             self.items.move_to_end(key)
