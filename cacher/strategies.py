@@ -354,17 +354,23 @@ class RevisionStrategy(CacheStrategy[KeyT]):
 
         Args:
             max_revisions: Maximum number of revisions to keep per key (default 10)
+                         Note: Pinned revisions don't count towards this limit
         """
         super().__init__()
         self.max_revisions = max_revisions
-        self.revisions: dict[KeyT, list[tuple[float, Any]]] = {}
+        # Key -> {name|index -> (timestamp, value)}
+        # String names are pinned revisions (exempt from limit)
+        # Integer indices are automatic revisions (follow limit)
+        self.revisions: dict[KeyT, dict[str|int, tuple[float, Any]]] = {}
 
-    def get_revision(self, key: KeyT, index: int) -> Any:
+    def get_revision(self, key: KeyT, index: int|str) -> Any:
         """Get a specific revision of a value.
 
         Args:
             key: Cache key
-            index: Revision index (-1 is latest, -2 is previous, etc.)
+            index: Either:
+                  - Revision index (-1 is latest, -2 is previous, etc.)
+                  - Name of pinned revision ("stable", "experimental", etc.)
 
         Returns:
             The value at that revision, or CACHE_MISS if not found
@@ -373,19 +379,49 @@ class RevisionStrategy(CacheStrategy[KeyT]):
             return self._backend.CACHE_MISS
         try:
             return self.revisions[key][index][1]
-        except IndexError:
+        except (KeyError, IndexError):
             return self._backend.CACHE_MISS
 
-    def list_revisions(self, key: KeyT) -> list[tuple[float, Any]]:
+    def list_revisions(self, key: KeyT) -> dict[str|int, tuple[float, Any]]:
         """Get all revisions for a key.
 
         Args:
             key: Cache key
 
         Returns:
-            List of (timestamp, value) tuples, newest first
+            Dict mapping revision names/indices to (timestamp, value) tuples
         """
-        return list(self.revisions.get(key, []))
+        return dict(self.revisions.get(key, {}))
+
+    def pin_revision(self, key: KeyT, name: str, value: Any|None = None) -> None:
+        """Pin current or new revision with a name.
+
+        Args:
+            key: Cache key
+            name: Name to give this revision
+            value: Optional new value to pin. If None, pins current value.
+        """
+        if key not in self.revisions:
+            if value is None:
+                raise KeyError(f"No revisions exist for key {key}")
+            self.revisions[key] = {}
+        
+        if value is None:
+            # Pin current value
+            latest_idx = max(idx for idx in self.revisions[key].keys() if isinstance(idx, int))
+            value = self.revisions[key][latest_idx][1]
+            
+        self.revisions[key][name] = (time.time(), value)
+
+    def unpin_revision(self, key: KeyT, name: str) -> None:
+        """Remove a pinned revision.
+
+        Args:
+            key: Cache key
+            name: Name of revision to unpin
+        """
+        if key in self.revisions:
+            self.revisions[key].pop(name, None)
 
     def pre_get(self, key: KeyT) -> bool:
         """Check if we have any revisions."""
@@ -396,32 +432,65 @@ class RevisionStrategy(CacheStrategy[KeyT]):
     def post_get(self, key: KeyT, value: Any) -> Any:
         """Return latest revision if we have one, otherwise use backend value."""
         if key in self.revisions:
-            return self.revisions[key][-1][1]  # Return latest
+            # Find latest numeric revision
+            latest_idx = max(idx for idx in self.revisions[key].keys() if isinstance(idx, int))
+            return self.revisions[key][latest_idx][1]
         if value != self._backend.CACHE_MISS:
             # Initialize revisions from backend
-            self.revisions[key] = [(time.time(), value)]
+            self.revisions[key] = {0: (time.time(), value)}
         return value
 
     def pre_set(self, key: KeyT, value: Any) -> bool:
         """Add new revision."""
         if key not in self.revisions:
-            self.revisions[key] = []
-        self.revisions[key].append((time.time(), value))
-        # Trim to max revisions
-        if len(self.revisions[key]) > self.max_revisions:
-            self.revisions[key] = self.revisions[key][-self.max_revisions:]
+            self.revisions[key] = {}
+            next_idx = 0
+        else:
+            # Find next available index
+            numeric_keys = [k for k in self.revisions[key].keys() if isinstance(k, int)]
+            next_idx = max(numeric_keys) + 1 if numeric_keys else 0
+            
+        self.revisions[key][next_idx] = (time.time(), value)
+        
+        # Trim to max revisions (only numeric indices count)
+        numeric_revs = sorted(
+            (k,v) for k,v in self.revisions[key].items() 
+            if isinstance(k, int)
+        )
+        if len(numeric_revs) > self.max_revisions:
+            # Keep newest revisions
+            for idx, _ in numeric_revs[:-self.max_revisions]:
+                del self.revisions[key][idx]
+                
         return True  # Still write to backend
 
     def pre_delete(self, key: KeyT) -> bool:
-        """Clear revisions when key is deleted."""
+        """Clear all revisions (including pinned) when key is deleted."""
         if key in self.revisions:
             del self.revisions[key]
         return True
 
     def pre_clear(self) -> bool:
-        """Clear all revisions."""
+        """Clear all revisions (including pinned)."""
         self.revisions.clear()
         return True
+
+    def clear_unpinned(self, key: KeyT|None = None) -> None:
+        """Clear only unpinned revisions for one or all keys.
+        
+        Args:
+            key: Specific key to clear, or None to clear all keys
+        """
+        if key is not None:
+            if key in self.revisions:
+                # Keep only string (pinned) keys
+                self.revisions[key] = {
+                    k: v for k,v in self.revisions[key].items()
+                    if isinstance(k, str)
+                }
+        else:
+            for k in self.revisions:
+                self.clear_unpinned(k)
 
 
 class LimitStrategy(CacheStrategy[KeyT]):
