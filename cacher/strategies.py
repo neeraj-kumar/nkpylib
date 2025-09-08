@@ -417,17 +417,24 @@ class LimitStrategy(CacheStrategy[KeyT]):
             max_idle: Maximum time in seconds since last access
             **kwargs: Additional arguments for LimitStrategy
         """
-        def _get_idle_time(k: Any, v: Any) -> float:
-            if not hasattr(v, '__dict__'):
-                v.__dict__ = {'last_access': time.time()}
-            return time.time() - v.__dict__.get('last_access', time.time())
-            
-        return cls(
-            metric_fn=_get_idle_time,
+        # Create a strategy instance with access tracking
+        strategy = cls(
+            metric_fn=lambda k,v: time.time() - strategy.last_access.get(k, 0),
             agg_fn=max,
             limit=max_idle,
             **kwargs
         )
+        # Add access time tracking
+        strategy.last_access = {}
+        
+        # Wrap pre_get to update access times
+        original_pre_get = strategy.pre_get
+        def wrapped_pre_get(key: KeyT) -> bool:
+            strategy.last_access[key] = time.time()
+            return original_pre_get(key)
+        strategy.pre_get = wrapped_pre_get
+        
+        return strategy
 
     @classmethod
     def with_mem_percent_limit(cls, max_percent: float, **kwargs) -> LimitStrategy:
