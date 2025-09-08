@@ -107,14 +107,17 @@ class TTLPolicy(CacheStrategy[KeyT]):
 
     Items older than the TTL are considered invalid and will be re-fetched.
     """
-    def __init__(self, ttl_seconds: float|Callable[[KeyT], float]):
+    def __init__(self, ttl_seconds: float|Callable[[KeyT], float], *, delete_expired: bool = False):
         """Initialize with TTL duration.
 
         Args:
             ttl_seconds: Time-to-live in seconds for cached items
                          or a function that takes in a key and returns the TTL to use.
+            delete_expired: If True, automatically delete expired items when found.
+                          If False, just force a cache miss (default).
         """
         self.ttl = ttl_seconds
+        self.delete_expired = delete_expired
         self.timestamps: dict[Any, float] = {}
 
     def pre_get(self, key: KeyT) -> bool:
@@ -122,6 +125,10 @@ class TTLPolicy(CacheStrategy[KeyT]):
             age = time.time() - self.timestamps[key]
             ttl = self.ttl(key) if callable(self.ttl) else self.ttl
             if age > ttl:
+                if self.delete_expired:
+                    # Delete expired item from both timestamp dict and backend
+                    del self.timestamps[key]
+                    self._backend._delete_value(key)
                 return False  # Skip cache lookup, forcing a miss
         return True
 
