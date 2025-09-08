@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
 from abc import ABC, abstractmethod
 from functools import wraps
@@ -292,42 +291,34 @@ class CacheBackend(ABC, Generic[KeyT]):
     async def _get_value_async(self, key: KeyT) -> Any:
         """Async version of _get_value.
         
-        By default runs the sync version in a thread pool.
+        By default directly calls the sync version.
         Override this for true async implementation.
         """
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as pool:
-            return await loop.run_in_executor(pool, self._get_value, key)
+        return self._get_value(key)
 
     async def _set_value_async(self, key: KeyT, value: Any) -> None:
         """Async version of _set_value.
         
-        By default runs the sync version in a thread pool.
+        By default directly calls the sync version.
         Override this for true async implementation.
         """
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as pool:
-            await loop.run_in_executor(pool, self._set_value, key, value)
+        self._set_value(key, value)
 
     async def _delete_value_async(self, key: KeyT) -> None:
         """Async version of _delete_value.
         
-        By default runs the sync version in a thread pool.
+        By default directly calls the sync version.
         Override this for true async implementation.
         """
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as pool:
-            await loop.run_in_executor(pool, self._delete_value, key)
+        self._delete_value(key)
 
     async def _clear_async(self) -> None:
         """Async version of _clear.
         
-        By default runs the sync version in a thread pool.
+        By default directly calls the sync version.
         Override this for true async implementation.
         """
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as pool:
-            await loop.run_in_executor(pool, self._clear)
+        self._clear()
 
     def _clear(self) -> None:
         """Clear all entries.
