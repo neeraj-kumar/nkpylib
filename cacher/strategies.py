@@ -13,8 +13,6 @@ from abc import ABC
 from collections import OrderedDict, defaultdict
 from typing import Any, Callable, Generic, Literal, TypeVar, Union
 
-RevisionKey = Union[str, int]  # Type for revision keys (string names or integer indices)
-
 from nkpylib.cacher.constants import KeyT
 
 class CacheStrategy(Generic[KeyT]):
@@ -342,6 +340,8 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
             self.flush()
 
 
+RevKey = Union[str, int]  # Type for revision keys (string names or integer indices)
+
 class RevisionStrategy(CacheStrategy[KeyT]):
     """Strategy that maintains a history of revisions for each cached value.
 
@@ -389,28 +389,27 @@ class RevisionStrategy(CacheStrategy[KeyT]):
         # Key -> {name|index -> (timestamp, value)}
         # String names are pinned revisions (exempt from limit)
         # Integer indices are automatic revisions (follow limit)
-        self.revisions: dict[KeyT, dict[RevisionKey, tuple[float, Any]]] = {}
+        self.revisions: dict[KeyT, dict[RevKey, tuple[float, Any]]] = {}
 
-    def get_revision(self, key: KeyT, index: RevisionKey) -> Any:
+    def get_revision(self, key: KeyT, rev: RevKey) -> Any:
         """Get a specific revision of a value.
 
         Args:
-            key: Cache key
-            index: Either:
-                  - Revision index (-1 is latest, -2 is previous, etc.)
-                  - Name of pinned revision ("stable", "experimental", etc.)
+        - key: Cache key
+        - rev: Either:
+          - Revision index (-1 is latest, -2 is previous, etc.)
+          - Name of pinned revision ("stable", "experimental", etc.)
 
-        Returns:
-            The value at that revision, or CACHE_MISS if not found
+        Returns the value at that revision, or CACHE_MISS if not found
         """
         if key not in self.revisions:
             return self._backend.CACHE_MISS
         try:
-            return self.revisions[key][index][1]
-        except (KeyError, IndexError):
+            return self.revisions[key][rev][1]
+        except (KeyError, revError):
             return self._backend.CACHE_MISS
 
-    def list_revisions(self, key: KeyT) -> dict[RevisionKey, tuple[float, Any]]:
+    def list_revisions(self, key: KeyT) -> dict[RevKey, tuple[float, Any]]:
         """Get all revisions for a key.
 
         Args:
@@ -433,12 +432,12 @@ class RevisionStrategy(CacheStrategy[KeyT]):
             if value is None:
                 raise KeyError(f"No revisions exist for key {key}")
             self.revisions[key] = {}
-        
+
         if value is None:
             # Pin current value
             latest_idx = max(idx for idx in self.revisions[key].keys() if isinstance(idx, int))
             value = self.revisions[key][latest_idx][1]
-            
+
         self.revisions[key][name] = (time.time(), value)
 
     def unpin_revision(self, key: KeyT, name: str) -> None:
@@ -477,19 +476,12 @@ class RevisionStrategy(CacheStrategy[KeyT]):
             # Find next available index
             numeric_keys = [k for k in self.revisions[key].keys() if isinstance(k, int)]
             next_idx = max(numeric_keys) + 1 if numeric_keys else 0
-            
         self.revisions[key][next_idx] = (time.time(), value)
-        
         # Trim to max revisions (only numeric indices count)
-        numeric_revs = sorted(
-            (k,v) for k,v in self.revisions[key].items() 
-            if isinstance(k, int)
-        )
-        if len(numeric_revs) > self.max_revisions:
-            # Keep newest revisions
+        numeric_revs = sorted((k,v) for k,v in self.revisions[key].items() if isinstance(k, int))
+        if len(numeric_revs) > self.max_revisions: # Keep newest revisions
             for idx, _ in numeric_revs[:-self.max_revisions]:
                 del self.revisions[key][idx]
-                
         return True  # Still write to backend
 
     def pre_delete(self, key: KeyT) -> bool:
@@ -505,9 +497,9 @@ class RevisionStrategy(CacheStrategy[KeyT]):
 
     def clear_unpinned(self, key: KeyT|None = None) -> None:
         """Clear only unpinned revisions for one or all keys.
-        
+
         Args:
-            key: Specific key to clear, or None to clear all keys
+        - key: Specific key to clear, or None to clear all keys
         """
         if key is not None:
             if key in self.revisions:
