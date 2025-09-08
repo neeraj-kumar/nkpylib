@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import threading
 import asyncio
+import threading
 
 from abc import ABC, abstractmethod
 from functools import wraps
@@ -290,7 +290,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     async def _get_value_async(self, key: KeyT) -> Any:
         """Async version of _get_value.
-        
+
         By default directly calls the sync version.
         Override this for true async implementation.
         """
@@ -298,7 +298,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     async def _set_value_async(self, key: KeyT, value: Any) -> None:
         """Async version of _set_value.
-        
+
         By default directly calls the sync version.
         Override this for true async implementation.
         """
@@ -306,7 +306,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     async def _delete_value_async(self, key: KeyT) -> None:
         """Async version of _delete_value.
-        
+
         By default directly calls the sync version.
         Override this for true async implementation.
         """
@@ -314,7 +314,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     async def _clear_async(self) -> None:
         """Async version of _clear.
-        
+
         By default directly calls the sync version.
         Override this for true async implementation.
         """
