@@ -129,9 +129,16 @@ class TTLPolicy(CacheStrategy[KeyT]):
         - delete_expired: If True, automatically delete expired items when found. If False, just
           force a cache miss (default).
         """
+        super().__init__()
         self.ttl = ttl_seconds
         self.delete_expired = delete_expired
         self.timestamps: dict[Any, float] = {}
+
+    def initialize(self) -> None:
+        """Initialize timestamps for existing items in backend."""
+        now = time.time()
+        for key in self._backend.iter_keys():
+            self.timestamps[key] = now
 
     def pre_get(self, key: KeyT) -> bool:
         if key in self.timestamps:
