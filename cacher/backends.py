@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from contextlib import asynccontextmanager
-from functools import partial
 
 from abc import ABC, abstractmethod
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection, AsyncEngine
-from functools import wraps
+from contextlib import asynccontextmanager
+from functools import partial, wraps
 from pathlib import Path
 from typing import Any, Callable, Generic, Iterator
 
 import sqlalchemy as sa
+
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection, AsyncEngine
 
 from nkpylib.cacher.constants import KeyT, CacheNotFound
 from nkpylib.cacher.formatters import CacheFormatter, JsonFormatter
@@ -599,12 +599,9 @@ class JointFileBackend(CacheBackend[KeyT]):
         except Exception:
             self._cache = {}
 
-    def _save(self) -> None:
-        """Save cache to file."""
-        _write_atomic(self.cache_path, self.formatter.dumps(self._cache))
-
     async def _load_async(self) -> None:
         """Load cache from file asynchronously."""
+        #TODO see if this is actually usable anywhere?
         try:
             data = await asyncio.to_thread(partial(open, self.cache_path, 'rb'))
             with data as f:
@@ -612,32 +609,14 @@ class JointFileBackend(CacheBackend[KeyT]):
         except Exception:
             self._cache = {}
 
+    def _save(self) -> None:
+        """Save cache to file."""
+        _write_atomic(self.cache_path, self.formatter.dumps(self._cache))
+
     async def _save_async(self) -> None:
         """Save cache to file asynchronously."""
         data = self.formatter.dumps(self._cache)
         await asyncio.to_thread(_write_atomic, self.cache_path, data)
-
-    async def _get_value_async(self, key: KeyT) -> Any:
-        """Get value from cache dict asynchronously."""
-        # No need for async since it's in memory
-        return self._get_value(key)
-
-    async def _set_value_async(self, key: KeyT, value: Any) -> None:
-        """Store value in cache dict and save to file asynchronously."""
-        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
-        self._cache[key] = value
-        await self._save_async()
-
-    async def _delete_value_async(self, key: KeyT) -> None:
-        """Delete value from cache dict and save to file asynchronously."""
-        if key in self._cache:
-            del self._cache[key]
-            await self._save_async()
-
-    async def _clear_async(self) -> None:
-        """Clear all entries in cache dict and save to file asynchronously."""
-        self._cache.clear()
-        await self._save_async()
 
     def _get_value(self, key: KeyT) -> Any:
         """Get value from cache dict."""
@@ -649,16 +628,33 @@ class JointFileBackend(CacheBackend[KeyT]):
         self._cache[key] = value
         self._save()
 
+    async def _set_value_async(self, key: KeyT, value: Any) -> None:
+        """Store value in cache dict and save to file asynchronously."""
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
+        self._cache[key] = value
+        await self._save_async()
+
     def _delete_value(self, key: KeyT) -> None:
         """Delete value from cache dict and save to file."""
         if key in self._cache:
             del self._cache[key]
             self._save()
 
+    async def _delete_value_async(self, key: KeyT) -> None:
+        """Delete value from cache dict and save to file asynchronously."""
+        if key in self._cache:
+            del self._cache[key]
+            await self._save_async()
+
     def _clear(self) -> None:
         """Clear all entries in cache dict and save to file."""
         self._cache.clear()
         self._save()
+
+    async def _clear_async(self) -> None:
+        """Clear all entries in cache dict and save to file asynchronously."""
+        self._cache.clear()
+        await self._save_async()
 
     def iter_keys(self) -> Iterator[KeyT]:
         """Iterate over all keys in the cache dict."""
