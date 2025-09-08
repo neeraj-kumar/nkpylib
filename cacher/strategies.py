@@ -8,7 +8,7 @@ import time
 
 import atexit
 from abc import ABC
-from typing import Any, Generic
+from typing import Any, Callable, Generic
 
 from nkpylib.cacher.constants import KeyT
 
