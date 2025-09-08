@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from abc import ABC, abstractmethod
 from functools import wraps
@@ -145,6 +147,27 @@ class CacheBackend(ABC, Generic[KeyT]):
 
         return self.handle_cache_hit(key, value)
 
+    async def get_async(self, key: KeyT) -> Any:
+        """Async version of get()."""
+        # Run ALL pre-get hooks
+        proceed = all(
+            strategy.pre_get(key)
+            for strategy in self.strategies
+        )
+        if not proceed:
+            return self.handle_cache_miss(key)
+
+        # Get the value
+        value = await self._get_value_async(key)
+        if value == CACHE_MISS:
+            return self.handle_cache_miss(key)
+
+        # Run post-get hooks
+        for strategy in self.strategies:
+            value = strategy.post_get(key, value)
+
+        return self.handle_cache_hit(key, value)
+
     def set(self, key: KeyT, value: Any) -> None:
         """Set value after running it through all strategies."""
         # Run ALL pre-set hooks
@@ -158,6 +181,24 @@ class CacheBackend(ABC, Generic[KeyT]):
         # Store the value
         assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         self._set_value(key, value)
+
+        # Run post-set hooks
+        for strategy in self.strategies:
+            strategy.post_set(key, value)
+
+    async def set_async(self, key: KeyT, value: Any) -> None:
+        """Async version of set()."""
+        # Run ALL pre-set hooks
+        proceed = all(
+            strategy.pre_set(key, value)
+            for strategy in self.strategies
+        )
+        if not proceed:
+            return
+
+        # Store the value
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
+        await self._set_value_async(key, value)
 
         # Run post-set hooks
         for strategy in self.strategies:
@@ -177,6 +218,20 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in self.strategies:
             strategy.post_delete(key)
 
+    async def delete_async(self, key: KeyT) -> None:
+        """Async version of delete()."""
+        # Run pre-delete hooks
+        for strategy in self.strategies:
+            if not strategy.pre_delete(key):
+                return
+
+        # Delete the value
+        await self._delete_value_async(key)
+
+        # Run post-delete hooks
+        for strategy in self.strategies:
+            strategy.post_delete(key)
+
     def clear(self) -> None:
         """Clear all entries after checking with strategies."""
         # Run ALL pre-clear hooks
@@ -189,6 +244,23 @@ class CacheBackend(ABC, Generic[KeyT]):
 
         # Clear the storage
         self._clear()
+
+        # Run post-clear hooks
+        for strategy in self.strategies:
+            strategy.post_clear()
+
+    async def clear_async(self) -> None:
+        """Async version of clear()."""
+        # Run ALL pre-clear hooks
+        proceed = all(
+            strategy.pre_clear()
+            for strategy in self.strategies
+        )
+        if not proceed:
+            return
+
+        # Clear the storage
+        await self._clear_async()
 
         # Run post-clear hooks
         for strategy in self.strategies:
@@ -216,6 +288,46 @@ class CacheBackend(ABC, Generic[KeyT]):
     def _delete_value(self, key: KeyT) -> None:
         """Actually delete the value from storage."""
         pass
+
+    async def _get_value_async(self, key: KeyT) -> Any:
+        """Async version of _get_value.
+        
+        By default runs the sync version in a thread pool.
+        Override this for true async implementation.
+        """
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as pool:
+            return await loop.run_in_executor(pool, self._get_value, key)
+
+    async def _set_value_async(self, key: KeyT, value: Any) -> None:
+        """Async version of _set_value.
+        
+        By default runs the sync version in a thread pool.
+        Override this for true async implementation.
+        """
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as pool:
+            await loop.run_in_executor(pool, self._set_value, key, value)
+
+    async def _delete_value_async(self, key: KeyT) -> None:
+        """Async version of _delete_value.
+        
+        By default runs the sync version in a thread pool.
+        Override this for true async implementation.
+        """
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as pool:
+            await loop.run_in_executor(pool, self._delete_value, key)
+
+    async def _clear_async(self) -> None:
+        """Async version of _clear.
+        
+        By default runs the sync version in a thread pool.
+        Override this for true async implementation.
+        """
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as pool:
+            await loop.run_in_executor(pool, self._clear)
 
     def _clear(self) -> None:
         """Clear all entries.
