@@ -375,6 +375,15 @@ class CacheBackend(ABC, Generic[KeyT]):
         for key, value in items.items():
             self.set(key, value)
 
+    def delete_many(self, keys: list[KeyT]) -> None:
+        """Deletes multiple keys at once.
+
+        Args:
+            keys: list of keys to delete
+        """
+        for key in keys:
+            self.delete(key)
+
     def call_with_batch_cache(self, fn: Callable[[list], list], items: list) -> list:
         """Call function with batched input, using cache where possible.
 
@@ -746,6 +755,7 @@ class SQLBackend(CacheBackend[KeyT]):
             table_name: Name of table to use for cache storage (default 'cache')
             fn: Optional function to cache
             formatter: Optional formatter to use for serialization (default JsonFormatter)
+            async_url: Optional async database URL if different from sync one
             **kwargs: Additional arguments passed to CacheBackend
         """
         super().__init__(fn=fn, formatter=formatter or JsonFormatter(), **kwargs)
@@ -755,21 +765,26 @@ class SQLBackend(CacheBackend[KeyT]):
             db_path = url.replace('sqlite:///', '')
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
+        async_names = dict(
+            sqlite='aiosqlite',
+            postgresql='asyncpg',
+            mysql='aiomysql',
+        )
         # Helper to convert sync URL to async
         def _get_async_url(url: str) -> str:
             """Convert sync database URL to async version."""
-            if url.startswith('sqlite:///'):
-                return url.replace('sqlite:///', 'sqlite+aiosqlite:///')
-            elif url.startswith('postgresql://'):
-                return url.replace('postgresql://', 'postgresql+asyncpg://')
-            elif url.startswith('mysql://'):
-                return url.replace('mysql://', 'mysql+aiomysql://')
-            return url
+            for name, async_name in async_names.items():
+                if url.startswith(f'{name}://'):
+                    return url.replace(f'{name}://', f'{name}+{async_name}://')
 
         # Create engines and table
         self.engine = sa.create_engine(url)
         async_url = async_url or _get_async_url(url)
-        self.async_engine = create_async_engine(async_url)
+        try:
+            self.async_engine = create_async_engine(async_url)
+        except Exception as e:
+            logger.warning(f"Could not create async engine for URL {async_url}: {e}")
+            self.async_engine = None
         metadata = sa.MetaData()
         self.table = sa.Table(
             table_name,
