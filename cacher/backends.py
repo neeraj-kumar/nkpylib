@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from contextlib import asynccontextmanager
 
 from abc import ABC, abstractmethod
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection, AsyncEngine
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Generic, Iterator
@@ -650,6 +652,7 @@ class SQLBackend(CacheBackend[KeyT]):
                  *,
                  fn: Callable|None=None,
                  formatter: CacheFormatter|None=None,
+                 async_url: str|None=None,
                  **kwargs):
         """Initializes this cacher.
 
@@ -670,8 +673,12 @@ class SQLBackend(CacheBackend[KeyT]):
             db_path = url.replace('sqlite:///', '')
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Create engine and table
+        # Create engines and table
         self.engine = sa.create_engine(url)
+        if async_url:
+            self.async_engine = create_async_engine(async_url)
+        else:
+            self.async_engine = None
         metadata = sa.MetaData()
         self.table = sa.Table(
             table_name,
@@ -783,3 +790,86 @@ class SQLBackend(CacheBackend[KeyT]):
         """Iterate over all keys in the database."""
         for row in self.conn.execute(sa.select(self.table.c.key)):
             yield row.key
+
+    @asynccontextmanager
+    async def _get_async_conn(self) -> AsyncConnection:
+        """Get an async connection to the database."""
+        if not self.async_engine:
+            raise RuntimeError("Async database URL not configured")
+        async with self.async_engine.connect() as conn:
+            if str(self.async_engine.url).startswith('sqlite'):
+                await conn.execute(sa.text('PRAGMA journal_mode=WAL;'))
+                await conn.execute(sa.text(f'PRAGMA busy_timeout={self.default_timeout * 1000};'))
+            yield conn
+
+    async def _get_value_async(self, key: KeyT) -> Any:
+        """Get value from database asynchronously."""
+        if not self.async_engine:
+            return await super()._get_value_async(key)
+            
+        async with self._get_async_conn() as conn:
+            result = await conn.execute(
+                sa.select(self.table.c.value)
+                .where(self.table.c.key == str(key))
+            )
+            row = await result.first()
+            
+        if row is None:
+            return CACHE_MISS
+        r = row[0]
+        if not isinstance(r, (bytes, str)):
+            return r
+        try:
+            return self.formatter.loads(r)
+        except Exception:
+            return CACHE_MISS
+
+    async def _set_value_async(self, key: KeyT, value: Any) -> None:
+        """Store value in database asynchronously."""
+        if not self.async_engine:
+            return await super()._set_value_async(key)
+            
+        assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
+        serialized = self.formatter.dumps(value)
+        
+        async with self._get_async_conn() as conn:
+            # Check if key exists
+            result = await conn.execute(
+                sa.select(self.table.c.key)
+                .where(self.table.c.key == str(key))
+            )
+            exists = await result.first() is not None
+            
+            if exists:
+                await conn.execute(
+                    self.table.update()
+                    .where(self.table.c.key == str(key))
+                    .values(value=serialized)
+                )
+            else:
+                await conn.execute(
+                    self.table.insert()
+                    .values(key=str(key), value=serialized)
+                )
+            await conn.commit()
+
+    async def _delete_value_async(self, key: KeyT) -> None:
+        """Delete value from database asynchronously."""
+        if not self.async_engine:
+            return await super()._delete_value_async(key)
+            
+        async with self._get_async_conn() as conn:
+            await conn.execute(
+                self.table.delete()
+                .where(self.table.c.key == str(key))
+            )
+            await conn.commit()
+
+    async def _clear_async(self) -> None:
+        """Clear all entries from database asynchronously."""
+        if not self.async_engine:
+            return await super()._clear_async()
+            
+        async with self._get_async_conn() as conn:
+            await conn.execute(self.table.delete())
+            await conn.commit()
