@@ -33,7 +33,7 @@ class CacheStrategy(Generic[KeyT]):
 
     def initialize(self) -> None:
         """Initialize strategy with existing items from backend.
-        
+
         Called when backend is set, allowing strategies to scan existing items.
         Override this in subclasses that need to track existing items.
         """
@@ -373,7 +373,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
         self.max_bytes = max_bytes
         self.max_age = max_age
         self.eviction = eviction
-        
+
         # Track items and their metadata
         self.items: OrderedDict[KeyT, dict] = OrderedDict()
         self.total_bytes = 0
@@ -390,7 +390,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
                     'size': size
                 }
                 self.total_bytes += size
-                
+
         # If we're over limits, start evicting
         if self.max_items and len(self.items) > self.max_items:
             self._evict_items()
