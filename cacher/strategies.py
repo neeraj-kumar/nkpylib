@@ -410,21 +410,17 @@ class LimitStrategy(CacheStrategy[KeyT]):
 
     def initialize(self) -> None:
         """Initialize tracking for existing items in backend."""
-        now = time.time()
         for key in self._backend.iter_keys():
             value = self._backend._get_value(key)
             if value != self._backend.CACHE_MISS:
-                size = self._get_size(value)
                 self.items[key] = {
-                    'time': now,
-                    'size': size
+                    'time': time.time(),
+                    'value': value
                 }
-                self.total_bytes += size
-
-        # If we're over limits, start evicting
-        if self.max_items and len(self.items) > self.max_items:
-            self._evict_items()
-        if self.max_bytes and self.total_bytes > self.max_bytes:
+        
+        # If we're over limit, start evicting
+        current = self._get_total_metric()
+        if current > self.limit:
             self._evict_items()
 
     def _get_metric(self, key: KeyT, value: Any) -> float:
