@@ -99,8 +99,8 @@ class RateLimiter(CacheStrategy[KeyT]):
         """Initialize with minimum interval between requests.
 
         Args:
-            min_interval: Minimum time (in seconds) between any operations,
-                          or a function that takes in a key and returns the interval to use.
+        - min_interval: Minimum time (in seconds) between any operations, or a function that takes
+          in a key and returns the interval to use.
         """
         self.min_interval = min_interval
         self.last_request_time = 0.0
@@ -385,7 +385,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
         # Track items and their metadata
         self.items: OrderedDict[KeyT, dict] = OrderedDict()
         self.total_metric = 0.0
-        
+
         # Track access counts for LFU
         self.access_counts: dict[KeyT, int] = defaultdict(int)
 
