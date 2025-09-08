@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import atexit
 import queue
 import random
 import sys
 import threading
 import time
 
-import atexit
 from abc import ABC
 from collections import OrderedDict
 from typing import Any, Callable, Generic, Literal
@@ -356,34 +356,34 @@ class LimitStrategy(CacheStrategy[KeyT]):
         self.max_bytes = max_bytes
         self.max_age = max_age
         self.eviction = eviction
-        
+
         # Track items and their metadata
         self.items: OrderedDict[KeyT, dict] = OrderedDict()
         self.total_bytes = 0
-        
+
     def _get_size(self, value: Any) -> int:
         """Estimate size of value in bytes."""
         return sys.getsizeof(self.formatter.dumps(value))
-        
+
     def _evict_items(self, needed_space: int = 0) -> None:
         """Remove items until all limits are satisfied."""
         while self.items:
             if self.max_items and len(self.items) <= self.max_items:
                 if not self.max_bytes or self.total_bytes <= self.max_bytes:
                     break
-                    
+
             # Choose item to evict based on policy
             if self.eviction == 'random':
                 key = random.choice(list(self.items.keys()))
             else:  # lru and fifo both remove from start of OrderedDict
                 key = next(iter(self.items))
-                
+
             # Remove the item
             item = self.items.pop(key)
             self.total_bytes -= item['size']
             self._backend._delete_value(key)
             self.stats['evictions'] += 1
-            
+
             if needed_space > 0 and self.total_bytes + needed_space <= (self.max_bytes or float('inf')):
                 break
 
@@ -391,33 +391,27 @@ class LimitStrategy(CacheStrategy[KeyT]):
         """Check limits before setting value."""
         # Calculate size if needed
         size = self._get_size(value) if self.max_bytes else 0
-        
         # If item exists, remove its size from total
         if key in self.items:
             self.total_bytes -= self.items[key]['size']
-            
         # Check if we need to evict items
         if self.max_bytes:
             needed = size - (self.max_bytes - self.total_bytes)
             if needed > 0:
                 self._evict_items(needed)
-                
         if self.max_items and key not in self.items and len(self.items) >= self.max_items:
             self._evict_items()
-            
         # Update tracking
         self.items[key] = {
             'time': time.time(),
             'size': size
         }
         self.total_bytes += size
-        
         # Move to end if using LRU
         if self.eviction == 'lru':
             self.items.move_to_end(key)
-            
         return True
-        
+
     def pre_get(self, key: KeyT) -> bool:
         """Update access time and check age limit."""
         if key in self.items:
@@ -428,20 +422,18 @@ class LimitStrategy(CacheStrategy[KeyT]):
                     self.items.pop(key)
                     self.total_bytes -= self.items[key]['size']
                     return False
-                    
             # Update LRU order
             if self.eviction == 'lru':
                 self.items.move_to_end(key)
-                
         return True
-        
+
     def pre_delete(self, key: KeyT) -> bool:
         """Update tracking when item is deleted."""
         if key in self.items:
             self.total_bytes -= self.items[key]['size']
             del self.items[key]
         return True
-        
+
     def pre_clear(self) -> bool:
         """Clear tracking data."""
         self.items.clear()
