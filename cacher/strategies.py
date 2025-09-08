@@ -11,7 +11,9 @@ import time
 
 from abc import ABC
 from collections import OrderedDict, defaultdict
-from typing import Any, Callable, Generic, Literal, TypeVar
+from typing import Any, Callable, Generic, Literal, TypeVar, Union
+
+RevisionKey = Union[str, int]  # Type for revision keys (string names or integer indices)
 
 from nkpylib.cacher.constants import KeyT
 
@@ -387,9 +389,9 @@ class RevisionStrategy(CacheStrategy[KeyT]):
         # Key -> {name|index -> (timestamp, value)}
         # String names are pinned revisions (exempt from limit)
         # Integer indices are automatic revisions (follow limit)
-        self.revisions: dict[KeyT, dict[str|int, tuple[float, Any]]] = {}
+        self.revisions: dict[KeyT, dict[RevisionKey, tuple[float, Any]]] = {}
 
-    def get_revision(self, key: KeyT, index: int|str) -> Any:
+    def get_revision(self, key: KeyT, index: RevisionKey) -> Any:
         """Get a specific revision of a value.
 
         Args:
@@ -408,7 +410,7 @@ class RevisionStrategy(CacheStrategy[KeyT]):
         except (KeyError, IndexError):
             return self._backend.CACHE_MISS
 
-    def list_revisions(self, key: KeyT) -> dict[str|int, tuple[float, Any]]:
+    def list_revisions(self, key: KeyT) -> dict[RevisionKey, tuple[float, Any]]:
         """Get all revisions for a key.
 
         Args:
