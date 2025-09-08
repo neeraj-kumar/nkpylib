@@ -198,7 +198,6 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                     # Process operations in chunks of same type
                     current_type = None
                     current_chunk = []
-                    
                     for op, key, value in batch:
                         if op != current_type:
                             # Process previous chunk if it exists
@@ -214,7 +213,7 @@ class DelayedWriteStrategy(CacheStrategy[KeyT]):
                             current_chunk = []
                         if op != 'clear':
                             current_chunk.append((key, value))
-                    
+
                     # Process final chunk
                     if current_chunk:
                         if current_type == 'set':
