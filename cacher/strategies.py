@@ -365,7 +365,7 @@ class LimitStrategy(CacheStrategy[KeyT]):
                  metric_fn: Callable[[KeyT, Any], float],
                  agg_fn: Callable[[list[float]], float],
                  limit: float,
-                 eviction: Literal['lru', 'fifo', 'random'] = 'lru'):
+                 eviction: Literal['lru', 'fifo', 'random', 'lfu', 'lifo'] = 'lru'):
         """Initialize with metric function and limit.
 
         Args:
@@ -383,6 +383,9 @@ class LimitStrategy(CacheStrategy[KeyT]):
         # Track items and their metadata
         self.items: OrderedDict[KeyT, dict] = OrderedDict()
         self.total_metric = 0.0
+        
+        # Track access counts for LFU
+        self.access_counts: dict[KeyT, int] = defaultdict(int)
 
     @classmethod
     def with_count_limit(cls, max_items: int, **kwargs) -> LimitStrategy:
@@ -527,6 +530,12 @@ class LimitStrategy(CacheStrategy[KeyT]):
             # Choose item to evict based on policy
             if self.eviction == 'random':
                 key = random.choice(list(self.items.keys()))
+            elif self.eviction == 'lfu':
+                # Find item with lowest access count
+                key = min(self.items.keys(), key=lambda k: self.access_counts[k])
+            elif self.eviction == 'lifo':
+                # Remove newest item (from end of OrderedDict)
+                key = next(reversed(self.items))
             else:  # lru and fifo both remove from start of OrderedDict
                 key = next(iter(self.items))
 
@@ -555,24 +564,32 @@ class LimitStrategy(CacheStrategy[KeyT]):
         return True
 
     def pre_get(self, key: KeyT) -> bool:
-        """Update access time and check metric."""
+        """Update access tracking and check metric."""
         if key in self.items:
             # Check if item exceeds limit
             if self._get_metric(key, self.items[key]) > self.limit:
                 self.items.pop(key)
+                if self.eviction == 'lfu':
+                    del self.access_counts[key]
                 return False
-            # Update LRU order
+            # Update access tracking
             if self.eviction == 'lru':
                 self.items.move_to_end(key)
+            elif self.eviction == 'lfu':
+                self.access_counts[key] += 1
         return True
 
     def pre_delete(self, key: KeyT) -> bool:
         """Update tracking when item is deleted."""
         if key in self.items:
             del self.items[key]
+            if self.eviction == 'lfu':
+                del self.access_counts[key]
         return True
 
     def pre_clear(self) -> bool:
         """Clear tracking data."""
         self.items.clear()
+        if self.eviction == 'lfu':
+            self.access_counts.clear()
         return True
