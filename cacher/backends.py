@@ -21,6 +21,7 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     Each backend is initialized with a formatter that handles serialization.
     """
+    CACHE_MISS = CACHE_MISS
     def __init__(self,
                  fn: Callable|None=None,
                  *,
@@ -226,12 +227,9 @@ class CacheBackend(ABC, Generic[KeyT]):
         """
         results = {}
         for key in keys:
-            try:
-                value = self.get(key)
-                if value != CACHE_MISS:
-                    results[key] = value
-            except CacheNotFound:
-                continue
+            value = self.get(key)
+            if value != CACHE_MISS:
+                results[key] = value
         return results
 
     def set_many(self, items: dict[KeyT, Any]) -> None:
