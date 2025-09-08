@@ -806,14 +806,14 @@ class SQLBackend(CacheBackend[KeyT]):
         """Get value from database asynchronously."""
         if not self.async_engine:
             return await super()._get_value_async(key)
-            
+
         async with self._get_async_conn() as conn:
             result = await conn.execute(
                 sa.select(self.table.c.value)
                 .where(self.table.c.key == str(key))
             )
             row = await result.first()
-            
+
         if row is None:
             return CACHE_MISS
         r = row[0]
@@ -828,10 +828,10 @@ class SQLBackend(CacheBackend[KeyT]):
         """Store value in database asynchronously."""
         if not self.async_engine:
             return await super()._set_value_async(key)
-            
+
         assert value != CACHE_MISS, "Cannot cache CACHE_MISS sentinel"
         serialized = self.formatter.dumps(value)
-        
+
         async with self._get_async_conn() as conn:
             # Check if key exists
             result = await conn.execute(
@@ -839,7 +839,7 @@ class SQLBackend(CacheBackend[KeyT]):
                 .where(self.table.c.key == str(key))
             )
             exists = await result.first() is not None
-            
+
             if exists:
                 await conn.execute(
                     self.table.update()
@@ -857,7 +857,7 @@ class SQLBackend(CacheBackend[KeyT]):
         """Delete value from database asynchronously."""
         if not self.async_engine:
             return await super()._delete_value_async(key)
-            
+
         async with self._get_async_conn() as conn:
             await conn.execute(
                 self.table.delete()
@@ -869,7 +869,7 @@ class SQLBackend(CacheBackend[KeyT]):
         """Clear all entries from database asynchronously."""
         if not self.async_engine:
             return await super()._clear_async()
-            
+
         async with self._get_async_conn() as conn:
             await conn.execute(self.table.delete())
             await conn.commit()
