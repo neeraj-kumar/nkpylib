@@ -408,6 +408,69 @@ class LimitStrategy(CacheStrategy[KeyT]):
             **kwargs
         )
 
+    @classmethod
+    def with_idle_limit(cls, max_idle: float, **kwargs) -> LimitStrategy:
+        """Create a strategy that evicts items not accessed for max_idle seconds.
+        
+        Args:
+            max_idle: Maximum time in seconds since last access
+            **kwargs: Additional arguments for LimitStrategy
+        """
+        def _get_idle_time(k: Any, v: Any) -> float:
+            if not hasattr(v, '__dict__'):
+                v.__dict__ = {'last_access': time.time()}
+            return time.time() - v.__dict__.get('last_access', time.time())
+            
+        return cls(
+            metric_fn=_get_idle_time,
+            agg_fn=max,
+            limit=max_idle,
+            **kwargs
+        )
+
+    @classmethod
+    def with_mem_percent_limit(cls, max_percent: float, **kwargs) -> LimitStrategy:
+        """Create a strategy that evicts items when memory usage exceeds threshold.
+        
+        Args:
+            max_percent: Maximum memory usage as percentage (0-100)
+            **kwargs: Additional arguments for LimitStrategy
+        """
+        return cls(
+            metric_fn=lambda k,v: psutil.Process().memory_percent(),
+            agg_fn=max,
+            limit=max_percent,
+            **kwargs
+        )
+
+    @classmethod
+    def with_frequency_limit(cls, min_accesses: int, window: float, **kwargs) -> LimitStrategy:
+        """Create a strategy that keeps frequently accessed items.
+        
+        Args:
+            min_accesses: Minimum number of accesses required in window
+            window: Time window in seconds to count accesses
+            **kwargs: Additional arguments for LimitStrategy
+        """
+        def _get_access_count(k: Any, v: Any) -> float:
+            if not hasattr(v, '__dict__'):
+                v.__dict__ = {'access_times': []}
+            times = v.__dict__.get('access_times', [])
+            # Add current access
+            times.append(time.time())
+            # Remove old accesses
+            cutoff = time.time() - window
+            times = [t for t in times if t > cutoff]
+            v.__dict__['access_times'] = times
+            return len(times)
+            
+        return cls(
+            metric_fn=_get_access_count,
+            agg_fn=min,
+            limit=min_accesses,
+            **kwargs
+        )
+
     def initialize(self) -> None:
         """Initialize tracking for existing items in backend."""
         for key in self._backend.iter_keys():
