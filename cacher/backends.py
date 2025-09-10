@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 
 from abc import ABC, abstractmethod
@@ -11,7 +12,10 @@ from typing import Any, Callable, Generic, Iterator, AsyncIterator
 
 import sqlalchemy as sa
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection, AsyncEngine
+try:
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncConnection, AsyncEngine
+except Exception:
+    pass
 
 from nkpylib.cacher.constants import KeyT, CacheNotFound
 from nkpylib.cacher.formatters import CacheFormatter, JsonFormatter
@@ -21,6 +25,8 @@ from nkpylib.cacher.keyers import Keyer, TupleKeyer, HashStringKeyer
 
 CACHE_MISS = '<NK_cache_miss>'  # Sentinel value for cache misses
 
+
+logger = logging.getLogger(__name__)
 
 class CacheBackend(ABC, Generic[KeyT]):
     """Base class for storage backends.
@@ -801,6 +807,7 @@ class SQLBackend(CacheBackend[KeyT]):
         self.conns_by_thread = threading.local()
         # create a connection we can reuse
         #self.conn = self.engine.connect()
+        logger.info(f'Initialized SQLBackend with table {table_name} in {url}')
 
     def _get_pragmas(self) -> list[sa.TextClause]:
         """Get any PRAGMA statements needed for sqlite."""
