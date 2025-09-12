@@ -212,6 +212,24 @@ class CacheBackend(ABC, Generic[KeyT]):
         for strategy in self.strategies:
             strategy.post_set(key, value)
 
+    def get_and_set(self, key: KeyT, value_fn: Callable[[Any], Any], skip_cache_miss:bool=False) -> None:
+        """Gets the current cache value of `key`, runs `value_fn` on it, and sets the result.
+
+        If the key is not in the cache, `value_fn` is called with `CACHE_MISS`.
+        Unless you set `skip_cache_miss=True`, in which case we just exit early.
+        You can raise ValueError or return `CACHE_MISS` in `value_fn` to avoid setting a new value.
+        """
+        current_value = self.get(key)
+        if skip_cache_miss and current_value == CACHE_MISS:
+            return
+        try:
+            new_value = value_fn(current_value)
+            if new_value == CACHE_MISS:
+                return
+        except ValueError:
+            return
+        self.set(key, new_value)
+
     def delete(self, key: KeyT) -> None:
         """Delete key after checking with all strategies."""
         # Run pre-delete hooks
