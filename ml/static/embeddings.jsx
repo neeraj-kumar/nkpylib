@@ -15,7 +15,7 @@ const View = ({id, onDelete}) => {
 
 const Main = () => {
   const [ids, setIds] = React.useState([]);
-  const [views, setViews] = React.useState([]);
+  const [views, setViews] = React.useState([1]); // Start with one view
   const [nextViewId, setNextViewId] = React.useState(1);
 
   React.useEffect(() => {
@@ -38,16 +38,14 @@ const Main = () => {
 
   return (
     <div>
-      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-        <h3>Embeddings Explorer</h3>
-        <button onClick={addView}>Add View</button>
-      </div>
+      <h3>Embeddings Explorer</h3>
       <p>{ids.length} points loaded. Sample IDs: {ids.slice(0, 5).join(', ')}</p>
       <div className="views">
         {views.map(id => (
           <View key={id} id={id} onDelete={deleteView} />
         ))}
       </div>
+      <button onClick={addView} className="add-view-button">Add View</button>
     </div>
   );
 };

@@ -38,3 +38,12 @@ button:hover {
 .view button:hover {
     background: #c82333;
 }
+
+.add-view-button {
+    margin: 20px 0;
+    background: #28a745;
+}
+
+.add-view-button:hover {
+    background: #218838;
+}
