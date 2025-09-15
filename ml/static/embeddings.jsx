@@ -6,7 +6,7 @@ const { useState } = React;
 
 const PtItem = ({id}) => {
   return (
-    <div className="pt" style={{padding: '2px 0'}}>{id}</div>
+    <div className="pt">{id}</div>
   );
 }
 
@@ -58,18 +58,11 @@ const PtList = () => {
           />
         </label>
       </div>
-      <div style={{
-        height: '200px',
-        overflowY: 'auto',
-        border: '1px solid #ccc',
-        padding: '10px'
-      }}>
+      <div>Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}</div>
+      <div className="ptList">
         {visibleIds.map(id => (
           <PtItem key={id} id={id} />
         ))}
-      </div>
-      <div style={{marginTop: '10px'}}>
-        Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}
       </div>
     </div>
   );
