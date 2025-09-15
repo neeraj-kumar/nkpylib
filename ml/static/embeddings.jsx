@@ -35,7 +35,12 @@ const PtList = () => {
 
   // Fetch metadata for visible points
   React.useEffect(() => {
-    ptData.getPtMd(visibleIds);
+    ptData.getPtMd(visibleIds)
+      .then(changed => {
+        if (changed) {
+          console.log("Metadata updated for", visibleIds.length, "points");
+        }
+      });
   }, [visibleIds]);
 
   return (
@@ -112,28 +117,25 @@ const Main = () => {
       });
   }, []);
 
-  // gets point metadata for given points (use immer)
+  // gets point metadata for given points, returns promise
   const getPtMd = React.useCallback((ids) => {
     // skip those we already have md for
     const toGet = ids.filter(id => !ptMd[id]);
     if (toGet.length === 0) {
-      return;
+      return Promise.resolve(false); // nothing new to get
     }
     return fetch("/pt_md/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ ids }),
+        body: JSON.stringify({ ids: toGet }),
       })
       .then((res) => res.json())
       .then((data) => {
         console.log("Got point metadata", data);
-        setPtMd(immer.produce(draft => {
-          for (const [id, md] of Object.entries(data)) {
-            draft[id] = md;
-          }
-        }));
+        setPtMd(prev => ({...prev, ...data.data}));
+        return true; // indicate we got new data
       });
   }, [])
 
