@@ -33,37 +33,8 @@ class CacheBackend(ABC, Generic[KeyT]):
 
     Each backend is initialized with a formatter that handles serialization.
     """
-
-
-class DummyBackend(CacheBackend[KeyT]):
-    """Backend that doesn't actually cache anything.
-    
-    Always returns CACHE_MISS for gets, and ignores sets/deletes.
-    Useful for:
-    - Testing how code behaves with cache misses
-    - Temporarily disabling caching
-    - Measuring baseline performance without caching
-    """
-    def _get_value(self, key: KeyT) -> Any:
-        """Always return cache miss."""
-        return self.CACHE_MISS
-
-    def _set_value(self, key: KeyT, value: Any) -> None:
-        """Do nothing."""
-        pass
-
-    def _delete_value(self, key: KeyT) -> None:
-        """Do nothing."""
-        pass
-
-    def _clear(self) -> None:
-        """Do nothing."""
-        pass
-
-    def iter_keys(self) -> Iterator[KeyT]:
-        """Return empty iterator."""
-        return iter([])
     CACHE_MISS = CACHE_MISS
+
     def __init__(self,
                  fn: Callable|None=None,
                  *,
@@ -505,6 +476,36 @@ class DummyBackend(CacheBackend[KeyT]):
         """Handle a cache hit."""
         self.stats['hits'] += 1
         return value
+
+
+class DummyBackend(CacheBackend[KeyT]):
+    """Backend that doesn't actually cache anything.
+
+    Always returns CACHE_MISS for gets, and ignores sets/deletes.
+
+    Useful for:
+    - Temporarily disabling caching
+    - Measuring baseline performance without caching
+    """
+    def _get_value(self, key: KeyT) -> Any:
+        """Always return cache miss."""
+        return self.CACHE_MISS
+
+    def _set_value(self, key: KeyT, value: Any) -> None:
+        """Do nothing."""
+        pass
+
+    def _delete_value(self, key: KeyT) -> None:
+        """Do nothing."""
+        pass
+
+    def _clear(self) -> None:
+        """Do nothing."""
+        pass
+
+    def iter_keys(self) -> Iterator[KeyT]:
+        """Return empty iterator."""
+        return iter([])
 
 
 class MemoryBackend(CacheBackend[KeyT]):
