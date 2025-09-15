@@ -2,16 +2,77 @@
 
 // Create a context for sharing point data
 const PtCtx = React.createContext(null);
+const { useState } = React;
 
 const PtItem = ({id}) => {
   return (
-    <div class="pt">{id}</div>
+    <div className="pt" style={{padding: '2px 0'}}>{id}</div>
   );
 }
 
-// Displays points in an ordered list.
+// Displays points in an ordered list with pagination and gap controls
 const PtList = () => {
   const ptData = React.useContext(PtCtx);
+  const [startIdx, setStartIdx] = useState(0);
+  const [gap, setGap] = useState(1);
+  const [pageSize, setPageSize] = useState(500);
+
+  const maxStartIdx = Math.max(0, ptData.ids.length - pageSize);
+  const visibleIds = ptData.ids
+    .slice(startIdx, startIdx + pageSize * gap)
+    .filter((_, i) => i % gap === 0);
+
+  return (
+    <div>
+      <div style={{marginBottom: '10px'}}>
+        <label>
+          Start: 
+          <input 
+            type="number" 
+            value={startIdx}
+            min={0}
+            max={maxStartIdx}
+            onChange={e => setStartIdx(Math.min(maxStartIdx, Math.max(0, parseInt(e.target.value) || 0)))}
+            style={{width: '80px', marginLeft: '5px', marginRight: '15px'}}
+          />
+        </label>
+        <label>
+          Gap: 
+          <input 
+            type="number" 
+            value={gap}
+            min={1}
+            onChange={e => setGap(Math.max(1, parseInt(e.target.value) || 1))}
+            style={{width: '60px', marginLeft: '5px', marginRight: '15px'}}
+          />
+        </label>
+        <label>
+          Page Size: 
+          <input 
+            type="number" 
+            value={pageSize}
+            min={1}
+            max={1000}
+            onChange={e => setPageSize(Math.max(1, Math.min(1000, parseInt(e.target.value) || 500)))}
+            style={{width: '70px', marginLeft: '5px'}}
+          />
+        </label>
+      </div>
+      <div style={{
+        height: '200px',
+        overflowY: 'auto',
+        border: '1px solid #ccc',
+        padding: '10px'
+      }}>
+        {visibleIds.map(id => (
+          <PtItem key={id} id={id} />
+        ))}
+      </div>
+      <div style={{marginTop: '10px'}}>
+        Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}
+      </div>
+    </div>
+  );
 }
 
 // A view is one way to look at our data - could be a scatter plot, list, etc
