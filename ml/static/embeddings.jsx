@@ -1,13 +1,23 @@
 // Note that this is imported in the main HTML file directly, so you have to use React.xxx for everything
 
-// A view is one view into our data. We can create and delete them as needed.
-const View = ({}) => {
-  return (<div>View</div>);
+// A view is one way to look at our data - could be a scatter plot, list, etc
+const View = ({id, onDelete}) => {
+  return (
+    <div className="view" style={{border: '1px solid #ccc', margin: '10px', padding: '10px'}}>
+      <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px'}}>
+        <h4>View {id}</h4>
+        <button onClick={() => onDelete(id)}>×</button>
+      </div>
+      <div>View content here</div>
+    </div>
+  );
 }
 
 const Main = () => {
   const [ids, setIds] = React.useState([]);
   const [views, setViews] = React.useState([]);
+  const [nextViewId, setNextViewId] = React.useState(1);
+
   React.useEffect(() => {
     fetch("/index/")
       .then((res) => res.json())
@@ -17,10 +27,29 @@ const Main = () => {
       });
   }, []);
 
-  return (<div>
-    <h3>Embeddings Page</h3>
-    <p>{ids.length} pts: {ids.slice(0, 5).join(', ')}</p>
-  </div>);
+  const addView = () => {
+    setViews([...views, nextViewId]);
+    setNextViewId(nextViewId + 1);
+  };
+
+  const deleteView = (id) => {
+    setViews(views.filter(v => v !== id));
+  };
+
+  return (
+    <div>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+        <h3>Embeddings Explorer</h3>
+        <button onClick={addView}>Add View</button>
+      </div>
+      <p>{ids.length} points loaded. Sample IDs: {ids.slice(0, 5).join(', ')}</p>
+      <div className="views">
+        {views.map(id => (
+          <View key={id} id={id} onDelete={deleteView} />
+        ))}
+      </div>
+    </div>
+  );
 };
 
 ReactDOM.createRoot(document.getElementById("main")).render(<Main />);
