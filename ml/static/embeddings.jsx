@@ -15,8 +15,10 @@ const View = ({id, onDelete}) => {
 
 const Main = () => {
   const [ids, setIds] = React.useState([]);
-  const [views, setViews] = React.useState([1]); // Start with one view
+  const [views, setViews] = React.useState([0]); // Start with one view
   const [nextViewId, setNextViewId] = React.useState(1);
+
+  const ptData = {ids};
 
   React.useEffect(() => {
     fetch("/index/")
