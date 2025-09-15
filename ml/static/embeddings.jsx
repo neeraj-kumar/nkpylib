@@ -1,18 +1,28 @@
 // Note that this is imported in the main HTML file directly, so you have to use React.xxx for everything
 
 // Create a context for sharing point data
-const PointContext = React.createContext(null);
+const PtCtx = React.createContext(null);
+
+const PtItem = ({id}) => {
+  return (
+    <div class="pt">{id}</div>
+  );
+}
+
+// Displays points in an ordered list.
+const PtList = () => {
+  const ptData = React.useContext(PtCtx);
+}
 
 // A view is one way to look at our data - could be a scatter plot, list, etc
 const View = ({id, onDelete}) => {
-  const ptData = React.useContext(PointContext);
   return (
     <div className="view" style={{border: '1px solid #ccc', margin: '10px', padding: '10px'}}>
       <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '10px'}}>
         <h4>View {id}</h4>
         <button onClick={() => onDelete(id)}>×</button>
       </div>
-      <div>View content here (has access to {ptData.ids.length} points)</div>
+      <PtList />
     </div>
   );
 }
@@ -43,7 +53,7 @@ const Main = () => {
   };
 
   return (
-    <PointContext.Provider value={ptData}>
+    <PtCtx.Provider value={ptData}>
       <div>
         <h3>Embeddings Explorer</h3>
         <p>{ids.length} points loaded. Sample IDs: {ids.slice(0, 5).join(', ')}</p>
@@ -54,7 +64,7 @@ const Main = () => {
         </div>
         <button onClick={addView} className="add-view-button">Add View</button>
       </div>
-    </PointContext.Provider>
+    </PtCtx.Provider>
   );
 };
 
