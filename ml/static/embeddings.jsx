@@ -4,9 +4,12 @@
 const PtCtx = React.createContext(null);
 const { useState } = React;
 
-const PtItem = ({id}) => {
+const PtItem = ({id, idx}) => {
   return (
-    <div className="pt">{id}</div>
+    <div className="pt">
+      <div>{id}</div>
+      <div className="pt-idx">{idx}: pt</div>
+    </div>
   );
 }
 
@@ -60,8 +63,8 @@ const PtList = () => {
       </div>
       <div>Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}</div>
       <div className="ptList">
-        {visibleIds.map(id => (
-          <PtItem key={id} id={id} />
+        {visibleIds.map((id, idx) => (
+          <PtItem key={id} id={id} idx={startIdx + idx * gap} />
         ))}
       </div>
     </div>

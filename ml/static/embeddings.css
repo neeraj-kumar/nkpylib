@@ -49,6 +49,13 @@ button:hover {
 .pt {
     margin: 2px;
     border: 1px solid #ccc;
+    text-align: center;
+}
+
+.pt-idx {
+    font-size: 0.8em;
+    color: #666;
+    margin-top: 2px;
 }
 
 .ptList {
