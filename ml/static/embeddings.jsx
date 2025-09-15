@@ -4,11 +4,18 @@
 const PtCtx = React.createContext(null);
 const { useState } = React;
 
-const PtItem = ({id, idx}) => {
+const PtItem = ({id, idx, md}) => {
+  if (!md) {
+    md = {};
+  }
+  let desc = `${idx}: `;
+  if (md.name) {
+    desc += md.name;
+  }
   return (
     <div className="pt">
       <div>{id}</div>
-      <div className="pt-idx">{idx}: pt</div>
+      <div className="pt-label">{desc}</div>
     </div>
   );
 }
@@ -21,9 +28,15 @@ const PtList = () => {
   const [pageSize, setPageSize] = useState(500);
 
   const maxStartIdx = Math.max(0, ptData.ids.length - pageSize);
-  const visibleIds = ptData.ids
-    .slice(startIdx, startIdx + pageSize * gap)
-    .filter((_, i) => i % gap === 0);
+  const visibleIds = React.useMemo(() => ptData.ids
+      .slice(startIdx, startIdx + pageSize * gap)
+      .filter((_, i) => i % gap === 0),
+    [ptData.ids, startIdx, gap, pageSize]);
+
+  // Fetch metadata for visible points
+  React.useEffect(() => {
+    ptData.getPtMd(visibleIds);
+  }, [visibleIds]);
 
   return (
     <div>
@@ -64,7 +77,7 @@ const PtList = () => {
       <div>Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}</div>
       <div className="ptList">
         {visibleIds.map((id, idx) => (
-          <PtItem key={id} id={id} idx={startIdx + idx * gap} />
+          <PtItem key={id} id={id} idx={startIdx + idx * gap} md={ptData.ptMd[id]} />
         ))}
       </div>
     </div>
@@ -86,10 +99,9 @@ const View = ({id, onDelete}) => {
 
 const Main = () => {
   const [ids, setIds] = React.useState([]);
+  const [ptMd, setPtMd] = React.useState({}); // point metadata cache
   const [views, setViews] = React.useState([0]); // Start with one view
   const [nextViewId, setNextViewId] = React.useState(1);
-
-  const ptData = {ids};
 
   React.useEffect(() => {
     fetch("/index/")
@@ -99,6 +111,33 @@ const Main = () => {
         setIds(data.ids);
       });
   }, []);
+
+  // gets point metadata for given points (use immer)
+  const getPtMd = React.useCallback((ids) => {
+    // skip those we already have md for
+    const toGet = ids.filter(id => !ptMd[id]);
+    if (toGet.length === 0) {
+      return;
+    }
+    return fetch("/pt_md/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ids }),
+      })
+      .then((res) => res.json())
+      .then((data) => {
+        console.log("Got point metadata", data);
+        setPtMd(immer.produce(draft => {
+          for (const [id, md] of Object.entries(data)) {
+            draft[id] = md;
+          }
+        }));
+      });
+  }, [])
+
+  const ptData = {ids, ptMd, getPtMd};
 
   const addView = () => {
     setViews([...views, nextViewId]);
@@ -113,7 +152,7 @@ const Main = () => {
     <PtCtx.Provider value={ptData}>
       <div>
         <h3>Embeddings Explorer</h3>
-        <p>{ids.length} points loaded. Sample IDs: {ids.slice(0, 5).join(', ')}</p>
+        <p>{ids.length} points loaded</p>
         <div className="views">
         {views.map(id => (
           <View key={id} id={id} onDelete={deleteView} />
