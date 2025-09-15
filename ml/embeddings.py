@@ -112,6 +112,7 @@ import time
 from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from os.path import abspath, dirname, exists, join
 from typing import Any, cast, Sequence, Generic, TypeVar, Iterator
 
@@ -127,6 +128,7 @@ from sklearn.svm import SVC # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
+from nkpylib.thread_utils import CollectionUpdater
 
 nparray1d = np.ndarray
 nparray2d = np.ndarray
@@ -161,6 +163,7 @@ class MetadataLmdb(Lmdb):
     - md_get(key): Get metadata for given key.
     - md_set(key, **kw): Set (replace) metadata for given key.
     - md_update(key, **kw): Update metadata for given key, keeping existing values.
+    - md_batch_set(dict): Set multiple metadata entries at once (replacing existing values).
     - md_delete(key): Delete metadata for given key.
     - md_iter(): Iterate over all metadata keys and values.
     - md_iter_all(): Iterate over (key, value, metadata) triplets
@@ -237,6 +240,10 @@ class MetadataLmdb(Lmdb):
         md = self.md_get(key)
         md.update(kw)
         self.md_db[key] = md
+
+    def md_batch_set(self, data: dict[str, dict]) -> None:
+        """Set multiple metadata entries at once (replacing existing values)."""
+        self.md_db.update(data)
 
     def md_delete(self, key: str) -> None:
         """Delete metadata for given key."""
@@ -333,6 +340,95 @@ class NumpyLmdb(MetadataLmdb):
         # write to output path
         with cls.open(output_path, 'c', dtype=dtype) as db:
             db.update({key: vec for key, vec in vecs.items()})
+
+class LmdbUpdater(CollectionUpdater):
+    """Helper class to update an LMDB database in parallel.
+
+    This is a subclass of CollectionUpdater that takes an LMDB path as input.
+
+    Use like this:
+
+        updater = LmdbUpdater(db_path, NumpyLmdb.open, n_procs=4, batch_size=1000)
+        updater.add('id1', embedding=np.array([...]))
+        updater.add('id2', metadata=dict(key='value'))
+        updater.add('id3', embedding=np.array([...]), metadata=dict(key='value'))
+
+    """
+    def __init__(self,
+                 db_path: str,
+                 init_fn: Callable,
+                 map_size: int=2e32,
+                 n_procs: int=4,
+                 **kw):
+        """Initialize the updater with the given db_path and `init_fn` (to pick which flavor)
+
+        If you specify `debug=True`, then commit messages will be printed using logger.info()
+
+        All other `kw` are passed to the CollectionUpdater constructor.
+        """
+        self.pool = ProcessPoolExecutor(max_workers=n_procs, initializer=self.init_worker, initargs=(db_path, init_fn, map_size))
+        super().__init__(add_fn=self._add_fn, **kw)
+        self.futures = []
+
+    @staticmethod
+    def init_worker(db_path: str, init_fn: Callable, map_size: int=2**32) -> None:
+        """Initializes a worker process with the given db_path and init_fn."""
+        global db, my_id
+        my_id = os.getpid()
+        print(f'In child {my_id}: initializing db at {db_path} with {init_fn} and map_size {map_size}', flush=True)
+        db = init_fn(db_path, flag='c', map_size=map_size, autogrow=False)
+
+    def add(self, id: str, embedding=None, metadata=None):
+        """Add an item with given `id`, `embedding` (np array) and/or `metadata` (dict)."""
+        obj: dict[str, Any] = {}
+        if embedding is not None:
+            obj['embedding'] = embedding
+        if metadata is not None:
+            obj['metadata'] = metadata
+        #print(f'Added id {id} with obj {obj}')
+        super().add(id, obj)
+
+    @staticmethod
+    def set_emb(id, emb):
+        db.__setitem__(id, np.array(emb, dtype=db.dtype))
+
+    @staticmethod
+    def set_md(id, md):
+        db.md_set(id, **md)
+
+    @staticmethod
+    def db_sync():
+        db.sync()
+        return my_id
+
+    @staticmethod
+    def batch_add(ids, objects):
+        md_updates = {}
+        emb_updates = {}
+        for id, obj in zip(ids, objects):
+            md = obj.get('metadata', None)
+            if md is not None:
+                md_updates[id] = md
+            emb = obj.get('embedding', None)
+            if emb is not None:
+                emb_updates[id] = np.array(emb, dtype=db.dtype)
+        if md_updates:
+            db.md_batch_set(md_updates)
+        if emb_updates:
+            db.update(emb_updates)
+        db.sync()
+
+    def _add_fn(self, to_add: dict[str, list]) -> None:
+        future = self.pool.submit(self.batch_add, to_add['ids'], to_add['objects'])
+        self.futures.append(future)
+
+    def sync(self):
+        """Makes sure all pending writes are done."""
+        print(f'Calling sync')
+        for f in self.futures:
+            f.result()
+        self.futures = []
+
 
 KeyT = TypeVar('KeyT')
 
