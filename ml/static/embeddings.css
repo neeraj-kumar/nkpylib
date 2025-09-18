@@ -63,3 +63,7 @@ button:hover {
     flex-wrap: wrap;
     padding: 5px;
 }
+
+.known {
+  border: 1px solid orange;
+}

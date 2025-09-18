@@ -32,23 +32,26 @@ tag_db = Database() # Pony Tag database
 
 
 class Tag(tag_db.Entity, GetMixin):
-    id = PrimaryKey(int, auto=True)
+    tag_id = PrimaryKey(int, auto=True)
+    id = Required(str, index=True)
     key = Required(str, index=True)
     value = Optional(str, default='')
     type = Optional(str, default='')
+    composite_index(id, type, key, value)
     composite_index(type, key, value)
     composite_index(key, value)
 
     def __repr__(self):
-        return f'<{self.type}: {self.key}={self.value}>'
+        return f'<{self.id} {self.type}: {self.key}={self.value}>'
 
-def init_tag_db(path: str) -> None:
+def init_tag_db(path: str) -> Database:
     """Initializes our tag database at given `path`"""
     for func in sqlite_pragmas:
         tag_db.on_connect(provider='sqlite')(func)
     tag_db.bind('sqlite', abspath(path), create_db=True)
     #set_sql_debug(True)
     tag_db.generate_mapping(create_tables=True)
+    return tag_db
 
 
 class MyBaseHandler(BaseHandler):
@@ -76,10 +79,31 @@ class PointMetadataHandler(MyBaseHandler):
         self.write(dict(status='ok', data=ret))
 
 
+class TagsHandler(MyBaseHandler):
+    def get(self):
+        # group tags by id
+        tags = {}
+        with db_session:
+            for tag in Tag.select():
+                tags.setdefault(tag.id, []).append(dict(key=tag.key, value=tag.value, type=tag.type))
+        self.write(dict(status='ok', tags=tags))
+
+    def post(self):
+        data = tornado.escape.json_decode(self.request.body)
+        key = data.get('key')
+        value = data.get('value', '')
+        type = data.get('type', '')
+        if not key:
+            self.write(dict(status='error', message='Missing key'))
+            return
+        tag = Tag.get_or_create(key=key, value=value, type=type)
+        self.write(dict(status='ok', tag=recursive_to_dict(tag)))
+
 def start_server(path: str, parser, tag_path: str, **kw):
     more_handlers = [
         (r"/index/", IndexHandler),
         (r"/pt_md/", PointMetadataHandler),
+        (r"/tags/", TagsHandler),
         #(r"/update", UpdateHandler),
         #(r"/poster/(.*).jpg", MoviePosterHandler),
         #(r"/summary/(.*)", MovieSummaryHandler),

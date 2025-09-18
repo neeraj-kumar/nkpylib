@@ -1,13 +1,12 @@
 // Note that this is imported in the main HTML file directly, so you have to use React.xxx for everything
 
-// Create a context for sharing point data
+// Create a context for sharing point-related data
 const PtCtx = React.createContext(null);
-const { useState } = React;
 
-const PtItem = ({id, idx, md, value}) => {
-  if (!md) {
-    md = {};
-  }
+const PtItem = ({id, idx, md, value, tags}) => {
+  md = md || {};
+  tags = tags || [];
+
   let desc = `${idx}: `;
   if (md.name) {
     desc += md.name;
@@ -15,8 +14,12 @@ const PtItem = ({id, idx, md, value}) => {
   if (value) {
     desc += ': ' + value.toFixed(3);
   }
+  const classes = ['pt'];
+  if (tags.length > 0) {
+    classes.push('known');
+  }
   return (
-    <div className="pt">
+    <div className={classes.join(' ')}>
       <div>{id}</div>
       <div className="pt-label">{desc}</div>
     </div>
@@ -26,9 +29,9 @@ const PtItem = ({id, idx, md, value}) => {
 // Displays points in an ordered list with pagination and gap controls
 const PtList = () => {
   const ptData = React.useContext(PtCtx);
-  const [startIdx, setStartIdx] = useState(0);
-  const [gap, setGap] = useState(1);
-  const [pageSize, setPageSize] = useState(500);
+  const [startIdx, setStartIdx] = React.useState(0);
+  const [gap, setGap] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(500);
 
   const maxStartIdx = Math.max(0, ptData.ids.length - pageSize);
   const visibleIds = React.useMemo(() => ptData.ids
@@ -85,7 +88,12 @@ const PtList = () => {
       <div>Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}</div>
       <div className="ptList">
         {visibleIds.map((id, idx) => (
-          <PtItem key={id} id={id} idx={startIdx + idx * gap} md={ptData.ptMd[id]}  value={ptData.values[id]}/>
+          <PtItem key={id}
+                  id={id}
+                  idx={startIdx + idx * gap}
+                  md={ptData.ptMd[id]}
+                  value={ptData.values[id]}
+                  tags={ptData.tags[id]} />
         ))}
       </div>
     </div>
@@ -109,9 +117,11 @@ const Main = () => {
   const [ids, setIds] = React.useState([]);
   const [values, setValues] = React.useState({});
   const [ptMd, setPtMd] = React.useState({}); // point metadata cache
+  const [tags, setTags] = React.useState({});
   const [views, setViews] = React.useState([0]); // Start with one view
   const [nextViewId, setNextViewId] = React.useState(1);
 
+  // fetch index data
   React.useEffect(() => {
     fetch("/index/")
       .then((res) => res.json())
@@ -119,6 +129,16 @@ const Main = () => {
         console.log('Got index data', data);
         setIds(data.ids);
         setValues(data.values);
+      });
+  }, []);
+
+  // fetch tags
+  React.useEffect(() => {
+    fetch("/tags/")
+      .then((res) => res.json())
+      .then((data) => {
+        console.log('Got tags', data);
+        setTags(data.tags);
       });
   }, []);
 
@@ -144,7 +164,7 @@ const Main = () => {
       });
   }, [])
 
-  const ptData = {ids, values, ptMd, getPtMd};
+  const ptData = {ids, values, ptMd, getPtMd, tags};
 
   const addView = () => {
     setViews([...views, nextViewId]);
