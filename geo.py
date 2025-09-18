@@ -32,11 +32,11 @@ from typing import Any, Iterator, Optional
 
 import requests
 
+from cacheking import SeparateFileBackend, HashStringKeyer
 from tqdm import tqdm
 
 from nkpylib.cacheutils import APICache
 from nkpylib.web_utils import make_request
-from nkpylib.cacher import SeparateFileBackend, HashStringKeyer
 
 wm_cache = partial(APICache, cachedir='cache/wikimapia/%(fn)s/', mindelay=5, serializer='json')
 ga_cache = partial(APICache, cachedir='cache/geoapify/%(fn)s/', mindelay=5, serializer='json')
