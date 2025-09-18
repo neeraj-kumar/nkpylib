@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from pony.orm import * # type: ignore
-from pony.orm.core import Entity, EntityMeta # type: ignore
+from pony.orm.core import Entity, EntityMeta, SetInstance # type: ignore
 
 logger = logging.getLogger(__name__)
 
