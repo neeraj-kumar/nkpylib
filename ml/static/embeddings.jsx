@@ -4,13 +4,16 @@
 const PtCtx = React.createContext(null);
 const { useState } = React;
 
-const PtItem = ({id, idx, md}) => {
+const PtItem = ({id, idx, md, value}) => {
   if (!md) {
     md = {};
   }
   let desc = `${idx}: `;
   if (md.name) {
     desc += md.name;
+  }
+  if (value) {
+    desc += ': ' + value.toFixed(3);
   }
   return (
     <div className="pt">
@@ -82,7 +85,7 @@ const PtList = () => {
       <div>Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}</div>
       <div className="ptList">
         {visibleIds.map((id, idx) => (
-          <PtItem key={id} id={id} idx={startIdx + idx * gap} md={ptData.ptMd[id]} />
+          <PtItem key={id} id={id} idx={startIdx + idx * gap} md={ptData.ptMd[id]}  value={ptData.values[id]}/>
         ))}
       </div>
     </div>
@@ -104,6 +107,7 @@ const View = ({id, onDelete}) => {
 
 const Main = () => {
   const [ids, setIds] = React.useState([]);
+  const [values, setValues] = React.useState({});
   const [ptMd, setPtMd] = React.useState({}); // point metadata cache
   const [views, setViews] = React.useState([0]); // Start with one view
   const [nextViewId, setNextViewId] = React.useState(1);
@@ -114,6 +118,7 @@ const Main = () => {
       .then((data) => {
         console.log('Got index data', data);
         setIds(data.ids);
+        setValues(data.values);
       });
   }, []);
 
@@ -139,7 +144,7 @@ const Main = () => {
       });
   }, [])
 
-  const ptData = {ids, ptMd, getPtMd};
+  const ptData = {ids, values, ptMd, getPtMd};
 
   const addView = () => {
     setViews([...views, nextViewId]);
