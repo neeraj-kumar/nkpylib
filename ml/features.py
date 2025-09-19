@@ -13,6 +13,8 @@ This module provides classes and functions for working with features (in the ML 
 
 Features can be combined, transformed, and used as inputs to machine learning models.
 The module handles proper typing, validation, and efficient computation of features.
+
+For groups of features put together, as well as storage and retrieval, see feature_set.py
 """
 
 from __future__ import annotations
