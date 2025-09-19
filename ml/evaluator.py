@@ -106,7 +106,7 @@ def parse_into_labels(tag_type: str,
     values = [v for id, v in ids_values]
     types = Counter(type(v) for v in values)
     most_t, n_most = types.most_common(1)[0]
-    print(f'For {(tag_type, key)} got {len(ids)} ids, types: {types.most_common()}')
+    logger.debug(f'For {(tag_type, key)} got {len(ids)} ids, types: {types.most_common()}')
     # if we have less than `impure_thresh` of other types, ignore them
     if len(types) > 1:
         impure = 1.0 - (n_most / len(ids))
@@ -166,11 +166,42 @@ class EmbeddingsValidator:
             self.labels[key] = parse_into_labels(tag_type, key, ids_values)
         pprint(self.labels)
 
+    def check_correlations(self, keys, matrix: array2D, n_top:int=10) -> None:
+        """Checks correlations against all numeric labels"""
+        logger.debug(f'Got matrix: {matrix.shape}, {len(keys)} keys: {keys[:10]}, {matrix}')
+        for key, labels in self.labels.items():
+            if not isinstance(labels, NumericLabels):
+                continue
+            logger.debug(f'Checking correlation for {key} with {len(labels.ids)} labels: {labels.ids[:5]}, {labels.values[:5]}')
+            # get row indices of our ids in keys and in labels
+            mat_indices = []
+            label_indices = []
+            common = set(keys) & set(labels.ids)
+            for mat_idx, id in enumerate(keys):
+                if id not in common:
+                    continue
+                label_idx = labels.ids.index(id)
+                mat_indices.append(mat_idx)
+                label_indices.append(label_idx)
+            logger.debug(f'  Found {len(common)} matching ids in embeddings')
+            sub_matrix = matrix[mat_indices, :]
+            sub_labels = labels.values[label_indices]
+            logger.debug(f'Got sub matrix of shape {sub_matrix.shape}: {sub_matrix}')
+            logger.debug(f'Got sub labels of shape {sub_labels.shape}: {sub_labels}')
+            # compute correlation between each column of sub_matrix and all of sub_labels
+            corrs = np.array([np.corrcoef(sub_matrix[:, i], sub_labels)[0, 1] for i in range(sub_matrix.shape[1])])
+            logger.debug(f'  Correlations ({corrs.shape}): {corrs}')
+            corrs = [(corr, dim) for dim, corr in enumerate(corrs) if not np.isnan(corr)]
+            top = sorted(corrs, key=lambda x: abs(x[0]), reverse=True)[:n_top]
+            print(f'Top correlations for {key}:')
+            for corr, dim in top:
+                print(f'    Dim {dim}: {corr}')
+
+
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
-        for k in self.fs:
-            break
-            print(f'{k} -> {self.fs[k]}')
+        keys, fvecs = self.fs.get_keys_embeddings(normed=False, scale_mean=False, scale_std=False)
+        self.check_correlations(keys, fvecs)
 
 
 if __name__ == '__main__':
