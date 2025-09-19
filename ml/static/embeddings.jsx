@@ -32,12 +32,20 @@ const PtList = () => {
   const [startIdx, setStartIdx] = React.useState(0);
   const [gap, setGap] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(500);
+  const [onlyKnown, setOnlyKnown] = React.useState(true);
 
-  const maxStartIdx = Math.max(0, ptData.ids.length - pageSize);
-  const visibleIds = React.useMemo(() => ptData.ids
+  const curPts = React.useMemo(() => {
+    if (onlyKnown) {
+      return ptData.ids.filter(id => (ptData.tags[id] || []).length > 0);
+    }
+    return ptData.ids;
+  }, [ptData.ids, ptData.tags, onlyKnown]);
+
+  const maxStartIdx = Math.max(0, curPts.length - pageSize);
+  const visibleIds = React.useMemo(() => curPts
       .slice(startIdx, startIdx + pageSize * gap)
       .filter((_, i) => i % gap === 0),
-    [ptData.ids, startIdx, gap, pageSize]);
+    [curPts, startIdx, gap, pageSize]);
 
   // Fetch metadata for visible points
   React.useEffect(() => {
@@ -83,6 +91,15 @@ const PtList = () => {
             onChange={e => setPageSize(Math.max(1, Math.min(1000, parseInt(e.target.value) || 500)))}
             style={{width: '70px', marginLeft: '5px'}}
           />
+        </label>
+        <label style={{marginLeft: '15px'}}>
+          <input
+            type="checkbox"
+            checked={onlyKnown}
+            onChange={e => setOnlyKnown(e.target.checked)}
+            style={{marginRight: '5px'}}
+          />
+          Only Known?
         </label>
       </div>
       <div>Showing {visibleIds.length} points from {startIdx} to {startIdx + pageSize * gap}</div>
