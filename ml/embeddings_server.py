@@ -122,15 +122,7 @@ def start_server(path: str, parser, tag_path: str, **kw):
     jsx_path = join(dirname(__file__), 'static', 'embeddings.jsx')
     init_tag_db(tag_path)
     db = NumpyLmdb.open(path, 'r')
-    setup_and_run_server(
-        parser=parser,
-        make_app=lambda: Application(db),
-        #jsx_path=jsx_path,
-        #css_filename='embeddings.css',
-        default_port=8908,
-        #more_handlers=more_handlers,
-        #db=db,
-    )
+    setup_and_run_server(parser=parser, make_app=lambda: Application(db), default_port=8908)
 
 
 if __name__ == '__main__':
