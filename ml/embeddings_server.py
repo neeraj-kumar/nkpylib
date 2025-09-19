@@ -13,11 +13,11 @@ from os.path import abspath, join, dirname, exists
 import tornado, tornado.web
 
 from pony.orm import * # type: ignore
-from pony.orm.core import Entity, EntityMeta, SetInstance # type: ignore
 from tornado.ioloop import IOLoop
 from tornado.web import RequestHandler
 
-from nkpylib.ml.embeddings import FeatureSet, NumpyLmdb, LmdbUpdater
+from nkpylib.ml.tag_db import Tag, get_all_tags, init_tag_db
+from nkpylib.ml.feature_set import FeatureSet, NumpyLmdb, LmdbUpdater
 from nkpylib.pony import GetMixin, recursive_to_dict, sqlite_pragmas
 from nkpylib.utils import specialize
 from nkpylib.web_utils import (
@@ -28,31 +28,6 @@ from nkpylib.web_utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-tag_db = Database() # Pony Tag database
-
-
-class Tag(tag_db.Entity, GetMixin):
-    tag_id = PrimaryKey(int, auto=True)
-    id = Required(str, index=True)
-    key = Required(str, index=True)
-    value = Optional(str, default='')
-    type = Optional(str, default='')
-    composite_index(id, type, key, value)
-    composite_index(type, key, value)
-    composite_index(key, value)
-
-    def __repr__(self):
-        return f'<{self.id} {self.type}: {self.key}={self.value}>'
-
-def init_tag_db(path: str) -> Database:
-    """Initializes our tag database at given `path`"""
-    for func in sqlite_pragmas:
-        tag_db.on_connect(provider='sqlite')(func)
-    tag_db.bind('sqlite', abspath(path), create_db=True)
-    #set_sql_debug(True)
-    tag_db.generate_mapping(create_tables=True)
-    return tag_db
 
 
 class MyBaseHandler(BaseHandler):
@@ -82,12 +57,7 @@ class PointMetadataHandler(MyBaseHandler):
 
 class TagsHandler(MyBaseHandler):
     def get(self):
-        # group tags by id
-        tags = {}
-        with db_session:
-            for tag in Tag.select():
-                tags.setdefault(tag.id, []).append(dict(key=tag.key, value=tag.value, type=tag.type))
-        self.write(dict(status='ok', tags=tags))
+        self.write(dict(status='ok', tags=get_all_tags()))
 
     def post(self):
         data = tornado.escape.json_decode(self.request.body)

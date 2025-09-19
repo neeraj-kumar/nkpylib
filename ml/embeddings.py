@@ -296,13 +296,15 @@ def image_extract(path: str, flag: str='c', model='jina', batch_size=20, **kw):
     print(f'Wrote {num} items to {db.path}.')
 
 
+
 if __name__ == '__main__':
     funcs = {f.__name__: f for f in [image_extract]}
-    parser = ArgumentParser(description='Test embeddings utilities.')
+    parser = ArgumentParser(description='Test embeddings')
     parser.add_argument('func', choices=funcs, help='Function to run')
     parser.add_argument('path', help='Path to the embeddings lmdb file')
     parser.add_argument('-f', '--flag', default='r', choices=['r', 'w', 'c', 'n'],
                         help='Flag to open the lmdb file (default: r)')
+    parser.add_argument('-t', '--tag_path', default='', help='Path to the tags sqlite')
     parser.add_argument('keyvalue', nargs='*', help='Key=value pairs to pass to the function')
     args = parser.parse_args()
     kwargs = vars(args)
