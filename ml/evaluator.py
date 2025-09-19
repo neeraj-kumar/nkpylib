@@ -25,6 +25,7 @@ import numpy as np
 from pony.orm import * # type: ignore
 from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
+from sklearn.decomposition import PCA # type: ignore
 from sklearn.linear_model import SGDClassifier # type: ignore
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
@@ -200,8 +201,17 @@ class EmbeddingsValidator:
 
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
+        # raw correlations
+        # norming hurts correlations
+        # scaling mean/std doesn't do anything, because correlation is scale-invariant
         keys, fvecs = self.fs.get_keys_embeddings(normed=False, scale_mean=False, scale_std=False)
-        self.check_correlations(keys, fvecs)
+        n_top = 10
+        self.check_correlations(keys, fvecs, n_top=n_top)
+        # pca correlations
+        pca = PCA(n_components=min(n_top, fvecs.shape[1]))
+        trans = pca.fit_transform(fvecs)
+        print(f'PCA with {pca.n_components_} comps, explained variance: {pca.explained_variance_ratio_}: {fvecs.shape} -> {trans.shape}')
+        self.check_correlations(keys, trans, n_top=n_top)
 
 
 if __name__ == '__main__':

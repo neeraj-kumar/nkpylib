@@ -28,6 +28,7 @@ from typing import Any, cast, Sequence, Generic, TypeVar, Iterator
 import numpy as np
 
 from lmdbm import Lmdb
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
