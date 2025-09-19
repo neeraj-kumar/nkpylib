@@ -473,8 +473,14 @@ class BaseHandler(RequestHandler):
     def set_default_headers(self):
         """allow CORS"""
         self.set_header("Access-Control-Allow-Origin", "*")
-        self.set_header("Access-Control-Allow-Headers", "x-requested-with")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with, Content-Type, Authorization")
         self.set_header('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
+
+    def options(self, *args):
+        # no body
+        # `*args` is for route with `path arguments` supports
+        self.set_status(204) # "no content"
+        self.finish()
 
 INDEX_HTML_FMT = '''<!doctype html>
 <html>
