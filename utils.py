@@ -2404,6 +2404,18 @@ def is_instance_of_type(value: Any, expected_type: Type[T]) -> bool:
     else: # If the type isn't handled explicitly
         raise NotImplementedError(f"Unsupported type: {expected_type}")
 
+def is_mapping(obj: Any) -> bool:
+    """Returns True if the given `obj` is a mapping (dict-like).
+
+    This checks for various methods, including __getitem__, __iter__, and __len__, keys(), items(),
+    values(), etc.
+    """
+    to_check = ['__getitem__', '__iter__', '__len__', 'keys', 'items', 'values']
+    for method in to_check:
+        if not hasattr(obj, method):
+            return False
+    return True
+
 
 if __name__ == '__main__':
     import doctest

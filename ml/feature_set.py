@@ -335,18 +335,6 @@ class LmdbUpdater(CollectionUpdater):
 
 KeyT = TypeVar('KeyT')
 
-def is_mapping(obj):
-    """Returns True if the given `obj` is a mapping (dict-like).
-
-    This checks for various methods, including __getitem__, __iter__, and __len__, keys(), items(),
-    values(), etc.
-    """
-    to_check = ['__getitem__', '__iter__', '__len__', 'keys', 'items', 'values']
-    for method in to_check:
-        if not hasattr(obj, method):
-            return False
-    return True
-
 
 class FeatureSet(Mapping, Generic[KeyT]):
     """A set of features that you can do stuff with.
@@ -362,10 +350,8 @@ class FeatureSet(Mapping, Generic[KeyT]):
         We compute the intersection of the keys in all inputs, and use that as our list of _keys.
         """
         # remap any path inputs to NumpyLmdb objects
-        self.inputs = [
-            inp if is_mapping(inp) else NumpyLmdb.open(inp, flag='r', dtype=dtype)
-            for inp in inputs
-        ]
+        self.inputs = [NumpyLmdb.open(inp, flag='r', dtype=dtype) if isinstance(inp, str) else inp
+                       for inp in inputs]
         self._keys = self.get_keys()
         self.n_dims = 0
         for key, value in self.items():
@@ -374,7 +360,7 @@ class FeatureSet(Mapping, Generic[KeyT]):
         self.cached: dict[str, Any] = dict()
 
     def get_keys(self) -> list[KeyT]:
-        """Gets the intersection of all keys by reading all our inputs again.
+        """Gets the intersection of all keys by reading all our inputs.
 
         Useful if the underlying databases might change over time.
         Note that we make no guarantees on correctness due to changing databases!
