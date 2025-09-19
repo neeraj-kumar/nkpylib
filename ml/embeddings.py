@@ -260,45 +260,8 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
         clf.fit(X, y, sample_weight=weights)
         return clf
 
-def image_extract(path: str, flag: str='c', model='jina', batch_size=20, **kw):
-    """Does image feature extraction with given `model`.
-
-    Reads filenames from stdin and writes the embeddings to the given `path`.
-    """
-    from nkpylib.ml.client import chunked, embed_image
-    db = NumpyLmdb.open(path, flag=flag)
-    paths = []
-    for line in sys.stdin:
-        path = line.strip()
-        if path in db:
-            continue
-        paths.append(path)
-    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}, {len(paths)} new images to process.')
-    num = 0
-    # create a progress bar we can manually move
-    bar = tqdm(total=len(paths), desc='Extracting features from images', unit='image')
-    # interleave reading files from stdin and processing them, in batches
-    for batch in chunked(paths, batch_size):
-        futures = embed_image.batch_futures([abspath(path) for path in batch], model=model, use_cache=False)
-        for path, future in zip(batch, futures):
-            try:
-                emb = future.result()
-                if emb is None:
-                    logger.warning(f'No embedding for {path}')
-                    continue
-                db[path] = np.array(emb, dtype=db.dtype)
-                num += 1
-                bar.update(1)
-            except Exception as e:
-                logger.error(f'Error extracting {path}: {e}', exc_info=True)
-        db.sync()
-    db.sync()
-    print(f'Wrote {num} items to {db.path}.')
-
-
-
 if __name__ == '__main__':
-    funcs = {f.__name__: f for f in [image_extract]}
+    funcs = {f.__name__: f for f in []}
     parser = ArgumentParser(description='Test embeddings')
     parser.add_argument('func', choices=funcs, help='Function to run')
     parser.add_argument('path', help='Path to the embeddings lmdb file')

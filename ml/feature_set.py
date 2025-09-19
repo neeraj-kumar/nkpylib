@@ -14,9 +14,11 @@ Feature Management:
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
+import sys
 import time
 
 from argparse import ArgumentParser
@@ -31,6 +33,7 @@ from lmdbm import Lmdb
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
+from nkpylib.ml.client import chunked, embed_image, embed_text
 from nkpylib.utils import specialize
 from nkpylib.thread_utils import CollectionUpdater
 
@@ -423,18 +426,77 @@ def quick_test(path: str, **kw):
     print(f'Opened {db}, {len(db)} items, {db.dtype} dtype, {db.map_size} map size.')
     num = 0
     for key, value in db.items():
-        print(f'Key: {key}, Value: {value}')
+        print(f'Key: {key}, Value ({len(value)} dims): {value}')
         num += 1
         if num > 2:
             break
 
+def extract_embeddings(path: str, embedding_type: str='text', flag: str='c', model: str|None=None, batch_size=20, **kw):
+    """Does embedding feature extraction with given `model`.
+
+    Reads inputs from stdin (one per line) and writes the embeddings to the given `path`.
+    These are determined by `embedding_type` (either 'image' or 'text').
+
+    If 'image', then we use the image path as the key. If text, then we assume it's tab-separated
+    columns, with key as first one and text to embed as second.
+    """
+    default_models = dict(image='clip', text='qwen_emb')
+    assert embedding_type in default_models
+    model = model or default_models[embedding_type]
+    db = NumpyLmdb.open(path, flag=flag)
+    inputs = []
+    for line in sys.stdin:
+        input = line.strip()
+        if embedding_type == 'text':
+            parts = input.split('\t', 1)
+            assert len(parts) == 2
+            key, text = parts
+            if key in db:
+                continue
+            inputs.append(parts)
+        else:
+            if input in db:
+                continue
+            inputs.append(input)
+    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}, {len(inputs)} new inputs to process: {inputs[:3]}.')
+    num = 0
+    # create a progress bar we can manually move
+    bar = tqdm(total=len(inputs), desc=f'Extracting {embedding_type} features using {model}', unit='input')
+    # interleave reading files from stdin and processing them, in batches
+    for batch in chunked(inputs, batch_size):
+        if not batch:
+            continue
+        if embedding_type == 'text':
+            keys, texts = zip(*batch)
+            futures = embed_text.batch_futures(list(texts), model=model, use_cache=False)
+        elif embedding_type == 'image':
+            futures = embed_image.batch_futures([abspath(input) for input in batch], model=model, use_cache=False)
+        for input, future in zip(batch, futures):
+            try:
+                emb = future.result()
+                if emb is None:
+                    logger.warning(f'No embedding for {input}')
+                    continue
+                if embedding_type == 'text':
+                    key, _text = input
+                else:
+                    key = input
+                db[key] = np.array(emb, dtype=db.dtype)
+                num += 1
+                bar.update(1)
+            except Exception as e:
+                logger.error(f'Error extracting {input}: {e}', exc_info=True)
+        db.sync()
+    db.sync()
+    print(f'Wrote {num} items to {db.path}.')
+
 
 if __name__ == '__main__':
-    funcs = {f.__name__: f for f in [quick_test]}
+    funcs = {f.__name__: f for f in [quick_test, extract_embeddings]}
     parser = ArgumentParser(description='Test feature sets.')
     parser.add_argument('func', choices=funcs, help='Function to run')
     parser.add_argument('path', help='Path to the embeddings lmdb file')
-    parser.add_argument('-f', '--flag', default='r', choices=['r', 'w', 'c', 'n'],
+    parser.add_argument('-f', '--flag', default='c', choices=['r', 'w', 'c', 'n'],
                         help='Flag to open the lmdb file (default: r)')
     parser.add_argument('keyvalue', nargs='*', help='Key=value pairs to pass to the function')
     args = parser.parse_args()
