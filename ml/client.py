@@ -81,7 +81,6 @@ from typing import Any, Optional, Union, Sequence, Callable, Iterator, TypeVar
 import requests
 
 from nkpylib.ml.constants import SERVER_BASE_URL, SERVER_API_VERSION, Role, Msg
-from nkpylib.ml.embeddings import NumpyLmdb
 
 logger = logging.getLogger(__name__)
 
@@ -419,6 +418,7 @@ def embed_text(s: str,
 
     Returns the raw json response (as a dict).
     """
+    from nkpylib.ml.feature_set import NumpyLmdb
     db: NumpyLmdb|None = None
     hashed: str|None = None
     if lmdb_cache_path:
