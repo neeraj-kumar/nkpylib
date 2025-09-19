@@ -4,6 +4,15 @@ old.py
 # image outputs
 *.png
 
-# temp files
+# temp and backup files
 spatial_understanding.ipynb
 prompts.sh
+*.bak*
+
+# lists and data files
+all-images.txt
+recipe-images.txt
+bpm.pdf
+test.wav
+*.lst
+*.lmdb
