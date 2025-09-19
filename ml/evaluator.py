@@ -4,10 +4,12 @@ This does a bunch of semi-automated things to test out embeddings and see how go
 This is mostly in reference to a set of labels you provide, in the form of a tags database.
 
 - Lots of ways of mapping embeddings to other embeddings, should be common procedure
-  - PCA, K-PCA, ISOMAP, t-SNE, UMAP, LLE, etc
+  - PCA, K-PCA, ISOMAP, t-SNE, UMAP, LLE, Beta-VAE, etc
+  - Also labeled methods like CCA and PLS
   - skip ICA, it's more for source separation
   - Don't repeat work
   - Correlate embedding dimensions before/after transformation
+  - estimate "intrinsic dimensionality" of the embeddings via MLE or TwoNN
 - PCA with only one variance-explaining dimension is bad
 - Classification/regression against labels
   - Some std methods: linear svm, rbf svm, svr, forests, pytorch nn?
@@ -19,9 +21,62 @@ This is mostly in reference to a set of labels you provide, in the form of a tag
   - In the future, do ML doctor stuff
   - Highlight clear problems/wins
 - For dims, we can also compute histograms
+  - And min/max/mean/std/etc
   - Standard stats on histograms: kurtosis, bin sizes, lop-sidedness, normality
   - highlight 0s other outliers
+- Compare labels of same type but different keys, e.g. genre
+  - Look at confusion matrices
+  - Also clustering metrics for label similarity?
+  - With small number of labels, no need to embed labels, just do one-hot
+- For numerical labels, look at orig values, log(val) and exp(val) where relevant
+- Distances between labeled points
+  - Given distances, we can get neighbors
+  - For numerical, can directly compare values to get distances
+  - For multiclass, we might need embeddings for labels to get distances. Otherwise we just have
+    same/different class
+    - Might get these from text embeddings of labels
+  - For multilabel, can do jaccard or hamming distance of labels on a point
+  - Do this per label, but then also combine distances across labels
+    - Have to be careful about scaling
+    - Join in neighbor-space? Distance-space?
+    - Might have multiple combined distances to compare
+- What to do with distances
+  - Probably want to randomly sample pairs (focusing more on neighbors)
+  - Each pair has a set of label distances (per label, different aggregations)
+  - For each pair, we can also compute embedding distances in various ways
+    - euclidean, cosine, manhattan
+  - Then compute correlations between label distances and embedding distances
+  - Also between different embedding distances (e.g. euclidean vs cosine)
+    - Find outliers
+  - Visualize full pairwise cosine similarity heatmaps — useful for spotting large dense cliques (bad) or disconnected islands (good/bad, depending).
+  - Compute pairwise angles between random vector pairs. For high-quality, high-dimensional embeddings, the distribution should be tightly centered.
+  - Can also do classification (near/far)/regression on distances
+    - metric learning using triplet or contrastive loss?
+  - Also look at neighbor similarity
+    - jaccard, precision/recall, rank-biased overlap
+  - Compare histograms of distances (from labels vs embeddings)
+- Clustering
+  - Inputs of distance or neighbors for all methods
+  - Look at cluster size distributions
+  - Tightness and separation of clusters
+    - Can use silhouette score, Davies-Bouldin index, etc.
+  - Apply clusterings to embeddings and to labels (based on distances/neighbors)
+  - Use standard clustering metrics
+  - Modified confusion matrix: 1 row per cluster, 1 col per label, show purity/counts/etc per cell
+  - Does label prop work?
+- Outlier detection
+  - Run unsupervised outlier detection algorithms (e.g., Isolation Forest, LOF) on the embedding space — helpful to spot anomalies or collapsed modes.
 
+
+Old stuff:
+- Recommendation system
+- Few-shot classifier
+- Pairwise/triplet-loss task eval
+- Analogies, e.g., "comedy - dark + romance" ≈ "romcom"
+- Sequence modeling using embeddings as input
+- Calibration of similarity scores
+  - Compare histograms or CDFs of same-class vs diff-class scores
+- Simulate synthetic user with known prefs and test how well NN align with prefs?
 """
 
 from __future__ import annotations
