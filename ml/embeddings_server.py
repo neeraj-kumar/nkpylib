@@ -24,6 +24,7 @@ from nkpylib.web_utils import (
     BaseHandler,
     make_request_async,
     simple_react_tornado_server,
+    setup_and_run_server,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,29 +100,36 @@ class TagsHandler(MyBaseHandler):
         tag = Tag.get_or_create(key=key, value=value, type=type)
         self.write(dict(status='ok', tag=recursive_to_dict(tag)))
 
+class Application(tornado.web.Application):
+    def __init__(self:self, db: NumpyLmdb, **kw):
+        handlers = [
+            (r"/index/", IndexHandler),
+            (r"/pt_md/", PointMetadataHandler),
+            (r"/tags/", TagsHandler),
+            #(r'/favicon.ico', tornado.web.StaticFileHandler, {'path': 'static/favicon.ico'}),
+        ]
+        settings = {
+            "debug": True,
+            "static_path": os.path.join(os.path.dirname(__file__), "static"),
+            "compress_response": True,
+        }
+        self.db = db
+        super().__init__(handlers, **settings)
+
+
 def start_server(path: str, parser, tag_path: str, **kw):
-    more_handlers = [
-        (r"/index/", IndexHandler),
-        (r"/pt_md/", PointMetadataHandler),
-        (r"/tags/", TagsHandler),
-        #(r"/update", UpdateHandler),
-        #(r"/poster/(.*).jpg", MoviePosterHandler),
-        #(r"/summary/(.*)", MovieSummaryHandler),
-        #(r"/to_watch/(.*)", ToWatchHandler),
-        #(r"/letterboxd/(.*)", LetterboxdHandler),
-        #(r'/favicon.ico', tornado.web.StaticFileHandler, {'path': 'static/favicon.ico'}),
-    ]
     print(f'starting server with path {path}, {tag_path}, and kw {kw}')
     jsx_path = join(dirname(__file__), 'static', 'embeddings.jsx')
     init_tag_db(tag_path)
     db = NumpyLmdb.open(path, 'r')
-    simple_react_tornado_server(
+    setup_and_run_server(
         parser=parser,
-        jsx_path=jsx_path,
-        css_filename='embeddings.css',
-        port=8908,
-        more_handlers=more_handlers,
-        db=db,
+        make_app=lambda: Application(db),
+        #jsx_path=jsx_path,
+        #css_filename='embeddings.css',
+        default_port=8908,
+        #more_handlers=more_handlers,
+        #db=db,
     )
 
 
