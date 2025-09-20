@@ -26,16 +26,12 @@ TODO:
   - With small number of labels, no need to embed labels, just do one-hot
 - For numerical labels, look at orig values, log(val) and exp(val) where relevant
 - Distances between labeled points
-  - Given distances, we can get neighbors
-  - For numerical, can directly compare values to get distances
-  - For multiclass, we might need embeddings for labels to get distances. Otherwise we just have
-    same/different class
-    - Might get these from text embeddings of labels
-  - For multilabel, can do jaccard or hamming distance of labels on a point
-  - Do this per label, but then also combine distances across labels
+  - For multiclass, we might need embeddings for labels to get distances
+  - combine distances across labels
     - Have to be careful about scaling
     - Join in neighbor-space? Distance-space?
     - Might have multiple combined distances to compare
+  - For converting distances to neighbors, maybe use KNeighborsTransformer or RadiusNeighborsTransformer
 - What to do with distances
   - Probably want to randomly sample pairs (focusing more on neighbors)
   - Each pair has a set of label distances (per label, different aggregations)
@@ -91,7 +87,7 @@ from collections.abc import Mapping
 from collections import Counter, defaultdict
 from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint
-from typing import Any, Sequence, Generic, TypeVar
+from typing import Any, Sequence, Generic, TypeVar, Union
 
 import numpy as np
 
@@ -133,6 +129,9 @@ NUMERIC_TYPES = FLOAT_TYPES + (int, np.int32, np.int64)
 # where each contains a list of (correlation, dim) tuples
 Correlations = tuple[list[float, int], list[tuple[float, int]]]
 
+# a distance tuple has (id1, id2, distance)
+DistTuple = tuple[str, str, float]
+
 
 class Labels:
     """A base class for different types of labels that we get from tags.
@@ -152,12 +151,13 @@ class Labels:
     def __repr__(self):
         return f'<{self.__class__.__name__} {self.tag_type} {self.key} ({len(self.ids)} labels)>'
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[tuple[str, str, float]]:
+    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples.
 
-        You can specify `perc_close` which is the percentage of pairs that should be "close"
+        You can specify `perc_close` which is the minimum percentage of pairs that should be "close"
         according to the label type's definition of closeness. < 0 means we don't care about
-        closeness (default).
+        closeness (default). Note that there might be more close pairs than this, since for the
+        "non-close" pairs we randomly sample, and those might be close too.
 
         Returns a list of `(id1, id2, distance)` tuples. A distance of 0 implies the points are
         identical (according to this distance metric), but the upper-bound is variable, depending on
@@ -218,13 +218,22 @@ class Labels:
         """Checks correlations between our labels and each dimension of the given `matrix`"""
         raise NotImplementedError()
 
+    def _pairs_to_list(self, pairs: dict[frozenset[str], float]) -> list[DistTuple]:
+        """Converts `pairs` dict to list of `(id1, id2, distance)` tuples."""
+        ret = []
+        for spair, dist in pairs.items():
+            id1, id2 = sorted(spair)
+            ret.append((id1, id2, dist))
+        ret.sort(key=lambda x: x[2])
+        return ret
+
 
 class NumericLabels(Labels):
     """A class for numeric labels. For now we convert them to floats.
 
     This stores ids as a list and values as a numpy array, where values[i] is the value for ids[i].
     """
-    def __init__(self, tag_type: str, key: str, ids_values: list[tuple[str, Any]]):
+    def __init__(self, tag_type: str, key: str, ids_values: list[tuple[str, Union[NUMERIC_TYPES]]]):
         ids = [id for id, v in ids_values]
         assert len(ids) == len(set(ids)), 'Ids should be unique'
         values = np.array([v for id, v in ids_values], dtype=np.float32)
@@ -245,7 +254,7 @@ class NumericLabels(Labels):
         return self.get_correlations(sub_matrix, sub_labels, n_top=n_top)
 
     def get_distances(self, n_pairs: int, perc_close: float = -1,
-                      norm_type: str='raw', close_thresh=0.2, **kw) -> list[tuple[str, str, float]]:
+                      norm_type: str='raw', close_thresh=0.2, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples.
 
         For numeric labels, we have the 'raw' distance which just the absolute difference between
@@ -326,12 +335,7 @@ class NumericLabels(Labels):
             poss = ((id1, id2) for i, id1 in enumerate(self.ids) for j, id2 in enumerate(self.ids) if i < j)
             poss = [p for p in poss if frozenset(p) not in pairs]
             add_pairs(poss, n_remaining, is_indices=False)
-        # convert pairs to output format
-        ret = []
-        for spair, dist in pairs.items():
-            id1, id2 = sorted(spair)
-            ret.append((id1, id2, dist))
-        return ret
+        return self._pairs_to_list(pairs)
 
 class MulticlassBase(Labels):
     """Some common code for multiclass/multilabel labels."""
@@ -346,8 +350,8 @@ class MulticlassBase(Labels):
         """
         raise NotImplementedError()
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[tuple[str, str, float]]:
-        """Returns n_pairs of (id1, id2, distance) tuples.
+    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
+        """Returns `n_pairs` of `(id1, id2, distance)` tuples in sorted order by distance.
 
         If perc_close >= 0, ensures that proportion of pairs are "close" according to
         the label type's definition of closeness.
@@ -371,11 +375,13 @@ class MulticlassBase(Labels):
                 pairs[spair] = dist
 
         if perc_close > 0:
-            # First get close pairs by sampling within candidate groups that tend to be close
+            # First get close pairs by sampling within each label group (since they by definition
+            # share at least one label in common)
             n_close = int(n_pairs * perc_close)
             cands = []
             for ids in self.by_label().values():
-                cands.extend((i, j) for idx, i in enumerate(list(ids)) for j in ids[idx+1:])
+                ids = list(ids)
+                cands.extend((id1, id2) for idx, id1 in enumerate(ids) for id2 in ids[idx+1:])
             add_pairs(cands, n_close)
         # Fill remaining with random pairs
         n_remaining = n_pairs - len(pairs)
@@ -384,13 +390,8 @@ class MulticlassBase(Labels):
             unique_ids = set(self.ids)
             poss = ((id1, id2) for i, id1 in enumerate(unique_ids) for j, id2 in enumerate(unique_ids) if i < j)
             poss = [p for p in poss if frozenset(p) not in pairs]
-            add_pairs(poss, n_remaining, is_indices=False)
-        # convert pairs to output format
-        ret = []
-        for spair, dist in pairs.items():
-            id1, id2 = sorted(spair)
-            ret.append((id1, id2, dist))
-        return ret
+            add_pairs(poss, n_remaining)
+        return self._pairs_to_list(pairs)
 
     def check_correlations(self, keys: list[str], matrix: array2d, n_top:int=10) -> dict[str, Correlations]:
         """Checks correlations between our labels and each dimension of the given `matrix`.
@@ -488,7 +489,7 @@ class MultilabelLabels(MulticlassBase):
 def parse_into_labels(tag_type: str,
                       key: str,
                       ids_values: list[tuple[str, Any]],
-                      impure_thresh=0.1) -> Labels:
+                      impure_thresh=0.1) -> Labels|None:
     """Parses our (id, value) pairs into a Labels object of the appropriate type."""
     ids = [id for id, v in ids_values]
     values = [v for id, v in ids_values]
@@ -524,6 +525,9 @@ def parse_into_labels(tag_type: str,
     if most_t in NUMERIC_TYPES: # numeric
         return NumericLabels(tag_type, key, ids_values)
     else: # categorical
+        if len(set(values)) == len(values):
+            logger.debug(f'  All values unique, treating as id')
+            return None
         return MulticlassLabels(tag_type, key, ids_values)
 
 
@@ -555,10 +559,9 @@ class EmbeddingsValidator:
                 grouped[key].append((t.id, v))
         logger.info(f'Loaded {len(grouped)} types of tags from {tag_path}')
         for (tag_type, key), ids_values in grouped.items():
-            if 'revenue' in key:
-                print(f'{(tag_type, key)} -> {ids_values[:20]}')
-            self.labels[key] = parse_into_labels(tag_type, key, ids_values)
-        pprint(self.labels)
+            if cur := parse_into_labels(tag_type, key, ids_values):
+                self.labels[key] = cur
+        #pprint(self.labels)
 
     def check_correlations(self, keys, matrix: array2D, n_top:int=10) -> None:
         """Checks correlations against all numeric labels"""
@@ -571,12 +574,42 @@ class EmbeddingsValidator:
                 for name, lst in zip(['pearson', 'spearman'], lsts):
                     for corr, dim in lst:
                         if abs(corr) > 0.5:
-                            self.add_msg(unit='correlation', label=label, key=key, dim=dim, method=name, value=corr, score=3,
+                            self.add_msg(unit='correlation',
+                                         label=label,
+                                         key=key,
+                                         dim=dim,
+                                         method=name,
+                                         value=corr,
+                                         score=3,
                                          warning=f'High correlation {corr:.3f} for {key}={label} at dim {dim}')
 
+    def test_distances(self) -> None:
+        print(', '.join(self.labels))
+        label = self.labels['ml-genre']
+        kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
+        pairs = label.get_distances(20, **kw)
+        def print_pairs(pairs):
+            n_close = sum(1 for id1, id2, dist in pairs if dist <= kw['close_thresh'])
+            print(f'\n{len(pairs)} pairs for label {label.key} ({n_close} close within {kw["close_thresh"]}, {int(len(pairs)*kw["perc_close"])} requested):')
+            with db_session:
+                for id1, id2, dist in pairs:
+                    title1 = Tag.get(key='title', id=id1).value
+                    title2 = Tag.get(key='title', id=id2).value
+                    if isinstance(label, MultilabelLabels):
+                        val1 = ','.join(sorted(label.values[id1]))
+                        val2 = ','.join(sorted(label.values[id2]))
+                    else:
+                        val1 = label.values[label.ids.index(id1)]
+                        val2 = label.values[label.ids.index(id2)]
+                    #print(f'  {title1} ({id1}) - {title2} ({id2}): {dist:.3f}')
+                    print(f'  {title1} ({val1}) - {title2} ({val2}): {dist:.3f}')
+
+        print_pairs(pairs)
 
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
+        self.test_distances()
+        return
         # raw correlations
         # norming hurts correlations
         # scaling mean/std doesn't do anything, because correlation is scale-invariant

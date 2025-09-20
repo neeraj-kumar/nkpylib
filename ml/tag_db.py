@@ -5,6 +5,8 @@ This is used throughout embeddings code for various purposes.
 In general, for your project, you should create one of these and shove your data into it, as then
 you can use all the various utils provided by this library to evaluate and explore your data (and
 particularly features/embeddings).
+
+We assume that a human-readable title is available for each id with key='title'.
 """
 
 from __future__ import annotations
