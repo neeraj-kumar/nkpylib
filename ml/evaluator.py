@@ -258,7 +258,72 @@ class NumericLabels(Labels):
         identical (according to these labels), but the upper-bound is variable, depending on
         the normalization used.
         """
+        # Sort values and get corresponding indices
+        sorted_indices = np.argsort(self.values)
+        sorted_values = self.values[sorted_indices]
+        
+        # Compute all pairwise differences for consecutive values
+        diffs = np.diff(sorted_values)
+        
+        # Normalize differences based on specified method
+        if norm_type == 'range':
+            norm_factor = np.max(self.values) - np.min(self.values)
+            if norm_factor == 0:
+                norm_factor = 1
+            diffs = diffs / norm_factor
+        elif norm_type == 'std':
+            norm_factor = np.std(self.values)
+            if norm_factor == 0:
+                norm_factor = 1
+            diffs = diffs / norm_factor
+            
+        # Compute cumulative sums to find ranges of close pairs
+        cum_diffs = np.cumsum(diffs)
+        
         pairs = []
+        if perc_close > 0:
+            n_close = int(n_pairs * perc_close)
+            
+            # Find all possible close pairs by sliding window
+            close_pairs = []
+            for i in range(len(sorted_values)):
+                # Use cumsum to find rightmost index where distance is still <= close_thresh
+                j = i + 1
+                while j < len(sorted_values) and (
+                    cum_diffs[j-1] - (cum_diffs[i-1] if i > 0 else 0) <= close_thresh
+                ):
+                    close_pairs.append((i, j))
+                    j += 1
+            
+            # Sample from close pairs if we have enough
+            if close_pairs:
+                close_indices = random.sample(close_pairs, min(n_close, len(close_pairs)))
+                for i, j in close_indices:
+                    id1 = self.ids[sorted_indices[i]]
+                    id2 = self.ids[sorted_indices[j]]
+                    dist = abs(sorted_values[j] - sorted_values[i])
+                    if norm_type != 'raw':
+                        dist = dist / norm_factor
+                    pairs.append((id1, id2, dist))
+        
+        # Fill remaining pairs with random sampling
+        n_remaining = n_pairs - len(pairs)
+        if n_remaining > 0:
+            # Generate all possible pairs
+            all_pairs = [(i, j) for i in range(len(self.ids)) for j in range(i + 1, len(self.ids))]
+            # Remove pairs we've already used
+            used_pairs = set((sorted_indices[i], sorted_indices[j]) for i, j in close_indices) if pairs else set()
+            remaining_pairs = [(i, j) for i, j in all_pairs if (i, j) not in used_pairs]
+            
+            # Sample remaining pairs
+            sampled_pairs = random.sample(remaining_pairs, n_remaining)
+            for i, j in sampled_pairs:
+                dist = abs(self.values[j] - self.values[i])
+                if norm_type != 'raw':
+                    dist = dist / norm_factor
+                pairs.append((self.ids[i], self.ids[j], dist))
+        
+        return pairs
 
 
 class MulticlassBase(Labels):
