@@ -3,6 +3,8 @@
 This does a bunch of semi-automated things to test out embeddings and see how good they are.
 This is mostly in reference to a set of labels you provide, in the form of a tags database.
 
+TODO:
+
 - Lots of ways of mapping embeddings to other embeddings, should be common procedure
   - PCA, K-PCA, ISOMAP, t-SNE, UMAP, LLE, Beta-VAE, etc
   - Also labeled methods like CCA and PLS
@@ -10,16 +12,10 @@ This is mostly in reference to a set of labels you provide, in the form of a tag
   - Don't repeat work
   - Correlate embedding dimensions before/after transformation
   - estimate "intrinsic dimensionality" of the embeddings via MLE or TwoNN
-- PCA with only one variance-explaining dimension is bad
 - Classification/regression against labels
   - Some std methods: linear svm, rbf svm, svr, forests, pytorch nn?
   - look at binary and one-vs-all
   - don't do special multilabel stuff
-- For correlation, pick things with corr > 0.5 and highlight those dims somehow
-  - Maybe more generally for each Label, output best predictors/correlators/etc
-- Output is partially a report
-  - In the future, do ML doctor stuff
-  - Highlight clear problems/wins
 - For dims, we can also compute histograms
   - And min/max/mean/std/etc
   - Standard stats on histograms: kurtosis, bin sizes, lop-sidedness, normality
@@ -66,6 +62,8 @@ This is mostly in reference to a set of labels you provide, in the form of a tag
   - Does label prop work?
 - Outlier detection
   - Run unsupervised outlier detection algorithms (e.g., Isolation Forest, LOF) on the embedding space — helpful to spot anomalies or collapsed modes.
+- Maybe more generally for each Label, output best predictors/correlators/etc
+- In the future, do ML doctor stuff
 
 
 Old stuff:
@@ -140,6 +138,9 @@ class Labels:
     """A base class for different types of labels that we get from tags.
 
     This stores metadata about the types of labels, and the specialized values.
+    The 'tag_type' is often generic (e.g. 'genre') and could come from multiple sources, and so the
+    'key' is more specific (e.g. 'imdb-genre'). All labels with the same key should have the same
+    tag type, but not vice versa. There should be exactly one `Labels` instance per key.
     """
     def __init__(self, tag_type: str, key: str, *, ids: list[str], values: Any):
         self.tag_type = tag_type
@@ -198,6 +199,10 @@ class Labels:
         ]
         ret = [format_results([func(i) for i in range(sub_matrix.shape[1])]) for func in funcs]
         return tuple(ret)
+
+    def check_correlations(self, keys: list[str], matrix: array2d, n_top:int=10) -> Correlations:
+        """Checks correlations between our labels and each dimension of the given `matrix`"""
+        raise NotImplementedError()
 
 
 class NumericLabels(Labels):
@@ -353,6 +358,12 @@ class EmbeddingsValidator:
         self.fs = FeatureSet(paths, **kw)
         self.labels = {}
         self.parse_tags(tag_path)
+        self.msgs = []
+
+    def add_msg(self, **msg) -> None:
+        """Adds a message to our internal message list."""
+        logger.info(f'Adding msg {msg}')
+        self.msgs.append(msg)
 
     def parse_tags(self, tag_path: str) -> None:
         """Parses our tags from the tag db"""
@@ -377,9 +388,14 @@ class EmbeddingsValidator:
         logger.debug(f'Got matrix: {matrix.shape}, {len(keys)} keys: {keys[:10]}, {matrix}')
         for key, labels in self.labels.items():
             top = labels.check_correlations(keys, matrix, n_top=n_top)
-            if len(top) <= 20:
-                print(f'  Top for {key}:')
-                pprint(top)
+            if not isinstance(top, dict):
+                top = dict(all=top)
+            for label, lsts in top.items():
+                for name, lst in zip(['pearson', 'spearman'], lsts):
+                    for corr, dim in lst:
+                        if abs(corr) > 0.5:
+                            self.add_msg(unit='correlation', label=label, key=key, dim=dim, method=name, value=corr, score=3,
+                                         warning=f'High correlation {corr:.3f} for {key}={label} at dim {dim}')
 
 
     def run(self) -> None:
@@ -394,6 +410,9 @@ class EmbeddingsValidator:
             # pca correlations
             pca = PCA(n_components=min(n_top, fvecs.shape[1]))
             trans = pca.fit_transform(fvecs)
+            # if the first pca dimension explained variance is too high, add a message about it
+            if pca.explained_variance_ratio_[0] > 0.5:
+                self.add_msg(unit='pca', warning=f'PCA first dimension explains too much variance: {pca.explained_variance_ratio_[0]:.3f}', score=-2)
             print(f'PCA with {pca.n_components_} comps, explained variance: {pca.explained_variance_ratio_}: {fvecs.shape} -> {trans.shape}')
             self.check_correlations(keys, trans, n_top=n_top)
 
