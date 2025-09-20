@@ -45,6 +45,9 @@ array2d = nparray2d | Sequence[Sequence[float]]
 
 logger = logging.getLogger(__name__)
 
+CONSOLE_WIDTH = os.get_terminal_size().columns
+np.set_printoptions(suppress=True, linewidth=CONSOLE_WIDTH)
+
 class JsonLmdb(Lmdb):
     """Keys are utf-8 encoded strings, values are JSON-encoded objects as utf-8 encoded strings."""
     def _pre_key(self, key):
@@ -423,10 +426,11 @@ class FeatureSet(Mapping, Generic[KeyT]):
 def quick_test(path: str, **kw):
     """Prints the first embeddings from given `path`"""
     db = NumpyLmdb.open(path)
-    print(f'Opened {db}, {len(db)} items, {db.dtype} dtype, {db.map_size} map size.')
     num = 0
     for key, value in db.items():
-        print(f'Key: {key}, Value ({len(value)} dims): {value}')
+        if num == 0:
+            print(f'Opened {db}: {len(db)} x {len(value)} ({db.dtype.__name__}) = {db.map_size} map size.')
+        print(f'{key}: {value}')
         num += 1
         if num > 2:
             break
