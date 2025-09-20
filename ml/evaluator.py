@@ -142,11 +142,12 @@ class Labels:
     'key' is more specific (e.g. 'imdb-genre'). All labels with the same key should have the same
     tag type, but not vice versa. There should be exactly one `Labels` instance per key.
     """
-    def __init__(self, tag_type: str, key: str, *, ids: list[str], values: Any):
+    def __init__(self, tag_type: str, key: str, *, ids: list[str], values: Any, norm_type: str='raw'):
         self.tag_type = tag_type
         self.key = key
         self.ids = ids
         self.values = values
+        self.norm_type = norm_type
 
     def __repr__(self):
         return f'<{self.__class__.__name__} {self.tag_type} {self.key} ({len(self.ids)} labels)>'
@@ -243,98 +244,87 @@ class NumericLabels(Labels):
         logger.debug(f'Got sub labels of shape {sub_labels.shape}: {sub_labels}')
         return self.get_correlations(sub_matrix, sub_labels, n_top=n_top)
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1,
-                      norm_type: str='raw', close_thresh=0.2, **kw) -> list[tuple[str, str, float]]:
-        """Returns `n_pairs` of `(id1, id2, distance)` tuples.
-
-        For numeric labels, we have the 'raw' distance which just the absolute difference between
-        values. You can choose to normalize this using either 'range' (max-min) or 'std' (stddev) by
-        specifying `norm_type`.
-
-        You can specify `perc_close` which is the percentage of pairs that should be "close", where
-        this is any normalized distance <= `close_thresh`. `perc_close < 0` means we don't care about
-        closeness (default) when generating pairs.
-
-        Note that if the number of total possible pairs or the number of close pairs is less than
-        requested, we will return fewer pairs.
-
-        Returns a list of `(id1, id2, distance)` tuples. A distance of 0 implies the points are
-        identical (according to these labels), but the upper-bound is variable, depending on
-        the normalization used.
-        """
-        sorted_indices = np.argsort(self.values)
-        sorted_values = self.values[sorted_indices]
-
-        # Compute all pairwise differences for consecutive values
-        diffs = np.diff(sorted_values)
-
-        # Normalize differences based on specified method
-        if norm_type == 'range':
+    def get_distance(self, val1: Any, val2: Any) -> float:
+        """Returns normalized distance between two numeric values."""
+        if self.norm_type == 'range':
             norm_factor = np.max(self.values) - np.min(self.values)
-        elif norm_type == 'std':
+        elif self.norm_type == 'std':
             norm_factor = np.std(self.values)
-        elif norm_type == 'raw':
+        else:  # raw
             norm_factor = 1
-        else:
-            raise NotImplementedError(f'Unknown norm_type: {norm_type}')
         if norm_factor == 0:
             norm_factor = 1
-        diffs = diffs / norm_factor
-
-        # Compute cumulative sums to find ranges of close pairs
-        cum_diffs = np.cumsum(diffs)
-
-        pairs = []
-        done = set()
-        def add_pairs(lst: list[Any], n_requested: int, *, is_indices:bool):
-            """Samples up to `n_requested` items from `lst` (pairs) and adds them.
-
-            If `is_indices` is True, the pairs are indices into sorted_values/indices, otherwise
-            they are the ids themselves.
-            """
-            if not lst:
-                return
-            pair_indices = random.sample(lst, min(n_requested, len(lst)))
-            for i, j in pair_indices:
-                if is_indices:
-                    id1 = self.ids[sorted_indices[i]]
-                    id2 = self.ids[sorted_indices[j]]
-                    dist = abs(sorted_values[j] - sorted_values[i])
-                else:
-                    id1, id2 = i, j
-                    dist = abs(self.values[self.ids.index(id1)] - self.values[self.ids.index(id2)])
-                spair = frozenset((id1, id2))
-                if spair in done:
-                    continue
-                done.add(spair)
-                pairs.append((id1, id2, dist / norm_factor))
-
-        if perc_close >= 0:
-            n_close = int(n_pairs * perc_close)
-            # Find all possible close pairs by sliding window, then sample from them
-            close_pairs = []
-            for i in range(len(sorted_values)):
-                # Use cumsum to find rightmost index where distance is still <= close_thresh
-                j = i + 1
-                while j < len(sorted_values) and (
-                        cum_diffs[j-1] - (cum_diffs[i-1] if i > 0 else 0) <= close_thresh):
-                    close_pairs.append((i, j))
-                    j += 1
-            add_pairs(close_pairs, n_close, is_indices=True)
-        # Fill remaining pairs with random sampling
-        n_remaining = n_pairs - len(pairs)
-        if n_remaining > 0:
-            # Generate all possible pairs, removing those we've done, and sample from them
-            poss = ((id1, id2) for i, id1 in enumerate(self.ids) for j, id2 in enumerate(self.ids) if i < j)
-            poss = [p for p in poss if frozenset(p) not in done]
-            add_pairs(poss, n_remaining, is_indices=False)
-        return pairs
+        return abs(val1 - val2) / norm_factor
 
 
 class MulticlassBase(Labels):
     """Some common code for multiclass/multilabel labels."""
     def by_label(self) -> dict[Any, set[str]]:
         raise NotImplementedError()
+        
+    def get_distance(self, val1: Any, val2: Any) -> float:
+        """Returns distance between two values.
+        
+        This is implemented by subclasses to define their specific distance metric.
+        Distance should be normalized between 0 (identical) and 1 (maximally different).
+        """
+        raise NotImplementedError()
+        
+    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[tuple[str, str, float]]:
+        """Returns n_pairs of (id1, id2, distance) tuples.
+        
+        If perc_close >= 0, ensures that proportion of pairs are "close" according to 
+        the label type's definition of closeness.
+        
+        This implementation handles the pair generation and sampling strategy,
+        while subclasses implement get_distance() for their specific distance metric.
+        """
+        pairs = []
+        done = set()
+        
+        if perc_close > 0:
+            # First get close pairs by sampling within groups that tend to be close
+            n_close = int(n_pairs * perc_close)
+            by_group = self.by_label()
+            close_candidates = []
+            
+            # Generate candidates from each group
+            for ids in by_group.values():
+                if len(ids) >= 2:
+                    ids = list(ids)
+                    # Take all pairs within this group
+                    close_candidates.extend((i, j) for idx, i in enumerate(ids) 
+                                         for j in ids[idx+1:])
+                                         
+            # Sample from candidates
+            if close_candidates:
+                sampled = random.sample(close_candidates, 
+                                      min(n_close, len(close_candidates)))
+                for id1, id2 in sampled:
+                    i1, i2 = self.ids.index(id1), self.ids.index(id2)
+                    dist = self.get_distance(self.values[i1], self.values[i2])
+                    spair = frozenset((id1, id2))
+                    if spair not in done:
+                        done.add(spair)
+                        pairs.append((id1, id2, dist))
+        
+        # Fill remaining with random pairs
+        remaining = n_pairs - len(pairs)
+        if remaining > 0:
+            attempts = 0
+            max_attempts = remaining * 3  # Avoid infinite loop
+            while len(pairs) < n_pairs and attempts < max_attempts:
+                attempts += 1
+                id1, id2 = random.sample(self.ids, 2)
+                spair = frozenset((id1, id2))
+                if spair in done:
+                    continue
+                i1, i2 = self.ids.index(id1), self.ids.index(id2)
+                dist = self.get_distance(self.values[i1], self.values[i2])
+                done.add(spair)
+                pairs.append((id1, id2, dist))
+                
+        return pairs
 
     def check_correlations(self, keys: list[str], matrix: array2d, n_top:int=10) -> dict[str, Correlations]:
         """Checks correlations between our labels and each dimension of the given `matrix`.
@@ -380,36 +370,12 @@ class MulticlassLabels(MulticlassBase):
             ret[v].add(id)
         return dict(ret)
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1) -> list[tuple[str, str, float]]:
-        """Returns distances between pairs of categorical values.
-
+    def get_distance(self, val1: Any, val2: Any) -> float:
+        """Returns distance between two categorical values.
+        
         Distance is 0 for same class, 1 for different class.
-        Close pairs are those with distance=0 (same class).
         """
-        pairs = []
-        if perc_close > 0:
-            # First get the requested number of same-class pairs
-            by_class = self.by_label()
-            n_close = int(n_pairs * perc_close)
-            while len(pairs) < n_close:
-                # Pick a random class that has at least 2 items
-                valid_classes = [c for c, ids in by_class.items() if len(ids) >= 2]
-                if not valid_classes:
-                    break
-                cls = random.choice(valid_classes)
-                id1, id2 = random.sample(list(by_class[cls]), 2)
-                if (id1, id2) not in pairs:
-                    pairs.append((id1, id2, 0.0))
-
-        # Fill remaining pairs randomly
-        while len(pairs) < n_pairs:
-            id1, id2 = random.sample(self.ids, 2)
-            if (id1, id2) not in pairs:
-                i1, i2 = self.ids.index(id1), self.ids.index(id2)
-                dist = 0.0 if self.values[i1] == self.values[i2] else 1.0
-                pairs.append((id1, id2, dist))
-
-        return pairs
+        return 0.0 if val1 == val2 else 1.0
 
 
 class MultilabelLabels(MulticlassBase):
@@ -439,47 +405,17 @@ class MultilabelLabels(MulticlassBase):
                 ret[v].add(id)
         return dict(ret)
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1,
-                      close_thresh:float=0.5, **kw) -> list[tuple[str, str, float]]:
-        """Returns `n_pairs` of `(id1, id2, distance)` tuples.
-
+    def get_distance(self, val1: Any, val2: Any) -> float:
+        """Returns distance between two sets of labels.
+        
         Distance is Jaccard distance: 1 - |intersection|/|union|.
-        Close pairs are those with distance < `close_thresh` (default 0.5)
         """
-        pairs = []
-        if perc_close > 0:
-            # First get the requested number of close pairs by checking Jaccard similarities
-            n_close = int(n_pairs * perc_close)
-            attempts = 0
-            max_attempts = n_close * 10  # Avoid infinite loop if not enough close pairs exist
-            while len(pairs) < n_close and attempts < max_attempts:
-                attempts += 1
-                id1, id2 = random.sample(self.ids, 2)
-                if (id1, id2) not in pairs:
-                    set1 = set(self.values[id1])
-                    set2 = set(self.values[id2])
-                    union = len(set1 | set2)
-                    if union == 0:  # Handle empty sets
-                        dist = 0.0 if not set1 and not set2 else 1.0
-                    else:
-                        dist = 1.0 - len(set1 & set2) / union
-                    if dist < 0.5:  # Only add if close enough
-                        pairs.append((id1, id2, dist))
-
-        # Fill remaining pairs randomly
-        while len(pairs) < n_pairs:
-            id1, id2 = random.sample(self.ids, 2)
-            if (id1, id2) not in pairs:
-                set1 = set(self.values[id1])
-                set2 = set(self.values[id2])
-                union = len(set1 | set2)
-                if union == 0:  # Handle empty sets
-                    dist = 0.0 if not set1 and not set2 else 1.0
-                else:
-                    dist = 1.0 - len(set1 & set2) / union
-                pairs.append((id1, id2, dist))
-
-        return pairs
+        set1 = set(val1)
+        set2 = set(val2)
+        union = len(set1 | set2)
+        if union == 0:  # Handle empty sets
+            return 0.0 if not set1 and not set2 else 1.0
+        return 1.0 - len(set1 & set2) / union
 
 
 def parse_into_labels(tag_type: str,
