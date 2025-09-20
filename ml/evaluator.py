@@ -26,6 +26,8 @@ TODO:
   - With small number of labels, no need to embed labels, just do one-hot
 - For numerical labels, look at orig values, log(val) and exp(val) where relevant
 - Distances between labeled points
+  - Actually, we might want to pick a bunch of ids, and then all-pairs distances to get something
+    closer to reality
   - For multiclass, we might need embeddings for labels to get distances
   - combine distances across labels
     - Have to be careful about scaling
@@ -583,6 +585,40 @@ class EmbeddingsValidator:
                                          score=3,
                                          warning=f'High correlation {corr:.3f} for {key}={label} at dim {dim}')
 
+    def check_distances(self, n_pairs: int=1000) -> None:
+        """Does various tests based on distances"""
+        fs_keys = set(self.fs.keys())
+        for key, label in self.labels.items():
+            kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
+            pairs = label.get_distances(n_pairs, **kw)
+            # filter by keys in our embeddings
+            pairs = [(id1, id2, dist) for id1, id2, dist in pairs if id1 in fs_keys and id2 in fs_keys]
+            if not pairs:
+                continue
+            a_keys, b_keys, label_dists = zip(*pairs)
+            print(f'\nFor {key} got {len(pairs)} pairs: {pairs[:5]} ... {pairs[-5:]}')
+            ids = sorted(set(a_keys) | set(b_keys))
+            # get A and B matrix of embeddings to then compute distances
+            keys, fvecs = self.fs.get_keys_embeddings(keys=sorted(ids), normed=False, scale_mean=False, scale_std=False)
+            A = np.array([fvecs[keys.index(id)] for id in a_keys])
+            B = np.array([fvecs[keys.index(id)] for id in b_keys])
+            # compute dot product, cosine similarity, euclidean distance (all small=similar)
+            dists = dict(
+                dot_prod=1.0 - np.einsum('ij,ij->i', A, B),
+                cos_sim=1.0 - np.einsum('ij,ij->i', A, B) / (np.linalg.norm(A, axis=1) * np.linalg.norm(B, axis=1)),
+                euc_dist=np.linalg.norm(A - B, axis=1),
+            )
+            # now compare each one to label_dists
+            for k, m in dists.items():
+                assert m.shape == (len(pairs),), f'Bad shape for {k}: {m.shape} vs {len(pairs)}'
+                pearson = np.corrcoef(m, label_dists)[0, 1]
+                spearman = spearmanr(m, label_dists).statistic
+                print(f'  {key} {k}: pearson={pearson:.3f}, spearman={spearman:.3f}')
+
+
+
+
+
     def test_distances(self) -> None:
         print(', '.join(self.labels))
         label = self.labels['ml-genre']
@@ -608,7 +644,7 @@ class EmbeddingsValidator:
 
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
-        self.test_distances()
+        self.check_distances()
         return
         # raw correlations
         # norming hurts correlations

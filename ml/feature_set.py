@@ -394,32 +394,44 @@ class FeatureSet(Mapping, Generic[KeyT]):
         return np.hstack([inp[key] for inp in self.inputs])
 
     def get_keys_embeddings(self,
+                            keys: list[KeyT]|None=None,
                             normed: bool=False,
                             scale_mean:bool=True,
                             scale_std:bool=True) -> tuple[list[KeyT], np.ndarray]:
         """Returns a list of keys and a numpy array of embeddings.
+
+        By default we return embeddings for all our keys, but you can optionally pass in a list of
+        keys to get embeddings for.
 
         You can optionally set the following flags:
         - `normed`: Normalize embeddings to unit length.
         - `scale_mean`: Scale embeddings to have zero mean.
         - `scale_std`: Scale embeddings to have unit variance.
 
-        The keys and embeddings are cached for future calls with the same flags.
+        Note that the normalization is applied only to the set of keys you fetch embeddings for, so
+        it might be degenerate if you request too few keys.
+
+        The keys and embeddings are cached for future calls with the same flags (only if requesting
+        all keys).
         """
-        cache_kw = dict(normed=normed, scale_mean=scale_mean, scale_std=scale_std)
-        if self.cached and all(self.cached[k] == v for k, v in cache_kw.items()):
-            return self.cached['keys'], self.cached['embs']
-        _keys, _embs = zip(*list(self.items()))
-        keys = list(_keys)
-        embs = np.vstack(_embs)
+        if keys is None:
+            cache_kw = dict(normed=normed, scale_mean=scale_mean, scale_std=scale_std)
+            if self.cached and all(self.cached[k] == v for k, v in cache_kw.items()):
+                return self.cached['keys'], self.cached['embs']
+            _keys, _embs = zip(*list(self.items()))
+            keys = list(_keys)
+            embs = np.vstack(_embs)
+        else:
+            embs = np.vstack([self[k] for k in keys if k in self])
         scaler: StandardScaler|None = None
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
         if scale_mean or scale_std:
             scaler = StandardScaler(with_mean=scale_mean, with_std=scale_std)
             embs = scaler.fit_transform(embs)
-        # cache these
-        self.cached.update(keys=keys, embs=embs, scaler=scaler, **cache_kw)
+        if len(keys) == len(self):
+            # cache these
+            self.cached.update(keys=keys, embs=embs, scaler=scaler, **cache_kw)
         return keys, embs
 
 
