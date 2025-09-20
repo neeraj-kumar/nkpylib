@@ -151,17 +151,16 @@ class Labels:
     def __repr__(self):
         return f'<{self.__class__.__name__} {self.tag_type} {self.key} ({len(self.ids)} labels)>'
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1) -> list[tuple[str, str, float]]:
-        """Returns n_pairs of (id1, id2, distance) tuples.
-        
-        Args:
-            n_pairs: Number of id pairs to return
-            perc_close: Percentage of pairs that should be "close" according to the label type's 
-                definition of closeness. -1 means don't care about closeness.
-        
-        Returns:
-            List of (id1, id2, distance) tuples, where distance is between 0 (identical) and 
-            1 (maximally different).
+    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[tuple[str, str, float]]:
+        """Returns `n_pairs` of `(id1, id2, distance)` tuples.
+
+        You can specify `perc_close` which is the percentage of pairs that should be "close"
+        according to the label type's definition of closeness. < 0 means we don't care about
+        closeness (default).
+
+        Returns a list of `(id1, id2, distance)` tuples. A distance of 0 implies the points are
+        identical (according to this distance metric), but the upper-bound is variable, depending on
+        the specific subclass/etc.
         """
         raise NotImplementedError()
 
@@ -224,36 +223,6 @@ class NumericLabels(Labels):
 
     This stores ids as a list and values as a numpy array, where values[i] is the value for ids[i].
     """
-    def get_distances(self, n_pairs: int, perc_close: float = -1) -> list[tuple[str, str, float]]:
-        """Returns distances between pairs of numeric values.
-        
-        Distance is normalized absolute difference: |v1-v2|/(max-min).
-        Close pairs are those with distance < 0.2.
-        """
-        pairs = []
-        val_range = np.max(self.values) - np.min(self.values)
-        if perc_close > 0:
-            # First get the requested number of close pairs by sorting values
-            sorted_indices = np.argsort(self.values)
-            window = max(2, int(len(self.values) * 0.1))  # Look at nearest 10% for close pairs
-            n_close = int(n_pairs * perc_close)
-            while len(pairs) < n_close:
-                i = random.randint(0, len(sorted_indices) - window)
-                j = random.randint(i + 1, min(i + window, len(sorted_indices)))
-                id1, id2 = self.ids[sorted_indices[i]], self.ids[sorted_indices[j]]
-                if (id1, id2) not in pairs:
-                    dist = abs(self.values[sorted_indices[i]] - self.values[sorted_indices[j]]) / val_range
-                    pairs.append((id1, id2, dist))
-        
-        # Fill remaining pairs randomly
-        while len(pairs) < n_pairs:
-            i, j = random.sample(range(len(self.ids)), 2)
-            id1, id2 = self.ids[i], self.ids[j]
-            if (id1, id2) not in pairs:
-                dist = abs(self.values[i] - self.values[j]) / val_range
-                pairs.append((id1, id2, dist))
-        
-        return pairs
     def __init__(self, tag_type: str, key: str, ids_values: list[tuple[str, Any]]):
         ids = [id for id, v in ids_values]
         values = np.array([v for id, v in ids_values], dtype=np.float32)
@@ -272,6 +241,24 @@ class NumericLabels(Labels):
         sub_labels = self.values[id_indices]
         logger.debug(f'Got sub labels of shape {sub_labels.shape}: {sub_labels}')
         return self.get_correlations(sub_matrix, sub_labels, n_top=n_top)
+
+    def get_distances(self, n_pairs: int, perc_close: float = -1,
+                      norm_type: str='raw', close_thresh=0.2, **kw) -> list[tuple[str, str, float]]:
+        """Returns `n_pairs` of `(id1, id2, distance)` tuples.
+
+        For numeric labels, we have the 'raw' distance which just the absolute difference between
+        values. You can choose to normalize this using either 'range' (max-min) or 'std' (stddev) by
+        specifying `norm_type`.
+
+        You can specify `perc_close` which is the percentage of pairs that should be "close", where
+        this is any normalized distance <= `close_thresh`. `perc_close < 0` means we don't care about
+        closeness (default) when generating pairs.
+
+        Returns a list of `(id1, id2, distance)` tuples. A distance of 0 implies the points are
+        identical (according to these labels), but the upper-bound is variable, depending on
+        the normalization used.
+        """
+        pairs = []
 
 
 class MulticlassBase(Labels):
