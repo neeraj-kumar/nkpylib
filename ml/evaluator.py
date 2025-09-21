@@ -721,7 +721,28 @@ class EmbeddingsValidator:
                 plots = self.make_plots(label_dists, m, a_name=f'Label dists for {key}', b_name=f'{k} dists for {key}')
                 # display each plot interactively
                 for name, plot in plots.items():
-
+                    plt.figure(plot.number)
+                    plt.show()
+                    
+                    # Add messages based on correlation strength
+                    if abs(cmp_stats['pearson']) > 0.7:
+                        self.add_msg(
+                            unit='distance_correlation',
+                            label=key,
+                            method=k,
+                            value=cmp_stats['pearson'],
+                            score=3,
+                            warning=f'Strong correlation {cmp_stats["pearson"]:.3f} between {key} and {k} distances'
+                        )
+                    elif abs(cmp_stats['pearson']) < 0.3:
+                        self.add_msg(
+                            unit='distance_correlation',
+                            label=key,
+                            method=k,
+                            value=cmp_stats['pearson'],
+                            score=-2,
+                            warning=f'Weak correlation {cmp_stats["pearson"]:.3f} between {key} and {k} distances'
+                        )
 
 
     def test_distances(self) -> None:
