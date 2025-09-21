@@ -31,14 +31,8 @@ TODO:
     - Have to be careful about scaling
     - Join in neighbor-space? Distance-space?
     - Might have multiple combined distances to compare
-  - For converting distances to neighbors, maybe use KNeighborsTransformer or RadiusNeighborsTransformer
 - What to do with distances
-  - Find discrepancies between different distance measures
-  - compare distributions:
-    - compare dist histograms
-    - kl divergence
-  - neighbor agreement
-    - jaccard of neighbor sets, precision/recall @ k, mean reciprocal rank
+  - compare distribution histograms
   - Also between different embedding distances (e.g. euclidean vs cosine)
   - Visualize full pairwise cosine similarity heatmaps — useful for spotting large dense cliques (bad) or disconnected islands (good/bad, depending).
   - Compute pairwise angles between random vector pairs. For high-quality, high-dimensional embeddings, the distribution should be tightly centered.
@@ -93,10 +87,12 @@ import scipy.stats as stats
 
 from pony.orm import * # type: ignore
 from scipy.spatial.distance import pdist, squareform # type: ignore
+from scipy.special import kl_div
 from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import PCA # type: ignore
 from sklearn.linear_model import SGDClassifier # type: ignore
+from sklearn.metrics import recall_score # type: ignore
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
 from sklearn.svm import SVC # type: ignore
@@ -708,6 +704,7 @@ class EmbeddingsValidator:
                 kurtosis=float(stats.kurtosis(x)),
                 gmean=float(stats.gmean(x)),
                 skew=float(stats.skew(x)),
+                entropy=float(stats.entropy(x)),
             )
         stats_a = get_stats(a)
         stats_b = get_stats(b)
@@ -717,6 +714,7 @@ class EmbeddingsValidator:
             pearson=float(np.corrcoef(a, b)[0, 1]),
             spearman=float(stats.spearmanr(a, b).statistic),
             tau=float(stats.kendalltau(a, b).statistic),
+            kl_div=float(stats.entropy(a, b)),
         ))
         # compute least squares linear fit to get rvalue
         res = stats.linregress(a, b)
@@ -808,7 +806,7 @@ class EmbeddingsValidator:
                 print(f'  {k}: {m.shape}: {m}')
                 label_stats, dist_stats, cmp_stats = self.compare_stats(label_dists, m)
                 for s in cmp_stats:
-                    if s not in 'pearson spearman tau'.split():
+                    if s not in 'pearson spearman tau kl_div'.split():
                         continue
                     if s in label_stats:
                         print(f'    {s:>10}:\t{label_stats[s]: .3f}\t{dist_stats[s]: .3f}\t{cmp_stats[s]: .3f}')
@@ -820,6 +818,82 @@ class EmbeddingsValidator:
                     for name, plot in plots.items():
                         plt.figure(plot.number)
                         plt.show()
+            if sample_ids:
+                self.check_neighbors(ids, label_dists, dists, key=key)
+            #break
+
+    def check_neighbors(self,
+                        ids: list[str],
+                        label_dists: array1d,
+                        dists: dict[str, array1d],
+                        key: str,
+                        n_neighbors:int = 20,
+                        **kw) -> None:
+        """Checks neighbors based on distances"""
+        n = len(ids)
+        id_indices = {id: i for i, id in enumerate(ids)}
+        def upper_tri_to_full(m):
+            """Convert upper triangle 1-d array back to full matrix"""
+            if m.ndim == 2 and m.shape[0] == m.shape[1]:
+                return m
+            full = np.zeros((n, n), dtype=label_dists.dtype)
+            iu = np.triu_indices(n, k=1)
+            full[iu] = m
+            full = full + full.T
+            return full
+
+        def upper_tri_to_neighbors(m):
+            m = upper_tri_to_full(m)
+            # clamp values up to 0
+            m = np.maximum(m, 0)
+            nn_cls = NearestNeighbors(n_neighbors=n_neighbors+1, metric='precomputed')
+            nn_cls.fit(m)
+            dists, nn = nn_cls.kneighbors(m)
+            #print(f'  Got {nn.shape} neighbors, {dists.shape} dists: {nn}, {dists}')
+            return dists, nn
+
+        l_dists, l_nn = upper_tri_to_neighbors(label_dists)
+        for method, m in dists.items():
+            m_dists, m_nn = upper_tri_to_neighbors(m)
+            print(f'  [{method}] Comparing neighbors for {key}:')
+            # compute recalls, mrr, jaccard
+            counts = defaultdict(list)
+            for idx, id in enumerate(ids):
+                l_row = l_nn[idx]
+                if l_row[0] == idx:
+                    l_row = l_row[1:]
+                m_row = m_nn[idx]
+                if m_row[0] == idx:
+                    m_row = m_row[1:]
+                for k in [1, 5, 10, 20]:
+                    recall = recall_score(l_row[:k], m_row[:k], average='micro', zero_division=0)
+                    counts[f'recall@{k}'].append(recall)
+                    if recall > 0:
+                        # compute mrr
+                        for rank, nbr in enumerate(m_row[:k], start=1):
+                            if nbr in l_row[:k]:
+                                counts[f'mrr@{k}'].append(1.0 / rank)
+                                break
+                    else:
+                        counts[f'mrr@{k}'].append(0.0)
+                    # compute jaccard
+                    set_l = set(l_row[:k])
+                    set_m = set(m_row[:k])
+                    jaccard = len(set_l & set_m) / len(set_l | set_m) if set_l | set_m else 0.0
+                    counts[f'jaccard@{k}'].append(jaccard)
+            for k, v in counts.items():
+                avg = sum(v) / len(v) if v else 0.0
+                print(f'    {k:>10}: {avg:.3f}')
+                if avg > 0.5:
+                    self.add_msg(unit='neighbors',
+                                 key=key,
+                                 method=method,
+                                 metric=k,
+                                 value=avg,
+                                 score=3,
+                                 warning=f'High neighbor {k}={avg:.3f} for {key} using {method}')
+
+
 
 
     def test_distances(self) -> None:
