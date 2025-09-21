@@ -50,6 +50,8 @@ TODO:
 - In the future, do ML doctor stuff
 - Performance
   - More parallelization
+  - sigopt for hyperparameter tuning (including which classifier to use)
+    - different rbf params (C, alpha)
   - Figure out how to order different operations, including not evaluating things if already
     promising alternatives
 
@@ -929,7 +931,7 @@ class EmbeddingsValidator:
 
         print_pairs(pairs)
 
-    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10) -> dict[str, array1d]:
+    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> dict[str, array1d]:
         """Generates prediction tasks derived from a set of ids and a `Labels` instance."""
         ret = {}
         if isinstance(label, NumericLabels):
@@ -940,21 +942,21 @@ class EmbeddingsValidator:
         elif isinstance(label, MulticlassLabels):
             values = np.array([label.values[label.ids.index(id)] for id in ids])
             ret['orig-cls'] = values
-            for v in set(values):
+            counts = Counter(values)
+            for v, _ in counts.most_common(max_tasks):
                 bin_values = np.array([int(val == v) for val in values])
                 if np.sum(bin_values) >= min_pos:
                     ret[f'binarized-{v}'] = bin_values
         elif isinstance(label, MultilabelLabels):
             # label.values maps from id to a list of labels
-            all_labels = set()
+            counts = Counter()
             for id in ids:
-                all_labels.update(label.values.get(id, []))
-            for v in all_labels:
+                counts.update(label.values.get(id, []))
+            for v, _ in counts.most_common(max_tasks):
                 bin_values = np.array([int(v in label.values.get(id, [])) for id in ids])
                 if np.sum(bin_values) >= min_pos:
                     ret[f'binarized-{v}'] = bin_values
         return ret
-
 
     def check_prediction(self, n_jobs=12) -> None:
         """Does prediction tests on our labels"""
@@ -1021,7 +1023,7 @@ class EmbeddingsValidator:
                 else:
                     score = balanced_accuracy_score(y, preds)
                     score_type = 'balanced_accuracy'
-                    n_classes = len(set(values))
+                    n_classes = len(set(y))
                     print(f'{s} Balanced Accuracy: {score:.3f} {n_classes} classes')
                 if score > 0.7:
                     self.add_msg(unit='prediction',
