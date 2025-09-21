@@ -17,9 +17,8 @@ TODO:
   - look at binary and one-vs-all
   - don't do special multilabel stuff
 - For dims, we can also compute histograms
-  - And min/max/mean/std/etc
-  - Standard stats on histograms: kurtosis, bin sizes, lop-sidedness, normality
-  - highlight 0s other outliers
+  - Standard stats on histograms: bin sizes, lop-sidedness, normality
+  - highlight 0s and other outliers
 - Compare labels of same type but different keys, e.g. genre
   - Look at confusion matrices
   - Also clustering metrics for label similarity?
@@ -76,6 +75,7 @@ import time
 from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint
 from typing import Any, Sequence, Generic, TypeVar, Union
@@ -84,6 +84,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.stats as stats
+import sklearn
 
 from pony.orm import * # type: ignore
 from scipy.spatial.distance import pdist, squareform # type: ignore
@@ -91,11 +92,13 @@ from scipy.special import kl_div
 from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import PCA # type: ignore
-from sklearn.linear_model import SGDClassifier # type: ignore
-from sklearn.metrics import recall_score # type: ignore
-from sklearn.neighbors import NearestNeighbors # type: ignore
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # type: ignore
+from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
+from sklearn.metrics import recall_score, r2_score, accuracy_score # type: ignore
+from sklearn.model_selection import cross_val_score, train_test_split, KFold # type: ignore
+from sklearn.neighbors import NearestNeighbors, KNeighborsClassifier, KNeighborsRegressor # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
-from sklearn.svm import SVC # type: ignore
+from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
@@ -133,6 +136,12 @@ AllDists = tuple[list[str], array2d]
 
 # stats are for now just a dict of strings
 Stats = dict[str, Any]
+
+def train_and_predict(model, X_train, y_train, X_test):
+    """Simple train and predict function for use in multiprocessing."""
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    return preds
 
 
 def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure.Figure:
@@ -656,6 +665,8 @@ class EmbeddingsValidator:
                 grouped[key].append((t.id, v))
         logger.info(f'Loaded {len(grouped)} types of tags from {tag_path}')
         for (tag_type, key), ids_values in grouped.items():
+            if key == 'title':
+                continue
             if cur := parse_into_labels(tag_type, key, ids_values):
                 self.labels[key] = cur
         #pprint(self.labels)
@@ -893,9 +904,6 @@ class EmbeddingsValidator:
                                  score=3,
                                  warning=f'High neighbor {k}={avg:.3f} for {key} using {method}')
 
-
-
-
     def test_distances(self) -> None:
         print(', '.join(self.labels))
         label = self.labels['ml-genre']
@@ -919,24 +927,117 @@ class EmbeddingsValidator:
 
         print_pairs(pairs)
 
+    def check_prediction(self) -> None:
+        """Does prediction tests on our labels"""
+        fs_keys = set(self.fs.keys())
+        for key, label in self.labels.items():
+            #TODO generate many label-tasks
+            #TODO  for numeric: orig, log, exp
+            #TODO  for categorical: orig (multiclass only), binarized (one-or-not)
+            print(f'\nRunning prediction tests on {key} of type {label.__class__.__name__} with {len(label.ids)} ids')
+            assert len(label.ids) == len(set(label.ids))
+            if isinstance(label, MultilabelLabels):
+                continue
+            method_kw = dict(n_jobs=12)
+            if isinstance(label, NumericLabels):
+                values = label.values
+                methods = dict(
+                    ridge=Ridge(alpha=1.0),
+                    #forest_reg=RandomForestRegressor(n_estimators=100, **method_kw),
+                    rbf_svr=SVR(kernel='rbf', C=1.0, epsilon=0.1),
+                    linear_svr=LinearSVR(C=1.0, epsilon=0.1, dual='auto'),
+                    neighbors_reg=KNeighborsRegressor(n_neighbors=10, **method_kw),
+                )
+            else:
+                values = label.values if isinstance(label, MulticlassLabels) else [tuple(sorted(v)) for v in label.values.values()]
+                values = np.array(values)
+                methods = dict(
+                    forest_cls=RandomForestClassifier(n_estimators=100, max_depth=5, **method_kw),
+                    rbf_svm=SVC(kernel='rbf', C=1.0, probability=True),
+                    linear_svm=LinearSVC(C=1.0, max_iter=200, dual='auto'),
+                    neighbors_cls=KNeighborsClassifier(n_neighbors=10, **method_kw),
+                )
+            print(values[:5])
+            # filter ids and values to those in our embeddings
+            ids, values = zip(*[(id, v) for id, v in zip(label.ids, values) if id in fs_keys])
+            values = np.array(values)
+            assert len(ids) == len(values)
+            keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=True, scale_std=True)
+            assert keys == ids
+            if len(keys) < 10:
+                print(f'  Only {len(keys)} embeddings, skipping')
+                continue
+            # cross-validation based training and eval
+            pool = ProcessPoolExecutor(max_workers=12)
+            for name, model in methods.items():
+                # get a copy of the model to not modify the original
+                model = sklearn.base.clone(model)
+                print(f'  Training {name} ({model.__class__.__name__}) on {len(keys)} embeddings of dim {emb.shape[1]}')
+                kf = KFold(n_splits=4, shuffle=True)
+                y, preds = [], []
+                futures = []
+                for train, test in kf.split(keys):
+                    X_train, X_test = emb[train], emb[test]
+                    y_train, y_test = values[train], values[test]
+                    y.extend(y_test)
+                    if 0:
+                        cur_preds = train_and_predict(model, X_train, y_train, X_test)
+                        preds.extend(cur_preds)
+                    else:
+                        futures.append(pool.submit(train_and_predict, model, X_train, y_train, X_test))
+                if futures:
+                    for f in futures:
+                        cur_preds = f.result()
+                        preds.extend(cur_preds)
+                y = np.array(y)
+                preds = np.array(preds)
+                if isinstance(label, NumericLabels):
+                    score = r2_score(y, preds)
+                    score_type = 'R^2'
+                    print(f'    {name} R^2: {score:.3f}')
+                    n_classes = None
+                else:
+                    score = accuracy_score(y, preds)
+                    score_type = 'accuracy'
+                    n_classes = len(set(values))
+                    print(f'    {name} Accuracy: {score:.3f} {n_classes} classes')
+                    if 0: #TODO see if this is helpful at all
+                        probs = model.predict_proba(X_test) if hasattr(model, 'predict_proba') else None
+                        if probs is not None:
+                            # get max probability for each prediction
+                            max_probs = np.max(probs, axis=1)
+                            score = avg_prob = np.mean(max_probs)
+                            score_type = 'Avg max prob'
+                            print(f'      Avg max prob: {avg_prob:.3f}')
+                if score > 0.7:
+                    self.add_msg(unit='prediction',
+                                 key=key,
+                                 method=name,
+                                 value=score,
+                                 n_classes=n_classes,
+                                 score=3,
+                                 warning=f'High prediction {score_type} {score:.3f} for {key} using {name}')
+
+
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
-        self.check_distances(n=200, sample_ids=True)
+        #self.check_distances(n=200, sample_ids=True)
+        self.check_prediction()
         return
         # raw correlations
         # norming hurts correlations
         # scaling mean/std doesn't do anything, because correlation is scale-invariant
-        keys, fvecs = self.fs.get_keys_embeddings(normed=False, scale_mean=False, scale_std=False)
+        keys, emb = self.fs.get_keys_embeddings(normed=False, scale_mean=False, scale_std=False)
         n_top = 10
-        self.check_correlations(keys, fvecs, n_top=n_top)
+        self.check_correlations(keys, emb, n_top=n_top)
         if 0:
             # pca correlations
-            pca = PCA(n_components=min(n_top, fvecs.shape[1]))
-            trans = pca.fit_transform(fvecs)
+            pca = PCA(n_components=min(n_top, emb.shape[1]))
+            trans = pca.fit_transform(emb)
             # if the first pca dimension explained variance is too high, add a message about it
             if pca.explained_variance_ratio_[0] > 0.5:
                 self.add_msg(unit='pca', warning=f'PCA first dimension explains too much variance: {pca.explained_variance_ratio_[0]:.3f}', score=-2)
-            print(f'PCA with {pca.n_components_} comps, explained variance: {pca.explained_variance_ratio_}: {fvecs.shape} -> {trans.shape}')
+            print(f'PCA with {pca.n_components_} comps, explained variance: {pca.explained_variance_ratio_}: {emb.shape} -> {trans.shape}')
             self.check_correlations(keys, trans, n_top=n_top)
 
 
