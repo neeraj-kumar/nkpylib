@@ -22,6 +22,17 @@ class GAT(torch.nn.Module):
         x = F.dropout(x, p=0.6, training=self.training)
         x = self.conv2(x, edge_index)
         return x
+        
+    def get_embeddings(self, x, edge_index):
+        """Extract node embeddings from the first GAT layer.
+        
+        Returns tensor of shape [num_nodes, hidden_channels * heads]
+        """
+        self.eval()
+        with torch.no_grad():
+            x = F.dropout(x, p=0.6, training=False)
+            embeddings = F.elu(self.conv1(x, edge_index))
+            return embeddings
 
 
 def load_data(name: str='PubMed'):
@@ -63,3 +74,9 @@ if __name__ == '__main__':
     model = train_model(data)
     print(f'Trained model')
     eval_model(model, data)
+    
+    # Get and print node embeddings
+    embeddings = model.get_embeddings(data.x, data.edge_index)
+    print(f'\nNode embeddings shape: {embeddings.shape}')
+    print(f'First node embedding:\n{embeddings[0]}')
+    print(f'Embedding stats: mean={embeddings.mean():.3f}, std={embeddings.std():.3f}')
