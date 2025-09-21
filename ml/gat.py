@@ -1,4 +1,121 @@
-"""Implementation of Graph Attention Network (GAT) using PyTorch and PyTorch Geometric."""
+"""Implementation of Graph Attention Network (GAT) using PyTorch and PyTorch Geometric.
+
+TODO:
+
+Yes, the current GAT implementation is designed around a node classification task, as evidenced by:
+
+ 1 The output layer (conv2) produces out_channels=dataset.num_classes
+ 2 Training uses cross-entropy loss against node labels (data.y)
+ 3 Evaluation measures classification accuracy
+
+There are several alternatives for training without/with different tasks:
+
+ 1 Self-supervised approaches:
+
+ • Link prediction
+ • Node reconstruction
+ • Random walk objectives
+ • Contrastive learning between node pairs
+
+ 2 Multi-task training:
+
+ • Multiple classification heads
+ • Mix of classification and regression tasks
+ • Auxiliary tasks like structure prediction
+
+ 3 Unsupervised approaches:
+
+ • Graph autoencoders
+ • Structure-preserving objectives
+ • Neighborhood reconstruction
+
+Would you like me to modify the GAT implementation to support one of these alternative training approaches?
+
+
+Tokens: 31k sent, 167 received. Cost: $0.09 message, $1.53 session.
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ml/evaluator.py ml/gat.py
+> /ask describe each of these
+
+Here's a breakdown of each alternative GAT training approach:
+
+Self-supervised approaches:
+
+ 1 Link Prediction
+
+ • Mask some edges during training
+ • Train model to predict if edges exist between node pairs
+ • Uses node embeddings to compute edge likelihood
+ • Natural task for graphs, preserves structure
+
+ 2 Node Reconstruction
+
+ • Corrupt node features randomly
+ • Train model to reconstruct original features
+ • Forces embeddings to preserve node information
+ • Similar to denoising autoencoders
+
+ 3 Random Walk Objectives
+
+ • Generate random walks through graph
+ • Train model to predict nodes that appear together in walks
+ • Similar to word2vec but for graphs
+ • Captures both local and broader graph structure
+
+ 4 Contrastive Learning
+
+ • Create positive pairs (connected/similar nodes)
+ • Create negative pairs (distant/dissimilar nodes)
+ • Train embeddings to be close for positives, far for negatives
+ • Very flexible in how pairs are chosen
+
+Multi-task approaches:
+
+ 1 Multiple Classification Heads
+
+ • Different classifiers for different node labels
+ • Share embedding layers
+ • Each task provides different supervision signal
+ • Can weight tasks differently
+
+ 2 Mixed Classification/Regression
+
+ • Some heads predict categories
+ • Others predict continuous values
+ • Richer supervision signal
+ • More complex loss function
+
+ 3 Structure Prediction
+
+ • Main task plus structural auxiliary tasks
+ • e.g., predict node degree, clustering coefficient
+ • Helps embeddings capture graph properties
+ • Can improve main task performance
+
+Unsupervised approaches:
+
+ 1 Graph Autoencoders
+
+ • Encode nodes into embeddings
+ • Decode to reconstruct graph structure
+ • No labels needed
+ • Can preserve both features and structure
+
+ 2 Structure-preserving
+
+ • Optimize embeddings to preserve graph distances
+ • Similar to traditional dimensionality reduction
+ • Can use various graph metrics
+ • Pure structural approach
+
+ 3 Neighborhood Reconstruction
+
+ • Encode node's features
+ • Decode to predict neighbors' features
+ • Preserves local graph structure
+ • Natural for attention mechanisms
+
+"""
 
 from __future__ import annotations
 
@@ -87,7 +204,6 @@ def test_feature_importance(model, data):
     zero_embeddings = model.get_embeddings(zero_x, data.edge_index)
     pred = model(zero_x, data.edge_index).argmax(dim=1)
     zero_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
-    
     return (orig_embeddings, orig_acc), (random_embeddings, random_acc), (zero_embeddings, zero_acc)
 
 def test_connectivity_importance(model, data):
@@ -110,7 +226,6 @@ def test_connectivity_importance(model, data):
     isolated_embeddings = model.get_embeddings(data.x, no_edges)
     pred = model(data.x, no_edges).argmax(dim=1)
     no_edge_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
-    
     return (orig_embeddings, orig_acc), (random_edge_embeddings, random_acc), (isolated_embeddings, no_edge_acc)
 
 def compare_embeddings(emb1, emb2):
