@@ -70,32 +70,48 @@ def eval_model(model, data):
 # Test feature vs connectivity importance
 def test_feature_importance(model, data):
     """Test how embeddings change with different node features."""
-    # Get original embeddings
+    # Get original embeddings and accuracy
     orig_embeddings = model.get_embeddings(data.x, data.edge_index)
+    model.eval()
+    pred = model(data.x, data.edge_index).argmax(dim=1)
+    orig_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
 
     # Test with randomized features
     random_x = torch.randn_like(data.x)
     random_embeddings = model.get_embeddings(random_x, data.edge_index)
+    pred = model(random_x, data.edge_index).argmax(dim=1)
+    random_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
 
     # Test with zeroed features
     zero_x = torch.zeros_like(data.x)
     zero_embeddings = model.get_embeddings(zero_x, data.edge_index)
-    return orig_embeddings, random_embeddings, zero_embeddings
+    pred = model(zero_x, data.edge_index).argmax(dim=1)
+    zero_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
+    
+    return (orig_embeddings, orig_acc), (random_embeddings, random_acc), (zero_embeddings, zero_acc)
 
 def test_connectivity_importance(model, data):
     """Test how embeddings change with different graph connectivity."""
-    # Get original embeddings
+    # Get original embeddings and accuracy
     orig_embeddings = model.get_embeddings(data.x, data.edge_index)
+    model.eval()
+    pred = model(data.x, data.edge_index).argmax(dim=1)
+    orig_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
 
     # Test with random edges (same number of edges)
     n_edges = data.edge_index.shape[1]
     random_edges = torch.randint(0, data.num_nodes, (2, n_edges))
     random_edge_embeddings = model.get_embeddings(data.x, random_edges)
+    pred = model(data.x, random_edges).argmax(dim=1)
+    random_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
 
     # Test with no edges
     no_edges = torch.zeros((2, 0), dtype=torch.long)
     isolated_embeddings = model.get_embeddings(data.x, no_edges)
-    return orig_embeddings, random_edge_embeddings, isolated_embeddings
+    pred = model(data.x, no_edges).argmax(dim=1)
+    no_edge_acc = (pred[data.test_mask] == data.y[data.test_mask]).sum() / data.test_mask.sum()
+    
+    return (orig_embeddings, orig_acc), (random_edge_embeddings, random_acc), (isolated_embeddings, no_edge_acc)
 
 def compare_embeddings(emb1, emb2):
     """Compare two sets of embeddings using cosine similarity."""
@@ -124,11 +140,13 @@ if __name__ == '__main__':
 
     # Run importance tests
     print("\nTesting feature importance:")
-    orig, random, zero = test_feature_importance(model, data)
-    print("Random features:", compare_embeddings(orig, random))
-    print("Zero features:", compare_embeddings(orig, zero))
+    (orig, orig_acc), (random, random_acc), (zero, zero_acc) = test_feature_importance(model, data)
+    print(f"Original accuracy: {orig_acc:.4f}")
+    print("Random features:", compare_embeddings(orig, random), f"accuracy: {random_acc:.4f}")
+    print("Zero features:", compare_embeddings(orig, zero), f"accuracy: {zero_acc:.4f}")
 
     print("\nTesting connectivity importance:")
-    orig, random_edge, no_edge = test_connectivity_importance(model, data)
-    print("Random edges:", compare_embeddings(orig, random_edge))
-    print("No edges:", compare_embeddings(orig, no_edge))
+    (orig, orig_acc), (random_edge, random_acc), (no_edge, no_edge_acc) = test_connectivity_importance(model, data)
+    print(f"Original accuracy: {orig_acc:.4f}")
+    print("Random edges:", compare_embeddings(orig, random_edge), f"accuracy: {random_acc:.4f}")
+    print("No edges:", compare_embeddings(orig, no_edge), f"accuracy: {no_edge_acc:.4f}")
