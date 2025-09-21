@@ -75,8 +75,62 @@ if __name__ == '__main__':
     print(f'Trained model')
     eval_model(model, data)
 
+    # Test feature vs connectivity importance
+    def test_feature_importance(model, data):
+        """Test how embeddings change with different node features."""
+        # Get original embeddings
+        orig_embeddings = model.get_embeddings(data.x, data.edge_index)
+        
+        # Test with randomized features
+        random_x = torch.randn_like(data.x)
+        random_embeddings = model.get_embeddings(random_x, data.edge_index)
+        
+        # Test with zeroed features
+        zero_x = torch.zeros_like(data.x)
+        zero_embeddings = model.get_embeddings(zero_x, data.edge_index)
+        
+        return orig_embeddings, random_embeddings, zero_embeddings
+
+    def test_connectivity_importance(model, data):
+        """Test how embeddings change with different graph connectivity."""
+        # Get original embeddings
+        orig_embeddings = model.get_embeddings(data.x, data.edge_index)
+        
+        # Test with random edges (same number of edges)
+        n_edges = data.edge_index.shape[1]
+        random_edges = torch.randint(0, data.num_nodes, (2, n_edges))
+        random_edge_embeddings = model.get_embeddings(data.x, random_edges)
+        
+        # Test with no edges
+        no_edges = torch.zeros((2, 0), dtype=torch.long)
+        isolated_embeddings = model.get_embeddings(data.x, no_edges)
+        
+        return orig_embeddings, random_edge_embeddings, isolated_embeddings
+
+    def compare_embeddings(emb1, emb2):
+        """Compare two sets of embeddings using cosine similarity."""
+        # Compute cosine similarity between corresponding nodes
+        sim = F.cosine_similarity(emb1, emb2)
+        return {
+            'mean_sim': sim.mean().item(),
+            'std_sim': sim.std().item(),
+            'min_sim': sim.min().item(),
+            'max_sim': sim.max().item()
+        }
+
     # Get and print node embeddings
     embeddings = model.get_embeddings(data.x, data.edge_index)
     print(f'\nNode embeddings shape: {embeddings.shape}')
     print(f'First node embedding:\n{embeddings[0]}')
     print(f'Embedding stats: mean={embeddings.mean():.3f}, std={embeddings.std():.3f}')
+
+    # Run importance tests
+    print("\nTesting feature importance:")
+    orig, random, zero = test_feature_importance(model, data)
+    print("Random features:", compare_embeddings(orig, random))
+    print("Zero features:", compare_embeddings(orig, zero))
+
+    print("\nTesting connectivity importance:")
+    orig, random_edge, no_edge = test_connectivity_importance(model, data)
+    print("Random edges:", compare_embeddings(orig, random_edge))
+    print("No edges:", compare_embeddings(orig, no_edge))
