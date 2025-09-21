@@ -119,6 +119,7 @@ Unsupervised approaches:
 
 from __future__ import annotations
 
+import psutil
 import torch
 import torch.nn.functional as F
 
@@ -164,6 +165,10 @@ def train_model(data, n_epochs:int=200, hidden_channels:int=8, heads:int=8):
                 heads=heads)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
 
+    # Get initial memory usage
+    process = psutil.Process()
+    initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+
     model.train()
     # make tqdm instance that we can feed into
     tqdm_epoch = tqdm(range(n_epochs), desc="Training Epochs")
@@ -173,8 +178,16 @@ def train_model(data, n_epochs:int=200, hidden_channels:int=8, heads:int=8):
         loss = F.cross_entropy(out[data.train_mask], data.y[data.train_mask])
         loss.backward()
         optimizer.step()
-        # update tqdm description
-        tqdm_epoch.set_description(f"Epoch {epoch:03d}, Loss: {loss:.4f}")
+        
+        # Get current memory usage
+        current_memory = process.memory_info().rss / 1024 / 1024  # MB
+        memory_diff = current_memory - initial_memory
+        
+        # update tqdm description with memory info
+        tqdm_epoch.set_description(
+            f"Epoch {epoch:03d}, Loss: {loss:.4f}, "
+            f"Memory: {current_memory:.1f}MB (+{memory_diff:+.1f}MB)"
+        )
     return model
 
 def eval_model(model, data):
