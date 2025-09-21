@@ -91,7 +91,10 @@ from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint
 from typing import Any, Sequence, Generic, TypeVar, Union
 
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
+import scipy.stats as stats
 
 from pony.orm import * # type: ignore
 from scipy.stats import spearmanr # type: ignore
@@ -133,6 +136,33 @@ Correlations = tuple[list[float, int], list[tuple[float, int]]]
 
 # a distance tuple has (id1, id2, distance)
 DistTuple = tuple[str, str, float]
+
+# stats are for now just a dict of strings
+Stats = dict[str, Any]
+
+
+def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure.Figure:
+    """Joins multiple matplotlib figures into one figure with subplots.
+
+    This tries to make something as close to square as possible.
+    """
+    raise NotImplementedError("This function is broken, needs fixing")
+    n = len(figs)
+    rows = int(np.ceil(np.sqrt(n)))
+    cols = int(np.ceil(n/rows))
+
+    # Create new figure with subplots
+    fig_combined, axes = plt.subplots(rows, cols, figsize=(cols*scaling, rows*scaling))
+    axes = axes.flat  # Flatten axes array for easier indexing
+
+    # Copy contents of each figure to a subplot
+    for i, fig in enumerate(figs):
+        # Get the contents from original figure
+        original_ax = fig.axes[0]
+        # Copy to new subplot
+        axes[i].get_figure().canvas.draw()
+        axes[i].imshow(np.array(fig.canvas.renderer.buffer_rgba()))
+    return fig_combined
 
 
 class Labels:
@@ -585,6 +615,73 @@ class EmbeddingsValidator:
                                          score=3,
                                          warning=f'High correlation {corr:.3f} for {key}={label} at dim {dim}')
 
+    def compare_stats(self, a: array1d, b: array1d) -> tuple[Stats, Stats, Stats]:
+        """Compares various stats between two 1D arrays.
+
+        Returns 3 dicts of stats, one for each array and one for the comparison.
+        """
+        def get_stats(x: array1d) -> Stats:
+            return dict(
+                mean=float(np.mean(x)),
+                std=float(np.std(x)),
+                min=float(np.min(x)),
+                max=float(np.max(x)),
+                median=float(np.median(x)),
+                n_zeros=int(np.sum(x == 0)),
+                n_neg=int(np.sum(x < 0)),
+                n_pos=int(np.sum(x > 0)),
+                kurtosis=float(stats.kurtosis(x)),
+                gmean=float(stats.gmean(x)),
+                skew=float(stats.skew(x)),
+                p1=float(np.percentile(x, 1)),
+                p5=float(np.percentile(x, 5)),
+                p25=float(np.percentile(x, 25)),
+                p75=float(np.percentile(x, 75)),
+                p95=float(np.percentile(x, 95)),
+                p99=float(np.percentile(x, 99)),
+            )
+        stats_a = get_stats(a)
+        stats_b = get_stats(b)
+        stats_cmp = {k: stats_a[k] - stats_b[k] for k in stats_a}
+        # add comparison-only stats
+        stats_cmp.update(dict(
+            pearson=float(np.corrcoef(a, b)[0, 1]),
+            spearman=float(spearmanr(a, b).statistic),
+        ))
+        # compute least squares linear fit to get rvalue
+        res = stats.linregress(a, b)
+        stats_cmp.update(dict(
+            linear_least_square_r2=float(res.rvalue)**2.0,
+        ))
+
+        return stats_a, stats_b, stats_cmp
+
+    def init_fig(self):
+        plt.figure(figsize=(10, 10))
+        plt.grid(True)
+        plt.tight_layout()
+
+    def make_plots(self, a: array1d, b: array1d, a_name: str='a', b_name:str='b') -> dict[str, mpl.figure.Figure]:
+        """Makes various plots comparing 1D array `a` to `b`.
+
+        Returns a dict mapping plot type to figure.
+        """
+        ret = {}
+        # make a scatter plot of a vs b
+        self.init_fig()
+        plt.scatter(a, b)
+        plt.xlabel(a_name)
+        plt.ylabel(b_name)
+        plt.title(f'Scatter plot of {a_name} vs {b_name}')
+        #ret['scatter'] = plt.gcf()
+        # make a q-q plot to compare distributions
+        self.init_fig()
+        stats.probplot(a, dist="norm", plot=plt)
+        stats.probplot(b, dist="norm", plot=plt)
+        plt.title(f'Q-Q plot of {a_name} vs {b_name}')
+        ret['qq'] = plt.gcf()
+        return ret
+
     def check_distances(self, n_pairs: int=1000) -> None:
         """Does various tests based on distances"""
         fs_keys = set(self.fs.keys())
@@ -596,7 +693,8 @@ class EmbeddingsValidator:
             if not pairs:
                 continue
             a_keys, b_keys, label_dists = zip(*pairs)
-            print(f'\nFor {key} got {len(pairs)} pairs: {pairs[:5]} ... {pairs[-5:]}')
+            label_dists = np.array(label_dists)
+            print(f'\nFor {key} got {len(pairs)} pairs: {pairs[:3]}')
             ids = sorted(set(a_keys) | set(b_keys))
             # get A and B matrix of embeddings to then compute distances
             keys, fvecs = self.fs.get_keys_embeddings(keys=sorted(ids), normed=False, scale_mean=False, scale_std=False)
@@ -606,16 +704,23 @@ class EmbeddingsValidator:
             dists = dict(
                 dot_prod=1.0 - np.einsum('ij,ij->i', A, B),
                 cos_sim=1.0 - np.einsum('ij,ij->i', A, B) / (np.linalg.norm(A, axis=1) * np.linalg.norm(B, axis=1)),
-                euc_dist=np.linalg.norm(A - B, axis=1),
+                #euc_dist=np.linalg.norm(A - B, axis=1),
             )
+            if np.allclose(dists['dot_prod'], dists['cos_sim']):
+                del dists['cos_sim']
             # now compare each one to label_dists
             for k, m in dists.items():
                 assert m.shape == (len(pairs),), f'Bad shape for {k}: {m.shape} vs {len(pairs)}'
-                pearson = np.corrcoef(m, label_dists)[0, 1]
-                spearman = spearmanr(m, label_dists).statistic
-                print(f'  {key} {k}: pearson={pearson:.3f}, spearman={spearman:.3f}')
-
-
+                print(f'  {k}')
+                label_stats, dist_stats, cmp_stats = self.compare_stats(label_dists, m)
+                for s in cmp_stats:
+                    if s in label_stats:
+                        print(f'    {s:>10}:\t{label_stats[s]: .3f}\t{dist_stats[s]: .3f}\t{cmp_stats[s]: .3f}')
+                    else:
+                        print(f'    {s:>10}:\t{cmp_stats[s]: .3f}')
+                plots = self.make_plots(label_dists, m, a_name=f'Label dists for {key}', b_name=f'{k} dists for {key}')
+                # display each plot interactively
+                for name, plot in plots.items():
 
 
 
