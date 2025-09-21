@@ -939,6 +939,7 @@ class EmbeddingsValidator:
             ret['orig-num'] = values
             ret['log'] = np.log1p(values - np.min(values) + 1.0)
             ret['exp'] = np.expm1(values - np.min(values) + 1.0)
+            #TODO also generate classification tasks
         elif isinstance(label, MulticlassLabels):
             values = np.array([label.values[label.ids.index(id)] for id in ids])
             ret['orig-cls'] = values
@@ -958,7 +959,7 @@ class EmbeddingsValidator:
                     ret[f'binarized-{v}'] = bin_values
         return ret
 
-    def check_prediction(self, n_jobs=12) -> None:
+    def check_prediction(self, n_jobs=10) -> None:
         """Does prediction tests on our labels"""
         fs_keys = set(self.fs.keys())
         pool = ProcessPoolExecutor(max_workers=n_jobs)

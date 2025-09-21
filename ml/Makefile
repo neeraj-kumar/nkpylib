@@ -63,3 +63,7 @@ embeddings:
 ## syncs nkpylib to src3
 sync:
 	rsync -av ~/src/nkpylib src3:src/
+
+## runs gat
+gat:
+	python3 gat.py
