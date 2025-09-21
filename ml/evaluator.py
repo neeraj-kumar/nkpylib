@@ -13,9 +13,7 @@ TODO:
   - Correlate embedding dimensions before/after transformation
   - estimate "intrinsic dimensionality" of the embeddings via MLE or TwoNN
 - Classification/regression against labels
-  - Some std methods: linear svm, rbf svm, svr, forests, pytorch nn?
-  - look at binary and one-vs-all
-  - don't do special multilabel stuff
+  - pytorch nn?
 - For dims, we can also compute histograms
   - Standard stats on histograms: bin sizes, lop-sidedness, normality
   - highlight 0s and other outliers
@@ -50,6 +48,10 @@ TODO:
   - Run unsupervised outlier detection algorithms (e.g., Isolation Forest, LOF) on the embedding space — helpful to spot anomalies or collapsed modes.
 - Maybe more generally for each Label, output best predictors/correlators/etc
 - In the future, do ML doctor stuff
+- Performance
+  - More parallelization
+  - Figure out how to order different operations, including not evaluating things if already
+    promising alternatives
 
 
 Old stuff:
@@ -94,8 +96,8 @@ from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering
 from sklearn.decomposition import PCA # type: ignore
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # type: ignore
 from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
-from sklearn.metrics import recall_score, r2_score, accuracy_score # type: ignore
-from sklearn.model_selection import cross_val_score, train_test_split, KFold # type: ignore
+from sklearn.metrics import recall_score, r2_score, balanced_accuracy_score, accuracy_score # type: ignore
+from sklearn.model_selection import cross_val_score, train_test_split, KFold, StratifiedKFold # type: ignore
 from sklearn.neighbors import NearestNeighbors, KNeighborsClassifier, KNeighborsRegressor # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
 from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
@@ -568,7 +570,7 @@ class MultilabelLabels(MulticlassBase):
         assert len(types) == 1
         t = type(values[0])
         assert t not in FLOAT_TYPES, f'Not floats in multilabel label: {types}'
-        super().__init__(tag_type, key, ids=ids, values=values)
+        super().__init__(tag_type, key, ids=ids, values=dict(values))
 
     def by_label(self) -> dict[Any, set[str]]:
         """Returns a dictionary mapping each label to the set of ids that have that label."""
@@ -649,7 +651,7 @@ class EmbeddingsValidator:
 
     def add_msg(self, **msg) -> None:
         """Adds a message to our internal message list."""
-        logger.info(f'Adding msg {msg}')
+        logger.debug(f'Adding msg {msg}')
         self.msgs.append(msg)
 
     def parse_tags(self, tag_path: str) -> None:
@@ -927,20 +929,42 @@ class EmbeddingsValidator:
 
         print_pairs(pairs)
 
-    def check_prediction(self) -> None:
+    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10) -> dict[str, array1d]:
+        """Generates prediction tasks derived from a set of ids and a `Labels` instance."""
+        ret = {}
+        if isinstance(label, NumericLabels):
+            values = np.array([label.values[label.ids.index(id)] for id in ids])
+            ret['orig-num'] = values
+            ret['log'] = np.log1p(values - np.min(values) + 1.0)
+            ret['exp'] = np.expm1(values - np.min(values) + 1.0)
+        elif isinstance(label, MulticlassLabels):
+            values = np.array([label.values[label.ids.index(id)] for id in ids])
+            ret['orig-cls'] = values
+            for v in set(values):
+                bin_values = np.array([int(val == v) for val in values])
+                if np.sum(bin_values) >= min_pos:
+                    ret[f'binarized-{v}'] = bin_values
+        elif isinstance(label, MultilabelLabels):
+            # label.values maps from id to a list of labels
+            all_labels = set()
+            for id in ids:
+                all_labels.update(label.values.get(id, []))
+            for v in all_labels:
+                bin_values = np.array([int(v in label.values.get(id, [])) for id in ids])
+                if np.sum(bin_values) >= min_pos:
+                    ret[f'binarized-{v}'] = bin_values
+        return ret
+
+
+    def check_prediction(self, n_jobs=12) -> None:
         """Does prediction tests on our labels"""
         fs_keys = set(self.fs.keys())
+        pool = ProcessPoolExecutor(max_workers=n_jobs)
         for key, label in self.labels.items():
-            #TODO generate many label-tasks
-            #TODO  for numeric: orig, log, exp
-            #TODO  for categorical: orig (multiclass only), binarized (one-or-not)
             print(f'\nRunning prediction tests on {key} of type {label.__class__.__name__} with {len(label.ids)} ids')
             assert len(label.ids) == len(set(label.ids))
-            if isinstance(label, MultilabelLabels):
-                continue
-            method_kw = dict(n_jobs=12)
+            method_kw = {} #dict(n_jobs=n_jobs)
             if isinstance(label, NumericLabels):
-                values = label.values
                 methods = dict(
                     ridge=Ridge(alpha=1.0),
                     #forest_reg=RandomForestRegressor(n_estimators=100, **method_kw),
@@ -949,74 +973,65 @@ class EmbeddingsValidator:
                     neighbors_reg=KNeighborsRegressor(n_neighbors=10, **method_kw),
                 )
             else:
-                values = label.values if isinstance(label, MulticlassLabels) else [tuple(sorted(v)) for v in label.values.values()]
-                values = np.array(values)
                 methods = dict(
-                    forest_cls=RandomForestClassifier(n_estimators=100, max_depth=5, **method_kw),
+                    #forest_cls=RandomForestClassifier(n_estimators=100, max_depth=5, **method_kw),
                     rbf_svm=SVC(kernel='rbf', C=1.0, probability=True),
                     linear_svm=LinearSVC(C=1.0, max_iter=200, dual='auto'),
                     neighbors_cls=KNeighborsClassifier(n_neighbors=10, **method_kw),
                 )
-            print(values[:5])
-            # filter ids and values to those in our embeddings
-            ids, values = zip(*[(id, v) for id, v in zip(label.ids, values) if id in fs_keys])
-            values = np.array(values)
-            assert len(ids) == len(values)
+            # filter ids to those in our embeddings and get embeddings
+            ids = [id for id in label.ids if id in fs_keys]
             keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=True, scale_std=True)
-            assert keys == ids
             if len(keys) < 10:
                 print(f'  Only {len(keys)} embeddings, skipping')
                 continue
-            # cross-validation based training and eval
-            pool = ProcessPoolExecutor(max_workers=12)
-            for name, model in methods.items():
-                # get a copy of the model to not modify the original
-                model = sklearn.base.clone(model)
-                print(f'  Training {name} ({model.__class__.__name__}) on {len(keys)} embeddings of dim {emb.shape[1]}')
-                kf = KFold(n_splits=4, shuffle=True)
-                y, preds = [], []
-                futures = []
-                for train, test in kf.split(keys):
-                    X_train, X_test = emb[train], emb[test]
-                    y_train, y_test = values[train], values[test]
-                    y.extend(y_test)
-                    if 0:
-                        cur_preds = train_and_predict(model, X_train, y_train, X_test)
-                        preds.extend(cur_preds)
-                    else:
+            assert keys == ids
+            # generate prediction tasks (different sets of labels) and run each one in our pool
+            tasks = self.gen_prediction_tasks(ids, label)
+            print(f'  Generated {len(tasks)} tasks for {key} x {len(methods)} methods = {len(tasks)*len(methods)}')
+            todo = []
+            for task_name, values in tasks.items():
+                for method_name, model in methods.items():
+                    y = []
+                    KF_cls = KFold if isinstance(label, NumericLabels) else StratifiedKFold
+                    kf = KF_cls(n_splits=4, shuffle=True)
+                    futures = []
+                    for train, test in kf.split(emb, values):
+                        X_train, X_test = emb[train], emb[test]
+                        y_train, y_test = values[train], values[test]
+                        y.extend(y_test)
+                        #print(f'Submitting task {task_name} x {method_name} with {X_train.shape} train, {X_test.shape} test')
                         futures.append(pool.submit(train_and_predict, model, X_train, y_train, X_test))
-                if futures:
+                    todo.append((task_name, np.array(y), method_name, futures))
+            for task_name, y, method_name, futures in todo:
+                s = f'    {task_name} x {method_name} - '
+                preds = []
+                try:
                     for f in futures:
-                        cur_preds = f.result()
-                        preds.extend(cur_preds)
-                y = np.array(y)
+                            preds.extend(f.result())
+                except Exception as e:
+                    print(f'{s} FAILED!: {e}')
+                    continue
                 preds = np.array(preds)
                 if isinstance(label, NumericLabels):
                     score = r2_score(y, preds)
                     score_type = 'R^2'
-                    print(f'    {name} R^2: {score:.3f}')
+                    print(f'{s} R^2: {score:.3f}')
                     n_classes = None
                 else:
-                    score = accuracy_score(y, preds)
-                    score_type = 'accuracy'
+                    score = balanced_accuracy_score(y, preds)
+                    score_type = 'balanced_accuracy'
                     n_classes = len(set(values))
-                    print(f'    {name} Accuracy: {score:.3f} {n_classes} classes')
-                    if 0: #TODO see if this is helpful at all
-                        probs = model.predict_proba(X_test) if hasattr(model, 'predict_proba') else None
-                        if probs is not None:
-                            # get max probability for each prediction
-                            max_probs = np.max(probs, axis=1)
-                            score = avg_prob = np.mean(max_probs)
-                            score_type = 'Avg max prob'
-                            print(f'      Avg max prob: {avg_prob:.3f}')
+                    print(f'{s} Balanced Accuracy: {score:.3f} {n_classes} classes')
                 if score > 0.7:
                     self.add_msg(unit='prediction',
                                  key=key,
-                                 method=name,
+                                 task=task_name,
+                                 method=method_name,
                                  value=score,
                                  n_classes=n_classes,
                                  score=3,
-                                 warning=f'High prediction {score_type} {score:.3f} for {key} using {name}')
+                                 warning=f'High prediction {score_type} {score:.3f} for {key} using {method_name}')
 
 
     def run(self) -> None:
