@@ -22,10 +22,10 @@ class GAT(torch.nn.Module):
         x = F.dropout(x, p=0.6, training=self.training)
         x = self.conv2(x, edge_index)
         return x
-        
+
     def get_embeddings(self, x, edge_index):
         """Extract node embeddings from the first GAT layer.
-        
+
         Returns tensor of shape [num_nodes, hidden_channels * heads]
         """
         self.eval()
@@ -35,7 +35,7 @@ class GAT(torch.nn.Module):
             return embeddings
 
 
-def load_data(name: str='PubMed'):
+def load_data(name: str='Cora'):
     dataset = Planetoid(root=f'/tmp/{name}', name=name, transform=NormalizeFeatures())
     data = dataset[0]
     return data, dataset
@@ -70,11 +70,11 @@ def eval_model(model, data):
 
 if __name__ == '__main__':
     data, dataset = load_data()
-    print(f'Loaded data: {data}, num_classes: {dataset.num_classes}, num_features: {dataset.num_features}, num_nodes: {data.num_nodes}')
+    print(f'Loaded data: {data}, num_classes: {dataset.num_classes}, {data.y.shape}, {data.y}, {data.train_mask.shape}, {data.train_mask}')
     model = train_model(data)
     print(f'Trained model')
     eval_model(model, data)
-    
+
     # Get and print node embeddings
     embeddings = model.get_embeddings(data.x, data.edge_index)
     print(f'\nNode embeddings shape: {embeddings.shape}')
