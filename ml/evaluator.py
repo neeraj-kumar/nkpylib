@@ -26,8 +26,6 @@ TODO:
   - With small number of labels, no need to embed labels, just do one-hot
 - For numerical labels, look at orig values, log(val) and exp(val) where relevant
 - Distances between labeled points
-  - Actually, we might want to pick a bunch of ids, and then all-pairs distances to get something
-    closer to reality
   - For multiclass, we might need embeddings for labels to get distances
   - combine distances across labels
     - Have to be careful about scaling
@@ -35,20 +33,17 @@ TODO:
     - Might have multiple combined distances to compare
   - For converting distances to neighbors, maybe use KNeighborsTransformer or RadiusNeighborsTransformer
 - What to do with distances
-  - Probably want to randomly sample pairs (focusing more on neighbors)
-  - Each pair has a set of label distances (per label, different aggregations)
-  - For each pair, we can also compute embedding distances in various ways
-    - euclidean, cosine, manhattan
-  - Then compute correlations between label distances and embedding distances
+  - Find discrepancies between different distance measures
+  - compare distributions:
+    - compare dist histograms
+    - kl divergence
+  - neighbor agreement
+    - jaccard of neighbor sets, precision/recall @ k, mean reciprocal rank
   - Also between different embedding distances (e.g. euclidean vs cosine)
-    - Find outliers
   - Visualize full pairwise cosine similarity heatmaps — useful for spotting large dense cliques (bad) or disconnected islands (good/bad, depending).
   - Compute pairwise angles between random vector pairs. For high-quality, high-dimensional embeddings, the distribution should be tightly centered.
   - Can also do classification (near/far)/regression on distances
     - metric learning using triplet or contrastive loss?
-  - Also look at neighbor similarity
-    - jaccard, precision/recall, rank-biased overlap
-  - Compare histograms of distances (from labels vs embeddings)
 - Clustering
   - Inputs of distance or neighbors for all methods
   - Look at cluster size distributions
@@ -97,7 +92,7 @@ import numpy as np
 import scipy.stats as stats
 
 from pony.orm import * # type: ignore
-from scipy.stats import spearmanr # type: ignore
+from scipy.spatial.distance import pdist, squareform # type: ignore
 from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import PCA # type: ignore
@@ -136,6 +131,9 @@ Correlations = tuple[list[float, int], list[tuple[float, int]]]
 
 # a distance tuple has (id1, id2, distance)
 DistTuple = tuple[str, str, float]
+
+# All distances is a tuple of (list of ids, complete distance matrix)
+AllDists = tuple[list[str], array2d]
 
 # stats are for now just a dict of strings
 Stats = dict[str, Any]
@@ -182,6 +180,47 @@ class Labels:
 
     def __repr__(self):
         return f'<{self.__class__.__name__} {self.tag_type} {self.key} ({len(self.ids)} labels)>'
+
+    def get_distance(self, idx1: int, idx2: int, **kw) -> float:
+        """Returns distance between two id indices.
+
+        This is implemented by subclasses to define their specific distance metric.
+        Distance should ideally be normalized between 0 (identical) and 1 (maximally different).
+        """
+        raise NotImplementedError()
+
+    def get_all_distances(self, n_pts: int, perc_close: float = -1, **kw) -> AllDists:
+        """Returns all pairwise distances between `n_pts` points.
+
+        We try to sample at least `perc_close` points that are "close" according to the label type's
+        definition of closeness. < 0 means we don't care about closeness (default).
+
+        Returns a pair of `(list of ids, complete distance matrix)`. The distance matrix rows/cols
+        are in the same order as the list of ids.
+
+        This is a naive implementation that ignores `perc_close` and just does random sampling.
+        It also computes distances one-by-one using `get_distance()`. It passes all kw to
+        `get_distance()`.
+        """
+        assert n_pts > 1, 'Must have at least 2 points to compute distances'
+        if n_pts > len(self.ids):
+            n_pts = len(self.ids)
+        ids = sorted(random.sample(self.ids, n_pts))
+        logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
+        dists = self.compute_all_distances(ids, **kw)
+        return ids, dists
+
+    def compute_all_distances(self, ids: list[str], **kw) -> array2d:
+        """Computes all distances in `ids` using `get_distance(id1, id2, **kw)`."""
+        n_pts = len(ids)
+        dists = np.zeros((n_pts, n_pts), dtype=np.float32)
+        for i, id1 in enumerate(ids):
+            idx1 = self.ids.index(id1)
+            for j in range(i+1, n_pts):
+                id2 = ids[j]
+                idx2 = self.ids.index(id2)
+                dists[i, j] = dists[j, i] = dist = self.get_distance(idx1, idx2, **kw)
+        return dists
 
     def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples.
@@ -241,7 +280,7 @@ class Labels:
 
         funcs = [
             lambda i: np.corrcoef(sub_matrix[:, i], sub_labels)[0, 1],
-            lambda i: spearmanr(sub_matrix[:, i], sub_labels).statistic,
+            lambda i: stats.spearmanr(sub_matrix[:, i], sub_labels).statistic,
         ]
         ret = [format_results([func(i) for i in range(sub_matrix.shape[1])]) for func in funcs]
         return tuple(ret)
@@ -269,6 +308,12 @@ class NumericLabels(Labels):
         ids = [id for id, v in ids_values]
         assert len(ids) == len(set(ids)), 'Ids should be unique'
         values = np.array([v for id, v in ids_values], dtype=np.float32)
+        fix_norm = lambda f: f if f > 0 else 1
+        self.norm_factors = dict(
+            range=fix_norm(np.max(values) - np.min(values)),
+            std=fix_norm(np.std(values)),
+            raw=1.0,
+        )
         super().__init__(tag_type, key, ids=ids, values=values)
 
     def check_correlations(self, keys: list[str], matrix: array2d, n_top:int=10) -> Correlations:
@@ -284,6 +329,17 @@ class NumericLabels(Labels):
         sub_labels = self.values[id_indices]
         logger.debug(f'Got sub labels of shape {sub_labels.shape}: {sub_labels}')
         return self.get_correlations(sub_matrix, sub_labels, n_top=n_top)
+
+    def get_distance(self, idx1: int, idx2: int, norm_type: str='raw', **kw) -> float:
+        """Returns distance between two id indices.
+
+        You can specify `norm_type`:
+        - 'raw' (default): absolute difference between values
+        - 'range': absolute difference divided by (max-min)
+        - 'std': absolute difference divided by stddev
+        """
+        dist = abs(self.values[idx1] - self.values[idx2]) / self.norm_factors[norm_type]
+        return dist
 
     def get_distances(self, n_pairs: int, perc_close: float = -1,
                       norm_type: str='raw', close_thresh=0.2, **kw) -> list[DistTuple]:
@@ -304,26 +360,11 @@ class NumericLabels(Labels):
         identical (according to these labels), but the upper-bound is variable, depending on
         the normalization used.
         """
+        # Compute all pairwise differences for consecutive values and then cumsums
         sorted_indices = np.argsort(self.values)
         sorted_values = self.values[sorted_indices]
-
-        # Compute all pairwise differences for consecutive values
         diffs = np.diff(sorted_values)
-
-        # Normalize differences based on specified method
-        if norm_type == 'range':
-            norm_factor = np.max(self.values) - np.min(self.values)
-        elif norm_type == 'std':
-            norm_factor = np.std(self.values)
-        elif norm_type == 'raw':
-            norm_factor = 1
-        else:
-            raise NotImplementedError(f'Unknown norm_type: {norm_type}')
-        if norm_factor == 0:
-            norm_factor = 1
-        diffs = diffs / norm_factor
-
-        # Compute cumulative sums to find ranges of close pairs
+        diffs = diffs / self.norm_factors[norm_type]
         cum_diffs = np.cumsum(diffs)
 
         # we store pairs as a frozenset pair of ids mapping to distance
@@ -369,18 +410,46 @@ class NumericLabels(Labels):
             add_pairs(poss, n_remaining, is_indices=False)
         return self._pairs_to_list(pairs)
 
+
 class MulticlassBase(Labels):
     """Some common code for multiclass/multilabel labels."""
     def by_label(self) -> dict[Any, set[str]]:
         raise NotImplementedError()
 
-    def get_distance(self, idx1: int, idx2: int) -> float:
-        """Returns distance between two id indices.
+    def get_all_distances(self, n_pts: int, perc_close: float = -1, **kw) -> AllDists:
+        """Returns all pairwise distances between `n_pts` points.
 
-        This is implemented by subclasses to define their specific distance metric.
-        Distance should be normalized between 0 (identical) and 1 (maximally different).
+        We try to sample at least `perc_close` points that are "close" according to the label type's
+        definition of closeness. < 0 means we don't care about closeness (default).
+
+        Returns a pair of `(list of ids, complete distance matrix)`. The distance matrix rows/cols
+        are in the same order as the list of ids.
+
+        This implementation samples points from the same label groups if `perc_close > 0` to try to
+        get points which share at least one label in common, in rough proportion to the size of each
+        label group.
         """
-        raise NotImplementedError()
+        assert n_pts > 1, 'Must have at least 2 points to compute distances'
+        if n_pts > len(self.ids):
+            n_pts = len(self.ids)
+        ids = set()
+        n_close = int(n_pts * perc_close)
+        if n_close > 0:
+            groups = {label: sorted(ids) for label, ids in self.by_label().items() if len(ids) >= 2}
+            labels = sorted(groups.keys())
+            counts = [len(groups[label]) for label in labels]
+            # we want to sample from each group in proportion to its size, but at least 2 from each
+            sample = Counter(random.sample(labels, min(n_close, sum(counts)), counts=counts))
+            for label, n in sample.items():
+                n = max(min(n, len(groups[label])), 2)
+                ids.update(random.sample(groups[label], n))
+        if len(ids) < n_pts:
+            remaining_ids = set(self.ids) - ids
+            ids.update(random.sample(sorted(remaining_ids), n_pts - len(ids)))
+        ids = sorted(ids)
+        logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
+        dists = self.compute_all_distances(ids, **kw)
+        return ids, dists
 
     def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples in sorted order by distance.
@@ -406,10 +475,10 @@ class MulticlassBase(Labels):
                 dist = self.get_distance(i1, i2)
                 pairs[spair] = dist
 
-        if perc_close > 0:
+        n_close = int(n_pairs * perc_close)
+        if n_close > 0:
             # First get close pairs by sampling within each label group (since they by definition
             # share at least one label in common)
-            n_close = int(n_pairs * perc_close)
             cands = []
             for ids in self.by_label().values():
                 ids = list(ids)
@@ -469,7 +538,7 @@ class MulticlassLabels(MulticlassBase):
             ret[v].add(id)
         return dict(ret)
 
-    def get_distance(self, idx1: int, idx2: int) -> float:
+    def get_distance(self, idx1: int, idx2: int, **kw) -> float:
         """Returns distance between two id indices.
 
         Distance is 0 for same class, 1 for different class.
@@ -504,7 +573,7 @@ class MultilabelLabels(MulticlassBase):
                 ret[v].add(id)
         return dict(ret)
 
-    def get_distance(self, idx1: int, idx2: int) -> float:
+    def get_distance(self, idx1: int, idx2: int, **kw) -> float:
         """Returns distance between two id indices.
 
         Distance is Jaccard distance: 1 - |intersection|/|union|.
@@ -625,20 +694,20 @@ class EmbeddingsValidator:
                 mean=float(np.mean(x)),
                 std=float(np.std(x)),
                 min=float(np.min(x)),
-                max=float(np.max(x)),
+                p1=float(np.percentile(x, 1)),
+                p5=float(np.percentile(x, 5)),
+                p25=float(np.percentile(x, 25)),
                 median=float(np.median(x)),
-                n_zeros=int(np.sum(x == 0)),
+                p75=float(np.percentile(x, 75)),
+                p95=float(np.percentile(x, 95)),
+                p99=float(np.percentile(x, 99)),
+                max=float(np.max(x)),
                 n_neg=int(np.sum(x < 0)),
+                n_zeros=int(np.sum(x == 0)),
                 n_pos=int(np.sum(x > 0)),
                 kurtosis=float(stats.kurtosis(x)),
                 gmean=float(stats.gmean(x)),
                 skew=float(stats.skew(x)),
-                p1=float(np.percentile(x, 1)),
-                p5=float(np.percentile(x, 5)),
-                p25=float(np.percentile(x, 25)),
-                p75=float(np.percentile(x, 75)),
-                p95=float(np.percentile(x, 95)),
-                p99=float(np.percentile(x, 99)),
             )
         stats_a = get_stats(a)
         stats_b = get_stats(b)
@@ -646,7 +715,8 @@ class EmbeddingsValidator:
         # add comparison-only stats
         stats_cmp.update(dict(
             pearson=float(np.corrcoef(a, b)[0, 1]),
-            spearman=float(spearmanr(a, b).statistic),
+            spearman=float(stats.spearmanr(a, b).statistic),
+            tau=float(stats.kendalltau(a, b).statistic),
         ))
         # compute least squares linear fit to get rvalue
         res = stats.linregress(a, b)
@@ -667,13 +737,14 @@ class EmbeddingsValidator:
         Returns a dict mapping plot type to figure.
         """
         ret = {}
-        # make a scatter plot of a vs b
-        self.init_fig()
-        plt.scatter(a, b)
-        plt.xlabel(a_name)
-        plt.ylabel(b_name)
-        plt.title(f'Scatter plot of {a_name} vs {b_name}')
-        #ret['scatter'] = plt.gcf()
+        if 0:
+            # make a scatter plot of a vs b
+            self.init_fig()
+            plt.scatter(a, b)
+            plt.xlabel(a_name)
+            plt.ylabel(b_name)
+            plt.title(f'Scatter plot of {a_name} vs {b_name}')
+            ret['scatter'] = plt.gcf()
         # make a q-q plot to compare distributions
         self.init_fig()
         stats.probplot(a, dist="norm", plot=plt)
@@ -682,67 +753,73 @@ class EmbeddingsValidator:
         ret['qq'] = plt.gcf()
         return ret
 
-    def check_distances(self, n_pairs: int=1000) -> None:
+    def check_distances(self, n: int=200, sample_ids:bool=True) -> None:
         """Does various tests based on distances"""
         fs_keys = set(self.fs.keys())
         for key, label in self.labels.items():
             kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
-            pairs = label.get_distances(n_pairs, **kw)
-            # filter by keys in our embeddings
-            pairs = [(id1, id2, dist) for id1, id2, dist in pairs if id1 in fs_keys and id2 in fs_keys]
-            if not pairs:
-                continue
-            a_keys, b_keys, label_dists = zip(*pairs)
-            label_dists = np.array(label_dists)
-            print(f'\nFor {key} got {len(pairs)} pairs: {pairs[:3]}')
-            ids = sorted(set(a_keys) | set(b_keys))
-            # get A and B matrix of embeddings to then compute distances
-            keys, fvecs = self.fs.get_keys_embeddings(keys=sorted(ids), normed=False, scale_mean=False, scale_std=False)
-            A = np.array([fvecs[keys.index(id)] for id in a_keys])
-            B = np.array([fvecs[keys.index(id)] for id in b_keys])
-            # compute dot product, cosine similarity, euclidean distance (all small=similar)
-            dists = dict(
-                dot_prod=1.0 - np.einsum('ij,ij->i', A, B),
-                cos_sim=1.0 - np.einsum('ij,ij->i', A, B) / (np.linalg.norm(A, axis=1) * np.linalg.norm(B, axis=1)),
-                #euc_dist=np.linalg.norm(A - B, axis=1),
-            )
-            if np.allclose(dists['dot_prod'], dists['cos_sim']):
+            if sample_ids: # all pairs for a set of ids
+                ids, label_dists = label.get_all_distances(n, **kw)
+                common_indices = np.array([i for i, id in enumerate(ids) if id in fs_keys])
+                if len(common_indices) < 2:
+                    continue
+                ids = [ids[i] for i in common_indices]
+                label_dists = label_dists[np.ix_(common_indices, common_indices)]
+                print(f'\nFor {key} got {len(ids)} ids: {ids[:3]}')
+                # get embedding matrix to then compute all pairs distances
+                keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=False, scale_std=False)
+                dists = dict(
+                    dot_prod=1.0 - (emb @ emb.T),
+                    cos_sim=squareform(pdist(emb, 'cosine')),
+                    #euc_dist=squareform(pdist(emb, 'euclidean')),
+                )
+            else: # sample pairs
+                pairs = label.get_distances(n, **kw)
+                # filter by keys in our embeddings
+                pairs = [(id1, id2, dist) for id1, id2, dist in pairs if id1 in fs_keys and id2 in fs_keys]
+                if not pairs:
+                    continue
+                a_keys, b_keys, label_dists = zip(*pairs)
+                label_dists = np.array(label_dists)
+                print(f'\nFor {key} got {len(pairs)} pairs: {pairs[:3]}')
+                ids = sorted(set(a_keys) | set(b_keys))
+                # get A and B matrix of embeddings to then compute distances
+                keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=False, scale_std=False)
+                A = np.array([emb[keys.index(id)] for id in a_keys])
+                B = np.array([emb[keys.index(id)] for id in b_keys])
+                logger.debug(f'  {label_dists.shape}, {A.shape}, {B.shape}, {label_dists}, {A}, {B}')
+                # compute dot product, cosine similarity, euclidean distance (all small=similar)
+                dists = dict(
+                    dot_prod=1.0 - np.einsum('ij,ij->i', A, B),
+                    cos_sim=1.0 - np.einsum('ij,ij->i', A, B) / (np.linalg.norm(A, axis=1) * np.linalg.norm(B, axis=1)),
+                    #euc_dist=np.linalg.norm(A - B, axis=1),
+                )
+            if np.allclose(dists['dot_prod'], dists['cos_sim'], rtol=1e-2, atol=1e-2):
                 del dists['cos_sim']
             # now compare each one to label_dists
+            if label_dists.ndim == 2:
+                # sample upper triangle without diagonal
+                iu = np.triu_indices(label_dists.shape[0], k=1)
+                label_dists = label_dists[iu]
             for k, m in dists.items():
-                assert m.shape == (len(pairs),), f'Bad shape for {k}: {m.shape} vs {len(pairs)}'
-                print(f'  {k}')
+                if m.ndim == 2:
+                    # sample identically as label_dists
+                    m = m[iu]
+                print(f'  {k}: {m.shape}: {m}')
                 label_stats, dist_stats, cmp_stats = self.compare_stats(label_dists, m)
                 for s in cmp_stats:
+                    if s not in 'pearson spearman tau'.split():
+                        continue
                     if s in label_stats:
                         print(f'    {s:>10}:\t{label_stats[s]: .3f}\t{dist_stats[s]: .3f}\t{cmp_stats[s]: .3f}')
                     else:
                         print(f'    {s:>10}:\t{cmp_stats[s]: .3f}')
-                plots = self.make_plots(label_dists, m, a_name=f'Label dists for {key}', b_name=f'{k} dists for {key}')
-                # display each plot interactively
-                for name, plot in plots.items():
-                    plt.figure(plot.number)
-                    plt.show()
-                    
-                    # Add messages based on correlation strength
-                    if abs(cmp_stats['pearson']) > 0.7:
-                        self.add_msg(
-                            unit='distance_correlation',
-                            label=key,
-                            method=k,
-                            value=cmp_stats['pearson'],
-                            score=3,
-                            warning=f'Strong correlation {cmp_stats["pearson"]:.3f} between {key} and {k} distances'
-                        )
-                    elif abs(cmp_stats['pearson']) < 0.3:
-                        self.add_msg(
-                            unit='distance_correlation',
-                            label=key,
-                            method=k,
-                            value=cmp_stats['pearson'],
-                            score=-2,
-                            warning=f'Weak correlation {cmp_stats["pearson"]:.3f} between {key} and {k} distances'
-                        )
+                if 0:
+                    plots = self.make_plots(label_dists, m, a_name=f'Label dists for {key}', b_name=f'{k} dists for {key}')
+                    # display each plot interactively
+                    for name, plot in plots.items():
+                        plt.figure(plot.number)
+                        plt.show()
 
 
     def test_distances(self) -> None:
@@ -770,7 +847,7 @@ class EmbeddingsValidator:
 
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
-        self.check_distances()
+        self.check_distances(n=200, sample_ids=True)
         return
         # raw correlations
         # norming hurts correlations
