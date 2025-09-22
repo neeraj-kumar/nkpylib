@@ -454,7 +454,7 @@ class RandomWalkGAT(GATBase):
                 # Clear all intermediate tensors explicitly and force garbage collection
                 del pos_nodes, anchors, neg_nodes, anchor_embeds, pos_embeds, neg_embeds
                 del all_sims, targets, batch_walks, context, context_mask
-                del anchor_embeds_reshaped, neg_embeds_reshaped, pos_sims, neg_sims
+                del pos_sims, neg_sims
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
