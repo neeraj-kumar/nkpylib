@@ -184,7 +184,10 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
 
 # hashable bound
 T = TypeVar('T', bound=Hashable)
-def generate_cooccurence_embeddings(data: list[list[T]], existing: Mapping[T, array1d]|None=None, decay: float=0.9):
+def generate_cooccurence_embeddings(
+        data: list[list[T]],
+        existing: Mapping[T, array1d]|None=None
+        ) -> dict[T, array1d]:
     """Generates embeddings based on co-occurence.
 
     The idea is that if two items co-occur often, they should be closer in embedding space.
@@ -196,27 +199,93 @@ def generate_cooccurence_embeddings(data: list[list[T]], existing: Mapping[T, ar
     In practice, there are a few main approaches for generating these:
     1. Count co-occurences and use SVD to reduce dimensionality. This has the advantage that it's
     well understood, principled, fast, globally optimal, and has a direct way of figuring out
-    dimensionality. The downside is that updating embeddings when there is new co-occurrence data is
-    a little annoying, and it's much harder to add brand new tags.
+    dimensionality. It also works quite stably when updating with new data or even new tags. The
+    downsides are that it can be slow if used on very large data (since we recompute it from scratch
+    each time) and that in practice, it might not be as good as word2vec style embeddings for
+    downstream classification tasks.
 
     2. Word2vec-style embeddings. These are often faster to train (at scale) and might be higher
-    signal for downstream tasks, as well as easier to do updates with. The downside is that
-    you have to figure out dimensionality yourself, and they can drift more.
+    signal for downstream tasks. The downsides are that you have to figure out dimensionality
+    yourself, and updates with new tags have to be done very carefully due to randomization/etc.
+
+    This function uses the first approach.
 
     The input `data` is a list of lists of tags. Each inner list is a set of tags that co-occurred
     together. Tags can be any hashable type.
 
-    You can optionally provide existing embeddings to update. In that case, the `data` should be just
-    the new data that you are adding. You can also provide a sense of how much the data has changed
-    via the `decay` parameter; this is a number between 0 and 1 that indicates how much to decay
-    the existing embeddings. A decay of 0 means to ignore existing embeddings, while a decay of 1
-    means to keep them as-is (default 0.9)
+    Note that if you had previously computed embeddings with older data (perhaps even with new tags
+    this time), the embeddings should still not drift much.
+
+    You can optionally provide `existing` embeddings to update as a dict from tag to embedding. In
+    that case, the `data` should be a snapshot of all data (old + new), as we simply recompute
+    things from scratch.
     """
-    pass
+    min_variance = 0.9
+    #FIXME how do we get consistent indices per tag?
+    tag_to_idx: dict[T, int] = {}
+    if existing is not None:
+        for tag in existing:
+            tag_to_idx[tag] = len(tag_to_idx)
+    for tags in data:
+        for tag in tags:
+            if tag not in tag_to_idx:
+                tag_to_idx[tag] = len(tag_to_idx)
+    n_tags = len(tag_to_idx)
+    logger.info(f'Got {n_tags} unique tags from {len(data)} data points.')
+    cooccur = np.zeros((n_tags, n_tags), dtype=np.float32)
+    if 0: # sequential version
+        for tags in tqdm(data, desc='Counting co-occurences'):
+            indices = [tag_to_idx[tag] for tag in tags]
+            for i in indices:
+                for j in indices:
+                    if i != j:
+                        cooccur[i, j] += 1
+    else: # vectorized version
+        for tags in tqdm(data, desc='Counting co-occurences'):
+            indices = [tag_to_idx[tag] for tag in tags]
+            if len(indices) > 1:
+                arr = np.array(indices)
+                cooccur[np.ix_(arr, arr)] += 1
+                np.fill_diagonal(cooccur, 0)
+    logger.info(f'Co-occurence matrix has {np.count_nonzero(cooccur)} non-zero entries '
+                f'out of {cooccur.size} ({100*np.count_nonzero(cooccur)/cooccur.size:.2f}%)')
+    # SVD
+    logger.info('Computing SVD...')
+    U, S, VT = np.linalg.svd(cooccur, full_matrices=False)
+    logger.info(f'Got U: {U.shape}, S: {S.shape}, VT: {VT.shape}')
+    # pick dimensionality
+    total_variance = sum(S**2)
+    variance = 0.0
+    dim = 0
+    while variance / total_variance < min_variance and dim < len(S):
+        variance += S[dim]**2
+        dim += 1
+    assert 2 <= dim <= 256, f'Unreasonable dimensionality {dim}'
+    logger.info(f'Using {dim} dimensions to capture {100*variance/total_variance:.2f}% of variance')
+    S_root = np.sqrt(np.diag(S[:dim]))
+    embeddings = U[:, :dim] @ S_root
+    # normalize embeddings
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    embeddings = embeddings / norms
+    ret: dict[T, array1d] = {}
+    for tag, idx in tag_to_idx.items():
+        ret[tag] = embeddings[idx]
+    return ret
+
+def gen_tag_embeddings(input_path: str, dlm: str='\t'):
+    """Generates tag embeddings from the given `input_path`
+
+    The input should be a text file with each line containing a list of `dlm`-separated tags that
+    have co-occurred together.
+    """
+    with open(input_path) as f:
+        data = [line.strip().split(dlm) for line in f if line.strip()]
+    embs = generate_cooccurence_embeddings(data)
+    print(embs.items()[:5])
 
 
 if __name__ == '__main__':
-    funcs = {f.__name__: f for f in []}
+    funcs = {f.__name__: f for f in [gen_tag_embeddings]}
     parser = ArgumentParser(description='Test embeddings')
     parser.add_argument('func', choices=funcs, help='Function to run')
     parser.add_argument('path', help='Path to the embeddings lmdb file')
