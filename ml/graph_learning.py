@@ -233,7 +233,7 @@ class GATBase(torch.nn.Module):
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = F.elu(self.conv1(x, edge_index))
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = F.elu(self.conv2(x, edge_index))
+        x = self.conv2(x, edge_index)
         return x
 
     def get_embeddings(self, x, edge_index):
@@ -266,7 +266,7 @@ class NodeClassificationGAT(GATBase):
     def forward(self, x, edge_index):
         """Runs the base model and then the final linear layer."""
         x = super().forward(x, edge_index)
-        x = self.lin(x)
+        x = self.lin(F.elu(x))
         return x
 
 
@@ -332,8 +332,11 @@ class RandomWalkGAT(GATBase):
                 if len(valid_context) > 0:
                     all_pos_nodes.append(valid_context)
                     all_anchor_idxs.append(torch.full_like(valid_context, walks_tensor[walk_idx, i]))
+        print(f'in compute_loss')
         if not all_pos_nodes:  # No valid positive pairs found
+            print('whoa')
             return torch.tensor(0.0, device=x.device)
+        print(f'in compute_loss 2')
         # concatenate all positive pairs
         pos_nodes = torch.cat(all_pos_nodes)
         anchors = torch.cat(all_anchor_idxs)
@@ -365,6 +368,11 @@ class RandomWalkGAT(GATBase):
         # Use cross entropy loss with first index (positive) as target
         targets = torch.zeros(len(anchors), dtype=torch.long, device=embeddings.device)
         loss = F.cross_entropy(all_sims, targets)
+
+        print("Model parameters require grad:", [p.requires_grad for p in self.parameters()])
+        print("Embeddings require grad:", embeddings.requires_grad)
+        print("Pos sims require grad:", pos_sims.requires_grad)
+        print("All sims require grad:", all_sims.requires_grad)
         return loss
 
 
