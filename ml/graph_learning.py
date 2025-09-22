@@ -282,8 +282,8 @@ class NodeClassificationGAT(GATBase):
 
 class ContrastiveGAT(GATBase):
     """GAT model trained using contrastive learning.
-    
-    This base class implements the core contrastive learning logic, processing pairs
+
+    This class implements the core contrastive learning logic, processing pairs
     of positive and negative examples to learn node embeddings.
     """
     def __init__(self,
@@ -291,7 +291,7 @@ class ContrastiveGAT(GATBase):
                  temperature: float = 0.07,
                  **kw):
         """Initialize this ContrastiveGAT model.
-        
+
         Args:
             negative_samples: Number of negative samples per positive pair
             temperature: Temperature for similarity scaling (higher = softer attention)
@@ -299,8 +299,8 @@ class ContrastiveGAT(GATBase):
         super().__init__(**kw)
         self.negative_samples = negative_samples
         self.temperature = temperature
-    
-    def _process_batch(self,
+
+    def batch_loss(self,
                       embeddings: torch.Tensor,
                       anchors: torch.Tensor,
                       pos_nodes: torch.Tensor,
@@ -319,12 +319,11 @@ class ContrastiveGAT(GATBase):
             Batch loss value
         """
         # Get embeddings for this batch
-        with torch.no_grad():
-            anchor_embeds = embeddings[anchors]
-            pos_embeds = embeddings[pos_nodes]
-            neg_embeds = embeddings[neg_nodes.view(-1)].view(
-                cur_batch_size, self.negative_samples, -1
-            )
+        anchor_embeds = embeddings[anchors]
+        pos_embeds = embeddings[pos_nodes]
+        neg_embeds = embeddings[neg_nodes.view(-1)].view(
+            cur_batch_size, self.negative_samples, -1
+        )
 
         # Compute similarities
         cos = torch.nn.CosineSimilarity(dim=1)
@@ -341,47 +340,52 @@ class ContrastiveGAT(GATBase):
 
         return batch_loss
 
-    def compute_loss(self, x, edge_index, pair_generator, batch_size: int = 1024):
+    def pair_generator(self, batch_size: int) -> iterable[tuple[array1d, array1d]]:
+        """Generates positive pairs of nodes for contrastive learning.
+
+        This should yield tuples of `(anchors, positive_nodes)`
+        """
+        raise NotImplementedError("Subclasses must implement pair_generator()")
+
+    def compute_loss(self, x, edge_index, batch_size: int = 1024):
         """Compute contrastive loss using pairs of nodes.
-        
+
         Args:
             x: Node features
             edge_index: Graph connectivity
-            pair_generator: Generator yielding (anchors, positives) pairs
             batch_size: Number of pairs to process at once
-            
+
         Returns:
             Average loss across all pairs
         """
         # Get embeddings
         embeddings = self.embedding_forward(x, edge_index).cpu()
-        
+
         total_loss = 0
         total_pairs = 0
-        
-        for anchors, pos_nodes in pair_generator:
+
+        for anchors, pos_nodes in self.pair_generator(batch_size=batch_size):
             cur_batch_size = len(anchors)
-            
+
             # Generate negative samples
             with torch.no_grad():
-                neg_nodes = torch.randint(0, x.shape[0],
-                                        (cur_batch_size, self.negative_samples))
-            
+                neg_nodes = torch.randint(0, x.shape[0], (cur_batch_size, self.negative_samples))
+
             # Process batch
-            batch_loss = self._process_batch(
+            batch_loss = self.batch_loss(
                 embeddings=embeddings,
                 anchors=anchors,
                 pos_nodes=pos_nodes,
                 neg_nodes=neg_nodes,
                 cur_batch_size=cur_batch_size,
             )
-            
+
             total_loss += batch_loss
             total_pairs += cur_batch_size
-            
+
         if total_pairs == 0:
             raise ValueError("No valid pairs found!")
-            
+
         return total_loss / total_pairs
 
 
@@ -391,75 +395,61 @@ class RandomWalkGAT(ContrastiveGAT):
     Instead of node classification, this learns node embeddings such that nodes
     appearing close together in random walks have similar embeddings.
     """
-    def __init__(self, walk_window: int = 5, **kw):
+    def __init__(self, walks: Sequence[Sequence[int]], walk_window: int = 5, **kw):
         """Initialize this RandomWalkGAT model.
-        
+
         Args:
             walk_window: Context window size for walks (how many nodes before/after to consider)
         """
         super().__init__(**kw)
         self.walk_window = walk_window
+        self.walks = walks
 
+    def pair_generator(self, batch_size: int) -> iterable[tuple[array1d, array1d]]:
+        """Generate positive pairs from random walks."""
+        walks_tensor = torch.tensor(self.walks)
+        valid_mask = walks_tensor != INVALID_NODE
+        walk_length = walks_tensor.shape[1]
 
-    def compute_loss(self, x, edge_index, walks: Sequence[Sequence[int]], batch_size: int = 1024):
-        """Compute loss using random walks for training.
-        
-        Args:
-            x: Node features
-            edge_index: Graph connectivity
-            walks: List of random walks, each walk is list of node indices
-            batch_size: Number of pairs to process at once
-            
-        Returns:
-            Loss value computed from walk-based contrastive learning
-        """
-        def walk_pair_generator():
-            """Generate positive pairs from random walks."""
-            walks_tensor = torch.tensor(walks)
-            valid_mask = walks_tensor != INVALID_NODE
-            walk_length = walks_tensor.shape[1]
-            
-            for i in range(walk_length):
-                pos_mask = valid_mask[:, i].clone()
-                if not pos_mask.any():
-                    continue
-                
-                # Get valid walks for this position
-                pos_walks = pos_mask.nonzero().squeeze(1)
-                if len(pos_walks.shape) == 0:
-                    pos_walks = pos_walks.unsqueeze(0)
-                n_pos = len(pos_walks)
-                
-                # Process walks in batches
-                for batch_start in range(0, n_pos, batch_size):
-                    batch_end = min(batch_start + batch_size, n_pos)
-                    batch_walks = pos_walks[batch_start:batch_end]
-                    
-                    # Get context window
-                    start = max(0, i - self.walk_window)
-                    end = min(walk_length, i + self.walk_window + 1)
-                    context = walks_tensor[batch_walks][:, start:end]
-                    context_mask = valid_mask[batch_walks][:, start:end].clone()
-                    context_mask[:, i-start] = False
-                    
-                    # Collect positive pairs
-                    batch_pos_nodes = []
-                    batch_anchor_idxs = []
-                    for idx, walk_idx in enumerate(batch_walks):
-                        valid_context = context[idx][context_mask[idx]]
-                        if len(valid_context) > 0:
-                            batch_pos_nodes.append(valid_context)
-                            batch_anchor_idxs.append(
-                                torch.full_like(valid_context, walks_tensor[walk_idx, i])
-                            )
-                    
-                    if batch_pos_nodes:
-                        yield (
-                            torch.cat(batch_anchor_idxs),
-                            torch.cat(batch_pos_nodes)
+        for i in range(walk_length):
+            pos_mask = valid_mask[:, i].clone()
+            if not pos_mask.any():
+                continue
+
+            # Get valid walks for this position
+            pos_walks = pos_mask.nonzero().squeeze(1)
+            if len(pos_walks.shape) == 0:
+                pos_walks = pos_walks.unsqueeze(0)
+            n_pos = len(pos_walks)
+
+            # Process walks in batches
+            for batch_start in range(0, n_pos, batch_size):
+                batch_end = min(batch_start + batch_size, n_pos)
+                batch_walks = pos_walks[batch_start:batch_end]
+
+                # Get context window
+                start = max(0, i - self.walk_window)
+                end = min(walk_length, i + self.walk_window + 1)
+                context = walks_tensor[batch_walks][:, start:end]
+                context_mask = valid_mask[batch_walks][:, start:end].clone()
+                context_mask[:, i-start] = False
+
+                # Collect positive pairs
+                batch_pos_nodes = []
+                batch_anchor_idxs = []
+                for idx, walk_idx in enumerate(batch_walks):
+                    valid_context = context[idx][context_mask[idx]]
+                    if len(valid_context) > 0:
+                        batch_pos_nodes.append(valid_context)
+                        batch_anchor_idxs.append(
+                            torch.full_like(valid_context, walks_tensor[walk_idx, i])
                         )
-        
-        return super().compute_loss(x, edge_index, walk_pair_generator(), batch_size)
+
+                if batch_pos_nodes:
+                    yield (
+                        torch.cat(batch_anchor_idxs),
+                        torch.cat(batch_pos_nodes)
+                    )
 
 
 class GraphLearner:
@@ -569,9 +559,10 @@ class GraphLearner:
             in_channels=self.data.num_features,
             hidden_channels=self.hidden_channels,
             heads=self.heads,
+            walks=walks,
         )
         def loss_fn(model):
-            return model.compute_loss(self.data.x, self.data.edge_index, walks)
+            return model.compute_loss(self.data.x, self.data.edge_index)
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model
