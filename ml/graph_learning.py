@@ -346,6 +346,11 @@ class RandomWalkGAT(GATBase):
             print(f"  context: {context.shape}, {context}, mask: {context_mask.sum()}, {context_mask.shape}, {context_mask}")
             
             # add valid context nodes for each anchor
+
+            print(f"  pos_mask: {pos_mask}")
+            print(f"  pos_mask dtype: {pos_mask.dtype}")
+            print(f"  pos_mask device: {pos_mask.device}")
+            print(f"  pos_mask nonzero: {pos_mask.nonzero()}")
             pos_walks = pos_mask.nonzero().squeeze(1)
             print(f"  pos_walks: {pos_walks}")
             
@@ -691,6 +696,6 @@ if __name__ == '__main__':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        walks = gl.gen_walks(n_walks_per_node=10, walk_length=20)
+        walks = gl.gen_walks(n_walks_per_node=1, walk_length=10)
         model = gl.train_random_walks(walks)
         gl.train_and_eval_cls(model)
