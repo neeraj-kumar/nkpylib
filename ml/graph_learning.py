@@ -341,20 +341,30 @@ class RandomWalkGAT(GATBase):
         neg_nodes = torch.randint(0, x.shape[0],
                                 (len(anchors), self.negative_samples),
                                 device=x.device)
-        # compute similarities for all pairs at once
+        # Use cosine similarity module to maintain gradient connections
+        cos = torch.nn.CosineSimilarity(dim=1)
+        
+        # Compute logits for positive and negative pairs
         anchor_embeds = embeddings[anchors]
         pos_embeds = embeddings[pos_nodes]
         neg_embeds = embeddings[neg_nodes.view(-1)].view(len(anchors), self.negative_samples, -1)
-        # compute positive and negative similarities
-        pos_sims = F.cosine_similarity(anchor_embeds, pos_embeds, dim=1) / self.temperature
-        neg_sims = torch.bmm(
-            anchor_embeds.unsqueeze(1),
-            neg_embeds.transpose(1, 2)
-        ).squeeze(1) / self.temperature
-        # compute InfoNCE loss for all pairs at once
-        pos_sum = torch.exp(pos_sims)
-        neg_sum = torch.exp(neg_sims).sum(dim=1)
-        loss = -torch.log(pos_sum / (pos_sum + neg_sum)).mean()
+        
+        # Compute similarities maintaining gradient connections
+        pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
+        
+        # Reshape for batch matrix multiply
+        anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)  # [N, 1, D]
+        neg_embeds_reshaped = neg_embeds.transpose(1, 2)     # [N, D, K]
+        
+        # Compute all negative similarities at once
+        neg_sims = torch.bmm(anchor_embeds_reshaped, neg_embeds_reshaped).squeeze(1) / self.temperature
+        
+        # Concatenate positive and negative similarities
+        all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
+        
+        # Use cross entropy loss with first index (positive) as target
+        targets = torch.zeros(len(anchors), dtype=torch.long, device=embeddings.device)
+        loss = F.cross_entropy(all_sims, targets)
         return loss
 
 
