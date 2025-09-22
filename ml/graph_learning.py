@@ -251,8 +251,8 @@ class NodeClassificationGAT(GATBase):
 
         All other `kw` are passed to the base GAT model.
         """
-        super().__init__(out_channels=out_channels, **kw)
-        self.lin = torch.nn.Linear(hidden_channels * heads, out_channels)
+        super().__init__(**kw)
+        self.lin = torch.nn.Linear(self.conv1.out_channels, out_channels)
 
     def forward(self, x, edge_index):
         """Runs the base model and then the final linear layer."""
@@ -603,7 +603,8 @@ def compare_embeddings(emb1, emb2):
 def quick_test(data):
     """Run a quick test to see how GAT works"""
     return
-    model = train_model(data)
+    gl = GraphLearner(data)
+    model = gl.train_node_classification()
     print(f'Trained model')
     eval_model(model, data)
 
