@@ -176,6 +176,8 @@ from nkpylib.ml.feature_set import (
     nparray2d,
 )
 
+torch.manual_seed(0)
+
 logger = logging.getLogger(__name__)
 
 INVALID_NODE = -1
@@ -328,13 +330,12 @@ class RandomWalkGAT(GATBase):
         Returns:
             Batch loss value
         """
-        # Get embeddings for this batch - indexing doesn't need gradients
-        with torch.no_grad():
-            anchor_embeds = embeddings[anchors]
-            pos_embeds = embeddings[pos_nodes]
-            neg_embeds = embeddings[neg_nodes.view(-1)].view(
-                cur_batch_size, self.negative_samples, -1
-            )
+        # Get embeddings for this batch
+        anchor_embeds = embeddings[anchors]
+        pos_embeds = embeddings[pos_nodes]
+        neg_embeds = embeddings[neg_nodes.view(-1)].view(
+            cur_batch_size, self.negative_samples, -1
+        )
 
         # Compute similarities
         cos = torch.nn.CosineSimilarity(dim=1)
@@ -384,19 +385,20 @@ class RandomWalkGAT(GATBase):
                 continue
 
             # Process position mask on CPU first
-            pos_walks = pos_mask.nonzero().squeeze(1)
-            if len(pos_walks.shape) == 0:
-                pos_walks = pos_walks.unsqueeze(0)
+            with torch.no_grad():
+                pos_walks = pos_mask.nonzero().squeeze(1)
+                if len(pos_walks.shape) == 0:
+                    pos_walks = pos_walks.unsqueeze(0)
             n_pos = len(pos_walks)
 
             # Process walks in batches
             for batch_start in range(0, n_pos, batch_size):
                 batch_end = min(batch_start + batch_size, n_pos)
-                # Move only the needed batch to device
-                batch_walks = pos_walks[batch_start:batch_end].to(x.device)
 
                 # Get context window - no need to track these indexing operations
                 with torch.no_grad():
+                    # Move only the needed batch to device
+                    batch_walks = pos_walks[batch_start:batch_end].to(x.device)
                     start = max(0, i - self.walk_window)
                     end = min(walk_length, i + self.walk_window + 1)
                     context = walks_tensor[batch_walks.cpu()][:, start:end]
@@ -497,7 +499,7 @@ class GraphLearner:
         self.dropout = dropout
         self.kw = kw
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.rng = npr.default_rng()
+        self.rng = npr.default_rng(0)
 
     def train_model(self,
                     model: torch.nn.Module,
