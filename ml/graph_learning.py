@@ -406,11 +406,12 @@ class RandomWalkGAT(GATBase):
                 total_loss += batch_loss * cur_batch_size
                 total_pairs += cur_batch_size
                 
-                # Clear some tensors explicitly
+                # Clear all intermediate tensors explicitly
                 del pos_nodes, anchors, neg_nodes, anchor_embeds, pos_embeds, neg_embeds
-                del all_sims, targets
+                del all_sims, targets, batch_walks, context, context_mask
+                del anchor_embeds_reshaped, neg_embeds_reshaped, pos_sims, neg_sims
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
-                log_memory("After batch completion and cleanup")
+                log_memory(f"After batch {batch_start}/{n_pos} completion and cleanup")
         
         if total_pairs == 0:
             raise ValueError("No valid positive pairs found!")
