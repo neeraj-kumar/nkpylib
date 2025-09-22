@@ -296,6 +296,12 @@ class RandomWalkGAT(GATBase):
         - temperature: Temperature for similarity scaling (higher = softer attention)
 
         All other `kw` are passed to the base GAT model.
+
+        Memory:
+        - O(walk_window*n_walks)
+        - not proprotional to negs?!!
+        - somewhat proportional to walk length?
+        - maybe increases per batch, but not sure
         """
         super().__init__(**kw)
         self.walk_window = walk_window
@@ -371,9 +377,6 @@ class RandomWalkGAT(GATBase):
         total_loss = 0
         total_pairs = 0
 
-        # Process each position in smaller batches
-        pos_batch_size = batch_size // (2 * self.walk_window)  # Adjust for context window
-
         for i in range(walk_length):
             pos_mask = valid_mask[:, i].clone()
             if not pos_mask.any():
@@ -386,8 +389,8 @@ class RandomWalkGAT(GATBase):
             n_pos = len(pos_walks)
 
             # Process walks in batches
-            for batch_start in range(0, n_pos, pos_batch_size):
-                batch_end = min(batch_start + pos_batch_size, n_pos)
+            for batch_start in range(0, n_pos, batch_size):
+                batch_end = min(batch_start + batch_size, n_pos)
                 # Move only the needed batch to device
                 batch_walks = pos_walks[batch_start:batch_end].to(x.device)
 
@@ -749,7 +752,7 @@ if __name__ == '__main__':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        walks = gl.gen_walks(n_walks_per_node=2, walk_length=6)
+        walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
         model = gl.train_random_walks(walks, n_epochs=5)
     embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
     gl.train_and_eval_cls(embs)
