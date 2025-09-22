@@ -250,7 +250,7 @@ class NodeClassificationGAT(GATBase):
     """GAT model for node classification tasks.
 
     """
-    def __init__(self, out_channels: int, **kw):
+    def __init__(self, hidden_channels: int, heads: int, out_channels: int, **kw):
         """
         Initialize this NodeClassificationGAT model.
 
@@ -260,8 +260,8 @@ class NodeClassificationGAT(GATBase):
 
         All other `kw` are passed to the base GAT model.
         """
-        super().__init__(**kw)
-        self.lin = torch.nn.Linear(self.conv1.out_channels, out_channels)
+        super().__init__(hidden_channels=hidden_channels, heads=heads, **kw)
+        self.lin = torch.nn.Linear(hidden_channels * heads, out_channels)
 
     def forward(self, x, edge_index):
         """Runs the base model and then the final linear layer."""
@@ -294,8 +294,8 @@ class RandomWalkGAT(GATBase):
         self.negative_samples = negative_samples
         self.temperature = temperature
 
-    def forward(self, x, edge_index, walks: Sequence[Sequence[int]]):
-        """Forward pass using random walks for training.
+    def compute_loss(self, x, edge_index, walks: Sequence[Sequence[int]]):
+        """Compute loss using random walks for training.
 
         - x: Node features
         - edge_index: Graph connectivity
@@ -304,7 +304,7 @@ class RandomWalkGAT(GATBase):
         Returns the loss value computed from walk-based contrastive learning
         """
         # Get embeddings from regular forward pass
-        embeddings = super().forward(x, edge_index)
+        embeddings = self.forward(x, edge_index)
         walks_tensor = torch.tensor(walks, device=x.device)
         valid_mask = walks_tensor != INVALID_NODE
         # get all anchors (all valid nodes in walks)
@@ -407,7 +407,7 @@ class GraphLearner:
 
         Args:
         - model: The graph model to train
-        - loss_fn: A function that takes `(data, model)` and returns a loss tensor
+        - loss_fn: A function that takes `(model)` and returns a loss tensor
         - n_epochs: Number of training epochs to run
 
         Returns the list of loss values per epoch.
@@ -421,7 +421,7 @@ class GraphLearner:
         losses = []
         for epoch in pbar:
             optimizer.zero_grad()
-            loss = loss_fn(self.data, model)
+            loss = loss_fn(model)
             losses.append(loss.item())
             loss.backward()
             optimizer.step()
@@ -435,7 +435,7 @@ class GraphLearner:
             )
         return torch.tensor(losses)
 
-    def train_node_classification(self, dataset, n_epochs:int=200):
+    def train_node_classification(self, dataset, n_epochs:int=100):
         model = NodeClassificationGAT(
                     in_channels=-1,#dataset.num_features,
                     hidden_channels=self.hidden_channels,
@@ -445,9 +445,9 @@ class GraphLearner:
                     dropout=0.6,
                 )
 
-        def loss_fn(data, model):
-            out = model(data.x, data.edge_index)
-            loss = F.cross_entropy(out[data.train_mask], data.y[data.train_mask])
+        def loss_fn(model):
+            out = model(self.data.x, self.data.edge_index)
+            loss = F.cross_entropy(out[self.data.train_mask], data.y[self.data.train_mask])
             return loss
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
@@ -463,8 +463,8 @@ class GraphLearner:
             hidden_channels=self.hidden_channels,
             heads=self.heads,
         )
-        def loss_fn(data, model):
-            return model(data.x, data.edge_index, walks)
+        def loss_fn(model):
+            return model.compute_loss(self.data.x, self.data.edge_index, walks)
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model
@@ -642,9 +642,12 @@ if __name__ == '__main__':
     data, dataset = load_data()
     print(f'Device {device}, Loaded data: {data}, num_classes: {dataset.num_classes}, {data.y.shape}, {data.y}')
     #quick_test(data)
+    mode = 'walk'
     gl = GraphLearner(data)
-    model = gl.train_node_classification(dataset)
-    if 0:
-        walks = gl.gen_walks(10, 10)
+    if mode == 'cls':
+        model = gl.train_node_classification(dataset)
+        eval_model(model, data)
+    elif mode == 'walk':
+        walks = gl.gen_walks(1, 5)
         model = gl.train_random_walks(walks)
         gl.train_and_eval_cls(model)
