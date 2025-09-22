@@ -415,35 +415,14 @@ class RandomWalkGAT(GATBase):
                 neg_embeds = torch.cat(neg_embeds, dim=0)
                 log_memory("After concatenating all chunks")
                 
-                # Compute similarities in chunks
+                # Compute similarities directly
                 cos = torch.nn.CosineSimilarity(dim=1)
-                pos_sims_list = []
-                neg_sims_list = []
+                pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
                 
-                for chunk_start in range(0, cur_batch_size, chunk_size):
-                    chunk_end = min(chunk_start + chunk_size, cur_batch_size)
-                    
-                    # Positive similarities
-                    pos_chunk_sims = cos(
-                        anchor_embeds[chunk_start:chunk_end],
-                        pos_embeds[chunk_start:chunk_end]
-                    ) / self.temperature
-                    pos_sims_list.append(pos_chunk_sims)
-                    
-                    # Negative similarities
-                    anchor_chunk = anchor_embeds[chunk_start:chunk_end].unsqueeze(1)
-                    neg_chunk = neg_embeds[chunk_start:chunk_end].transpose(1, 2)
-                    neg_chunk_sims = torch.bmm(anchor_chunk, neg_chunk).squeeze(1) / self.temperature
-                    neg_sims_list.append(neg_chunk_sims)
-                    
-                    # Clear intermediate tensors
-                    del pos_chunk_sims, anchor_chunk, neg_chunk, neg_chunk_sims
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                
-                log_memory("After similarity loop")
-                pos_sims = torch.cat(pos_sims_list, dim=0)
-                neg_sims = torch.cat(neg_sims_list, dim=0)
+                # Compute negative similarities directly
+                anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)
+                neg_embeds_reshaped = neg_embeds.transpose(1, 2)
+                neg_sims = torch.bmm(anchor_embeds_reshaped, neg_embeds_reshaped).squeeze(1) / self.temperature
                 log_memory("After concatenating all similarities")
                 
                 # Compute loss for this batch
