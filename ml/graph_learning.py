@@ -398,43 +398,6 @@ class RandomWalkGAT(GATBase):
         # Average loss across all pairs
         avg_loss = total_loss / total_pairs
         
-        cos = torch.nn.CosineSimilarity(dim=1)
-        
-        for i in range(n_batches):
-            start_idx = i * batch_size
-            end_idx = min(start_idx + batch_size, total_pairs)
-            
-            # Get batch of positive pairs
-            batch_anchors = anchors[start_idx:end_idx]
-            batch_pos = pos_nodes[start_idx:end_idx]
-            
-            # Generate negative samples for this batch
-            batch_neg = torch.randint(0, x.shape[0],
-                                    (len(batch_anchors), self.negative_samples),
-                                    device=x.device)
-            
-            # Get embeddings for this batch
-            anchor_embeds = embeddings[batch_anchors]
-            pos_embeds = embeddings[batch_pos]
-            neg_embeds = embeddings[batch_neg.view(-1)].view(len(batch_anchors), 
-                                                           self.negative_samples, -1)
-            
-            # Compute similarities
-            pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
-            
-            anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)
-            neg_embeds_reshaped = neg_embeds.transpose(1, 2)
-            neg_sims = torch.bmm(anchor_embeds_reshaped, 
-                               neg_embeds_reshaped).squeeze(1) / self.temperature
-            
-            # Compute loss for this batch
-            all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
-            targets = torch.zeros(len(batch_anchors), dtype=torch.long, device=embeddings.device)
-            batch_loss = F.cross_entropy(all_sims, targets)
-            total_loss += batch_loss * len(batch_anchors)
-        
-        # Average loss across all pairs
-        avg_loss = total_loss / total_pairs
         return avg_loss
 
 
