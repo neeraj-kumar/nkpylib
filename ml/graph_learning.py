@@ -687,15 +687,13 @@ if __name__ == '__main__':
     data, dataset = load_data()
     print(f'Device {device}, Loaded data: {data}, num_classes: {dataset.num_classes}, {data.y.shape}, {data.y}')
     #quick_test(data)
-    mode = 'walk'
+    mode = 'cls'
     gl = GraphLearner(data)
+    gl.train_and_eval_cls(data.x.cpu().numpy())
     if mode == 'cls':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        # first do baseline embeddings test
-        print(f'Baseline results:')
-        gl.train_and_eval_cls(data.x.cpu().numpy())
         walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
         model = gl.train_random_walks(walks)
         embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
