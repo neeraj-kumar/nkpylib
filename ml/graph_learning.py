@@ -307,39 +307,31 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
-        # Get embeddings from regular forward pass
+        # get embeddings and do some init
         embeddings = self.embedding_forward(x, edge_index)
         walks_tensor = torch.tensor(walks, device=x.device)
         valid_mask = walks_tensor != INVALID_NODE
         walk_length = walks_tensor.shape[1]
-        
-        # First pass: collect all valid pairs
         all_pos_nodes = []
         all_anchor_idxs = []
-        
-        # Generate all positive pairs first
+        # generate all positive pairs first
         for i in range(walk_length):
             pos_mask = valid_mask[:, i].clone()
             if not pos_mask.any():
                 continue
-                
             start = max(0, i - self.walk_window)
             end = min(walk_length, i + self.walk_window + 1)
-            
             context = walks_tensor[:, start:end]
             context_mask = valid_mask[:, start:end].clone()
             context_mask[:, i-start] = False
-            
             pos_walks = pos_mask.nonzero().squeeze(1)
             for walk_idx in pos_walks:
                 valid_context = context[walk_idx][context_mask[walk_idx]]
                 if len(valid_context) > 0:
                     all_pos_nodes.append(valid_context)
                     all_anchor_idxs.append(torch.full_like(valid_context, walks_tensor[walk_idx, i]))
-        
         if not all_pos_nodes:
             raise ValueError("No valid positive pairs found!")
-            
         # Concatenate all pairs
         pos_nodes = torch.cat(all_pos_nodes)
         anchors = torch.cat(all_anchor_idxs)
