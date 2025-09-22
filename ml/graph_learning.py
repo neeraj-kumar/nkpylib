@@ -218,7 +218,7 @@ class GATBase(torch.nn.Module):
 
     def embedding_forward(self, x, edge_index):
         """Get raw embeddings from both layers before activation.
-        
+
         Returns concatenated embeddings [e1, e2] suitable for embedding-based tasks.
         """
         x = F.dropout(x, p=self.dropout, training=self.training)
@@ -231,11 +231,9 @@ class GATBase(torch.nn.Module):
     def forward(self, x, edge_index):
         """Regular forward pass with ELU activations for stable training."""
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = self.conv1(x, edge_index)
-        x = F.elu(x)
+        x = F.elu(self.conv1(x, edge_index))
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = self.conv2(x, edge_index)
-        x = F.elu(x)
+        x = F.elu(self.conv2(x, edge_index))
         return x
 
     def get_embeddings(self, x, edge_index):
