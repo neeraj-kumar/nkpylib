@@ -315,8 +315,7 @@ class RandomWalkGAT(GATBase):
         log_memory("Start of compute_loss")
         
         # Get embeddings on CPU to reduce GPU memory usage
-        with torch.no_grad():
-            embeddings = self.embedding_forward(x, edge_index).cpu()
+        embeddings = self.embedding_forward(x, edge_index).cpu()
         log_memory("After embedding computation (on CPU)")
         
         # Keep walks on CPU initially
@@ -408,11 +407,13 @@ class RandomWalkGAT(GATBase):
                     del anchor_chunk, pos_chunk, neg_chunk
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
+                log_memory("After embs loop")
                 
                 # Concatenate chunks
                 anchor_embeds = torch.cat(anchor_embeds, dim=0)
                 pos_embeds = torch.cat(pos_embeds, dim=0)
                 neg_embeds = torch.cat(neg_embeds, dim=0)
+                log_memory("After concatenating all chunks")
                 
                 # Compute similarities in chunks
                 cos = torch.nn.CosineSimilarity(dim=1)
@@ -440,8 +441,10 @@ class RandomWalkGAT(GATBase):
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 
+                log_memory("After similarity loop")
                 pos_sims = torch.cat(pos_sims_list, dim=0)
                 neg_sims = torch.cat(neg_sims_list, dim=0)
+                log_memory("After concatenating all similarities")
                 
                 # Compute loss for this batch
                 all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
@@ -450,6 +453,8 @@ class RandomWalkGAT(GATBase):
                 
                 total_loss += batch_loss * cur_batch_size
                 total_pairs += cur_batch_size
+
+                log_memory(f"After loss computation for batch {batch_start}")
                 
                 # Clear all intermediate tensors explicitly and force garbage collection
                 del pos_nodes, anchors, neg_nodes, anchor_embeds, pos_embeds, neg_embeds
@@ -763,7 +768,7 @@ if __name__ == '__main__':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
+        walks = gl.gen_walks(n_walks_per_node=2, walk_length=6)
         model = gl.train_random_walks(walks)
     embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
     gl.train_and_eval_cls(embs)
