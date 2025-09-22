@@ -321,6 +321,30 @@ class RandomWalkGAT(GATBase):
         Returns:
             Batch loss value
         """
+        pass
+
+    def _process_batch_chunks(self,
+                      embeddings: torch.Tensor,
+                      anchors: torch.Tensor,
+                      pos_nodes: torch.Tensor,
+                      neg_nodes: torch.Tensor,
+                      cur_batch_size: int,
+                      device: torch.device,
+                      log_memory: callable) -> torch.Tensor:
+        """Process a batch of nodes and compute the loss.
+        
+        Args:
+            embeddings: Node embeddings tensor
+            anchors: Anchor node indices
+            pos_nodes: Positive sample node indices
+            neg_nodes: Negative sample node indices
+            cur_batch_size: Size of current batch
+            device: Device to run computations on
+            log_memory: Function to log memory usage
+            
+        Returns:
+            Batch loss value
+        """
         total_chunk_loss = 0
         n_chunks = (cur_batch_size + self.chunk_size - 1) // self.chunk_size
 
