@@ -307,11 +307,23 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
+        process = psutil.Process()
+        def log_memory(msg):
+            mem = process.memory_info().rss / 1024 / 1024 / 1024  # Convert to GB
+            print(f"{msg}: {mem:.2f}GB")
+
+        log_memory("Start of compute_loss")
+        
         # Get embeddings and setup
         embeddings = self.embedding_forward(x, edge_index)
+        log_memory("After embedding computation")
+        
         walks_tensor = torch.tensor(walks, device=x.device)
+        log_memory("After walks to tensor")
+        
         valid_mask = walks_tensor != INVALID_NODE
         walk_length = walks_tensor.shape[1]
+        log_memory("After mask creation")
         
         # Initialize loss accumulator
         total_loss = 0
@@ -360,11 +372,13 @@ class RandomWalkGAT(GATBase):
                 pos_nodes = torch.cat(batch_pos_nodes)
                 anchors = torch.cat(batch_anchor_idxs)
                 cur_batch_size = len(anchors)
+                log_memory(f"After creating positive pairs for batch {batch_start}")
                 
                 # Generate negative samples
                 neg_nodes = torch.randint(0, x.shape[0],
                                         (cur_batch_size, self.negative_samples),
                                         device=x.device)
+                log_memory("After generating negative samples")
                 
                 # Get embeddings
                 anchor_embeds = embeddings[anchors]
@@ -391,6 +405,12 @@ class RandomWalkGAT(GATBase):
                 
                 total_loss += batch_loss * cur_batch_size
                 total_pairs += cur_batch_size
+                
+                # Clear some tensors explicitly
+                del pos_nodes, anchors, neg_nodes, anchor_embeds, pos_embeds, neg_embeds
+                del all_sims, targets
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                log_memory("After batch completion and cleanup")
         
         if total_pairs == 0:
             raise ValueError("No valid positive pairs found!")
