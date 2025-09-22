@@ -328,12 +328,13 @@ class RandomWalkGAT(GATBase):
         Returns:
             Batch loss value
         """
-        # Get embeddings for this batch
-        anchor_embeds = embeddings[anchors].to(device)
-        pos_embeds = embeddings[pos_nodes].to(device)
-        neg_embeds = embeddings[neg_nodes.view(-1)].view(
-            cur_batch_size, self.negative_samples, -1
-        ).to(device)
+        # Get embeddings for this batch - indexing doesn't need gradients
+        with torch.no_grad():
+            anchor_embeds = embeddings[anchors]
+            pos_embeds = embeddings[pos_nodes]
+            neg_embeds = embeddings[neg_nodes.view(-1)].view(
+                cur_batch_size, self.negative_samples, -1
+            )
 
         # Compute similarities
         cos = torch.nn.CosineSimilarity(dim=1)
@@ -394,11 +395,12 @@ class RandomWalkGAT(GATBase):
                 # Move only the needed batch to device
                 batch_walks = pos_walks[batch_start:batch_end].to(x.device)
 
-                # Get context window
-                start = max(0, i - self.walk_window)
-                end = min(walk_length, i + self.walk_window + 1)
-                context = walks_tensor[batch_walks.cpu()][:, start:end].to(x.device)
-                context_mask = valid_mask[batch_walks.cpu()][:, start:end].clone().to(x.device)
+                # Get context window - no need to track these indexing operations
+                with torch.no_grad():
+                    start = max(0, i - self.walk_window)
+                    end = min(walk_length, i + self.walk_window + 1)
+                    context = walks_tensor[batch_walks.cpu()][:, start:end]
+                    context_mask = valid_mask[batch_walks.cpu()][:, start:end].clone()
                 context_mask[:, i-start] = False
 
                 # Collect positive pairs for this batch
@@ -422,10 +424,10 @@ class RandomWalkGAT(GATBase):
                 cur_batch_size = len(anchors)
                 self.log_memory(f"After creating positive pairs for batch {batch_start}")
 
-                # Generate negative samples
-                neg_nodes = torch.randint(0, x.shape[0],
-                                        (cur_batch_size, self.negative_samples),
-                                        device=x.device)
+                # Generate negative samples - sampling doesn't need gradients
+                with torch.no_grad():
+                    neg_nodes = torch.randint(0, x.shape[0],
+                                            (cur_batch_size, self.negative_samples))
                 self.log_memory("After generating negative samples")
 
                 # Process batch and compute loss
