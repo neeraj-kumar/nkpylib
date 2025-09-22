@@ -691,6 +691,6 @@ if __name__ == '__main__':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        walks = gl.gen_walks(1, 5)
+        walks = gl.gen_walks(n_walks_per_node=10, walk_length=20)
         model = gl.train_random_walks(walks)
         gl.train_and_eval_cls(model)
