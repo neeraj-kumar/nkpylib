@@ -182,6 +182,39 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
         clf.fit(X, y, sample_weight=weights)
         return clf
 
+# hashable bound
+T = TypeVar('T', bound=Hashable)
+def generate_cooccurence_embeddings(data: list[list[T]], existing: Mapping[T, array1d]|None=None, decay: float=0.9):
+    """Generates embeddings based on co-occurence.
+
+    The idea is that if two items co-occur often, they should be closer in embedding space.
+
+    These are useful for things like tags, etc., that you might otherwise 1-hot encode. Probably
+    anything with more than 10 items is worth doing. (We'll refer to the items as tags below, for
+    convenience.)
+
+    In practice, there are a few main approaches for generating these:
+    1. Count co-occurences and use SVD to reduce dimensionality. This has the advantage that it's
+    well understood, principled, fast, globally optimal, and has a direct way of figuring out
+    dimensionality. The downside is that updating embeddings when there is new co-occurrence data is
+    a little annoying, and it's much harder to add brand new tags.
+
+    2. Word2vec-style embeddings. These are often faster to train (at scale) and might be higher
+    signal for downstream tasks, as well as easier to do updates with. The downside is that
+    you have to figure out dimensionality yourself, and they can drift more.
+
+    The input `data` is a list of lists of tags. Each inner list is a set of tags that co-occurred
+    together. Tags can be any hashable type.
+
+    You can optionally provide existing embeddings to update. In that case, the `data` should be just
+    the new data that you are adding. You can also provide a sense of how much the data has changed
+    via the `decay` parameter; this is a number between 0 and 1 that indicates how much to decay
+    the existing embeddings. A decay of 0 means to ignore existing embeddings, while a decay of 1
+    means to keep them as-is (default 0.9)
+    """
+    pass
+
+
 if __name__ == '__main__':
     funcs = {f.__name__: f for f in []}
     parser = ArgumentParser(description='Test embeddings')
