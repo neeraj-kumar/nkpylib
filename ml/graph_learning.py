@@ -305,17 +305,17 @@ class RandomWalkGAT(GATBase):
         """
         # Get embeddings from regular forward pass
         embeddings = self.forward(x, edge_index)
-        print(f"embeddings shape: {embeddings.shape}")
+        print(f"embeddings: {embeddings.shape}, {embeddings}")
         
         walks_tensor = torch.tensor(walks, device=x.device)
-        print(f"walks_tensor shape: {walks_tensor.shape}, content: {walks_tensor}")
+        print(f"walks_tensor: {walks_tensor.shape}, {walks_tensor}")
         
         valid_mask = walks_tensor != INVALID_NODE
-        print(f"valid_mask shape: {valid_mask.shape}, sum: {valid_mask.sum()}")
+        print(f"valid_mask: {valid_mask.shape}, {valid_mask.sum()}, {valid_mask}")
         
         # get all anchors (all valid nodes in walks)
         anchors = walks_tensor[valid_mask]
-        print(f"anchors shape: {anchors.shape}, content: {anchors}")
+        print(f"anchors: {anchors.shape}, {anchors}")
         
         walk_length = walks_tensor.shape[1]
         print(f"walk_length: {walk_length}")
@@ -328,7 +328,7 @@ class RandomWalkGAT(GATBase):
             print(f"\nProcessing position {i}:")
             # get valid anchors at this position
             pos_mask = valid_mask[:, i]
-            print(f"  pos_mask sum: {pos_mask.sum()}")
+            print(f"  pos_mask: {pos_mask.shape}, {pos_mask.sum()}, {pos_mask}")
             
             if not pos_mask.any():
                 print("  No valid anchors at this position")
@@ -343,7 +343,7 @@ class RandomWalkGAT(GATBase):
             context = walks_tensor[:, start:end]
             context_mask = valid_mask[:, start:end]
             context_mask[:, i-start] = False  # exclude anchor position
-            print(f"  context shape: {context.shape}, mask sum: {context_mask.sum()}")
+            print(f"  context: {context.shape}, {context}, mask: {context_mask.sum()}, {context_mask.shape}, {context_mask}")
             
             # add valid context nodes for each anchor
             pos_walks = pos_mask.nonzero().squeeze(1)
