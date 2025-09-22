@@ -747,7 +747,7 @@ if __name__ == '__main__':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        walks = gl.gen_walks(n_walks_per_node=2, walk_length=6)
+        walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
         model = gl.train_random_walks(walks)
     embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
     gl.train_and_eval_cls(embs)
