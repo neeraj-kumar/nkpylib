@@ -327,7 +327,7 @@ class RandomWalkGAT(GATBase):
         for i in range(walk_length):
             print(f"\nProcessing position {i}:")
             # get valid anchors at this position
-            pos_mask = valid_mask[:, i]
+            pos_mask = valid_mask[:, i].clone()  # Create a copy to prevent modification
             print(f"  pos_mask: {pos_mask.shape}, {pos_mask.sum()}, {pos_mask}")
             
             if not pos_mask.any():
@@ -341,7 +341,7 @@ class RandomWalkGAT(GATBase):
             
             # get all context nodes, excluding anchor position and invalid nodes
             context = walks_tensor[:, start:end]
-            context_mask = valid_mask[:, start:end]
+            context_mask = valid_mask[:, start:end].clone()  # Create a copy
             context_mask[:, i-start] = False  # exclude anchor position
             print(f"  context: {context.shape}, {context}, mask: {context_mask.sum()}, {context_mask.shape}, {context_mask}")
             
