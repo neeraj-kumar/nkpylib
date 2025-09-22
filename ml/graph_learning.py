@@ -307,39 +307,96 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
-        # get embeddings and do some init
+        # Get embeddings and setup
         embeddings = self.embedding_forward(x, edge_index)
         walks_tensor = torch.tensor(walks, device=x.device)
         valid_mask = walks_tensor != INVALID_NODE
         walk_length = walks_tensor.shape[1]
-        all_pos_nodes = []
-        all_anchor_idxs = []
-        # generate all positive pairs first
+        
+        # Initialize loss accumulator
+        total_loss = 0
+        total_pairs = 0
+        
+        # Process each position in smaller batches
+        pos_batch_size = batch_size // (2 * self.walk_window)  # Adjust for context window
+        
         for i in range(walk_length):
             pos_mask = valid_mask[:, i].clone()
             if not pos_mask.any():
                 continue
-            start = max(0, i - self.walk_window)
-            end = min(walk_length, i + self.walk_window + 1)
-            context = walks_tensor[:, start:end]
-            context_mask = valid_mask[:, start:end].clone()
-            context_mask[:, i-start] = False
+                
+            # Get valid walks for this position
             pos_walks = pos_mask.nonzero().squeeze(1)
-            for walk_idx in pos_walks:
-                valid_context = context[walk_idx][context_mask[walk_idx]]
-                if len(valid_context) > 0:
-                    all_pos_nodes.append(valid_context)
-                    all_anchor_idxs.append(torch.full_like(valid_context, walks_tensor[walk_idx, i]))
-        if not all_pos_nodes:
-            raise ValueError("No valid positive pairs found!")
-        # Concatenate all pairs
-        pos_nodes = torch.cat(all_pos_nodes)
-        anchors = torch.cat(all_anchor_idxs)
+            n_pos = len(pos_walks)
+            
+            # Process walks in batches
+            for batch_start in range(0, n_pos, pos_batch_size):
+                batch_end = min(batch_start + pos_batch_size, n_pos)
+                batch_walks = pos_walks[batch_start:batch_end]
+                
+                # Get context window
+                start = max(0, i - self.walk_window)
+                end = min(walk_length, i + self.walk_window + 1)
+                context = walks_tensor[batch_walks][:, start:end]
+                context_mask = valid_mask[batch_walks][:, start:end].clone()
+                context_mask[:, i-start] = False
+                
+                # Collect positive pairs for this batch
+                batch_pos_nodes = []
+                batch_anchor_idxs = []
+                
+                for idx, walk_idx in enumerate(batch_walks):
+                    valid_context = context[idx][context_mask[idx]]
+                    if len(valid_context) > 0:
+                        batch_pos_nodes.append(valid_context)
+                        batch_anchor_idxs.append(
+                            torch.full_like(valid_context, walks_tensor[walk_idx, i])
+                        )
+                
+                if not batch_pos_nodes:
+                    continue
+                    
+                # Create positive pairs
+                pos_nodes = torch.cat(batch_pos_nodes)
+                anchors = torch.cat(batch_anchor_idxs)
+                cur_batch_size = len(anchors)
+                
+                # Generate negative samples
+                neg_nodes = torch.randint(0, x.shape[0],
+                                        (cur_batch_size, self.negative_samples),
+                                        device=x.device)
+                
+                # Get embeddings
+                anchor_embeds = embeddings[anchors]
+                pos_embeds = embeddings[pos_nodes]
+                neg_embeds = embeddings[neg_nodes.view(-1)].view(
+                    cur_batch_size, self.negative_samples, -1
+                )
+                
+                # Compute similarities
+                cos = torch.nn.CosineSimilarity(dim=1)
+                pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
+                
+                anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)
+                neg_embeds_reshaped = neg_embeds.transpose(1, 2)
+                neg_sims = torch.bmm(
+                    anchor_embeds_reshaped, 
+                    neg_embeds_reshaped
+                ).squeeze(1) / self.temperature
+                
+                # Compute loss for this batch
+                all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
+                targets = torch.zeros(cur_batch_size, dtype=torch.long, device=embeddings.device)
+                batch_loss = F.cross_entropy(all_sims, targets)
+                
+                total_loss += batch_loss * cur_batch_size
+                total_pairs += cur_batch_size
         
-        # Process in batches
-        total_pairs = len(anchors)
-        total_loss = 0
-        n_batches = (total_pairs + batch_size - 1) // batch_size
+        if total_pairs == 0:
+            raise ValueError("No valid positive pairs found!")
+            
+        # Average loss across all pairs
+        avg_loss = total_loss / total_pairs
         
         cos = torch.nn.CosineSimilarity(dim=1)
         
