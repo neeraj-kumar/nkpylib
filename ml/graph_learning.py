@@ -169,6 +169,11 @@ class NKGAT(torch.nn.Module):
 
     The original GAT paper: https://arxiv.org/abs/1710.10903
 
+    Args:
+        in_channels: Number of input node features
+        hidden_channels: Size of hidden layer embeddings
+        out_channels: Size of output layer (e.g. number of classes)
+        heads: Number of attention heads per layer
     """
     def __init__(self, in_channels, hidden_channels, out_channels, heads, **kw):
         super().__init__()
@@ -198,13 +203,129 @@ class NKGAT(torch.nn.Module):
             embeddings = torch.cat([emb1, emb2], dim=1)
             return embeddings
 
+class RandomWalkGAT(NKGAT):
+    """GAT model trained using random walk objectives.
+    
+    Instead of node classification, this learns node embeddings such that nodes
+    appearing close together in random walks have similar embeddings.
+    
+    Args:
+        in_channels: Number of input features
+        hidden_channels: Size of hidden layer embeddings
+        heads: Number of attention heads
+        walk_window: Context window size for walks (how many nodes before/after to consider)
+        negative_samples: Number of negative samples per positive pair
+        temperature: Temperature for similarity scaling (higher = softer attention)
+    """
+    def __init__(self, 
+                 in_channels: int,
+                 hidden_channels: int,
+                 heads: int = 8,
+                 walk_window: int = 5,
+                 negative_samples: int = 10,
+                 temperature: float = 0.07):
+        super().__init__(in_channels, hidden_channels, hidden_channels, heads)
+        # Remove the classification layer
+        delattr(self, 'lin')
+        self.walk_window = walk_window
+        self.negative_samples = negative_samples
+        self.temperature = temperature
+
+    def forward(self, x, edge_index, walks: list[list[int]]):
+        """Forward pass using random walks for training.
+        
+        Args:
+            x: Node features
+            edge_index: Graph connectivity
+            walks: List of random walks, each walk is list of node indices
+            
+        Returns:
+            Loss value computed from walk-based contrastive learning
+        """
+        # Get node embeddings
+        embeddings = self.get_embeddings(x, edge_index)
+        
+        # Compute loss using walk-based positive and negative pairs
+        loss = 0
+        for walk in walks:
+            # Generate positive pairs from walk
+            for i, node in enumerate(walk):
+                # Consider nodes within window as positive examples
+                start = max(0, i - self.walk_window)
+                end = min(len(walk), i + self.walk_window + 1)
+                pos_nodes = walk[start:i] + walk[i+1:end]
+                
+                if not pos_nodes:  # Skip if no positive examples
+                    continue
+                
+                # Get random negative nodes
+                neg_nodes = torch.randint(0, x.shape[0], 
+                                        (self.negative_samples,),
+                                        device=x.device)
+                
+                # Compute similarities
+                anchor = embeddings[node]
+                pos_sims = F.cosine_similarity(
+                    anchor.unsqueeze(0),
+                    embeddings[pos_nodes],
+                    dim=1
+                ) / self.temperature
+                
+                neg_sims = F.cosine_similarity(
+                    anchor.unsqueeze(0),
+                    embeddings[neg_nodes],
+                    dim=1
+                ) / self.temperature
+                
+                # InfoNCE loss
+                loss += -torch.log(
+                    torch.exp(pos_sims).sum() / 
+                    (torch.exp(pos_sims).sum() + torch.exp(neg_sims).sum())
+                )
+                
+        return loss
+
+def train_random_walk_gat(data, walks: list[list[int]], hidden_channels=64, heads=8, n_epochs=200):
+    """Train a GAT model using random walk objectives.
+    
+    Args:
+        data: PyG data object containing graph
+        walks: List of random walks to use for training
+        hidden_channels: Size of hidden embeddings
+        heads: Number of attention heads
+        n_epochs: Number of training epochs
+        
+    Returns:
+        Trained RandomWalkGAT model
+    """
+    model = RandomWalkGAT(
+        in_channels=data.num_features,
+        hidden_channels=hidden_channels,
+        heads=heads
+    ).to(device)
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+    
+    # Training loop
+    model.train()
+    pbar = tqdm(range(n_epochs))
+    for epoch in pbar:
+        optimizer.zero_grad()
+        loss = model(data.x, data.edge_index, walks)
+        loss.backward()
+        optimizer.step()
+        
+        pbar.set_description(f'Epoch {epoch:03d}, Loss: {loss.item():.4f}')
+        
+    return model
+
 def get_embeddings(model, x, edge_index):
     """Returns embeddings from a gat model"""
     model.eval()
     with torch.no_grad():
-        emb1 = F.elu(self.conv1(x, edge_index))
-        emb2 = self.conv2(emb1, edge_index)
-        return embeddings
+        emb1 = model.conv1(x, edge_index)
+        emb2 = model.conv2(F.elu(emb1), edge_index)
+        return torch.cat([emb1, emb2], dim=1)
 
 def load_data(name: str='PubMed'):
     dataset = Planetoid(root=f'/tmp/{name}', name=name, transform=NormalizeFeatures())
