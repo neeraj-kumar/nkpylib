@@ -294,7 +294,7 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
-        embeddings = self.get_embeddings(x, edge_index)
+        embeddings = super().forward(x, edge_index)
         walks_tensor = torch.tensor(walks, device=x.device)
         valid_mask = walks_tensor != INVALID_NODE
         # get all anchors (all valid nodes in walks)
