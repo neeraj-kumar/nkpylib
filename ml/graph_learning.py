@@ -314,9 +314,10 @@ class RandomWalkGAT(GATBase):
 
         log_memory("Start of compute_loss")
         
-        # Get embeddings and setup
-        embeddings = self.embedding_forward(x, edge_index)
-        log_memory("After embedding computation")
+        # Get embeddings on CPU to reduce GPU memory usage
+        with torch.no_grad():
+            embeddings = self.embedding_forward(x, edge_index).cpu()
+        log_memory("After embedding computation (on CPU)")
         
         # Keep walks on CPU initially
         walks_tensor = torch.tensor(walks)
@@ -382,23 +383,65 @@ class RandomWalkGAT(GATBase):
                                         device=x.device)
                 log_memory("After generating negative samples")
                 
-                # Get embeddings
-                anchor_embeds = embeddings[anchors]
-                pos_embeds = embeddings[pos_nodes]
-                neg_embeds = embeddings[neg_nodes.view(-1)].view(
-                    cur_batch_size, self.negative_samples, -1
-                )
+                # Process embeddings in chunks to reduce memory usage
+                chunk_size = 1000
+                anchor_embeds = []
+                pos_embeds = []
+                neg_embeds = []
                 
-                # Compute similarities
+                for chunk_start in range(0, cur_batch_size, chunk_size):
+                    chunk_end = min(chunk_start + chunk_size, cur_batch_size)
+                    chunk_size_actual = chunk_end - chunk_start
+                    
+                    # Move only necessary chunks to GPU
+                    anchor_chunk = embeddings[anchors[chunk_start:chunk_end]].to(x.device)
+                    pos_chunk = embeddings[pos_nodes[chunk_start:chunk_end]].to(x.device)
+                    neg_chunk = embeddings[neg_nodes[chunk_start:chunk_end].view(-1)].view(
+                        chunk_size_actual, self.negative_samples, -1
+                    ).to(x.device)
+                    
+                    anchor_embeds.append(anchor_chunk)
+                    pos_embeds.append(pos_chunk)
+                    neg_embeds.append(neg_chunk)
+                    
+                    # Clear GPU memory after each chunk
+                    del anchor_chunk, pos_chunk, neg_chunk
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                
+                # Concatenate chunks
+                anchor_embeds = torch.cat(anchor_embeds, dim=0)
+                pos_embeds = torch.cat(pos_embeds, dim=0)
+                neg_embeds = torch.cat(neg_embeds, dim=0)
+                
+                # Compute similarities in chunks
                 cos = torch.nn.CosineSimilarity(dim=1)
-                pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
+                pos_sims_list = []
+                neg_sims_list = []
                 
-                anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)
-                neg_embeds_reshaped = neg_embeds.transpose(1, 2)
-                neg_sims = torch.bmm(
-                    anchor_embeds_reshaped, 
-                    neg_embeds_reshaped
-                ).squeeze(1) / self.temperature
+                for chunk_start in range(0, cur_batch_size, chunk_size):
+                    chunk_end = min(chunk_start + chunk_size, cur_batch_size)
+                    
+                    # Positive similarities
+                    pos_chunk_sims = cos(
+                        anchor_embeds[chunk_start:chunk_end],
+                        pos_embeds[chunk_start:chunk_end]
+                    ) / self.temperature
+                    pos_sims_list.append(pos_chunk_sims)
+                    
+                    # Negative similarities
+                    anchor_chunk = anchor_embeds[chunk_start:chunk_end].unsqueeze(1)
+                    neg_chunk = neg_embeds[chunk_start:chunk_end].transpose(1, 2)
+                    neg_chunk_sims = torch.bmm(anchor_chunk, neg_chunk).squeeze(1) / self.temperature
+                    neg_sims_list.append(neg_chunk_sims)
+                    
+                    # Clear intermediate tensors
+                    del pos_chunk_sims, anchor_chunk, neg_chunk, neg_chunk_sims
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                
+                pos_sims = torch.cat(pos_sims_list, dim=0)
+                neg_sims = torch.cat(neg_sims_list, dim=0)
                 
                 # Compute loss for this batch
                 all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
