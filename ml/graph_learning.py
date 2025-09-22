@@ -686,5 +686,5 @@ if __name__ == '__main__':
         gl.train_and_eval_cls(data.x.cpu().numpy())
         walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
         model = gl.train_random_walks(walks)
-        embs = model.get_embeddings(self.data.x, self.data.edge_index).cpu().numpy()
+        embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
         gl.train_and_eval_cls(embs)
