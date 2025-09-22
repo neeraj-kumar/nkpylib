@@ -218,6 +218,7 @@ class GATBase(torch.nn.Module):
         #self.conv2 = GATConv(hidden_channels * heads, out_channels, heads=1, concat=False) # concat=False for final layer
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels * heads, heads=1)
         self.dropout = dropout
+        self.process = psutil.Process()
 
     def embedding_forward(self, x, edge_index):
         """Get raw embeddings from both layers before activation.
@@ -247,6 +248,10 @@ class GATBase(torch.nn.Module):
         self.eval()
         with torch.no_grad():
             return self.embedding_forward(x, edge_index)
+
+    def log_memory(self, msg):
+        mem = self.process.memory_info().rss / 1024 / 1024 / 1024  # Convert to GB
+        #print(f"{msg}: {mem:.2f}GB")
 
 
 class NodeClassificationGAT(GATBase):
@@ -283,7 +288,6 @@ class RandomWalkGAT(GATBase):
                  walk_window: int = 5,
                  negative_samples: int = 10,
                  temperature: float = 0.07,
-                 chunk_size: int = 1000,
                  **kw):
         """initialize this RandomWalkGAT model.
 
@@ -297,18 +301,16 @@ class RandomWalkGAT(GATBase):
         self.walk_window = walk_window
         self.negative_samples = negative_samples
         self.temperature = temperature
-        self.chunk_size = chunk_size
-        
+
     def _process_batch(self,
                       embeddings: torch.Tensor,
                       anchors: torch.Tensor,
                       pos_nodes: torch.Tensor,
                       neg_nodes: torch.Tensor,
                       cur_batch_size: int,
-                      device: torch.device,
-                      log_memory: callable) -> torch.Tensor:
+                      device: torch.device) -> torch.Tensor:
         """Process a batch of nodes and compute the loss.
-        
+
         Args:
             embeddings: Node embeddings tensor
             anchors: Anchor node indices
@@ -316,8 +318,7 @@ class RandomWalkGAT(GATBase):
             neg_nodes: Negative sample node indices
             cur_batch_size: Size of current batch
             device: Device to run computations on
-            log_memory: Function to log memory usage
-            
+
         Returns:
             Batch loss value
         """
@@ -327,82 +328,22 @@ class RandomWalkGAT(GATBase):
         neg_embeds = embeddings[neg_nodes.view(-1)].view(
             cur_batch_size, self.negative_samples, -1
         ).to(device)
-        
+
         # Compute similarities
         cos = torch.nn.CosineSimilarity(dim=1)
         pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
-        
+
         anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)
         neg_embeds_reshaped = neg_embeds.transpose(1, 2)
         neg_sims = torch.bmm(anchor_embeds_reshaped, neg_embeds_reshaped).squeeze(1) / self.temperature
-        
+
         # Compute loss
         all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
         targets = torch.zeros(cur_batch_size, dtype=torch.long, device=device)
         batch_loss = F.cross_entropy(all_sims, targets)
-        
+
         return batch_loss
 
-    def _process_batch_chunks(self,
-                      embeddings: torch.Tensor,
-                      anchors: torch.Tensor,
-                      pos_nodes: torch.Tensor,
-                      neg_nodes: torch.Tensor,
-                      cur_batch_size: int,
-                      device: torch.device,
-                      log_memory: callable) -> torch.Tensor:
-        """Process a batch of nodes and compute the loss.
-        
-        Args:
-            embeddings: Node embeddings tensor
-            anchors: Anchor node indices
-            pos_nodes: Positive sample node indices
-            neg_nodes: Negative sample node indices
-            cur_batch_size: Size of current batch
-            device: Device to run computations on
-            log_memory: Function to log memory usage
-            
-        Returns:
-            Batch loss value
-        """
-        total_chunk_loss = 0
-        n_chunks = (cur_batch_size + self.chunk_size - 1) // self.chunk_size
-
-        for chunk_start in range(0, cur_batch_size, self.chunk_size):
-            chunk_end = min(chunk_start + self.chunk_size, cur_batch_size)
-            chunk_size_actual = chunk_end - chunk_start
-            
-            # Process one chunk at a time
-            anchor_chunk = embeddings[anchors[chunk_start:chunk_end]].to(device)
-            pos_chunk = embeddings[pos_nodes[chunk_start:chunk_end]].to(device)
-            neg_chunk = embeddings[neg_nodes[chunk_start:chunk_end].view(-1)].view(
-                chunk_size_actual, self.negative_samples, -1
-            ).to(device)
-
-            # Compute similarities for this chunk
-            cos = torch.nn.CosineSimilarity(dim=1)
-            pos_sims = cos(anchor_chunk, pos_chunk) / self.temperature
-            
-            anchor_chunk_reshaped = anchor_chunk.unsqueeze(1)
-            neg_chunk_reshaped = neg_chunk.transpose(1, 2)
-            neg_sims = torch.bmm(anchor_chunk_reshaped, neg_chunk_reshaped).squeeze(1) / self.temperature
-
-            # Compute loss for this chunk
-            all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
-            targets = torch.zeros(chunk_size_actual, dtype=torch.long, device=device)
-            chunk_loss = F.cross_entropy(all_sims, targets)
-            
-            total_chunk_loss += chunk_loss * chunk_size_actual
-
-            # Clear chunk tensors
-            del anchor_chunk, pos_chunk, neg_chunk
-            del pos_sims, neg_sims, all_sims, targets
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            log_memory(f"After processing chunk {chunk_start}/{cur_batch_size}")
-
-        # Average loss across all chunks
-        return total_chunk_loss / cur_batch_size
 
     def compute_loss(self, x, edge_index, walks: Sequence[Sequence[int]], batch_size: int = 1024):
         """Compute loss using random walks for training.
@@ -414,58 +355,53 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
-        process = psutil.Process()
-        def log_memory(msg):
-            mem = process.memory_info().rss / 1024 / 1024 / 1024  # Convert to GB
-            print(f"{msg}: {mem:.2f}GB")
+        self.log_memory("Start of compute_loss")
 
-        log_memory("Start of compute_loss")
-        
         # Get embeddings on CPU to reduce GPU memory usage
         embeddings = self.embedding_forward(x, edge_index).cpu()
-        log_memory("After embedding computation (on CPU)")
-        
+        self.log_memory("After embedding computation (on CPU)")
+
         # Keep walks on CPU initially
         walks_tensor = torch.tensor(walks)
         valid_mask = walks_tensor != INVALID_NODE
         walk_length = walks_tensor.shape[1]
-        log_memory("After initial tensor creation on CPU")
-        
+        self.log_memory("After initial tensor creation on CPU")
+
         # Initialize loss accumulator
         total_loss = 0
         total_pairs = 0
-        
+
         # Process each position in smaller batches
         pos_batch_size = batch_size // (2 * self.walk_window)  # Adjust for context window
-        
+
         for i in range(walk_length):
             pos_mask = valid_mask[:, i].clone()
             if not pos_mask.any():
                 continue
-                
+
             # Process position mask on CPU first
             pos_walks = pos_mask.nonzero().squeeze(1)
             if len(pos_walks.shape) == 0:
                 pos_walks = pos_walks.unsqueeze(0)
             n_pos = len(pos_walks)
-            
+
             # Process walks in batches
             for batch_start in range(0, n_pos, pos_batch_size):
                 batch_end = min(batch_start + pos_batch_size, n_pos)
                 # Move only the needed batch to device
                 batch_walks = pos_walks[batch_start:batch_end].to(x.device)
-                
+
                 # Get context window
                 start = max(0, i - self.walk_window)
                 end = min(walk_length, i + self.walk_window + 1)
                 context = walks_tensor[batch_walks.cpu()][:, start:end].to(x.device)
                 context_mask = valid_mask[batch_walks.cpu()][:, start:end].clone().to(x.device)
                 context_mask[:, i-start] = False
-                
+
                 # Collect positive pairs for this batch
                 batch_pos_nodes = []
                 batch_anchor_idxs = []
-                
+
                 for idx, walk_idx in enumerate(batch_walks):
                     valid_context = context[idx][context_mask[idx]]
                     if len(valid_context) > 0:
@@ -473,22 +409,22 @@ class RandomWalkGAT(GATBase):
                         batch_anchor_idxs.append(
                             torch.full_like(valid_context, walks_tensor[walk_idx, i])
                         )
-                
+
                 if not batch_pos_nodes:
                     continue
-                    
+
                 # Create positive pairs
                 pos_nodes = torch.cat(batch_pos_nodes)
                 anchors = torch.cat(batch_anchor_idxs)
                 cur_batch_size = len(anchors)
-                log_memory(f"After creating positive pairs for batch {batch_start}")
-                
+                self.log_memory(f"After creating positive pairs for batch {batch_start}")
+
                 # Generate negative samples
                 neg_nodes = torch.randint(0, x.shape[0],
                                         (cur_batch_size, self.negative_samples),
                                         device=x.device)
-                log_memory("After generating negative samples")
-                
+                self.log_memory("After generating negative samples")
+
                 # Process batch and compute loss
                 batch_loss = self._process_batch(
                     embeddings=embeddings,
@@ -497,26 +433,25 @@ class RandomWalkGAT(GATBase):
                     neg_nodes=neg_nodes,
                     cur_batch_size=cur_batch_size,
                     device=x.device,
-                    log_memory=log_memory
                 )
                 total_loss += batch_loss
                 total_pairs += cur_batch_size
 
-                log_memory(f"After loss computation for batch {batch_start}")
-                
+                self.log_memory(f"After loss computation for batch {batch_start}")
+
                 # Clear all intermediate tensors explicitly and force garbage collection
                 del pos_nodes, anchors, neg_nodes, batch_walks, context, context_mask
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                log_memory(f"After batch {batch_start}/{n_pos} completion and cleanup")
-        
+                self.log_memory(f"After batch {batch_start}/{n_pos} completion and cleanup")
+
         if total_pairs == 0:
             raise ValueError("No valid positive pairs found!")
-            
+
         # Average loss across all pairs
         avg_loss = total_loss / total_pairs
-        
+
         return avg_loss
 
 
@@ -618,7 +553,7 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model
 
-    def train_random_walks(self, walks: list[list[int]], n_epochs=1):
+    def train_random_walks(self, walks: list[list[int]], n_epochs=5):
         """Train a graph model using random walk objectives.
 
         Pass in a list of `walks`, each of which is a list of node ids.
@@ -814,7 +749,7 @@ if __name__ == '__main__':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
-        model = gl.train_random_walks(walks)
+        walks = gl.gen_walks(n_walks_per_node=2, walk_length=6)
+        model = gl.train_random_walks(walks, n_epochs=5)
     embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
     gl.train_and_eval_cls(embs)
