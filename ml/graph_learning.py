@@ -428,9 +428,7 @@ class RandomWalkGAT(GATBase):
                 log_memory(f"After loss computation for batch {batch_start}")
                 
                 # Clear all intermediate tensors explicitly and force garbage collection
-                del pos_nodes, anchors, neg_nodes, anchor_embeds, pos_embeds, neg_embeds
-                del all_sims, targets, batch_walks, context, context_mask
-                del pos_sims, neg_sims
+                del pos_nodes, anchors, neg_nodes, batch_walks, context, context_mask
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
