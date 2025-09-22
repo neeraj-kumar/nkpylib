@@ -283,6 +283,7 @@ class RandomWalkGAT(GATBase):
                  walk_window: int = 5,
                  negative_samples: int = 10,
                  temperature: float = 0.07,
+                 chunk_size: int = 1000,
                  **kw):
         """initialize this RandomWalkGAT model.
 
@@ -296,6 +297,68 @@ class RandomWalkGAT(GATBase):
         self.walk_window = walk_window
         self.negative_samples = negative_samples
         self.temperature = temperature
+        self.chunk_size = chunk_size
+        
+    def _process_batch(self,
+                      embeddings: torch.Tensor,
+                      anchors: torch.Tensor,
+                      pos_nodes: torch.Tensor,
+                      neg_nodes: torch.Tensor,
+                      cur_batch_size: int,
+                      device: torch.device,
+                      log_memory: callable) -> torch.Tensor:
+        """Process a batch of nodes and compute the loss.
+        
+        Args:
+            embeddings: Node embeddings tensor
+            anchors: Anchor node indices
+            pos_nodes: Positive sample node indices
+            neg_nodes: Negative sample node indices
+            cur_batch_size: Size of current batch
+            device: Device to run computations on
+            log_memory: Function to log memory usage
+            
+        Returns:
+            Batch loss value
+        """
+        total_chunk_loss = 0
+        n_chunks = (cur_batch_size + self.chunk_size - 1) // self.chunk_size
+
+        for chunk_start in range(0, cur_batch_size, self.chunk_size):
+            chunk_end = min(chunk_start + chunk_size, cur_batch_size)
+            chunk_size_actual = chunk_end - chunk_start
+            
+            # Process one chunk at a time
+            anchor_chunk = embeddings[anchors[chunk_start:chunk_end]].to(device)
+            pos_chunk = embeddings[pos_nodes[chunk_start:chunk_end]].to(device)
+            neg_chunk = embeddings[neg_nodes[chunk_start:chunk_end].view(-1)].view(
+                chunk_size_actual, self.negative_samples, -1
+            ).to(device)
+
+            # Compute similarities for this chunk
+            cos = torch.nn.CosineSimilarity(dim=1)
+            pos_sims = cos(anchor_chunk, pos_chunk) / self.temperature
+            
+            anchor_chunk_reshaped = anchor_chunk.unsqueeze(1)
+            neg_chunk_reshaped = neg_chunk.transpose(1, 2)
+            neg_sims = torch.bmm(anchor_chunk_reshaped, neg_chunk_reshaped).squeeze(1) / self.temperature
+
+            # Compute loss for this chunk
+            all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
+            targets = torch.zeros(chunk_size_actual, dtype=torch.long, device=device)
+            chunk_loss = F.cross_entropy(all_sims, targets)
+            
+            total_chunk_loss += chunk_loss * chunk_size_actual
+
+            # Clear chunk tensors
+            del anchor_chunk, pos_chunk, neg_chunk
+            del pos_sims, neg_sims, all_sims, targets
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            log_memory(f"After processing chunk {chunk_start}/{cur_batch_size}")
+
+        # Average loss across all chunks
+        return total_chunk_loss / cur_batch_size
 
     def compute_loss(self, x, edge_index, walks: Sequence[Sequence[int]], batch_size: int = 1024):
         """Compute loss using random walks for training.
@@ -382,46 +445,16 @@ class RandomWalkGAT(GATBase):
                                         device=x.device)
                 log_memory("After generating negative samples")
                 
-                # Process embeddings and compute loss in chunks to reduce memory usage
-                chunk_size = 1000
-                total_chunk_loss = 0
-                n_chunks = (cur_batch_size + chunk_size - 1) // chunk_size
-
-                for chunk_start in range(0, cur_batch_size, chunk_size):
-                    chunk_end = min(chunk_start + chunk_size, cur_batch_size)
-                    chunk_size_actual = chunk_end - chunk_start
-                    
-                    # Process one chunk at a time
-                    anchor_chunk = embeddings[anchors[chunk_start:chunk_end]].to(x.device)
-                    pos_chunk = embeddings[pos_nodes[chunk_start:chunk_end]].to(x.device)
-                    neg_chunk = embeddings[neg_nodes[chunk_start:chunk_end].view(-1)].view(
-                        chunk_size_actual, self.negative_samples, -1
-                    ).to(x.device)
-
-                    # Compute similarities for this chunk
-                    cos = torch.nn.CosineSimilarity(dim=1)
-                    pos_sims = cos(anchor_chunk, pos_chunk) / self.temperature
-                    
-                    anchor_chunk_reshaped = anchor_chunk.unsqueeze(1)
-                    neg_chunk_reshaped = neg_chunk.transpose(1, 2)
-                    neg_sims = torch.bmm(anchor_chunk_reshaped, neg_chunk_reshaped).squeeze(1) / self.temperature
-
-                    # Compute loss for this chunk
-                    all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
-                    targets = torch.zeros(chunk_size_actual, dtype=torch.long, device=x.device)
-                    chunk_loss = F.cross_entropy(all_sims, targets)
-                    
-                    total_chunk_loss += chunk_loss * chunk_size_actual
-
-                    # Clear chunk tensors
-                    del anchor_chunk, pos_chunk, neg_chunk
-                    del pos_sims, neg_sims, all_sims, targets
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    log_memory(f"After processing chunk {chunk_start}/{cur_batch_size}")
-
-                # Average loss across all chunks
-                batch_loss = total_chunk_loss / cur_batch_size
+                # Process batch and compute loss
+                batch_loss = self._process_batch(
+                    embeddings=embeddings,
+                    anchors=anchors,
+                    pos_nodes=pos_nodes,
+                    neg_nodes=neg_nodes,
+                    cur_batch_size=cur_batch_size,
+                    device=x.device,
+                    log_memory=log_memory
+                )
                 total_loss += batch_loss
                 total_pairs += cur_batch_size
 
