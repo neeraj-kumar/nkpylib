@@ -149,6 +149,7 @@ Let me explain how each parameter would likely affect the GAT model's accuracy:
 
 from __future__ import annotations
 
+import logging
 import time
 
 from collections import Counter, defaultdict
@@ -174,6 +175,8 @@ from nkpylib.ml.feature_set import (
     nparray1d,
     nparray2d,
 )
+
+logger = logging.getLogger(__name__)
 
 INVALID_NODE = -1
 
@@ -304,69 +307,37 @@ class RandomWalkGAT(GATBase):
         Returns the loss value computed from walk-based contrastive learning
         """
         # Get embeddings from regular forward pass
-        embeddings = self.forward(x, edge_index)
-        print(f"embeddings: {embeddings.shape}, {embeddings}")
-        
+        embeddings = self.embedding_forward(x, edge_index)
         walks_tensor = torch.tensor(walks, device=x.device)
-        print(f"walks_tensor: {walks_tensor.shape}, {walks_tensor}")
-        
         valid_mask = walks_tensor != INVALID_NODE
-        print(f"valid_mask: {valid_mask.shape}, {valid_mask.sum()}, {valid_mask}")
-        
         # get all anchors (all valid nodes in walks)
         anchors = walks_tensor[valid_mask]
-        print(f"anchors: {anchors.shape}, {anchors}")
-        
         walk_length = walks_tensor.shape[1]
-        print(f"walk_length: {walk_length}")
-        
         all_pos_nodes = []
         all_anchor_idxs = []
-        
         # generate positive pairs efficiently
         for i in range(walk_length):
-            print(f"\nProcessing position {i}:")
             # get valid anchors at this position
             pos_mask = valid_mask[:, i].clone()  # Create a copy to prevent modification
-            print(f"  pos_mask: {pos_mask.shape}, {pos_mask.sum()}, {pos_mask}")
-            
             if not pos_mask.any():
-                print("  No valid anchors at this position")
+                print(f"  No valid anchors at position {i}")
                 continue
-                
             # get context window for these anchors
             start = max(0, i - self.walk_window)
             end = min(walk_length, i + self.walk_window + 1)
-            print(f"  window: [{start}, {end}]")
-            
             # get all context nodes, excluding anchor position and invalid nodes
             context = walks_tensor[:, start:end]
             context_mask = valid_mask[:, start:end].clone()  # Create a copy
             context_mask[:, i-start] = False  # exclude anchor position
-            print(f"  context: {context.shape}, {context}, mask: {context_mask.sum()}, {context_mask.shape}, {context_mask}")
-            
             # add valid context nodes for each anchor
-
-            print(f"  pos_mask: {pos_mask}")
-            print(f"  pos_mask dtype: {pos_mask.dtype}")
-            print(f"  pos_mask device: {pos_mask.device}")
-            print(f"  pos_mask nonzero: {pos_mask.nonzero()}")
             pos_walks = pos_mask.nonzero().squeeze(1)
-            print(f"  pos_walks: {pos_walks}")
-            
             for walk_idx in pos_walks:
                 valid_context = context[walk_idx][context_mask[walk_idx]]
-                print(f"  walk {walk_idx}: valid_context size: {len(valid_context)}")
                 if len(valid_context) > 0:
                     all_pos_nodes.append(valid_context)
                     all_anchor_idxs.append(torch.full_like(valid_context, walks_tensor[walk_idx, i]))
-        print(f"\nAfter processing all positions:")
-        print(f"all_pos_nodes length: {len(all_pos_nodes)}")
-        print(f"all_anchor_idxs length: {len(all_anchor_idxs)}")
-        
         if not all_pos_nodes:  # No valid positive pairs found
-            print("No valid positive pairs found!")
-            return torch.tensor(0.0, device=x.device)
+            raise ValueError("No valid positive pairs found!")
         # concatenate all positive pairs
         pos_nodes = torch.cat(all_pos_nodes)
         anchors = torch.cat(all_anchor_idxs)
@@ -376,33 +347,20 @@ class RandomWalkGAT(GATBase):
                                 device=x.device)
         # Use cosine similarity module to maintain gradient connections
         cos = torch.nn.CosineSimilarity(dim=1)
-        
         # Compute logits for positive and negative pairs
         anchor_embeds = embeddings[anchors]
         pos_embeds = embeddings[pos_nodes]
         neg_embeds = embeddings[neg_nodes.view(-1)].view(len(anchors), self.negative_samples, -1)
-        
-        # Compute similarities maintaining gradient connections
+        # Compute pos and neg similarities
         pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
-        
-        # Reshape for batch matrix multiply
         anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)  # [N, 1, D]
         neg_embeds_reshaped = neg_embeds.transpose(1, 2)     # [N, D, K]
-        
-        # Compute all negative similarities at once
         neg_sims = torch.bmm(anchor_embeds_reshaped, neg_embeds_reshaped).squeeze(1) / self.temperature
-        
         # Concatenate positive and negative similarities
         all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
-        
         # Use cross entropy loss with first index (positive) as target
         targets = torch.zeros(len(anchors), dtype=torch.long, device=embeddings.device)
         loss = F.cross_entropy(all_sims, targets)
-
-        print("Model parameters require grad:", [p.requires_grad for p in self.parameters()])
-        print("Embeddings require grad:", embeddings.requires_grad)
-        print("Pos sims require grad:", pos_sims.requires_grad)
-        print("All sims require grad:", all_sims.requires_grad)
         return loss
 
 
@@ -461,7 +419,8 @@ class GraphLearner:
         Returns the list of loss values per epoch.
         """
         process = psutil.Process()
-        initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+        memory = Counter()
+        memory['initial'] = process.memory_info().rss / 1024 / 1024  # MB
         model = model.to(self.device)
         model.train()
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
@@ -474,12 +433,14 @@ class GraphLearner:
             loss.backward()
             optimizer.step()
             # Get current memory usage
-            current_memory = process.memory_info().rss / 1024 / 1024  # MB
-            memory_diff = current_memory - initial_memory
+            memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
+            memory['diff'] = memory['current'] - memory['initial']
+            memory['peak'] = max(memory['peak'], memory['current'])
+            memory['peak diff'] = memory['peak'] - memory['initial']
             # update tqdm description with memory info
+            mem_s = ', '.join(f'{k}:{int(v)}' for k, v in memory.items())
             pbar.set_description(
-                f"Epoch {epoch:03d}, Loss: {loss:.4f}, "
-                f"Memory: {current_memory:.1f}MB (+{memory_diff:+.1f}MB)"
+                f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}'
             )
         return torch.tensor(losses)
 
@@ -501,7 +462,7 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model
 
-    def train_random_walks(self, walks: list[list[int]], n_epochs=20):
+    def train_random_walks(self, walks: list[list[int]], n_epochs=1):
         """Train a graph model using random walk objectives.
 
         Pass in a list of `walks`, each of which is a list of node ids.
@@ -567,18 +528,17 @@ class GraphLearner:
         for node in range(self.data.num_nodes):
             assert counts[node] == n, f'Node {node} has {counts[node]} walks, expected {n}'
 
-    def train_and_eval_cls(self, model):
-        """Train and evaluate a node classification model on our data.
+    def train_and_eval_cls(self, embs):
+        """Train and evaluate a node classification model on given `embs`.
 
-        This uses the embeddings from the model and trains various classification models on them.
+        This trains various classification models on them.
         """
-        embs = model.get_embeddings(self.data.x, self.data.edge_index).cpu().numpy()
         y = self.data.y.cpu().numpy()
         train_mask = self.data.train_mask.cpu().numpy()
         test_mask = self.data.test_mask.cpu().numpy()
         X_train, y_train = embs[train_mask], y[train_mask]
         X_test, y_test = embs[test_mask], y[test_mask]
-        print(f'Embeddings shape: {embs.shape}, train: {X_train.shape}, test: {X_test.shape}')
+        logger.debug(f'Embeddings shape: {embs.shape}, train: {X_train.shape}, test: {X_test.shape}')
         models = dict(
             LinearSVC=LinearSVC(),
             SVC=SVC(kernel='rbf', gamma='scale'),
@@ -589,7 +549,7 @@ class GraphLearner:
             print(f'Classifier {name} accuracy: {acc:.4f}')
 
 
-def load_data(name: str='Cora'):
+def load_data(name: str='PubMed'):
     dataset = Planetoid(root=f'/tmp/{name}', name=name, transform=NormalizeFeatures())
     data = dataset[0]
     data = data.to(device)
@@ -696,6 +656,10 @@ if __name__ == '__main__':
         model = gl.train_node_classification(dataset)
         eval_model(model, data)
     elif mode == 'walk':
-        walks = gl.gen_walks(n_walks_per_node=1, walk_length=10)
+        # first do baseline embeddings test
+        print(f'Baseline results:')
+        gl.train_and_eval_cls(data.x.cpu().numpy())
+        walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
         model = gl.train_random_walks(walks)
-        gl.train_and_eval_cls(model)
+        embs = model.get_embeddings(self.data.x, self.data.edge_index).cpu().numpy()
+        gl.train_and_eval_cls(embs)
