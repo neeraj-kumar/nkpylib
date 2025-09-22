@@ -382,55 +382,47 @@ class RandomWalkGAT(GATBase):
                                         device=x.device)
                 log_memory("After generating negative samples")
                 
-                # Process embeddings in chunks to reduce memory usage
+                # Process embeddings and compute loss in chunks to reduce memory usage
                 chunk_size = 1000
-                anchor_embeds = []
-                pos_embeds = []
-                neg_embeds = []
-                
+                total_chunk_loss = 0
+                n_chunks = (cur_batch_size + chunk_size - 1) // chunk_size
+
                 for chunk_start in range(0, cur_batch_size, chunk_size):
                     chunk_end = min(chunk_start + chunk_size, cur_batch_size)
                     chunk_size_actual = chunk_end - chunk_start
                     
-                    # Move only necessary chunks to GPU
+                    # Process one chunk at a time
                     anchor_chunk = embeddings[anchors[chunk_start:chunk_end]].to(x.device)
                     pos_chunk = embeddings[pos_nodes[chunk_start:chunk_end]].to(x.device)
                     neg_chunk = embeddings[neg_nodes[chunk_start:chunk_end].view(-1)].view(
                         chunk_size_actual, self.negative_samples, -1
                     ).to(x.device)
+
+                    # Compute similarities for this chunk
+                    cos = torch.nn.CosineSimilarity(dim=1)
+                    pos_sims = cos(anchor_chunk, pos_chunk) / self.temperature
                     
-                    anchor_embeds.append(anchor_chunk)
-                    pos_embeds.append(pos_chunk)
-                    neg_embeds.append(neg_chunk)
+                    anchor_chunk_reshaped = anchor_chunk.unsqueeze(1)
+                    neg_chunk_reshaped = neg_chunk.transpose(1, 2)
+                    neg_sims = torch.bmm(anchor_chunk_reshaped, neg_chunk_reshaped).squeeze(1) / self.temperature
+
+                    # Compute loss for this chunk
+                    all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
+                    targets = torch.zeros(chunk_size_actual, dtype=torch.long, device=x.device)
+                    chunk_loss = F.cross_entropy(all_sims, targets)
                     
-                    # Clear GPU memory after each chunk
+                    total_chunk_loss += chunk_loss * chunk_size_actual
+
+                    # Clear chunk tensors
                     del anchor_chunk, pos_chunk, neg_chunk
+                    del pos_sims, neg_sims, all_sims, targets
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                log_memory("After embs loop")
-                
-                # Concatenate chunks
-                anchor_embeds = torch.cat(anchor_embeds, dim=0)
-                pos_embeds = torch.cat(pos_embeds, dim=0)
-                neg_embeds = torch.cat(neg_embeds, dim=0)
-                log_memory("After concatenating all chunks")
-                
-                # Compute similarities directly
-                cos = torch.nn.CosineSimilarity(dim=1)
-                pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
-                
-                # Compute negative similarities directly
-                anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)
-                neg_embeds_reshaped = neg_embeds.transpose(1, 2)
-                neg_sims = torch.bmm(anchor_embeds_reshaped, neg_embeds_reshaped).squeeze(1) / self.temperature
-                log_memory("After concatenating all similarities")
-                
-                # Compute loss for this batch
-                all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
-                targets = torch.zeros(cur_batch_size, dtype=torch.long, device=embeddings.device)
-                batch_loss = F.cross_entropy(all_sims, targets)
-                
-                total_loss += batch_loss * cur_batch_size
+                    log_memory(f"After processing chunk {chunk_start}/{cur_batch_size}")
+
+                # Average loss across all chunks
+                batch_loss = total_chunk_loss / cur_batch_size
+                total_loss += batch_loss
                 total_pairs += cur_batch_size
 
                 log_memory(f"After loss computation for batch {batch_start}")
