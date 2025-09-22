@@ -66,4 +66,4 @@ sync:
 
 ## runs gat
 gat:
-	python3 gat.py
+	python3 graph_learning.py

@@ -435,7 +435,7 @@ class GraphLearner:
             )
         return torch.tensor(losses)
 
-    def train_node_classification(self, n_epochs:int=200):
+    def train_node_classification(self, dataset, n_epochs:int=200):
         model = NodeClassificationGAT(
                     in_channels=-1,#dataset.num_features,
                     hidden_channels=self.hidden_channels,
@@ -643,6 +643,8 @@ if __name__ == '__main__':
     print(f'Device {device}, Loaded data: {data}, num_classes: {dataset.num_classes}, {data.y.shape}, {data.y}')
     #quick_test(data)
     gl = GraphLearner(data)
-    walks = gl.gen_walks(10, 10)
-    model = gl.train_random_walks(walks)
-    gl.train_and_eval_cls(model)
+    model = gl.train_node_classification(dataset)
+    if 0:
+        walks = gl.gen_walks(10, 10)
+        model = gl.train_random_walks(walks)
+        gl.train_and_eval_cls(model)
