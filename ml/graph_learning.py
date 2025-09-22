@@ -216,11 +216,23 @@ class GATBase(torch.nn.Module):
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels * heads, heads=1)
         self.dropout = dropout
 
-    def forward(self, x, edge_index):
+    def forward(self, x, edge_index, get_embeddings:bool=False):
+        """Runs a forward pass with given `x` and `edge_index`.
+
+        By default this just runs the two GAT layers and returns the output from that last conv
+        layer (after elu).
+
+        If you want embeddings instead, set `get_embeddings=True`, which returns the concatenation
+        of the outputs of the two GAT conv layers (before elu).
+        """
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = F.elu(self.conv1(x, edge_index))
+        e1 = x = self.conv1(x, edge_index)
+        x = F.elu(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = F.elu(self.conv2(x, edge_index))
+        e2 = x = self.conv2(x, edge_index)
+        if get_embeddings:
+            return torch.cat([e1, e2], dim=1)
+        x = F.elu(x)
         return x
 
     def get_embeddings(self, x, edge_index):
@@ -230,11 +242,7 @@ class GATBase(torch.nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            emb1 = F.elu(self.conv1(x, edge_index))
-            emb2 = self.conv2(emb1, edge_index)
-            # concat these to get embeddings
-            embeddings = torch.cat([emb1, emb2], dim=1)
-            return embeddings
+            return self.forward(x, edge_index, get_embeddings=True)
 
 
 class NodeClassificationGAT(GATBase):
@@ -294,7 +302,7 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
-        embeddings = super().forward(x, edge_index)
+        embeddings = super().forward(x, edge_index, get_embeddings=True)
         walks_tensor = torch.tensor(walks, device=x.device)
         valid_mask = walks_tensor != INVALID_NODE
         # get all anchors (all valid nodes in walks)
@@ -443,7 +451,7 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model
 
-    def train_random_walks(self, walks: list[list[int]], n_epochs=200):
+    def train_random_walks(self, walks: list[list[int]], n_epochs=20):
         """Train a graph model using random walk objectives.
 
         Pass in a list of `walks`, each of which is a list of node ids.
