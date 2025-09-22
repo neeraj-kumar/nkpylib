@@ -410,30 +410,50 @@ class GraphLearner:
         return model
 
     def gen_walks(self, data, num_walks:int=10, walk_length:int=20):
-        """Generate random walks through the graph.
-
+        """Generate random walks through the graph efficiently using numpy.
+        
         Returns a list of walks, each of which is a list of node indices.
+        Uses vectorized operations for better performance.
         """
-        # build adjacency list
-        adj = defaultdict(list)
+        # Convert edge index to numpy for faster ops
         edge_index = data.edge_index.cpu().numpy()
-        for src, dst in zip(edge_index[0], edge_index[1]):
-            adj[src].append(dst)
-        # generate random walks
-        walks = []
-        for _ in range(num_walks):
-            for start_node in range(data.num_nodes):
-                walk = [start_node]
-                current_node = start_node
-                for _ in range(walk_length - 1):
-                    neighbors = adj[current_node]
-                    if neighbors:
-                        current_node = random.choice(neighbors)
-                        walk.append(current_node)
-                    else:
-                        break
-                walks.append(walk)
-        return walks
+        num_nodes = data.num_nodes
+        
+        # Build adjacency matrix in CSR format for fast neighbor lookup
+        from scipy.sparse import csr_matrix
+        adj = csr_matrix((np.ones(edge_index.shape[1]), 
+                         (edge_index[0], edge_index[1])),
+                        shape=(num_nodes, num_nodes))
+        
+        # Pre-allocate walks array
+        total_walks = num_walks * num_nodes
+        walks = np.zeros((total_walks, walk_length), dtype=np.int32)
+        
+        # Set starting nodes for all walks
+        walks[:, 0] = np.tile(np.arange(num_nodes), num_walks)
+        
+        # Generate walks in parallel
+        rng = np.random.default_rng()
+        for step in range(1, walk_length):
+            # Get neighbors for all current nodes
+            current_nodes = walks[:, step-1]
+            
+            # Get neighbor lists for all current nodes at once
+            neighbors = [np.array(adj[node].indices) for node in current_nodes]
+            
+            # Handle dead ends (nodes with no neighbors)
+            has_neighbors = [len(n) > 0 for n in neighbors]
+            
+            # Choose random neighbors where possible
+            for i, (node_neighbors, valid) in enumerate(zip(neighbors, has_neighbors)):
+                if valid:
+                    walks[i, step] = rng.choice(node_neighbors)
+                else:
+                    # No neighbors - terminate walk by repeating last node
+                    walks[i, step] = walks[i, step-1]
+        
+        # Convert to list of walks
+        return [walk[~np.all(walk == walk[0])].tolist() for walk in walks]
 
 
 def load_data(name: str='Cora'):
