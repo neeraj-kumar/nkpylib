@@ -45,7 +45,10 @@ array2d = nparray2d | Sequence[Sequence[float]]
 
 logger = logging.getLogger(__name__)
 
-CONSOLE_WIDTH = os.get_terminal_size().columns
+try:
+    CONSOLE_WIDTH = os.get_terminal_size().columns
+except Exception:
+    CONSOLE_WIDTH = 120
 np.set_printoptions(suppress=True, linewidth=CONSOLE_WIDTH)
 
 class JsonLmdb(Lmdb):
@@ -249,7 +252,8 @@ class NumpyLmdb(MetadataLmdb):
                     vecs[k] = np.hstack([existing, cur[k]])
         # write to output path
         with cls.open(output_path, 'c', dtype=dtype) as db:
-            db.update({key: vec for key, vec in vecs.items()})
+            #db.update({key: vec for key, vec in vecs.items()})
+            db.update(vecs)
 
 class LmdbUpdater(CollectionUpdater):
     """Helper class to update an LMDB database in parallel.
@@ -435,8 +439,8 @@ class FeatureSet(Mapping, Generic[KeyT]):
         return keys, embs
 
 
-def quick_test(path: str, **kw):
-    """Prints the first embeddings from given `path`"""
+def quick_test(path: str, n: int=3, **kw):
+    """Prints the first `n` embeddings from given `path`"""
     db = NumpyLmdb.open(path)
     num = 0
     for key, value in db.items():
@@ -444,7 +448,7 @@ def quick_test(path: str, **kw):
             print(f'Opened {db}: {len(db)} x {len(value)} ({db.dtype.__name__}) = {db.map_size} map size.')
         print(f'{key}: {value}')
         num += 1
-        if num > 2:
+        if num >= n:
             break
 
 def extract_embeddings(path: str, embedding_type: str='text', flag: str='c', model: str|None=None, batch_size=20, **kw):

@@ -25,7 +25,7 @@ from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter
 from os.path import abspath, dirname, exists, join
-from typing import Any, Sequence, Generic, TypeVar
+from typing import Any, Sequence, Generic, TypeVar, Hashable
 
 import numpy as np
 
@@ -257,11 +257,15 @@ def generate_cooccurence_embeddings(
     total_variance = sum(S**2)
     variance = 0.0
     dim = 0
+    cumvars = []
     while variance / total_variance < min_variance and dim < len(S):
         variance += S[dim]**2
+        cumvars.append(variance / total_variance)
         dim += 1
     assert 2 <= dim <= 256, f'Unreasonable dimensionality {dim}'
     logger.info(f'Using {dim} dimensions to capture {100*variance/total_variance:.2f}% of variance')
+    var_s = ' '.join(f'{v:.2f}' for v in cumvars)
+    logger.info(f'Cumulative variances: {var_s}')
     S_root = np.sqrt(np.diag(S[:dim]))
     embeddings = U[:, :dim] @ S_root
     # normalize embeddings
