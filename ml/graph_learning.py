@@ -280,43 +280,32 @@ class NodeClassificationGAT(GATBase):
         return x
 
 
-class RandomWalkGAT(GATBase):
-    """GAT model trained using random walk objectives.
-
-    Instead of node classification, this learns node embeddings such that nodes
-    appearing close together in random walks have similar embeddings.
+class ContrastiveGAT(GATBase):
+    """GAT model trained using contrastive learning.
+    
+    This base class implements the core contrastive learning logic, processing pairs
+    of positive and negative examples to learn node embeddings.
     """
     def __init__(self,
-                 walk_window: int = 5,
                  negative_samples: int = 10,
                  temperature: float = 0.07,
                  **kw):
-        """initialize this RandomWalkGAT model.
-
-        - walk_window: Context window size for walks (how many nodes before/after to consider)
-        - negative_samples: Number of negative samples per positive pair
-        - temperature: Temperature for similarity scaling (higher = softer attention)
-
-        All other `kw` are passed to the base GAT model.
-
-        Memory:
-        - O(walk_window*n_walks)
-        - not proprotional to negs?!!
-        - somewhat proportional to walk length?
-        - maybe increases per batch, but not sure
+        """Initialize this ContrastiveGAT model.
+        
+        Args:
+            negative_samples: Number of negative samples per positive pair
+            temperature: Temperature for similarity scaling (higher = softer attention)
         """
         super().__init__(**kw)
-        self.walk_window = walk_window
         self.negative_samples = negative_samples
         self.temperature = temperature
-
+    
     def _process_batch(self,
                       embeddings: torch.Tensor,
                       anchors: torch.Tensor,
                       pos_nodes: torch.Tensor,
                       neg_nodes: torch.Tensor,
-                      cur_batch_size: int,
-                      device: torch.device) -> torch.Tensor:
+                      cur_batch_size: int) -> torch.Tensor:
         """Process a batch of nodes and compute the loss.
 
         Args:
@@ -325,17 +314,17 @@ class RandomWalkGAT(GATBase):
             pos_nodes: Positive sample node indices
             neg_nodes: Negative sample node indices
             cur_batch_size: Size of current batch
-            device: Device to run computations on
 
         Returns:
             Batch loss value
         """
         # Get embeddings for this batch
-        anchor_embeds = embeddings[anchors]
-        pos_embeds = embeddings[pos_nodes]
-        neg_embeds = embeddings[neg_nodes.view(-1)].view(
-            cur_batch_size, self.negative_samples, -1
-        )
+        with torch.no_grad():
+            anchor_embeds = embeddings[anchors]
+            pos_embeds = embeddings[pos_nodes]
+            neg_embeds = embeddings[neg_nodes.view(-1)].view(
+                cur_batch_size, self.negative_samples, -1
+            )
 
         # Compute similarities
         cos = torch.nn.CosineSimilarity(dim=1)
@@ -347,119 +336,130 @@ class RandomWalkGAT(GATBase):
 
         # Compute loss
         all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
-        targets = torch.zeros(cur_batch_size, dtype=torch.long, device=device)
+        targets = torch.zeros(cur_batch_size, dtype=torch.long, device=embeddings.device)
         batch_loss = F.cross_entropy(all_sims, targets)
 
         return batch_loss
 
+    def compute_loss(self, x, edge_index, pair_generator, batch_size: int = 1024):
+        """Compute contrastive loss using pairs of nodes.
+        
+        Args:
+            x: Node features
+            edge_index: Graph connectivity
+            pair_generator: Generator yielding (anchors, positives) pairs
+            batch_size: Number of pairs to process at once
+            
+        Returns:
+            Average loss across all pairs
+        """
+        # Get embeddings
+        embeddings = self.embedding_forward(x, edge_index).cpu()
+        
+        total_loss = 0
+        total_pairs = 0
+        
+        for anchors, pos_nodes in pair_generator:
+            cur_batch_size = len(anchors)
+            
+            # Generate negative samples
+            with torch.no_grad():
+                neg_nodes = torch.randint(0, x.shape[0],
+                                        (cur_batch_size, self.negative_samples))
+            
+            # Process batch
+            batch_loss = self._process_batch(
+                embeddings=embeddings,
+                anchors=anchors,
+                pos_nodes=pos_nodes,
+                neg_nodes=neg_nodes,
+                cur_batch_size=cur_batch_size,
+            )
+            
+            total_loss += batch_loss
+            total_pairs += cur_batch_size
+            
+        if total_pairs == 0:
+            raise ValueError("No valid pairs found!")
+            
+        return total_loss / total_pairs
+
+
+class RandomWalkGAT(ContrastiveGAT):
+    """GAT model trained using random walk objectives.
+
+    Instead of node classification, this learns node embeddings such that nodes
+    appearing close together in random walks have similar embeddings.
+    """
+    def __init__(self, walk_window: int = 5, **kw):
+        """Initialize this RandomWalkGAT model.
+        
+        Args:
+            walk_window: Context window size for walks (how many nodes before/after to consider)
+        """
+        super().__init__(**kw)
+        self.walk_window = walk_window
+
 
     def compute_loss(self, x, edge_index, walks: Sequence[Sequence[int]], batch_size: int = 1024):
         """Compute loss using random walks for training.
-
-        - x: Node features
-        - edge_index: Graph connectivity
-        - walks: List of random walks, each walk is list of node indices
-        - batch_size: Number of positive pairs to process at once
-
-        Returns the loss value computed from walk-based contrastive learning
+        
+        Args:
+            x: Node features
+            edge_index: Graph connectivity
+            walks: List of random walks, each walk is list of node indices
+            batch_size: Number of pairs to process at once
+            
+        Returns:
+            Loss value computed from walk-based contrastive learning
         """
-        self.log_memory("Start of compute_loss")
-
-        # Get embeddings on CPU to reduce GPU memory usage
-        embeddings = self.embedding_forward(x, edge_index).cpu()
-        self.log_memory("After embedding computation (on CPU)")
-
-        # Keep walks on CPU initially
-        walks_tensor = torch.tensor(walks)
-        valid_mask = walks_tensor != INVALID_NODE
-        walk_length = walks_tensor.shape[1]
-        self.log_memory("After initial tensor creation on CPU")
-
-        # Initialize loss accumulator
-        total_loss = 0
-        total_pairs = 0
-
-        for i in range(walk_length):
-            pos_mask = valid_mask[:, i].clone()
-            if not pos_mask.any():
-                continue
-
-            # Process position mask on CPU first
-            with torch.no_grad():
+        def walk_pair_generator():
+            """Generate positive pairs from random walks."""
+            walks_tensor = torch.tensor(walks)
+            valid_mask = walks_tensor != INVALID_NODE
+            walk_length = walks_tensor.shape[1]
+            
+            for i in range(walk_length):
+                pos_mask = valid_mask[:, i].clone()
+                if not pos_mask.any():
+                    continue
+                
+                # Get valid walks for this position
                 pos_walks = pos_mask.nonzero().squeeze(1)
                 if len(pos_walks.shape) == 0:
                     pos_walks = pos_walks.unsqueeze(0)
-            n_pos = len(pos_walks)
-
-            # Process walks in batches
-            for batch_start in range(0, n_pos, batch_size):
-                batch_end = min(batch_start + batch_size, n_pos)
-
-                # Get context window - no need to track these indexing operations
-                with torch.no_grad():
-                    # Move only the needed batch to device
-                    batch_walks = pos_walks[batch_start:batch_end].to(x.device)
+                n_pos = len(pos_walks)
+                
+                # Process walks in batches
+                for batch_start in range(0, n_pos, batch_size):
+                    batch_end = min(batch_start + batch_size, n_pos)
+                    batch_walks = pos_walks[batch_start:batch_end]
+                    
+                    # Get context window
                     start = max(0, i - self.walk_window)
                     end = min(walk_length, i + self.walk_window + 1)
-                    context = walks_tensor[batch_walks.cpu()][:, start:end]
-                    context_mask = valid_mask[batch_walks.cpu()][:, start:end].clone()
-                context_mask[:, i-start] = False
-
-                # Collect positive pairs for this batch
-                batch_pos_nodes = []
-                batch_anchor_idxs = []
-
-                for idx, walk_idx in enumerate(batch_walks):
-                    valid_context = context[idx][context_mask[idx]]
-                    if len(valid_context) > 0:
-                        batch_pos_nodes.append(valid_context)
-                        batch_anchor_idxs.append(
-                            torch.full_like(valid_context, walks_tensor[walk_idx, i])
+                    context = walks_tensor[batch_walks][:, start:end]
+                    context_mask = valid_mask[batch_walks][:, start:end].clone()
+                    context_mask[:, i-start] = False
+                    
+                    # Collect positive pairs
+                    batch_pos_nodes = []
+                    batch_anchor_idxs = []
+                    for idx, walk_idx in enumerate(batch_walks):
+                        valid_context = context[idx][context_mask[idx]]
+                        if len(valid_context) > 0:
+                            batch_pos_nodes.append(valid_context)
+                            batch_anchor_idxs.append(
+                                torch.full_like(valid_context, walks_tensor[walk_idx, i])
+                            )
+                    
+                    if batch_pos_nodes:
+                        yield (
+                            torch.cat(batch_anchor_idxs),
+                            torch.cat(batch_pos_nodes)
                         )
-
-                if not batch_pos_nodes:
-                    continue
-
-                # Create positive pairs
-                pos_nodes = torch.cat(batch_pos_nodes)
-                anchors = torch.cat(batch_anchor_idxs)
-                cur_batch_size = len(anchors)
-                self.log_memory(f"After creating positive pairs for batch {batch_start}")
-
-                # Generate negative samples - sampling doesn't need gradients
-                with torch.no_grad():
-                    neg_nodes = torch.randint(0, x.shape[0],
-                                            (cur_batch_size, self.negative_samples))
-                self.log_memory("After generating negative samples")
-
-                # Process batch and compute loss
-                batch_loss = self._process_batch(
-                    embeddings=embeddings,
-                    anchors=anchors,
-                    pos_nodes=pos_nodes,
-                    neg_nodes=neg_nodes,
-                    cur_batch_size=cur_batch_size,
-                    device=x.device,
-                )
-                total_loss += batch_loss
-                total_pairs += cur_batch_size
-
-                self.log_memory(f"After loss computation for batch {batch_start}")
-
-                # Clear all intermediate tensors explicitly and force garbage collection
-                del pos_nodes, anchors, neg_nodes, batch_walks, context, context_mask
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                self.log_memory(f"After batch {batch_start}/{n_pos} completion and cleanup")
-
-        if total_pairs == 0:
-            raise ValueError("No valid positive pairs found!")
-
-        # Average loss across all pairs
-        avg_loss = total_loss / total_pairs
-
-        return avg_loss
+        
+        return super().compute_loss(x, edge_index, walk_pair_generator(), batch_size)
 
 
 class GraphLearner:
