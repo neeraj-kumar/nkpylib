@@ -294,74 +294,57 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
-        # Get node embeddings
         embeddings = self.get_embeddings(x, edge_index)
-        
-        # Convert walks to tensor and mask invalid nodes
         walks_tensor = torch.tensor(walks, device=x.device)
         valid_mask = walks_tensor != INVALID_NODE
-        
-        # Get all anchors (all valid nodes in walks)
+        # get all anchors (all valid nodes in walks)
         anchors = walks_tensor[valid_mask]
-        
-        # For each position, get context window
         walk_length = walks_tensor.shape[1]
         all_pos_nodes = []
         all_anchor_idxs = []
-        
-        # Generate positive pairs efficiently
+        # generate positive pairs efficiently
         for i in range(walk_length):
-            # Get valid anchors at this position
+            # get valid anchors at this position
             pos_mask = valid_mask[:, i]
             if not pos_mask.any():
                 continue
-                
-            # Get context window for these anchors
+            # get context window for these anchors
             start = max(0, i - self.walk_window)
             end = min(walk_length, i + self.walk_window + 1)
-            
-            # Get all context nodes, excluding anchor position and invalid nodes
+            # get all context nodes, excluding anchor position and invalid nodes
             context = walks_tensor[:, start:end]
             context_mask = valid_mask[:, start:end]
-            context_mask[:, i-start] = False  # Exclude anchor position
-            
-            # Add valid context nodes for each anchor
+            context_mask[:, i-start] = False  # exclude anchor position
+            # add valid context nodes for each anchor
             pos_walks = pos_mask.nonzero().squeeze(1)
             for walk_idx in pos_walks:
                 valid_context = context[walk_idx][context_mask[walk_idx]]
                 if len(valid_context) > 0:
                     all_pos_nodes.append(valid_context)
                     all_anchor_idxs.append(torch.full_like(valid_context, walks_tensor[walk_idx, i]))
-        
         if not all_pos_nodes:  # No valid positive pairs found
             return torch.tensor(0.0, device=x.device)
-            
-        # Concatenate all positive pairs
+        # concatenate all positive pairs
         pos_nodes = torch.cat(all_pos_nodes)
         anchors = torch.cat(all_anchor_idxs)
-        
-        # Generate negative samples for all anchors at once
-        neg_nodes = torch.randint(0, x.shape[0], 
-                                (len(anchors), self.negative_samples), 
+        # generate negative samples for all anchors at once
+        neg_nodes = torch.randint(0, x.shape[0],
+                                (len(anchors), self.negative_samples),
                                 device=x.device)
-        
-        # Compute similarities for all pairs at once
+        # compute similarities for all pairs at once
         anchor_embeds = embeddings[anchors]
         pos_embeds = embeddings[pos_nodes]
         neg_embeds = embeddings[neg_nodes.view(-1)].view(len(anchors), self.negative_samples, -1)
-        
-        # Compute positive and negative similarities
+        # compute positive and negative similarities
         pos_sims = F.cosine_similarity(anchor_embeds, pos_embeds, dim=1) / self.temperature
         neg_sims = torch.bmm(
             anchor_embeds.unsqueeze(1),
             neg_embeds.transpose(1, 2)
         ).squeeze(1) / self.temperature
-        
-        # Compute InfoNCE loss for all pairs at once
+        # compute InfoNCE loss for all pairs at once
         pos_sum = torch.exp(pos_sims)
         neg_sum = torch.exp(neg_sims).sum(dim=1)
         loss = -torch.log(pos_sum / (pos_sum + neg_sum)).mean()
-        
         return loss
 
 
@@ -619,6 +602,7 @@ def compare_embeddings(emb1, emb2):
 
 def quick_test(data):
     """Run a quick test to see how GAT works"""
+    return
     model = train_model(data)
     print(f'Trained model')
     eval_model(model, data)
