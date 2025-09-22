@@ -325,7 +325,7 @@ class RandomWalkGAT(GATBase):
         n_chunks = (cur_batch_size + self.chunk_size - 1) // self.chunk_size
 
         for chunk_start in range(0, cur_batch_size, self.chunk_size):
-            chunk_end = min(chunk_start + chunk_size, cur_batch_size)
+            chunk_end = min(chunk_start + self.chunk_size, cur_batch_size)
             chunk_size_actual = chunk_end - chunk_start
             
             # Process one chunk at a time
