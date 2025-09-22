@@ -606,7 +606,7 @@ class GraphLearner:
             print(f'Classifier {name} accuracy: {acc:.4f}')
 
 
-def load_data(name: str='PubMed'):
+def load_data(name):
     dataset = Planetoid(root=f'/tmp/{name}', name=name, transform=NormalizeFeatures())
     data = dataset[0]
     data = data.to(device)
@@ -704,10 +704,11 @@ def quick_test(data):
 
 
 if __name__ == '__main__':
-    data, dataset = load_data()
+    # load not Cora and not PubMed
+    data, dataset = load_data('Citeseer')
     print(f'Device {device}, Loaded data: {data}, num_classes: {dataset.num_classes}, {data.y.shape}, {data.y}')
     #quick_test(data)
-    mode = 'cls'
+    mode = 'walk'
     gl = GraphLearner(data)
     gl.train_and_eval_cls(data.x.cpu().numpy())
     if mode == 'cls':
@@ -716,5 +717,5 @@ if __name__ == '__main__':
     elif mode == 'walk':
         walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
         model = gl.train_random_walks(walks)
-        embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
-        gl.train_and_eval_cls(embs)
+    embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
+    gl.train_and_eval_cls(embs)
