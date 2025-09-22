@@ -321,7 +321,27 @@ class RandomWalkGAT(GATBase):
         Returns:
             Batch loss value
         """
-        pass
+        # Get embeddings for this batch
+        anchor_embeds = embeddings[anchors].to(device)
+        pos_embeds = embeddings[pos_nodes].to(device)
+        neg_embeds = embeddings[neg_nodes.view(-1)].view(
+            cur_batch_size, self.negative_samples, -1
+        ).to(device)
+        
+        # Compute similarities
+        cos = torch.nn.CosineSimilarity(dim=1)
+        pos_sims = cos(anchor_embeds, pos_embeds) / self.temperature
+        
+        anchor_embeds_reshaped = anchor_embeds.unsqueeze(1)
+        neg_embeds_reshaped = neg_embeds.transpose(1, 2)
+        neg_sims = torch.bmm(anchor_embeds_reshaped, neg_embeds_reshaped).squeeze(1) / self.temperature
+        
+        # Compute loss
+        all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
+        targets = torch.zeros(cur_batch_size, dtype=torch.long, device=device)
+        batch_loss = F.cross_entropy(all_sims, targets)
+        
+        return batch_loss
 
     def _process_batch_chunks(self,
                       embeddings: torch.Tensor,
