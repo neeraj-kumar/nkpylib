@@ -305,38 +305,63 @@ class RandomWalkGAT(GATBase):
         """
         # Get embeddings from regular forward pass
         embeddings = self.forward(x, edge_index)
+        print(f"embeddings shape: {embeddings.shape}")
+        
         walks_tensor = torch.tensor(walks, device=x.device)
+        print(f"walks_tensor shape: {walks_tensor.shape}, content: {walks_tensor}")
+        
         valid_mask = walks_tensor != INVALID_NODE
+        print(f"valid_mask shape: {valid_mask.shape}, sum: {valid_mask.sum()}")
+        
         # get all anchors (all valid nodes in walks)
         anchors = walks_tensor[valid_mask]
+        print(f"anchors shape: {anchors.shape}, content: {anchors}")
+        
         walk_length = walks_tensor.shape[1]
+        print(f"walk_length: {walk_length}")
+        
         all_pos_nodes = []
         all_anchor_idxs = []
+        
         # generate positive pairs efficiently
         for i in range(walk_length):
+            print(f"\nProcessing position {i}:")
             # get valid anchors at this position
             pos_mask = valid_mask[:, i]
+            print(f"  pos_mask sum: {pos_mask.sum()}")
+            
             if not pos_mask.any():
+                print("  No valid anchors at this position")
                 continue
+                
             # get context window for these anchors
             start = max(0, i - self.walk_window)
             end = min(walk_length, i + self.walk_window + 1)
+            print(f"  window: [{start}, {end}]")
+            
             # get all context nodes, excluding anchor position and invalid nodes
             context = walks_tensor[:, start:end]
             context_mask = valid_mask[:, start:end]
             context_mask[:, i-start] = False  # exclude anchor position
+            print(f"  context shape: {context.shape}, mask sum: {context_mask.sum()}")
+            
             # add valid context nodes for each anchor
             pos_walks = pos_mask.nonzero().squeeze(1)
+            print(f"  pos_walks: {pos_walks}")
+            
             for walk_idx in pos_walks:
                 valid_context = context[walk_idx][context_mask[walk_idx]]
+                print(f"  walk {walk_idx}: valid_context size: {len(valid_context)}")
                 if len(valid_context) > 0:
                     all_pos_nodes.append(valid_context)
                     all_anchor_idxs.append(torch.full_like(valid_context, walks_tensor[walk_idx, i]))
-        print(f'in compute_loss')
+        print(f"\nAfter processing all positions:")
+        print(f"all_pos_nodes length: {len(all_pos_nodes)}")
+        print(f"all_anchor_idxs length: {len(all_anchor_idxs)}")
+        
         if not all_pos_nodes:  # No valid positive pairs found
-            print('whoa')
+            print("No valid positive pairs found!")
             return torch.tensor(0.0, device=x.device)
-        print(f'in compute_loss 2')
         # concatenate all positive pairs
         pos_nodes = torch.cat(all_pos_nodes)
         anchors = torch.cat(all_anchor_idxs)
