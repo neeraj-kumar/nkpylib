@@ -318,12 +318,11 @@ class RandomWalkGAT(GATBase):
         embeddings = self.embedding_forward(x, edge_index)
         log_memory("After embedding computation")
         
-        walks_tensor = torch.tensor(walks, device=x.device)
-        log_memory("After walks to tensor")
-        
+        # Keep walks on CPU initially
+        walks_tensor = torch.tensor(walks)
         valid_mask = walks_tensor != INVALID_NODE
         walk_length = walks_tensor.shape[1]
-        log_memory("After mask creation")
+        log_memory("After initial tensor creation on CPU")
         
         # Initialize loss accumulator
         total_loss = 0
@@ -337,20 +336,23 @@ class RandomWalkGAT(GATBase):
             if not pos_mask.any():
                 continue
                 
-            # Get valid walks for this position
+            # Process position mask on CPU first
             pos_walks = pos_mask.nonzero().squeeze(1)
+            if len(pos_walks.shape) == 0:
+                pos_walks = pos_walks.unsqueeze(0)
             n_pos = len(pos_walks)
             
             # Process walks in batches
             for batch_start in range(0, n_pos, pos_batch_size):
                 batch_end = min(batch_start + pos_batch_size, n_pos)
-                batch_walks = pos_walks[batch_start:batch_end]
+                # Move only the needed batch to device
+                batch_walks = pos_walks[batch_start:batch_end].to(x.device)
                 
                 # Get context window
                 start = max(0, i - self.walk_window)
                 end = min(walk_length, i + self.walk_window + 1)
-                context = walks_tensor[batch_walks][:, start:end]
-                context_mask = valid_mask[batch_walks][:, start:end].clone()
+                context = walks_tensor[batch_walks.cpu()][:, start:end].to(x.device)
+                context_mask = valid_mask[batch_walks.cpu()][:, start:end].clone().to(x.device)
                 context_mask[:, i-start] = False
                 
                 # Collect positive pairs for this batch
@@ -406,11 +408,13 @@ class RandomWalkGAT(GATBase):
                 total_loss += batch_loss * cur_batch_size
                 total_pairs += cur_batch_size
                 
-                # Clear all intermediate tensors explicitly
+                # Clear all intermediate tensors explicitly and force garbage collection
                 del pos_nodes, anchors, neg_nodes, anchor_embeds, pos_embeds, neg_embeds
                 del all_sims, targets, batch_walks, context, context_mask
                 del anchor_embeds_reshaped, neg_embeds_reshaped, pos_sims, neg_sims
-                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
                 log_memory(f"After batch {batch_start}/{n_pos} completion and cleanup")
         
         if total_pairs == 0:
