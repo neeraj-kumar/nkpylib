@@ -216,33 +216,36 @@ class GATBase(torch.nn.Module):
         self.conv2 = GATConv(hidden_channels * heads, hidden_channels * heads, heads=1)
         self.dropout = dropout
 
-    def forward(self, x, edge_index, get_embeddings:bool=False):
-        """Runs a forward pass with given `x` and `edge_index`.
-
-        By default this just runs the two GAT layers and returns the output from that last conv
-        layer (after elu).
-
-        If you want embeddings instead, set `get_embeddings=True`, which returns the concatenation
-        of the outputs of the two GAT conv layers (before elu).
+    def embedding_forward(self, x, edge_index):
+        """Get raw embeddings from both layers before activation.
+        
+        Returns concatenated embeddings [e1, e2] suitable for embedding-based tasks.
         """
         x = F.dropout(x, p=self.dropout, training=self.training)
-        e1 = x = self.conv1(x, edge_index)
+        e1 = self.conv1(x, edge_index)
+        x = F.elu(e1)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        e2 = self.conv2(x, edge_index)
+        return torch.cat([e1, e2], dim=1)
+
+    def forward(self, x, edge_index):
+        """Regular forward pass with ELU activations for stable training."""
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv1(x, edge_index)
         x = F.elu(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        e2 = x = self.conv2(x, edge_index)
-        if get_embeddings:
-            return torch.cat([e1, e2], dim=1)
+        x = self.conv2(x, edge_index)
         x = F.elu(x)
         return x
 
     def get_embeddings(self, x, edge_index):
-        """Extract node embeddings from the first GAT layer.
+        """Extract node embeddings from both GAT layers.
 
-        Returns tensor of shape [num_nodes, hidden_channels * heads]
+        Returns tensor of shape [num_nodes, hidden_channels * heads * 2]
         """
         self.eval()
         with torch.no_grad():
-            return self.forward(x, edge_index, get_embeddings=True)
+            return self.embedding_forward(x, edge_index)
 
 
 class NodeClassificationGAT(GATBase):
@@ -302,7 +305,10 @@ class RandomWalkGAT(GATBase):
 
         Returns the loss value computed from walk-based contrastive learning
         """
-        embeddings = super().forward(x, edge_index, get_embeddings=True)
+        # Get raw embeddings for contrastive loss
+        embeddings = super().embedding_forward(x, edge_index)
+        # But also run regular forward pass to maintain training stability
+        _ = super().forward(x, edge_index)
         walks_tensor = torch.tensor(walks, device=x.device)
         valid_mask = walks_tensor != INVALID_NODE
         # get all anchors (all valid nodes in walks)
