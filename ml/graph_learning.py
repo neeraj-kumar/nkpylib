@@ -3,6 +3,9 @@
 Implementation of Graph Attention Network (GAT) using PyTorch and PyTorch Geometric.
 
 TODO:
+- Develop multi-task classification heads
+- Fix memory issues
+
 
 Yes, the current GAT implementation is designed around a node classification task, as evidenced by:
 

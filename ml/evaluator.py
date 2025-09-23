@@ -54,7 +54,11 @@ TODO:
     - different rbf params (C, alpha)
   - Figure out how to order different operations, including not evaluating things if already
     promising alternatives
-
+- Implement a task management system with worker pool
+  - Prioritize these using Bayesian optimization
+- standardized result storage method (like add_msg)
+- provenance tracking?
+  - e.g. source embs -> pca -> normed means -> euclidean dist vs genre label distances
 
 Old stuff:
 - Recommendation system
