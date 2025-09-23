@@ -27,7 +27,7 @@ import time
 from abc import ABC
 from collections.abc import Mapping, MutableMapping
 from os.path import dirname
-from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator
+from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable
 
 import numpy as np
 
@@ -38,7 +38,7 @@ from nkpylib.time_utils import parse_ts
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    'Feature', 'ConstantFeature', 'PairwiseMax', 'TimeContext', 'Recency',
+    'Feature', 'ConstantFeature', 'EnumFeature', 'PairwiseMax', 'TimeContext', 'Recency',
     'MappingFeature', 'FunctionFeature', 'FeatureMap'
 ]
 
@@ -99,6 +99,9 @@ class Feature(ABC):
     def __str__(self):
         return self.name
 
+    def __repr__(self):
+        return f'<{self.__class__.__name__} {self.name} [{len(self)}]>'
+
     def _len(self) -> int:
         """Returns the length of the feature (implementation).
 
@@ -150,53 +153,54 @@ class ConstantFeature(Feature):
         super().__init__(**kw)
         if isinstance(values, (int, float)):
             values = [values]
-        self.values = values
+        self.values = np.array(values)
 
     def _get(self) -> np.ndarray:
         """Returns the feature as a numpy array"""
-        return np.array(self.values)
+        return self.values
 
 
-class EnumFeature(Feature):
+EnumT = TypeVar('EnumT', bound=Hashable)
+class EnumFeature(Feature, Generic[EnumT]):
     """A feature that encodes an enum/categorical value.
 
     Supports multiple encoding types:
     - onehot: One-hot encoding (binary vector with 1 at category position) [default]
-    - label: Simple integer label encoding
+    - int: Simple integer encoding
     - binary: Binary encoding using log2(n) dimensions
     - target: Replace category with mean target value
     - hash: Hash encoding to fixed number of bins
     """
     def __init__(self,
-                 value: str|int,
-                 enum_values: list[str|int],
+                 value: EnumT,
+                 enum_values: Sequence[EnumT] | Mapping[EnumT, float|int|Sequence[float]] | int,
                  encoding: str='onehot',
-                 target_values: dict[str|int, float]|None=None,
-                 n_hash_bins: int=8,
                  **kw):
         """Initialize enum feature encoder.
 
         Args:
         - value: The enum value to encode
-        - enum_values: List of all possible enum values
-        - encoding: One of 'onehot', 'label', 'binary', 'target', 'hash'
-        - target_values: Dict mapping enum values to target means (for target encoding)
-        - n_hash_bins: Number of bins for hash encoding
+        - encoding: One of 'onehot', 'int', 'binary', 'target', 'hash'
+        - enum_values:
+          - if encoding is 'onehot', 'int', or 'binary', this is the list of all possible enum
+            values, in the order to use for encoding
+          - if encoding is 'target', this is a mapping from enum values to target value. The target
+            value can be a single number or an array of numbers (e.g. an embedding)
+          - if encoding is 'hash', this is the number of number of hash bins to use.
+            we use the built-in hash function and modulo to get a bin index.
+
+        We encode the value according to the specified encoding scheme immediately, storing only the
+        final numpy array. Note that if you are encoding multiple values of the same enum, you
+        should ensure that `enum_values` stays the same.
         """
         super().__init__(**kw)
-        if encoding not in ['onehot', 'label', 'binary', 'target', 'hash']:
-            raise ValueError(f"Unknown encoding type: {encoding}")
-        if encoding == 'target' and not target_values:
-            raise ValueError("Target encoding requires target_values dict")
-            
-        # Compute encoded value immediately
         match encoding:
             case 'onehot':
                 idx = enum_values.index(value)
                 arr = np.zeros(len(enum_values))
                 arr[idx] = 1
                 self._encoded = arr
-            case 'label':
+            case 'int':
                 self._encoded = np.array([enum_values.index(value)])
             case 'binary':
                 idx = enum_values.index(value)
@@ -204,12 +208,14 @@ class EnumFeature(Feature):
                 binary = format(idx, f'0{n_bits}b')
                 self._encoded = np.array([int(b) for b in binary])
             case 'target':
-                assert target_values is not None
-                self._encoded = np.array([target_values[value]])
+                v = enum_values[value]
+                if isinstance(v, (int, float)):
+                    v = [v]
+                self._encoded = np.array(v)
             case 'hash':
                 hash_val = hash(str(value))
-                bin_idx = hash_val % n_hash_bins
-                arr = np.zeros(n_hash_bins)
+                bin_idx = hash_val % enum_values
+                arr = np.zeros(enum_values)
                 arr[bin_idx] = 1
                 self._encoded = arr
 
@@ -219,7 +225,6 @@ class EnumFeature(Feature):
 
 
 T = TypeVar('T')
-
 class PairwiseMax(Feature, Generic[T]):
     """Computes max over two sets of keys that can be compared pairwise.
 
