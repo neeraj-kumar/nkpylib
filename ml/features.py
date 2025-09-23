@@ -37,6 +37,11 @@ from nkpylib.time_utils import parse_ts
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    'Feature', 'ConstantFeature', 'PairwiseMax', 'TimeContext', 'Recency',
+    'MappingFeature', 'FunctionFeature', 'FeatureMap'
+]
+
 class Feature(ABC):
     """Base class for all features.
 
@@ -150,6 +155,9 @@ class ConstantFeature(Feature):
     def _get(self) -> np.ndarray:
         """Returns the feature as a numpy array"""
         return np.array(self.values)
+
+
+class EnumFeature(Feature):
 
 
 T = TypeVar('T')
