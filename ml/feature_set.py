@@ -440,16 +440,24 @@ class FeatureSet(Mapping, Generic[KeyT]):
 
 
 def quick_test(path: str, n: int=3, **kw):
-    """Prints the first `n` embeddings from given `path`"""
+    """Prints the first `n` embeddings from given `path` (assumed to be NumpyLmdb).
+
+    We print information about the db and metadata to stderr, and then the first `n` entries to
+    stdout, with key followed by tab followed by space-separated values, for ease of
+    parsing/manipulating downstream.
+    """
     db = NumpyLmdb.open(path)
     num = 0
+    MB = 1024*1024
     for key, value in db.items():
         if num == 0:
-            print(f'Opened {db}: {len(db)} x {len(value)} ({db.dtype.__name__}) = {db.map_size} map size.')
-            if hasattr(db, 'md_db') and n_md := len(db.md_db):
+            mem = len(db) * len(value) * value.dtype.itemsize // MB
+            print(f'Opened {db}: {len(db)} x {len(value)} ({db.dtype.__name__}) = {mem}MB => {db.map_size//MB}MB map size.', file=sys.stderr)
+            if n_md := len(db.md_db):
                 g = db.md_db.get(db.global_key, None)
-                print(f'  Got {n_md} metadata entries, global: {g}')
-        print(f'{key}: {value}')
+                print(f'  Got {n_md} metadata entries, global: {g}', file=sys.stderr)
+        val_s = ' '.join(f'{v:.4f}' for v in value)
+        print(f'{key}\t{val_s}')
         num += 1
         if num >= n:
             break
