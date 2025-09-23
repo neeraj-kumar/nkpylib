@@ -229,6 +229,12 @@ class NumpyLmdb(MetadataLmdb):
     def __repr__(self):
         return f'NumpyLmdb<{self.path}>'
 
+    @property
+    def n_dims(self):
+        """Returns the number of dimensions of the 1st array in the database, or ValueError if empty."""
+        for value in self.values():
+            return len(value)
+        raise ValueError('Database is empty, cannot determine number of dimensions.')
 
     @classmethod
     def concat_multiple(cls, paths: list[str], output_path: str, dtype=np.float32) -> None:
@@ -449,13 +455,19 @@ def quick_test(path: str, n: int=3, **kw):
     db = NumpyLmdb.open(path)
     num = 0
     MB = 1024*1024
+    first = None
+    for first in db.values():
+        break
+    if first is None:
+        first = []
+        mem = 0
+    else:
+        mem = len(db) * len(first) * first.dtype.itemsize // MB
+    print(f'Opened {db}: {len(db)} x {len(first)} ({db.dtype.__name__}) = {mem}MB => {db.map_size//MB}MB map size.', file=sys.stderr)
+    if n_md := len(db.md_db):
+        g = db.md_db.get(db.global_key, None)
+        print(f'  Got {n_md} metadata entries, global: {g}', file=sys.stderr)
     for key, value in db.items():
-        if num == 0:
-            mem = len(db) * len(value) * value.dtype.itemsize // MB
-            print(f'Opened {db}: {len(db)} x {len(value)} ({db.dtype.__name__}) = {mem}MB => {db.map_size//MB}MB map size.', file=sys.stderr)
-            if n_md := len(db.md_db):
-                g = db.md_db.get(db.global_key, None)
-                print(f'  Got {n_md} metadata entries, global: {g}', file=sys.stderr)
         val_s = ' '.join(f'{v:.4f}' for v in value)
         print(f'{key}\t{val_s}')
         num += 1
