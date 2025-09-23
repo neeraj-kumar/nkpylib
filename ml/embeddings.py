@@ -31,6 +31,7 @@ import numpy as np
 
 from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
+from sklearn.decomposition import TruncatedSVD # type: ignore
 from sklearn.linear_model import SGDClassifier # type: ignore
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
@@ -186,9 +187,13 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
 T = TypeVar('T', bound=Hashable)
 def generate_cooccurence_embeddings(
         data: list[list[T]],
-        existing: Mapping[T, array1d]|None=None
-        ) -> dict[T, array1d]:
+        existing: Mapping[T, array1d]|None=None,
+        min_variance: float = 0.9,
+        shifted_ppmi_k: float = 0.0,
+        ) -> tuple[dict[T, array1d], list[float]]:
     """Generates embeddings based on co-occurence.
+
+    Returns a tuple of the embeddings dict {tag: embedding} and the cumulative variances list.
 
     The idea is that if two items co-occur often, they should be closer in embedding space.
 
@@ -208,7 +213,10 @@ def generate_cooccurence_embeddings(
     signal for downstream tasks. The downsides are that you have to figure out dimensionality
     yourself, and updates with new tags have to be done very carefully due to randomization/etc.
 
-    This function uses the first approach.
+    This function uses the first approach. We use PPMI to normalize the co-occurence matrix, and
+    then use SVD to reduce dimensionality. You can optionally provide the `shifted_ppmi_k parameter`
+    (set it to > 0) to use shifted ppmi (with log(k) as the shift factor). We pick the number of
+    dimensions based on the amount of variance we want to capture (default 90%).
 
     The input `data` is a list of lists of tags. Each inner list is a set of tags that co-occurred
     together. Tags can be any hashable type.
@@ -220,7 +228,6 @@ def generate_cooccurence_embeddings(
     that case, the `data` should be a snapshot of all data (old + new), as we simply recompute
     things from scratch.
     """
-    min_variance = 0.9
     #FIXME how do we get consistent indices per tag?
     tag_to_idx: dict[T, int] = {}
     if existing is not None:
@@ -249,32 +256,59 @@ def generate_cooccurence_embeddings(
                 np.fill_diagonal(cooccur, 0)
     logger.info(f'Co-occurence matrix has {np.count_nonzero(cooccur)} non-zero entries '
                 f'out of {cooccur.size} ({100*np.count_nonzero(cooccur)/cooccur.size:.2f}%)')
+    # PPMI
+    logger.info('Computing PPMI...')
+    if shifted_ppmi_k > 0:
+        logger.info(f'Using shifted PPMI with k={shifted_ppmi_k}')
+    row_sums = cooccur.sum(axis=1, keepdims=True)
+    col_sums = cooccur.sum(axis=0, keepdims=True)
+    total = row_sums.sum()
+    expected = row_sums @ col_sums / total
+    ppmi = np.zeros_like(cooccur)
+    nz_i, nz_j = np.nonzero(cooccur)
+    for i, j in zip(nz_i, nz_j):
+        p_ij = cooccur[i, j] / total
+        p_i = row_sums[i, 0] / total
+        p_j = col_sums[0, j] / total
+        denom = p_i * p_j
+        if denom > 0:
+            val = np.log2(p_ij / denom)
+            if shifted_ppmi_k > 0:
+                val -= np.log2(shifted_ppmi_k)
+            ppmi[i, j] = max(val, 0.0)
+    cooccur = ppmi
     # SVD
     logger.info('Computing SVD...')
-    U, S, VT = np.linalg.svd(cooccur, full_matrices=False)
-    logger.info(f'Got U: {U.shape}, S: {S.shape}, VT: {VT.shape}')
-    # pick dimensionality
+    # note that we norm afterwards, so we don't have scale the matrix here
+    if 1: # using sklearn
+        # btw the docs say that there's a sign ambiguity, but if you use arpack they have a
+        # sign_flip method that makes it deterministic
+        svd = TruncatedSVD(n_components=min(256, n_tags-1), algorithm='arpack')
+        U = svd.fit_transform(cooccur)
+        S = svd.singular_values_
+    else: # numpy version (has mem issues sometimes)
+        U, S, VT = np.linalg.svd(cooccur, full_matrices=False)
+    # pick the dimensionality
     total_variance = sum(S**2)
     variance = 0.0
     dim = 0
     cumvars = []
     while variance / total_variance < min_variance and dim < len(S):
         variance += S[dim]**2
-        cumvars.append(variance / total_variance)
+        cumvars.append(float(variance / total_variance))
         dim += 1
     assert 2 <= dim <= 256, f'Unreasonable dimensionality {dim}'
     logger.info(f'Using {dim} dimensions to capture {100*variance/total_variance:.2f}% of variance')
     var_s = ' '.join(f'{v:.2f}' for v in cumvars)
     logger.info(f'Cumulative variances: {var_s}')
-    S_root = np.sqrt(np.diag(S[:dim]))
-    embeddings = U[:, :dim] @ S_root
-    # normalize embeddings
+    embeddings = U[:, :dim]
+    # normalize embeddings and return as dict
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
     embeddings = embeddings / norms
     ret: dict[T, array1d] = {}
     for tag, idx in tag_to_idx.items():
         ret[tag] = embeddings[idx]
-    return ret
+    return ret, cumvars
 
 def gen_tag_embeddings(input_path: str, dlm: str='\t'):
     """Generates tag embeddings from the given `input_path`
