@@ -446,6 +446,9 @@ def quick_test(path: str, n: int=3, **kw):
     for key, value in db.items():
         if num == 0:
             print(f'Opened {db}: {len(db)} x {len(value)} ({db.dtype.__name__}) = {db.map_size} map size.')
+            if hasattr(db, 'md_db') and n_md := len(db.md_db):
+                g = db.md_db.get(db.global_key, None)
+                print(f'  Got {n_md} metadata entries, global: {g}')
         print(f'{key}: {value}')
         num += 1
         if num >= n:
