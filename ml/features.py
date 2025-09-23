@@ -190,27 +190,28 @@ class EnumFeature(Feature):
             raise ValueError("Target encoding requires target_values dict")
             
         # Compute encoded value immediately
-        if encoding == 'onehot':
-            idx = enum_values.index(value)
-            arr = np.zeros(len(enum_values))
-            arr[idx] = 1
-            self._encoded = arr
-        elif encoding == 'label':
-            self._encoded = np.array([enum_values.index(value)])
-        elif encoding == 'binary':
-            idx = enum_values.index(value)
-            n_bits = int(np.ceil(np.log2(len(enum_values))))
-            binary = format(idx, f'0{n_bits}b')
-            self._encoded = np.array([int(b) for b in binary])
-        elif encoding == 'target':
-            assert target_values is not None
-            self._encoded = np.array([target_values[value]])
-        elif encoding == 'hash':
-            hash_val = hash(str(value))
-            bin_idx = hash_val % n_hash_bins
-            arr = np.zeros(n_hash_bins)
-            arr[bin_idx] = 1
-            self._encoded = arr
+        match encoding:
+            case 'onehot':
+                idx = enum_values.index(value)
+                arr = np.zeros(len(enum_values))
+                arr[idx] = 1
+                self._encoded = arr
+            case 'label':
+                self._encoded = np.array([enum_values.index(value)])
+            case 'binary':
+                idx = enum_values.index(value)
+                n_bits = int(np.ceil(np.log2(len(enum_values))))
+                binary = format(idx, f'0{n_bits}b')
+                self._encoded = np.array([int(b) for b in binary])
+            case 'target':
+                assert target_values is not None
+                self._encoded = np.array([target_values[value]])
+            case 'hash':
+                hash_val = hash(str(value))
+                bin_idx = hash_val % n_hash_bins
+                arr = np.zeros(n_hash_bins)
+                arr[bin_idx] = 1
+                self._encoded = arr
 
     def _get(self) -> np.ndarray:
         """Returns the encoded feature as a numpy array."""
