@@ -184,44 +184,37 @@ class EnumFeature(Feature):
         - n_hash_bins: Number of bins for hash encoding
         """
         super().__init__(**kw)
-        self.value = value
-        self.enum_values = enum_values
-        self.encoding = encoding
-        self.target_values = target_values
-        self.n_hash_bins = n_hash_bins
-        assert encoding in ['onehot', 'label', 'binary', 'target', 'hash']:
+        if encoding not in ['onehot', 'label', 'binary', 'target', 'hash']:
+            raise ValueError(f"Unknown encoding type: {encoding}")
         if encoding == 'target' and not target_values:
             raise ValueError("Target encoding requires target_values dict")
+            
+        # Compute encoded value immediately
+        if encoding == 'onehot':
+            idx = enum_values.index(value)
+            arr = np.zeros(len(enum_values))
+            arr[idx] = 1
+            self._encoded = arr
+        elif encoding == 'label':
+            self._encoded = np.array([enum_values.index(value)])
+        elif encoding == 'binary':
+            idx = enum_values.index(value)
+            n_bits = int(np.ceil(np.log2(len(enum_values))))
+            binary = format(idx, f'0{n_bits}b')
+            self._encoded = np.array([int(b) for b in binary])
+        elif encoding == 'target':
+            assert target_values is not None
+            self._encoded = np.array([target_values[value]])
+        elif encoding == 'hash':
+            hash_val = hash(str(value))
+            bin_idx = hash_val % n_hash_bins
+            arr = np.zeros(n_hash_bins)
+            arr[bin_idx] = 1
+            self._encoded = arr
 
     def _get(self) -> np.ndarray:
         """Returns the encoded feature as a numpy array."""
-        if self.encoding == 'onehot':
-            # One-hot: binary vector with 1 at category position
-            idx = self.enum_values.index(self.value)
-            arr = np.zeros(len(self.enum_values))
-            arr[idx] = 1
-            return arr
-        elif self.encoding == 'label':
-            # Label: simple integer encoding
-            return np.array([self.enum_values.index(self.value)])
-        elif self.encoding == 'binary':
-            # Binary: convert index to binary representation
-            idx = self.enum_values.index(self.value)
-            n_bits = int(np.ceil(np.log2(len(self.enum_values))))
-            binary = format(idx, f'0{n_bits}b')
-            return np.array([int(b) for b in binary])
-        elif self.encoding == 'target':
-            # Target: replace with mean target value
-            assert self.target_values is not None
-            return np.array([self.target_values[self.value]])
-        elif self.encoding == 'hash':
-            # Hash: hash string to fixed number of bins
-            hash_val = hash(str(self.value))
-            bin_idx = hash_val % self.n_hash_bins
-            arr = np.zeros(self.n_hash_bins)
-            arr[bin_idx] = 1
-            return arr
-        raise ValueError(f"Unknown encoding type: {self.encoding}")
+        return self._encoded
 
 
 T = TypeVar('T')
