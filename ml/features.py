@@ -159,15 +159,14 @@ class ConstantFeature(Feature):
 
 class EnumFeature(Feature):
     """A feature that encodes an enum/categorical value.
-    
+
     Supports multiple encoding types:
-    - onehot: One-hot encoding (binary vector with 1 at category position)
+    - onehot: One-hot encoding (binary vector with 1 at category position) [default]
     - label: Simple integer label encoding
     - binary: Binary encoding using log2(n) dimensions
     - target: Replace category with mean target value
     - hash: Hash encoding to fixed number of bins
     """
-    
     def __init__(self,
                  value: str|int,
                  enum_values: list[str|int],
@@ -176,13 +175,13 @@ class EnumFeature(Feature):
                  n_hash_bins: int=8,
                  **kw):
         """Initialize enum feature encoder.
-        
+
         Args:
-            value: The enum value to encode
-            enum_values: List of all possible enum values
-            encoding: One of 'onehot', 'label', 'binary', 'target', 'hash'
-            target_values: Dict mapping enum values to target means (for target encoding)
-            n_hash_bins: Number of bins for hash encoding
+        - value: The enum value to encode
+        - enum_values: List of all possible enum values
+        - encoding: One of 'onehot', 'label', 'binary', 'target', 'hash'
+        - target_values: Dict mapping enum values to target means (for target encoding)
+        - n_hash_bins: Number of bins for hash encoding
         """
         super().__init__(**kw)
         self.value = value
@@ -190,12 +189,10 @@ class EnumFeature(Feature):
         self.encoding = encoding
         self.target_values = target_values
         self.n_hash_bins = n_hash_bins
-        
-        if encoding not in ['onehot', 'label', 'binary', 'target', 'hash']:
-            raise ValueError(f"Unknown encoding type: {encoding}")
+        assert encoding in ['onehot', 'label', 'binary', 'target', 'hash']:
         if encoding == 'target' and not target_values:
             raise ValueError("Target encoding requires target_values dict")
-            
+
     def _get(self) -> np.ndarray:
         """Returns the encoded feature as a numpy array."""
         if self.encoding == 'onehot':
@@ -204,23 +201,19 @@ class EnumFeature(Feature):
             arr = np.zeros(len(self.enum_values))
             arr[idx] = 1
             return arr
-            
         elif self.encoding == 'label':
             # Label: simple integer encoding
             return np.array([self.enum_values.index(self.value)])
-            
         elif self.encoding == 'binary':
             # Binary: convert index to binary representation
             idx = self.enum_values.index(self.value)
             n_bits = int(np.ceil(np.log2(len(self.enum_values))))
             binary = format(idx, f'0{n_bits}b')
             return np.array([int(b) for b in binary])
-            
         elif self.encoding == 'target':
             # Target: replace with mean target value
             assert self.target_values is not None
             return np.array([self.target_values[self.value]])
-            
         elif self.encoding == 'hash':
             # Hash: hash string to fixed number of bins
             hash_val = hash(str(self.value))
@@ -228,7 +221,6 @@ class EnumFeature(Feature):
             arr = np.zeros(self.n_hash_bins)
             arr[bin_idx] = 1
             return arr
-            
         raise ValueError(f"Unknown encoding type: {self.encoding}")
 
 
