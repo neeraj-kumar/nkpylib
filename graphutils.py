@@ -224,3 +224,45 @@ class Router:
             path.append(prev[path[-1]])
         path = path[::-1]
         return path, costs[b]
+
+def load_graphml_nodes(graph_path: str):
+    """Loads only nodes from a graphml file.
+
+    Example format:
+
+    ?xml version='1.0' encoding='utf-8'?>
+    <graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"><key id="d3" for="edge" attr.name="weight" attr.type="double"/>
+    <key id="d2" for="edge" attr.name="type" attr.type="string"/>
+    <key id="d1" for="node" attr.name="name" attr.type="string"/>
+    <key id="d0" for="node" attr.name="type" attr.type="string"/>
+    <graph edgedefault="undirected"><node id="tt0104674">
+      <data key="d0">movie</data>
+      <data key="d1">Lakota Moon</data>
+    </node>
+    <node id="nm0310390">
+      <data key="d0">person</data>
+      <data key="d1">David Gautreaux</data>
+    </node>
+    <node id="tt0121194">
+      <data key="d0">movie</data>
+      <data key="d1">Decaf</data>
+    </node>
+    """
+    import networkx as nx
+    from lxml import etree
+    from tqdm import tqdm
+    with open(graph_path, 'rb') as f:
+        tree = etree.parse(f)
+    G = nx.Graph()
+    root = tree.getroot()
+    for node in tqdm(root.findall('node')):
+        key = node.attrib['id']
+        G.add_node(key)
+        for data in node.findall('data'):
+            key = data.attrib['key']
+            value = data.text
+            if key == 'd0':
+                G.nodes[key]['type'] = value
+            elif key == 'd1':
+                G.nodes[key]['name'] = value
+    return G
