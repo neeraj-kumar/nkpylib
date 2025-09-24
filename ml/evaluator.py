@@ -22,6 +22,7 @@ TODO:
   - Also clustering metrics for label similarity?
   - With small number of labels, no need to embed labels, just do one-hot
 - For numerical labels, look at orig values, log(val) and exp(val) where relevant
+- Zeros in large numbers/parts of embeddings
 - Distances between labeled points
   - For multiclass, we might need embeddings for labels to get distances
   - combine distances across labels
@@ -1040,10 +1041,17 @@ class EmbeddingsValidator:
                                  score=3,
                                  warning=f'High prediction {score_type} {score:.3f} for {key} using {method_name}')
 
+    def basic_checks(self) -> None:
+        dims = Counter()
+        for key, emb in self.fs.items():
+            dims[len(emb)] += 1
+        if len(dims) > 1:
+            raise ValueError(f'Inconsistent embedding dimensions: {dims.most_common()}')
 
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
-        #self.check_distances(n=200, sample_ids=True)
+        self.basic_checks()
+        self.check_distances(n=200, sample_ids=True)
         self.check_prediction()
         return
         # raw correlations

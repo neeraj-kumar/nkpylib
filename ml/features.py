@@ -62,12 +62,13 @@ For groups of features put together, as well as storage and retrieval, see featu
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import os
 import time
 
 from abc import ABC, abstractmethod
-from collections import Counter, OrderedDict
+from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Mapping, MutableMapping
 from os.path import dirname
 from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable, Type
@@ -85,6 +86,13 @@ __all__ = [
     'MappingFeature', 'FunctionFeature', 'FeatureMap'
 ]
 
+class PrintableJSONEncoder(json.JSONEncoder):
+    """A JSON encoder that takes every non-serializable object and converts it to a string."""
+    def default(self, obj):
+        try:
+            return super().default(obj)
+        except TypeError:
+            return str(obj)
 
 class Template(Mapping):
     """Base class for feature templates that hold shared parameters."""
@@ -94,11 +102,14 @@ class Template(Mapping):
         self.shared_params = shared_params
         self._instances: list[Feature] = []  # Track all instances created from this template
 
-    def create(self, **instance_params: Any) -> Feature:
+    def create(self, *args, **instance_params: Any) -> Feature:
         """Create new feature instance from this template."""
-        instance = self.feature_class(template=self, **instance_params)
+        instance = self.feature_class(template=self, *args, **instance_params, **self.shared_params)
         self._instances.append(instance)
         return instance
+
+    def __repr__(self) -> str:
+        return f'<Template {self.feature_class.__name__}: {len(self.shared_params)} kw, {len(self._instances)} instances>'
 
     def __getitem__(self, key: str) -> Any:
         """Allow dict-like access to shared params."""
@@ -121,6 +132,17 @@ class Template(Mapping):
         """Iterate over all instances created from this template."""
         return iter(self._instances)
 
+    def get_schema(self, jsonable:bool=False) -> dict:
+        """Return schema of shared parameters."""
+        ret = dict(type='template',
+                   id=id(self),
+                   feature_class=self.feature_class.__name__,
+                   feature_schema=self.feature_class.get_schema(jsonable=jsonable) if hasattr(self.feature_class, 'get_schema') else None,
+                   n_instances=self.num_instances,
+                   params=self.shared_params)
+        if jsonable:
+            ret = json.loads(json.dumps(ret, cls=PrintableJSONEncoder))
+        return ret
 
 class Feature(ABC):
     """Base class for all features"""
@@ -201,10 +223,32 @@ class CompositeFeature(Feature):
 
     @classmethod
     def add_schema(cls, name: str, template: Template, default: dict = None):
-        """Add a feature to the schema with optional default args/kwargs."""
+        """Add a feature to the schema with given `name`, initialized from given `template`.
+
+        These are stored in order of addition.
+
+        When the class is initialized, and update() is called, we ensure that all schema
+        features have been initialized. If you want a schema item to be auto-initialized, you can
+        provide `default`, a dict of kwargs to pass to the template when creating the feature during
+        update().
+        """
         cls.SCHEMA[name] = template
         if default is not None:
             cls.DEFAULTS[name] = default
+
+    @classmethod
+    def get_schema(cls, jsonable:bool=False) -> dict:
+        """Return the schema of this class as a dict."""
+        ret = dict(type='composite_feature',
+                   feature_class=cls.__name__,
+                   schema=[{
+                       'name': name,
+                       'template': template.get_schema(jsonable=jsonable),
+                       'default': cls.DEFAULTS.get(name),
+                   } for name, template in cls.SCHEMA.items()])
+        if jsonable:
+            ret = json.loads(json.dumps(ret, cls=PrintableJSONEncoder))
+        return ret
 
     def __init__(self, **kw):
         """Initialize this composite feature.
@@ -226,7 +270,7 @@ class CompositeFeature(Feature):
         """Returns the length of the feature"""
         return sum(len(c) for c in self.children)
 
-    def get(self) -> np.ndarray:
+    def _get(self) -> np.ndarray:
         """Composite features concatenate children."""
         arrays = [c.get() for c in self.children]
         for child, arr in zip(self.children, arrays):
@@ -248,7 +292,6 @@ class CompositeFeature(Feature):
         """Ensure all schema features have been initialized, using defaults if available."""
         if not self.SCHEMA:
             return
-        
         for i, name in enumerate(self.SCHEMA):
             if self._children[i] is None:
                 if name in self.DEFAULTS:
@@ -529,41 +572,41 @@ class MovieFeature(CompositeFeature):
       - and their logs
     - content rating (G, PG, etc) as int [1]
     """
+    from nkpylib.ml.feature_set import NumpyLmdb
     @classmethod
-    def define_schema(cls):
+    def define_schema(cls, enum_dbs):
         """Define the schema for movie features."""
         constant = Template(ConstantFeature)
-        
         # Features that should always exist (no defaults)
         cls.add_schema('year', constant)
         cls.add_schema('runtime', constant)
-        
         # Rating features with defaults for missing sources
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
                 cls.add_schema(f'{src}_{field}', constant, default={'values': 0.0})
             cls.add_schema(f'{src}_log_votes', constant, default={'values': 0.0})
-        
         # Job count features with defaults
         for job in ['actor', 'actress', 'director', 'writer']:
             cls.add_schema(f'num_{job}', constant, default={'values': 0.0})
-        
         # Financial features with defaults
         cls.add_schema('tmdb_budget', constant, default={'values': 0.0})
         cls.add_schema('tmdb_log_budget', constant, default={'values': 0.0})
         cls.add_schema('tmdb_revenue', constant, default={'values': 0.0})
         cls.add_schema('tmdb_log_revenue', constant, default={'values': 0.0})
-        
         # Content rating with default
         rating_enum = Template(EnumFeature,
                              enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
                              encoding='int')
         cls.add_schema('rt_content_rating', rating_enum, default={'value': None})
+        for key, db in sorted(enum_dbs.items()):
+            cls.add_schema(f'{key}_emb', constant,
+                           default={'values': np.zeros(db.n_dims, dtype=np.float32)})
 
-    def __init__(self, m, **kw):
+    def __init__(self, m, *, enum_dbs: dict[str, NumpyLmdb], **kw):
         super().__init__(**kw)
         self.m = m
+        self.enum_dbs = enum_dbs
         self.update()
 
     def _try_float(self, obj, attr, default=0.0):
@@ -595,6 +638,15 @@ class MovieFeature(CompositeFeature):
                 revenue = self._try_float(t, 'value') / million
         return budget, revenue
 
+    def _extract_enum_embs(self, m):
+        """Extract enum embeddings from movie tags."""
+        enum_embs = defaultdict(set)
+        for t in m.tags:
+            key = f'{t.source}-{t.type}'
+            if key in self.enum_dbs:
+                enum_embs[key].add(t.value)
+        return enum_embs
+
     def update(self, **kw):
         """Actually generates the features using the schema."""
         m = self.m
@@ -622,5 +674,13 @@ class MovieFeature(CompositeFeature):
         # Content rating
         content_rating = self._extract_content_rating(m)
         self._set('rt_content_rating', content_rating)
+        enum_embs = self._extract_enum_embs(m)
+        # Enum embeddings
+        for key, values in enum_embs.items():
+            db = self.enum_dbs[key]
+            embs = [db[v] for v in values if v in db]
+            # average all the embeddings together
+            value = np.mean(embs, axis=0) if len(embs) > 0 else np.zeros(db.n_dims, dtype=np.float32)
+            self._set(f'{key}_emb', values=value)
         # Validate all features are set
         super().update()
