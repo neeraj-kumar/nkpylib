@@ -67,7 +67,7 @@ import os
 import time
 
 from abc import ABC, abstractmethod
-from collections import Counter
+from collections import Counter, OrderedDict
 from collections.abc import Mapping, MutableMapping
 from os.path import dirname
 from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable, Type
@@ -187,7 +187,7 @@ class Feature(ABC):
 
 class CompositeFeature(Feature):
     """Feature with children, defined via schema."""
-    SCHEMA: list = []
+    SCHEMA: OrderedDict = OrderedDict()
 
     @classmethod
     @abstractmethod
@@ -201,7 +201,7 @@ class CompositeFeature(Feature):
     @classmethod
     def set_schema(cls, schema_list):
         """Called by subclasses to set up schema."""
-        cls.SCHEMA = schema_list
+        cls.SCHEMA = OrderedDict(schema_list)
 
     def __init__(self, **kw):
         """Initialize this composite feature.
@@ -236,16 +236,12 @@ class CompositeFeature(Feature):
         if not self.SCHEMA:
             raise ValueError("_set() can only be used with schema-based features")
 
-        # Find template and index for this name
-        template = None
-        idx = None
-        for i, (schema_name, schema_template) in enumerate(self.SCHEMA):
-            if schema_name == name:
-                template = schema_template
-                idx = i
-                break
-        if template is None:
+        if name not in self.SCHEMA:
             raise ValueError(f"Unknown feature name: {name}")
+        
+        template = self.SCHEMA[name]
+        idx = list(self.SCHEMA.keys()).index(name)
+        
         # Create feature using template
         feature = template.create(name=name, *args, **kwargs)
         self._children[idx] = feature
@@ -253,19 +249,14 @@ class CompositeFeature(Feature):
 
     def _in_schema(self, name: str) -> bool:
         """Check if a feature name is in the schema."""
-        if not self.SCHEMA:
-            return False
-        for schema_name, _ in self.SCHEMA:
-            if schema_name == name:
-                return True
-        return False
+        return name in self.SCHEMA
 
     def validate_complete(self) -> None:
         """Ensure all schema features have been initialized."""
         if not self.SCHEMA:
             return
         missing = []
-        for i, (name, _) in enumerate(self.SCHEMA):
+        for i, name in enumerate(self.SCHEMA.keys()):
             if self._children[i] is None:
                 missing.append(name)
         if missing:
