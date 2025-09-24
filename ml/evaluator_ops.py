@@ -180,45 +180,76 @@ class OpRegistry:
 
         Returns list of ExecutionPlan objects.
         """
+        print(f"=== gen_execution_plans called ===")
+        print(f"Input start_types: {start_types}")
+        print(f"Input target_types: {target_types}")
+        print(f"Max depth: {max_depth}")
+        
         reg = OpRegistry.get_global_op_registry()
         if start_types is None:
             # Use output types from ops that have no input requirements
             op_classes = find_subclasses(Op)
+            print(f"Found {len(op_classes)} op classes: {[cls.__name__ for cls in op_classes]}")
             start_types = {op_class.output_type for op_class in op_classes if not op_class.input_types}
+            print(f"Ops with no input requirements: {[(cls.__name__, cls.output_type) for cls in op_classes if not cls.input_types]}")
         if target_types is None:
             target_types = set()
-        print(f'Start types: {start_types}, Target types: {target_types}')
+        print(f'Final start_types: {start_types}')
+        print(f'Final target_types: {target_types}')
 
         plans = []
 
         def build_plan(current_steps: list[ExecutionStep],
                       available_types: dict[str, str],  # type -> step_id
-                      remaining_targets: set[str]):
+                      remaining_targets: set[str],
+                      depth: int = 0):
+            
+            indent = "  " * depth
+            print(f"{indent}build_plan called:")
+            print(f"{indent}  current_steps: {[s.step_id for s in current_steps]}")
+            print(f"{indent}  available_types: {available_types}")
+            print(f"{indent}  remaining_targets: {remaining_targets}")
+            print(f"{indent}  depth: {depth}")
 
             if not remaining_targets or len(current_steps) >= max_depth:
+                print(f"{indent}  Terminating: remaining_targets={bool(remaining_targets)}, depth={len(current_steps)}/{max_depth}")
                 if current_steps:  # Only add non-empty plans
                     final_outputs = [step.step_id for step in current_steps 
                                    if step.output_type in target_types or not target_types]
+                    print(f"{indent}  Final outputs: {final_outputs}")
                     if final_outputs:
-                        plans.append(ExecutionPlan(
+                        plan = ExecutionPlan(
                             steps=current_steps.copy(),
                             final_outputs=final_outputs
-                        ))
+                        )
+                        plans.append(plan)
+                        print(f"{indent}  Added plan #{len(plans)}: {[s.step_id for s in plan.steps]}")
                 return
 
             # Try each op class that could help
             op_classes = find_subclasses(Op)
+            print(f"{indent}  Trying {len(op_classes)} op classes...")
+            
             for op_class in op_classes:
+                print(f"{indent}    Considering {op_class.__name__}:")
+                print(f"{indent}      input_types: {op_class.input_types}")
+                print(f"{indent}      output_type: {op_class.output_type}")
+                
                 # Skip if this op doesn't produce something we want
                 if target_types and op_class.output_type not in remaining_targets:
+                    print(f"{indent}      SKIP: output_type not in remaining_targets")
                     continue
 
                 # Check if we can satisfy its inputs
                 if not op_class.input_types.issubset(available_types.keys()):
+                    print(f"{indent}      SKIP: input_types not satisfied")
+                    print(f"{indent}        needed: {op_class.input_types}")
+                    print(f"{indent}        available: {set(available_types.keys())}")
                     continue
 
                 # Skip if we already have this op type in the plan (avoid cycles)
                 if any(step.op_class == op_class for step in current_steps):
+                    print(f"{indent}      SKIP: already have this op type in plan")
                     continue
 
                 # Create step
@@ -229,33 +260,48 @@ class OpRegistry:
                     input_mappings={t: available_types[t] for t in op_class.input_types},
                     output_type=op_class.output_type
                 )
+                print(f"{indent}      ADDING step: {step.step_id}")
 
                 # Recurse
                 new_steps = current_steps + [step]
                 new_available = available_types.copy()
                 new_available[step.output_type] = step.step_id
                 new_targets = remaining_targets - {step.output_type} if target_types else remaining_targets
+                
+                print(f"{indent}      Recursing with:")
+                print(f"{indent}        new_available: {new_available}")
+                print(f"{indent}        new_targets: {new_targets}")
 
-                build_plan(new_steps, new_available, new_targets)
+                build_plan(new_steps, new_available, new_targets, depth + 1)
 
         # Start with ops that need no inputs
+        print(f"\n=== Starting initial ops ===")
         op_classes = find_subclasses(Op)
-        for op_class in op_classes:
-            if not op_class.input_types or op_class.input_types.issubset(start_types):
-                step = ExecutionStep(
-                    step_id=f"{op_class.name}_0",
-                    op_class=op_class,
-                    params={},
-                    input_mappings={t: f"start_{t}" for t in op_class.input_types & start_types},
-                    output_type=op_class.output_type
-                )
+        starter_ops = [op_class for op_class in op_classes 
+                      if not op_class.input_types or op_class.input_types.issubset(start_types)]
+        print(f"Found {len(starter_ops)} starter ops: {[cls.__name__ for cls in starter_ops]}")
+        
+        for op_class in starter_ops:
+            print(f"\nStarting with {op_class.__name__}:")
+            step = ExecutionStep(
+                step_id=f"{op_class.name}_0",
+                op_class=op_class,
+                params={},
+                input_mappings={t: f"start_{t}" for t in op_class.input_types & start_types},
+                output_type=op_class.output_type
+            )
+            print(f"  Created initial step: {step.step_id}")
 
-                available = dict(start_types) if isinstance(start_types, dict) else {t: f"start_{t}" for t in start_types}
-                available[step.output_type] = step.step_id
-                targets = target_types.copy() if target_types else {step.output_type}
+            available = dict(start_types) if isinstance(start_types, dict) else {t: f"start_{t}" for t in start_types}
+            available[step.output_type] = step.step_id
+            targets = target_types.copy() if target_types else {step.output_type}
+            
+            print(f"  Initial available: {available}")
+            print(f"  Initial targets: {targets}")
 
-                build_plan([step], available, targets)
+            build_plan([step], available, targets, 0)
 
+        print(f"\n=== Final result: {len(plans)} plans generated ===")
         return plans
 
 
