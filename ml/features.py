@@ -38,9 +38,38 @@ from nkpylib.time_utils import parse_ts
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    'Feature', 'ConstantFeature', 'EnumFeature', 'PairwiseMax', 'TimeContext', 'Recency',
+    'Template', 'Feature', 'ConstantFeature', 'EnumFeature', 'PairwiseMax', 'TimeContext', 'Recency',
     'MappingFeature', 'FunctionFeature', 'FeatureMap'
 ]
+
+
+class Template:
+    """Base class for feature templates that hold shared parameters."""
+    
+    def __init__(self, feature_class, **shared_params):
+        """Create template for given feature class with shared parameters."""
+        self.feature_class = feature_class
+        self.shared_params = shared_params
+        self._instances = []  # Track all instances created from this template
+    
+    def create(self, **instance_params):
+        """Create new feature instance from this template."""
+        instance = self.feature_class(template=self, **instance_params)
+        self._instances.append(instance)
+        return instance
+    
+    def __getitem__(self, key):
+        """Allow dict-like access to shared params."""
+        return self.shared_params[key]
+    
+    def __contains__(self, key):
+        """Check if template contains a parameter."""
+        return key in self.shared_params
+    
+    def __len__(self):
+        """Return number of instances created from this template."""
+        return len(self._instances)
+
 
 class Feature(ABC):
     """Base class for all features.
