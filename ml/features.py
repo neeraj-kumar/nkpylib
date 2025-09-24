@@ -183,12 +183,12 @@ class Feature(ABC):
         return len(self.get())
 
     @property
-    def children(self):
+    def children(self) -> list[Feature]:
         """Dynamic children list based on schema order."""
         if not self.SCHEMA:
             return []
-        return [getattr(self, f'_{name}', None) 
-                for name, _ in self.SCHEMA 
+        return [getattr(self, f'_{name}', None)
+                for name, _ in self.SCHEMA
                 if getattr(self, f'_{name}', None) is not None]
 
     def __len__(self) -> int:
@@ -223,31 +223,31 @@ class Feature(ABC):
         except Exception as e:
             assert False, f"{type(e)} with feature {feat}: value {arr}"
 
-    def _set(self, name: str, *args, **kwargs):
+    def _set(self, name: str, *args, **kwargs) -> Feature:
         """Set a schema feature with given name and arguments."""
         if not self.SCHEMA:
             raise ValueError("_set() can only be used with schema-based features")
-        
+
         # Find template for this name
         template = next((t for n, t in self.SCHEMA if n == name), None)
         if template is None:
             raise ValueError(f"Unknown feature name: {name}")
-        
+
         # Create feature using template
         feature = template.create(name=name, *args, **kwargs)
         setattr(self, f'_{name}', feature)
         self._initialized_features.add(name)
-    
-    def validate_complete(self):
+        return feature
+
+    def validate_complete(self) -> None:
         """Ensure all schema features have been initialized."""
         if not self.SCHEMA:
             return
-        
         schema_names = {name for name, _ in self.SCHEMA}
         missing = schema_names - self._initialized_features
         if missing:
             raise ValueError(f"Uninitialized features: {missing}")
-    
+
     def update(self, **kw):
         """Updates the feature and validates completion for schema-based features."""
         if self.SCHEMA:
@@ -504,7 +504,7 @@ class FeatureMap(Mapping, Generic[KeyT]):
         return key in self._d
 
 
-
+''' IGNORE FOR NOW
 class MovieFeature(Feature):
     """Movie Feature Vector.
 
@@ -580,3 +580,4 @@ class MovieFeature(Feature):
         C(ConstantFeature(name=f'tmdb_revenue', values=revenue))
         C(ConstantFeature(name=f'tmdb_log_revenue', values=np.log1p(revenue)))
         C(EnumFeature(name=f'rt_content_rating', value=content_rating, enum_values=ratings, encoding='int'))
+'''
