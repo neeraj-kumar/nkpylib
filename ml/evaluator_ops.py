@@ -169,54 +169,6 @@ class OpRegistry:
         return _global_op_registry
 
     @staticmethod
-    def build_plan(current_steps: list[ExecutionStep],
-                  available_types: dict[str, str],  # type -> step_id
-                  remaining_targets: set[str]):
-
-        if not remaining_targets or len(current_steps) >= max_depth:
-            if current_steps:  # Only add non-empty plans
-                final_outputs = [step.step_id for step in current_steps 
-                               if step.output_type in target_types or not target_types]
-                if final_outputs:
-                    plans.append(ExecutionPlan(
-                        steps=current_steps.copy(),
-                        final_outputs=final_outputs
-                    ))
-            return
-
-        # Try each op class that could help
-        op_classes = find_subclasses(Op)
-        for op_class in op_classes:
-            # Skip if this op doesn't produce something we want
-            if target_types and op_class.output_type not in remaining_targets:
-                continue
-
-            # Check if we can satisfy its inputs
-            if not op_class.input_types.issubset(available_types.keys()):
-                continue
-
-            # Skip if we already have this op type in the plan (avoid cycles)
-            if any(step.op_class == op_class for step in current_steps):
-                continue
-
-            # Create step
-            step = ExecutionStep(
-                step_id=f"{op_class.name}_{len(current_steps)}",
-                op_class=op_class,
-                params={},  # Could generate parameter variations here
-                input_mappings={t: available_types[t] for t in op_class.input_types},
-                output_type=op_class.output_type
-            )
-
-            # Recurse
-            new_steps = current_steps + [step]
-            new_available = available_types.copy()
-            new_available[step.output_type] = step.step_id
-            new_targets = remaining_targets - {step.output_type} if target_types else remaining_targets
-
-            OpRegistry.build_plan(new_steps, new_available, new_targets)
-
-    @staticmethod
     def gen_execution_plans(start_types: set[str] = None,
                            target_types: set[str] = None,
                            max_depth: int = 5) -> list[ExecutionPlan]:
@@ -239,6 +191,52 @@ class OpRegistry:
 
         plans = []
 
+        def build_plan(current_steps: list[ExecutionStep],
+                      available_types: dict[str, str],  # type -> step_id
+                      remaining_targets: set[str]):
+
+            if not remaining_targets or len(current_steps) >= max_depth:
+                if current_steps:  # Only add non-empty plans
+                    final_outputs = [step.step_id for step in current_steps 
+                                   if step.output_type in target_types or not target_types]
+                    if final_outputs:
+                        plans.append(ExecutionPlan(
+                            steps=current_steps.copy(),
+                            final_outputs=final_outputs
+                        ))
+                return
+
+            # Try each op class that could help
+            op_classes = find_subclasses(Op)
+            for op_class in op_classes:
+                # Skip if this op doesn't produce something we want
+                if target_types and op_class.output_type not in remaining_targets:
+                    continue
+
+                # Check if we can satisfy its inputs
+                if not op_class.input_types.issubset(available_types.keys()):
+                    continue
+
+                # Skip if we already have this op type in the plan (avoid cycles)
+                if any(step.op_class == op_class for step in current_steps):
+                    continue
+
+                # Create step
+                step = ExecutionStep(
+                    step_id=f"{op_class.name}_{len(current_steps)}",
+                    op_class=op_class,
+                    params={},  # Could generate parameter variations here
+                    input_mappings={t: available_types[t] for t in op_class.input_types},
+                    output_type=op_class.output_type
+                )
+
+                # Recurse
+                new_steps = current_steps + [step]
+                new_available = available_types.copy()
+                new_available[step.output_type] = step.step_id
+                new_targets = remaining_targets - {step.output_type} if target_types else remaining_targets
+
+                build_plan(new_steps, new_available, new_targets)
 
         # Start with ops that need no inputs
         op_classes = find_subclasses(Op)
