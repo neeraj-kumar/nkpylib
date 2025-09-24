@@ -27,7 +27,7 @@ import time
 from abc import ABC
 from collections.abc import Mapping, MutableMapping
 from os.path import dirname
-from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable
+from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable, Type
 
 import numpy as np
 
@@ -45,36 +45,36 @@ __all__ = [
 
 class Template(Mapping):
     """Base class for feature templates that hold shared parameters."""
-    def __init__(self, feature_class, **shared_params):
+    def __init__(self, feature_class: Type[Feature], **shared_params: Any) -> None:
         """Create template for given feature class with shared parameters."""
         self.feature_class = feature_class
         self.shared_params = shared_params
-        self._instances = []  # Track all instances created from this template
+        self._instances: list[Feature] = []  # Track all instances created from this template
 
-    def create(self, **instance_params):
+    def create(self, **instance_params: Any) -> Feature:
         """Create new feature instance from this template."""
         instance = self.feature_class(template=self, **instance_params)
         self._instances.append(instance)
         return instance
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         """Allow dict-like access to shared params."""
         return self.shared_params[key]
 
-    def __len__(self):
+    def __len__(self) -> int:
         """Return number of shared parameters."""
         return len(self.shared_params)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         """Iterate over shared parameter keys."""
         return iter(self.shared_params)
 
     @property
-    def num_instances(self):
+    def num_instances(self) -> int:
         """Return number of instances created from this template."""
         return len(self._instances)
 
-    def iter_instances(self):
+    def iter_instances(self) -> Iterator[Feature]:
         """Iterate over all instances created from this template."""
         return iter(self._instances)
 
