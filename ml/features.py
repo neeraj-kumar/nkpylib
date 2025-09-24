@@ -66,7 +66,7 @@ import logging
 import os
 import time
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, MutableMapping
 from os.path import dirname
 from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable, Type
@@ -122,8 +122,7 @@ class Template(Mapping):
 
 
 class Feature(ABC):
-    """Base class for all features - minimal interface."""
-    
+    """Base class for all features"""
     def __init__(self, template: Template=None, name: str=''):
         self._template = template
         self.name = name or self.__class__.__name__
@@ -186,41 +185,38 @@ class Feature(ABC):
 
 
 class CompositeFeature(Feature):
-    """Feature with children and schema support."""
+    """Feature with children, defined via schema."""
     SCHEMA: list = []
 
     @classmethod
+    @abstractmethod
     def define_schema(cls, schema_list):
         """Called by subclasses to set up schema."""
         cls.SCHEMA = schema_list
 
     def __init__(self, **kw):
+        """Initialize this composite feature.
+
+        This will first initiialize our schema using `define_schema()` if it hasn't been done yet.
+        It will also pre-allocate an array for all schema features.
+        """
         super().__init__(**kw)
-        # Initialize schema-based features if schema exists
         if not self.SCHEMA:
             self.__class__.define_schema()
-        
-        if self.SCHEMA:
-            # Pre-allocate array for all schema features
-            self._children = [None] * len(self.SCHEMA)
+        # Pre-allocate array for all schema features
+        self._children = [None] * len(self.SCHEMA)
 
     @property
     def children(self) -> list[Feature]:
         """Dynamic children list based on schema order."""
-        if not self.SCHEMA:
-            return []
-        return [f for f in self._children if f is not None]
+        return [f for f in self._children]
 
     def __len__(self) -> int:
         """Returns the length of the feature"""
-        if self.children:
-            return sum(len(c) for c in self.children)
-        return super().__len__()
+        return sum(len(c) for c in self.children)
 
-    def _get(self) -> np.ndarray:
+    def get(self) -> np.ndarray:
         """Composite features concatenate children."""
-        if not self.children:
-            raise ValueError(f"Composite feature {self.name} has no children")
         arrays = [c.get() for c in self.children]
         for child, arr in zip(self.children, arrays):
             self.validate(arr, child)
@@ -513,7 +509,6 @@ class FeatureMap(Mapping, Generic[KeyT]):
         return key in self._d
 
 
-''' IGNORE FOR NOW
 class MovieFeature(Feature):
     """Movie Feature Vector.
 
@@ -589,4 +584,3 @@ class MovieFeature(Feature):
         C(ConstantFeature(name=f'tmdb_revenue', values=revenue))
         C(ConstantFeature(name=f'tmdb_log_revenue', values=np.log1p(revenue)))
         C(EnumFeature(name=f'rt_content_rating', value=content_rating, enum_values=ratings, encoding='int'))
-'''
