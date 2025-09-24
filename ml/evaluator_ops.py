@@ -394,7 +394,13 @@ class BasicChecksOp(Op):
         }
 
 if __name__ == '__main__':
-    paths = OpRegistry.gen_execution_paths()
-    print(f'Generated {len(paths)} execution paths:')
-    for path in paths:
-        print(" -> ".join(op.name for op in path))
+    registry = OpRegistry.get_global_op_registry()
+    plans = registry.gen_execution_plans(target_types={"basic_checks_report"})
+    print(f'Generated {len(plans)} execution plans:')
+    for i, plan in enumerate(plans):
+        print(f"Plan {i}: {len(plan.steps)} steps")
+        for step in plan.steps:
+            inputs = " + ".join(step.input_mappings.keys()) if step.input_mappings else "∅"
+            print(f"  {step.step_id}: {inputs} → {step.output_type}")
+        print(f"  Final outputs: {plan.final_outputs}")
+        print()
