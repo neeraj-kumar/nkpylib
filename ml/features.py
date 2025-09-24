@@ -121,6 +121,13 @@ class Feature(ABC):
         ])
         arr = parent.get()  # Returns concatenated arrays from children
     """
+    SCHEMA: list = []
+    
+    @classmethod
+    def define_schema(cls, schema_list):
+        """Called by subclasses to set up schema."""
+        cls.SCHEMA = schema_list
+    
     def __init__(self,
                  template: Template=None,
                  name: str='',
@@ -134,6 +141,12 @@ class Feature(ABC):
         if children is None:
             children = []
         self.children = children
+        
+        # Initialize schema-based features if schema exists
+        if self.SCHEMA:
+            self._initialized_features = set()
+            for name, template in self.SCHEMA:
+                setattr(self, f'_{name}', None)
 
     def __getattr__(self, name):
         """Check template for attributes not found in instance."""
@@ -172,6 +185,21 @@ class Feature(ABC):
         """
         return len(self.get())
 
+    @property
+    def children(self):
+        """Dynamic children list based on schema order."""
+        if self.SCHEMA:
+            return [getattr(self, f'_{name}', None) 
+                    for name, _ in self.SCHEMA 
+                    if getattr(self, f'_{name}', None) is not None]
+        return getattr(self, '_children', [])
+    
+    @children.setter
+    def children(self, value):
+        """Allow setting children for non-schema features."""
+        if not self.SCHEMA:
+            self._children = value
+
     def __len__(self) -> int:
         """Returns the length of the feature"""
         if self.children:
@@ -204,9 +232,35 @@ class Feature(ABC):
         except Exception as e:
             assert False, f"{type(e)} with feature {feat}: value {arr}"
 
+    def _set(self, name: str, *args, **kwargs):
+        """Set a schema feature with given name and arguments."""
+        if not self.SCHEMA:
+            raise ValueError("_set() can only be used with schema-based features")
+        
+        # Find template for this name
+        template = next((t for n, t in self.SCHEMA if n == name), None)
+        if template is None:
+            raise ValueError(f"Unknown feature name: {name}")
+        
+        # Create feature using template
+        feature = template.create(name=name, *args, **kwargs)
+        setattr(self, f'_{name}', feature)
+        self._initialized_features.add(name)
+    
+    def validate_complete(self):
+        """Ensure all schema features have been initialized."""
+        if not self.SCHEMA:
+            return
+        
+        schema_names = {name for name, _ in self.SCHEMA}
+        missing = schema_names - self._initialized_features
+        if missing:
+            raise ValueError(f"Uninitialized features: {missing}")
+    
     def update(self, **kw):
-        """Updates the feature"""
-        raise NotImplementedError()
+        """Updates the feature and validates completion for schema-based features."""
+        if self.SCHEMA:
+            self.validate_complete()
 
 
 class ConstantFeature(Feature):
