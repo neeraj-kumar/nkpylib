@@ -122,26 +122,11 @@ class Template(Mapping):
 
 
 class Feature(ABC):
-    """Base class for all features.
-    """
-    SCHEMA: list = []
-
-    @classmethod
-    def define_schema(cls, schema_list):
-        """Called by subclasses to set up schema."""
-        cls.SCHEMA = schema_list
-
-    def __init__(self,
-                 template: Template=None,
-                 name: str=''):
+    """Base class for all features - minimal interface."""
+    
+    def __init__(self, template: Template=None, name: str=''):
         self._template = template
         self.name = name or self.__class__.__name__
-        # Initialize schema-based features if schema exists
-        if not self.SCHEMA:
-            self.__class__.define_schema()
-        if self.SCHEMA:
-            # Pre-allocate array for all schema features
-            self._children = [None] * len(self.SCHEMA)
 
     def __getattr__(self, name):
         """Check template for attributes not found in instance."""
@@ -173,41 +158,17 @@ class Feature(ABC):
     def __repr__(self):
         return f'<{self.__class__.__name__} {self.name} [{len(self)}]>'
 
-    def _len(self) -> int:
-        """Returns the length of the feature (implementation).
-
-        By default this actually gets the feature and then returns its length.
-        """
-        return len(self.get())
-
-    @property
-    def children(self) -> list[Feature]:
-        """Dynamic children list based on schema order."""
-        if not self.SCHEMA:
-            return []
-        return self._children
-
     def __len__(self) -> int:
         """Returns the length of the feature"""
-        if self.children:
-            return sum(len(c) for c in self.children)
-        return self._len()
+        return len(self.get())
 
+    @abstractmethod
     def _get(self) -> np.ndarray:
         """Returns the feature as a numpy array (implementation)"""
         raise NotImplementedError()
 
     def get(self) -> np.ndarray:
-        """Returns the feature as a numpy array.
-
-        If it's a composite feature, it will return the concatenation of the children's features.
-        Else, it will call the implementation of `_get`.
-        """
-        if self.children:
-            ret: list[np.ndarray]|np.ndarray = [c.get() for c in self.children]
-            for child, f in zip(self.children, ret):
-                self.validate(f, child)
-            return np.concatenate(ret)
+        """Returns the feature as a numpy array with validation."""
         ret = self._get()
         self.validate(ret, self)
         return ret
@@ -218,6 +179,52 @@ class Feature(ABC):
             assert len(arr) > 0, f"Feature {feat} has length 0"
         except Exception as e:
             assert False, f"{type(e)} with feature {feat}: value {arr}"
+
+    def update(self, **kw):
+        """Updates the feature - override in subclasses as needed."""
+        pass
+
+
+class CompositeFeature(Feature):
+    """Feature with children and schema support."""
+    SCHEMA: list = []
+
+    @classmethod
+    def define_schema(cls, schema_list):
+        """Called by subclasses to set up schema."""
+        cls.SCHEMA = schema_list
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        # Initialize schema-based features if schema exists
+        if not self.SCHEMA:
+            self.__class__.define_schema()
+        
+        if self.SCHEMA:
+            # Pre-allocate array for all schema features
+            self._children = [None] * len(self.SCHEMA)
+
+    @property
+    def children(self) -> list[Feature]:
+        """Dynamic children list based on schema order."""
+        if not self.SCHEMA:
+            return []
+        return [f for f in self._children if f is not None]
+
+    def __len__(self) -> int:
+        """Returns the length of the feature"""
+        if self.children:
+            return sum(len(c) for c in self.children)
+        return super().__len__()
+
+    def _get(self) -> np.ndarray:
+        """Composite features concatenate children."""
+        if not self.children:
+            raise ValueError(f"Composite feature {self.name} has no children")
+        arrays = [c.get() for c in self.children]
+        for child, arr in zip(self.children, arrays):
+            self.validate(arr, child)
+        return np.concatenate(arrays)
 
     def _set(self, name: str, *args, **kwargs) -> Feature:
         """Set a schema (child) feature with given name and arguments."""
