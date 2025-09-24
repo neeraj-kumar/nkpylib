@@ -171,14 +171,21 @@ class OpRegistry:
     @staticmethod
     def gen_execution_plans(start_types: set[str] = None,
                            target_types: set[str] = None,
-                           max_depth: int = 5) -> list[ExecutionPlan]:
+                           max_depth: int = 10):
         """Generate all valid execution plans using registered ops.
 
         - start_types: Types that are available at the beginning (None means use ops with empty input_types)
         - target_types: Types we want to end up with (None means any final type is acceptable)
         - max_depth: Maximum number of operations in a path
 
-        Returns list of ExecutionPlan objects.
+        TODO:
+        If we have ops A, B, C, D, E, where deps are as follows:
+        - A needed by B and C
+        - B needed by D
+        - C needed by D and E
+
+        Then we should output something like "children_by_op", which is a dict mapping ops to a list
+        of "children", i.e., tasks that depend on the parent.
         """
         print(f"=== gen_execution_plans called ===")
         print(f"Input start_types: {start_types}")
@@ -231,6 +238,9 @@ class OpRegistry:
             print(f"{indent}  Trying {len(op_classes)} op classes...")
             
             for op_class in op_classes:
+                # filter out running the same step again
+                if op_class == Op:
+                    continue
                 print(f"{indent}    Considering {op_class.__name__}:")
                 print(f"{indent}      input_types: {op_class.input_types}")
                 print(f"{indent}      output_type: {op_class.output_type}")
