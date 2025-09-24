@@ -67,6 +67,7 @@ import os
 import time
 
 from abc import ABC, abstractmethod
+from collections import Counter
 from collections.abc import Mapping, MutableMapping
 from os.path import dirname
 from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable, Type
@@ -190,14 +191,22 @@ class CompositeFeature(Feature):
 
     @classmethod
     @abstractmethod
-    def define_schema(cls, schema_list):
+    def define_schema(cls):
+        """Must be defined by subclasses to define the schema.
+
+        They should call `set_schema()` with a list of (name, template) tuples.
+        """
+        pass
+
+    @classmethod
+    def set_schema(cls, schema_list):
         """Called by subclasses to set up schema."""
         cls.SCHEMA = schema_list
 
     def __init__(self, **kw):
         """Initialize this composite feature.
 
-        This will first initiialize our schema using `define_schema()` if it hasn't been done yet.
+        This will first initialize our schema using `define_schema()` if it hasn't been done yet.
         It will also pre-allocate an array for all schema features.
         """
         super().__init__(**kw)
@@ -241,6 +250,15 @@ class CompositeFeature(Feature):
         feature = template.create(name=name, *args, **kwargs)
         self._children[idx] = feature
         return feature
+
+    def _in_schema(self, name: str) -> bool:
+        """Check if a feature name is in the schema."""
+        if not self.SCHEMA:
+            return False
+        for schema_name, _ in self.SCHEMA:
+            if schema_name == name:
+                return True
+        return False
 
     def validate_complete(self) -> None:
         """Ensure all schema features have been initialized."""
@@ -522,44 +540,39 @@ class MovieFeature(CompositeFeature):
       - and their logs
     - content rating (G, PG, etc) as int [1]
     """
-    
     @classmethod
     def define_schema(cls):
         """Define the schema for movie features."""
         constant = Template(ConstantFeature)
-        rating_enum = Template(EnumFeature, 
-                             enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
-                             encoding='int')
-        
         schema = [
             ('year', constant),
             ('runtime', constant),
         ]
-        
         # Add rating features for each source
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
                 schema.append((f'{src}_{field}', constant))
             schema.append((f'{src}_log_votes', constant))
-        
         # Add job count features
         for job in ['actor', 'actress', 'director', 'writer']:
-            schema.append((f'num_{job}s', constant))
-        
+            schema.append((f'num_{job}', constant))
         # Add financial features
         schema.extend([
             ('tmdb_budget', constant),
             ('tmdb_log_budget', constant),
             ('tmdb_revenue', constant),
             ('tmdb_log_revenue', constant),
-            ('rt_content_rating', rating_enum),
         ])
-        
-        super().define_schema(schema)
-    
+        # add content-rating features
+        rating_enum = Template(EnumFeature,
+                             enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
+                             encoding='int')
+        schema.append(('rt_content_rating', rating_enum))
+        super().set_schema(schema)
+
     def __init__(self, m, **kw):
-        super().__init__(name=f"MovieFeature<{m.title_id}>", **kw)
+        super().__init__(**kw)
         self.m = m
         self.update()
 
@@ -595,39 +608,29 @@ class MovieFeature(CompositeFeature):
     def update(self, **kw):
         """Actually generates the features using the schema."""
         m = self.m
-        
         # Basic features
         self._set('year', m.year if m.year else 0)
         self._set('runtime', m.runtime if m.runtime else 0)
-        
         # Rating features
-        rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
-        ratings_by_source = {r.source: r for r in m.ratings}
-        
-        for src in rating_sources:
-            r = ratings_by_source.get(src, None)
+        for r in m.ratings:
             for field in ['rating', 'votes', 'popularity']:
                 v = self._try_float(r, field)
-                self._set(f'{src}_{field}', v)
+                self._set(f'{r.source}_{field}', v)
                 if field == 'votes':
-                    self._set(f'{src}_log_votes', np.log1p(v))
-        
+                    self._set(f'{r.source}_log_votes', np.log1p(v))
         # Job counts
-        from collections import Counter
         job_counts = Counter(tp.job_id.name for tp in m.people)
-        for job in ['actor', 'actress', 'director', 'writer']:
-            self._set(f'num_{job}s', job_counts.get(job, 0.0))
-        
+        for job, count in job_counts.items():
+            if self._in_schema(job):
+                self._set(f'num_{job}s', count)
         # Financial features
         budget, revenue = self._extract_financials(m)
         self._set('tmdb_budget', budget)
         self._set('tmdb_log_budget', np.log1p(budget))
         self._set('tmdb_revenue', revenue)
         self._set('tmdb_log_revenue', np.log1p(revenue))
-        
         # Content rating
         content_rating = self._extract_content_rating(m)
         self._set('rt_content_rating', content_rating)
-        
         # Validate all features are set
         super().update()
