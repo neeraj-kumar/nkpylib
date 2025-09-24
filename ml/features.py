@@ -457,3 +457,81 @@ class FeatureMap(Mapping, Generic[KeyT]):
     def __contains__(self, key: object) -> bool:
         """Checks if the map contains the given key."""
         return key in self._d
+
+
+
+class MovieFeature(Feature):
+    """Movie Feature Vector.
+
+    This includes for each movie [feature dim]:
+    - year [1]
+    - runtime [1]
+    - rating, votes, log(votes), popularity [4 x 5 = 20]
+      - by source (imdb, tmdb, lb, rt critics, rt audience)
+    - num of {actors, actresses, directors, writers} [4]
+    - tmdb budget and revenue in millions [2 x 2 = 4]
+      - and their logs
+    - content rating (G, PG, etc) as int [1]
+    """
+    def __init__(self, m: Movie, **kw):
+        super().__init__(name=f"MovieFeature<{m.title_id}>")
+        self.m = m
+        self.update()
+
+    def update(self, **kw):
+        """Actually generates the features.
+
+        Note that we have to be very careful to generate things in the right order.
+        """
+        self.children = []
+        m = self.m
+        def try_float(obj, attr, default=0.0):
+            """Basically `float(obj.attr)` but returns default on any error or if None"""
+            try:
+                x = getattr(obj, attr)
+                if x is None:
+                    return default
+                return float(x)
+            except Exception:
+                return default
+
+        C = lambda f: self.children.append(f) # shortcut to add a child feature
+        C(ConstantFeature(name='year', values=m.year if m.year else 0))
+        C(ConstantFeature(name='runtime', values=m.runtime if m.runtime else 0))
+        rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
+        ratings_by_source = {r.source: r for r in m.ratings}
+        fields = ['rating', 'votes', 'popularity']
+        for src in rating_sources:
+            rating, votes, popularity = 0.0, 0.0, 0.0
+            r = ratings_by_source.get(src, None)
+            for field in fields:
+                v = try_float(r, field)
+                C(ConstantFeature(name=f'{src}_{field}', values=v))
+                if field == 'votes':
+                    C(ConstantFeature(name=f'{src}_{log_votes}', values=np.log1p(v)))
+        # count of people by job
+        job_counts = Counter(tp.job_id.name for tp in m.people)
+        for job in ['actor', 'actress', 'director', 'writer']:
+            C(ConstantFeature(name=f'num_{job}s', values=job_counts.get(job, 0.0)))
+        # tags
+        budget, revenue = 0.0, 0.0
+        million = 1_000_000.0
+        content_rating = None
+        # accumulate relevant tags
+        ratings = [None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR']
+        for t in m.tags:
+            match (t.source, t.type):
+                case ('tmdb', 'budget'):
+                    budget = try_float(t.value) / million
+                case ('tmdb', 'revenue'):
+                    revenue = try_float(t.value)
+                case ('rotten_tomatoes', 'content_rating'):
+                    content_rating = t.value if t.value in ratings else None
+                case _:
+                    pass
+        # actually add features now, to make sure they're in a consistent order
+        C(ConstantFeature(name=f'tmdb_budget', values=budget))
+        C(ConstantFeature(name=f'tmdb_log_budget', values=np.log1p(budget)))
+        C(ConstantFeature(name=f'tmdb_revenue', values=revenue))
+        C(ConstantFeature(name=f'tmdb_log_revenue', values=np.log1p(revenue)))
+        C(EnumFeature(name=f'rt_content_rating', value=content_rating, enum_values=ratings, encoding='int'))
