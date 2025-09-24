@@ -10,6 +10,8 @@ from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import numpy as np
+
 from nkpylib.ml.feature_set import FeatureSet
 
 # Global registry instance that all Ops will register with
@@ -76,12 +78,14 @@ class OpRegistry:
         self.ops_by_input_type: dict[str, list[Op]] = defaultdict(list)
         self.all_ops: list[Op] = []
 
-    def register(self, op: Op) -> None:
+    @staticmethod
+    def register(op: Op) -> None:
         """Register an operation in the registry."""
-        self.all_ops.append(op)
-        self.ops_by_output_type[op.output_type].append(op)
+        registry = OpRegistry.get_global_op_registry()
+        registry.all_ops.append(op)
+        registry.ops_by_output_type[op.output_type].append(op)
         for input_type in op.input_types:
-            self.ops_by_input_type[input_type].append(op)
+            registry.ops_by_input_type[input_type].append(op)
 
     def get_producers(self, type_name: str) -> list[Op]:
         """Get all operations that produce a given type."""
@@ -126,7 +130,7 @@ class Op(ABC):
         # Use class name if instance name is not set
         if not self.name:
             self.name = self.__class__.__name__
-        OpRegistry.get_global_op_registry().register(self)
+        OpRegistry.register(self)
 
     @abstractmethod
     def execute(self, inputs: dict[str, Any]) -> Any:
@@ -163,13 +167,13 @@ class Op(ABC):
 class LoadEmbeddingsOp(Op):
     """Load embeddings from paths into a FeatureSet."""
 
+    name = 'load_embeddings'
     input_types = frozenset()
     output_type = "feature_set"
 
     def __init__(self, paths: list[str], **kwargs):
         self.paths = paths
         self.kwargs = kwargs
-        super().__init__(name=f"load_embeddings_{hash(tuple(paths))}")
 
     def execute(self, inputs: dict[str, Any]) -> Any:
         return FeatureSet(self.paths, **self.kwargs)
@@ -181,9 +185,6 @@ class CheckDimensionsOp(Op):
     name = "check_dimensions"
     input_types = frozenset({"feature_set"})
     output_type = "dimension_check_result"
-
-    def __init__(self):
-        super().__init__()
 
     def execute(self, inputs: dict[str, Any]) -> Any:
         fs = inputs["feature_set"]
@@ -205,24 +206,16 @@ class CheckNaNsOp(Op):
     input_types = frozenset({"feature_set"})
     output_type = "nan_check_result"
 
-    def __init__(self):
-        super().__init__()
-
     def execute(self, inputs: dict[str, Any]) -> Any:
-        import numpy as np
-        
         fs = inputs["feature_set"]
         n_nans = 0
         nan_keys = []
-        
         for key, emb in fs.items():
             key_nans = np.sum(np.isnan(emb))
             n_nans += key_nans
             if key_nans > 0:
                 nan_keys.append((key, int(key_nans)))
-        
         has_nans = n_nans > 0
-        
         return {
             "has_nans": has_nans,
             "total_nans": int(n_nans),
@@ -233,24 +226,19 @@ class CheckNaNsOp(Op):
 
 class BasicChecksOp(Op):
     """Combine dimension and NaN checks into a single basic validation."""
-    
+
     name = "basic_checks"
     input_types = frozenset({"dimension_check_result", "nan_check_result"})
     output_type = "basic_checks_result"
-    
-    def __init__(self):
-        super().__init__()
-    
+
     def execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
         nan_result = inputs["nan_check_result"]
-        
         errors = []
         if not dim_result["is_consistent"]:
             errors.append(dim_result["error_message"])
         if nan_result["has_nans"]:
             errors.append(nan_result["error_message"])
-        
         return {
             "passed": len(errors) == 0,
             "errors": errors,
