@@ -133,15 +133,11 @@ class Feature(ABC):
 
     def __init__(self,
                  template: Template=None,
-                 name: str='',
-                 children: list[Feature]|None=None):
+                 name: str=''):
         self._template = template
         if not name:
             name = self.__class__.__name__
         self.name = name
-        if children is None:
-            children = []
-        self.children = children
 
         # Initialize schema-based features if schema exists
         if self.SCHEMA:
@@ -189,17 +185,11 @@ class Feature(ABC):
     @property
     def children(self):
         """Dynamic children list based on schema order."""
-        if self.SCHEMA:
-            return [getattr(self, f'_{name}', None) 
-                    for name, _ in self.SCHEMA 
-                    if getattr(self, f'_{name}', None) is not None]
-        return getattr(self, '_children', [])
-    
-    @children.setter
-    def children(self, value):
-        """Allow setting children for non-schema features."""
         if not self.SCHEMA:
-            self._children = value
+            return []
+        return [getattr(self, f'_{name}', None) 
+                for name, _ in self.SCHEMA 
+                if getattr(self, f'_{name}', None) is not None]
 
     def __len__(self) -> int:
         """Returns the length of the feature"""
