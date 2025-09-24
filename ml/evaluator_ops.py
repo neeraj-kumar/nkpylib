@@ -77,9 +77,6 @@ def find_subclasses(cls) -> list[type[Op]]:
         ret.extend(find_subclasses(subclass))  # Recursive for nested inheritance
     return ret
 
-
-
-
 class OpRegistry:
     """Registry of all available operations.
 
@@ -120,10 +117,10 @@ class OpRegistry:
             _global_op_registry = OpRegistry()
         return _global_op_registry
 
-    def generate_all_execution_paths(self,
-                                   start_types: set[str] = None,
-                                   target_types: set[str] = None,
-                                   max_depth: int = 5) -> list[list[Op]]:
+    @staticmethod
+    def gen_execution_paths(start_types: set[str] = None,
+                            target_types: set[str] = None,
+                            max_depth: int = 5) -> list[list[Op]]:
         """Generate all valid execution paths using registered ops.
 
         - start_types: Types that are available at the beginning (empty set means no initial types)
@@ -132,11 +129,12 @@ class OpRegistry:
 
         Returns list of operation sequences that form valid execution paths.
         """
+        reg = OpRegistry.get_global_op_registry()
         if start_types is None:
             start_types = set()
 
         # Use registered ops instead of discovering them
-        all_ops = self.all_ops.copy()
+        all_ops = reg.all_ops.copy()
 
         # DFS to find all valid execution paths
         valid_paths = []
@@ -153,7 +151,7 @@ class OpRegistry:
 
             # Try each op that can consume available types
             for type_name in available_types:
-                for next_op in self.ops_by_input_type[type_name]:
+                for next_op in reg.ops_by_input_type[type_name]:
                     # Skip if already in path (avoid cycles)
                     if any(op.name == next_op.name for op in current_path):
                         continue
@@ -316,8 +314,7 @@ class BasicChecksOp(Op):
         }
 
 if __name__ == '__main__':
-    registry = OpRegistry.get_global_op_registry()
-    paths = registry.generate_all_execution_paths()
+    paths = OpRegistry.gen_execution_paths()
     print(f'Generated {len(paths)} execution paths:')
     for path in paths:
         print(" -> ".join(op.name for op in path))
