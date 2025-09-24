@@ -78,6 +78,7 @@ class Template(Mapping):
         """Iterate over all instances created from this template."""
         return iter(self._instances)
 
+
 class Feature(ABC):
     """Base class for all features.
 
@@ -121,9 +122,11 @@ class Feature(ABC):
         arr = parent.get()  # Returns concatenated arrays from children
     """
     def __init__(self,
+                 template: Template=None,
                  name: str='',
                  description: str='',
                  children: list[Feature]|None=None):
+        self._template = template
         if not name:
             name = self.__class__.__name__
         self.name = name
@@ -131,6 +134,25 @@ class Feature(ABC):
         if children is None:
             children = []
         self.children = children
+
+    def __getattr__(self, name):
+        """Check template for attributes not found in instance."""
+        if self._template is not None and name in self._template:
+            return self._template[name]
+        raise AttributeError(f"{self.__class__.__name__} has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        """Don't store instance attributes that are already in template"""
+        if hasattr(self, '_template') and self._template is not None and name in self._template:
+            return  # Skip storing this attribute
+        super().__setattr__(name, value)
+
+    @property
+    def instance_number(self):
+        """Get this instance's number within its template (0-indexed)."""
+        if self._template is None:
+            return None
+        return self._template._instances.index(self)
 
     def __str__(self):
         return self.name
