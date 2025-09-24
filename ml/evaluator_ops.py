@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import time
+
 from abc import ABC, abstractmethod
-from collections import defaultdict
+from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from nkpylib.ml.feature_set import FeatureSet
 
 # Global registry instance that all Ops will register with
-_global_registry = None
+_global_op_registry = None
 
 
 @dataclass
@@ -94,12 +96,12 @@ class OpRegistry:
         return set(self.ops_by_output_type.keys()) | set(self.ops_by_input_type.keys())
 
     @staticmethod
-    def get_global_registry() -> OpRegistry:
+    def get_global_op_registry() -> OpRegistry:
         """Get the global registry, creating it if needed."""
-        global _global_registry
-        if _global_registry is None:
-            _global_registry = OpRegistry()
-        return _global_registry
+        global _global_op_registry
+        if _global_op_registry is None:
+            _global_op_registry = OpRegistry()
+        return _global_op_registry
 
 
 @dataclass
@@ -114,14 +116,14 @@ class Op(ABC):
     When created, the operation automatically registers itself with the global registry.
     """
     name: str
-    
-    # These should be overridden as class variables in subclasses
+
+    # These should be overridden as class variables in subclasses if not dynamic
     input_types: frozenset[str] = frozenset()
     output_type: str = ""
 
     def __post_init__(self):
         """Automatically register this operation with the global registry."""
-        OpRegistry.get_global_registry().register(self)
+        OpRegistry.get_global_op_registry().register(self)
 
     @abstractmethod
     def execute(self, inputs: dict[str, Any]) -> Any:
@@ -157,40 +159,34 @@ class Op(ABC):
 
 class LoadEmbeddingsOp(Op):
     """Load embeddings from paths into a FeatureSet."""
-    
+
     input_types = frozenset()
     output_type = "feature_set"
-    
+
     def __init__(self, paths: list[str], **kwargs):
         self.paths = paths
         self.kwargs = kwargs
         super().__init__(name=f"load_embeddings_{hash(tuple(paths))}")
-    
+
     def execute(self, inputs: dict[str, Any]) -> Any:
-        from nkpylib.ml.feature_set import FeatureSet
         return FeatureSet(self.paths, **self.kwargs)
 
 
 class CheckDimensionsOp(Op):
     """Check that all embeddings have consistent dimensions."""
-    
+
     input_types = frozenset({"feature_set"})
     output_type = "dimension_check_result"
-    
+
     def __init__(self):
         super().__init__(name="check_dimensions")
-    
+
     def execute(self, inputs: dict[str, Any]) -> Any:
-        from collections import Counter
-        
         fs = inputs["feature_set"]
         dims = Counter()
-        
         for key, emb in fs.items():
             dims[len(emb)] += 1
-        
         is_consistent = len(dims) == 1
-        
         return {
             "is_consistent": is_consistent,
             "dimension_counts": dict(dims),
@@ -200,13 +196,13 @@ class CheckDimensionsOp(Op):
 
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
-    
+
     input_types = frozenset({"feature_set"})
     output_type = "nan_check_result"
-    
+
     def __init__(self):
         super().__init__(name="check_nans")
-    
+
     def execute(self, inputs: dict[str, Any]) -> Any:
         import numpy as np
         
