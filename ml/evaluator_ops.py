@@ -174,7 +174,7 @@ class OpRegistry:
                            max_depth: int = 5) -> list[ExecutionPlan]:
         """Generate all valid execution plans using registered ops.
 
-        - start_types: Types that are available at the beginning (empty set means no initial types)
+        - start_types: Types that are available at the beginning (None means use ops with empty input_types)
         - target_types: Types we want to end up with (None means any final type is acceptable)
         - max_depth: Maximum number of operations in a path
 
@@ -182,7 +182,9 @@ class OpRegistry:
         """
         reg = OpRegistry.get_global_op_registry()
         if start_types is None:
-            start_types = set()
+            # Use output types from ops that have no input requirements
+            op_classes = find_subclasses(Op)
+            start_types = {op_class.output_type for op_class in op_classes if not op_class.input_types}
         if target_types is None:
             target_types = set()
 
