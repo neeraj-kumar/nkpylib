@@ -189,9 +189,7 @@ class Feature(ABC):
         """Dynamic children list based on schema order."""
         if not self.SCHEMA:
             return []
-        return [getattr(self, f'_{name}', None)
-                for name, _ in self.SCHEMA
-                if getattr(self, f'_{name}', None) is not None]
+        return [f for f in self._children if f is not None]
 
     def __len__(self) -> int:
         """Returns the length of the feature"""
@@ -230,23 +228,33 @@ class Feature(ABC):
         if not self.SCHEMA:
             raise ValueError("_set() can only be used with schema-based features")
 
-        # Find template for this name
-        template = next((t for n, t in self.SCHEMA if n == name), None)
+        # Find template and index for this name
+        template = None
+        idx = None
+        for i, (schema_name, schema_template) in enumerate(self.SCHEMA):
+            if schema_name == name:
+                template = schema_template
+                idx = i
+                break
+        
         if template is None:
             raise ValueError(f"Unknown feature name: {name}")
 
         # Create feature using template
         feature = template.create(name=name, *args, **kwargs)
-        setattr(self, f'_{name}', feature)
-        self._initialized_features.add(name)
+        self._children[idx] = feature
         return feature
 
     def validate_complete(self) -> None:
         """Ensure all schema features have been initialized."""
         if not self.SCHEMA:
             return
-        schema_names = {name for name, _ in self.SCHEMA}
-        missing = schema_names - self._initialized_features
+        
+        missing = []
+        for i, (name, _) in enumerate(self.SCHEMA):
+            if self._children[i] is None:
+                missing.append(name)
+        
         if missing:
             raise ValueError(f"Uninitialized features: {missing}")
 
