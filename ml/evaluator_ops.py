@@ -14,65 +14,6 @@ from typing import Any, Callable
 _global_registry = None
 
 
-def get_global_registry() -> 'OpRegistry':
-    """Get the global registry, creating it if needed."""
-    global _global_registry
-    if _global_registry is None:
-        _global_registry = OpRegistry()
-    return _global_registry
-
-
-@dataclass
-class Op(ABC):
-    """Base operation with input/output type definitions.
-
-    Each operation defines:
-    - `name`: unique identifier for this operation
-    - `input_types`: set of type names this operation requires as input
-    - `output_type`: single type name this operation produces
-    
-    When created, the operation automatically registers itself with the global registry.
-    """
-    name: str
-    input_types: set[str]
-    output_type: str
-
-    def __post_init__(self):
-        """Automatically register this operation with the global registry."""
-        get_global_registry().register(self)
-
-    @abstractmethod
-    def execute(self, inputs: dict[str, Any]) -> Any:
-        """Execute the operation with given inputs.
-
-        - inputs: dict mapping type names to actual data
-
-        Returns the output data of type `self.output_type`.
-        """
-        raise NotImplementedError()
-
-    def get_cache_key(self, inputs: dict[str, Any]) -> str:
-        """Generate cache key based on operation and inputs.
-
-        This creates a hash of the operation name and input data to enable
-        caching of results and avoiding duplicate work.
-        """
-        # Create a deterministic string representation of inputs
-        input_items = []
-        for key in sorted(inputs.keys()):
-            value = inputs[key]
-            # For complex objects, use their string representation
-            if hasattr(value, '__dict__'):
-                value_str = str(sorted(value.__dict__.items()))
-            else:
-                value_str = str(value)
-            input_items.append(f"{key}:{value_str}")
-        input_str = "|".join(input_items)
-        combined = f"{self.name}_{input_str}"
-        # Hash to keep cache keys manageable
-        return hashlib.md5(combined.encode()).hexdigest()
-
-
 @dataclass
 class Result:
     """Stores results with full provenance tracking.
@@ -82,7 +23,7 @@ class Result:
     - Full provenance chain (list of operations that led to this result)
     - Cache key for deduplication
     - Timestamp and error information
-    
+
     The operation that produced this result is always the last item in the provenance chain.
     """
     data: Any
@@ -151,3 +92,65 @@ class OpRegistry:
     def get_all_types(self) -> set[str]:
         """Get all known type names (both input and output)."""
         return set(self.ops_by_output_type.keys()) | set(self.ops_by_input_type.keys())
+
+    @staticmethod
+    def get_global_registry() -> OpRegistry:
+        """Get the global registry, creating it if needed."""
+        global _global_registry
+        if _global_registry is None:
+            _global_registry = OpRegistry()
+        return _global_registry
+
+
+@dataclass
+class Op(ABC):
+    """Base operation with input/output type definitions.
+
+    Each operation defines:
+    - `name`: unique identifier for this operation
+    - `input_types`: set of type names this operation requires as input
+    - `output_type`: single type name this operation produces
+
+    When created, the operation automatically registers itself with the global registry.
+    """
+    name: str
+    input_types: set[str]
+    output_type: str
+
+    def __post_init__(self):
+        """Automatically register this operation with the global registry."""
+        OpRegistry.get_global_registry().register(self)
+
+    @abstractmethod
+    def execute(self, inputs: dict[str, Any]) -> Any:
+        """Execute the operation with given inputs.
+
+        - inputs: dict mapping type names to actual data
+
+        Returns the output data of type `self.output_type`.
+        """
+        raise NotImplementedError()
+
+    def get_cache_key(self, inputs: dict[str, Any]) -> str:
+        """Generate cache key based on operation and inputs.
+
+        This creates a hash of the operation name and input data to enable
+        caching of results and avoiding duplicate work.
+        """
+        # Create a deterministic string representation of inputs
+        input_items = []
+        for key in sorted(inputs.keys()):
+            value = inputs[key]
+            # For complex objects, use their string representation
+            if hasattr(value, '__dict__'):
+                value_str = str(sorted(value.__dict__.items()))
+            else:
+                value_str = str(value)
+            input_items.append(f"{key}:{value_str}")
+        input_str = "|".join(input_items)
+        combined = f"{self.name}_{input_str}"
+        # Hash to keep cache keys manageable
+        return hashlib.md5(combined.encode()).hexdigest()
+
+
+
