@@ -61,10 +61,6 @@ class Template(Mapping):
         """Allow dict-like access to shared params."""
         return self.shared_params[key]
 
-    def __contains__(self, key):
-        """Check if template contains a parameter."""
-        return key in self.shared_params
-
     def __len__(self):
         """Return number of shared parameters."""
         return len(self.shared_params)
@@ -78,6 +74,9 @@ class Template(Mapping):
         """Return number of instances created from this template."""
         return len(self._instances)
 
+    def iter_instances(self):
+        """Iterate over all instances created from this template."""
+        return iter(self._instances)
 
 class Feature(ABC):
     """Base class for all features.
