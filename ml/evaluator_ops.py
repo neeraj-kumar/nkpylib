@@ -178,14 +178,9 @@ class OpRegistry:
         - target_types: Types we want to end up with (None means any final type is acceptable)
         - max_depth: Maximum number of operations in a path
 
-        TODO:
-        If we have ops A, B, C, D, E, where deps are as follows:
-        - A needed by B and C
-        - B needed by D
-        - C needed by D and E
-
-        Then we should output something like "children_by_op", which is a dict mapping ops to a list
-        of "children", i.e., tasks that depend on the parent.
+        Returns a dict with:
+        - 'plans': list of ExecutionPlan objects
+        - 'children_by_op': dict mapping op classes to lists of op classes that depend on them
         """
         print(f"=== gen_execution_plans called ===")
         print(f"Input start_types: {start_types}")
@@ -311,8 +306,31 @@ class OpRegistry:
 
             build_plan([step], available, targets, 0)
 
+        # Build children_by_op mapping
+        children_by_op = defaultdict(list)
+        op_classes = find_subclasses(Op)
+        
+        for op_class in op_classes:
+            if op_class == Op:
+                continue
+            # Find all ops that consume this op's output
+            for other_op_class in op_classes:
+                if other_op_class == Op or other_op_class == op_class:
+                    continue
+                if op_class.output_type in other_op_class.input_types:
+                    children_by_op[op_class].append(other_op_class)
+        
+        print(f"\n=== Dependency mapping ===")
+        for parent_op, children in children_by_op.items():
+            if children:
+                child_names = [child.__name__ for child in children]
+                print(f"{parent_op.__name__} -> {child_names}")
+
         print(f"\n=== Final result: {len(plans)} plans generated ===")
-        return plans
+        return {
+            'plans': plans,
+            'children_by_op': dict(children_by_op)
+        }
 
 
 @dataclass
@@ -477,7 +495,10 @@ class NormalizeOp(Op):
         return (keys, emb)
 
 if __name__ == '__main__':
-    plans = OpRegistry.gen_execution_plans(target_types={"basic_checks_report"})
+    result = OpRegistry.gen_execution_plans(target_types={"basic_checks_report"})
+    plans = result['plans']
+    children_by_op = result['children_by_op']
+    
     print(f'Generated {len(plans)} execution plans:')
     for i, plan in enumerate(plans):
         print(f"Plan {i}: {len(plan.steps)} steps")
