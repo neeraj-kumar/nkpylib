@@ -43,7 +43,7 @@ __all__ = [
 ]
 
 
-class Template:
+class Template(Mapping):
     """Base class for feature templates that hold shared parameters."""
     def __init__(self, feature_class, **shared_params):
         """Create template for given feature class with shared parameters."""
@@ -66,6 +66,15 @@ class Template:
         return key in self.shared_params
 
     def __len__(self):
+        """Return number of shared parameters."""
+        return len(self.shared_params)
+
+    def __iter__(self):
+        """Iterate over shared parameter keys."""
+        return iter(self.shared_params)
+
+    @property
+    def num_instances(self):
         """Return number of instances created from this template."""
         return len(self._instances)
 
