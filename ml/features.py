@@ -509,7 +509,7 @@ class FeatureMap(Mapping, Generic[KeyT]):
         return key in self._d
 
 
-class MovieFeature(Feature):
+class MovieFeature(CompositeFeature):
     """Movie Feature Vector.
 
     This includes for each movie [feature dim]:
@@ -522,65 +522,112 @@ class MovieFeature(Feature):
       - and their logs
     - content rating (G, PG, etc) as int [1]
     """
-    def __init__(self, m: Movie, **kw):
-        super().__init__(name=f"MovieFeature<{m.title_id}>")
+    
+    @classmethod
+    def define_schema(cls):
+        """Define the schema for movie features."""
+        constant = Template(ConstantFeature)
+        rating_enum = Template(EnumFeature, 
+                             enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
+                             encoding='int')
+        
+        schema = [
+            ('year', constant),
+            ('runtime', constant),
+        ]
+        
+        # Add rating features for each source
+        rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
+        for src in rating_sources:
+            for field in ['rating', 'votes', 'popularity']:
+                schema.append((f'{src}_{field}', constant))
+            schema.append((f'{src}_log_votes', constant))
+        
+        # Add job count features
+        for job in ['actor', 'actress', 'director', 'writer']:
+            schema.append((f'num_{job}s', constant))
+        
+        # Add financial features
+        schema.extend([
+            ('tmdb_budget', constant),
+            ('tmdb_log_budget', constant),
+            ('tmdb_revenue', constant),
+            ('tmdb_log_revenue', constant),
+            ('rt_content_rating', rating_enum),
+        ])
+        
+        super().define_schema(schema)
+    
+    def __init__(self, m, **kw):
+        super().__init__(name=f"MovieFeature<{m.title_id}>", **kw)
         self.m = m
         self.update()
 
-    def update(self, **kw):
-        """Actually generates the features.
-
-        Note that we have to be very careful to generate things in the right order.
-        """
-        self.children = []
-        m = self.m
-        def try_float(obj, attr, default=0.0):
-            """Basically `float(obj.attr)` but returns default on any error or if None"""
-            try:
-                x = getattr(obj, attr)
-                if x is None:
-                    return default
-                return float(x)
-            except Exception:
+    def _try_float(self, obj, attr, default=0.0):
+        """Basically `float(obj.attr)` but returns default on any error or if None"""
+        try:
+            x = getattr(obj, attr)
+            if x is None:
                 return default
+            return float(x)
+        except Exception:
+            return default
 
-        C = lambda f: self.children.append(f) # shortcut to add a child feature
-        C(ConstantFeature(name='year', values=m.year if m.year else 0))
-        C(ConstantFeature(name='runtime', values=m.runtime if m.runtime else 0))
-        rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
-        ratings_by_source = {r.source: r for r in m.ratings}
-        fields = ['rating', 'votes', 'popularity']
-        for src in rating_sources:
-            rating, votes, popularity = 0.0, 0.0, 0.0
-            r = ratings_by_source.get(src, None)
-            for field in fields:
-                v = try_float(r, field)
-                C(ConstantFeature(name=f'{src}_{field}', values=v))
-                if field == 'votes':
-                    C(ConstantFeature(name=f'{src}_{log_votes}', values=np.log1p(v)))
-        # count of people by job
-        job_counts = Counter(tp.job_id.name for tp in m.people)
-        for job in ['actor', 'actress', 'director', 'writer']:
-            C(ConstantFeature(name=f'num_{job}s', values=job_counts.get(job, 0.0)))
-        # tags
-        budget, revenue = 0.0, 0.0
-        million = 1_000_000.0
-        content_rating = None
-        # accumulate relevant tags
+    def _extract_content_rating(self, m):
+        """Extract content rating from movie tags."""
         ratings = [None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR']
         for t in m.tags:
-            match (t.source, t.type):
-                case ('tmdb', 'budget'):
-                    budget = try_float(t.value) / million
-                case ('tmdb', 'revenue'):
-                    revenue = try_float(t.value)
-                case ('rotten_tomatoes', 'content_rating'):
-                    content_rating = t.value if t.value in ratings else None
-                case _:
-                    pass
-        # actually add features now, to make sure they're in a consistent order
-        C(ConstantFeature(name=f'tmdb_budget', values=budget))
-        C(ConstantFeature(name=f'tmdb_log_budget', values=np.log1p(budget)))
-        C(ConstantFeature(name=f'tmdb_revenue', values=revenue))
-        C(ConstantFeature(name=f'tmdb_log_revenue', values=np.log1p(revenue)))
-        C(EnumFeature(name=f'rt_content_rating', value=content_rating, enum_values=ratings, encoding='int'))
+            if t.source == 'rotten_tomatoes' and t.type == 'content_rating':
+                return t.value if t.value in ratings else None
+        return None
+
+    def _extract_financials(self, m):
+        """Extract budget and revenue from movie tags."""
+        budget, revenue = 0.0, 0.0
+        million = 1_000_000.0
+        for t in m.tags:
+            if t.source == 'tmdb' and t.type == 'budget':
+                budget = self._try_float(t, 'value') / million
+            elif t.source == 'tmdb' and t.type == 'revenue':
+                revenue = self._try_float(t, 'value') / million
+        return budget, revenue
+
+    def update(self, **kw):
+        """Actually generates the features using the schema."""
+        m = self.m
+        
+        # Basic features
+        self._set('year', m.year if m.year else 0)
+        self._set('runtime', m.runtime if m.runtime else 0)
+        
+        # Rating features
+        rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
+        ratings_by_source = {r.source: r for r in m.ratings}
+        
+        for src in rating_sources:
+            r = ratings_by_source.get(src, None)
+            for field in ['rating', 'votes', 'popularity']:
+                v = self._try_float(r, field)
+                self._set(f'{src}_{field}', v)
+                if field == 'votes':
+                    self._set(f'{src}_log_votes', np.log1p(v))
+        
+        # Job counts
+        from collections import Counter
+        job_counts = Counter(tp.job_id.name for tp in m.people)
+        for job in ['actor', 'actress', 'director', 'writer']:
+            self._set(f'num_{job}s', job_counts.get(job, 0.0))
+        
+        # Financial features
+        budget, revenue = self._extract_financials(m)
+        self._set('tmdb_budget', budget)
+        self._set('tmdb_log_budget', np.log1p(budget))
+        self._set('tmdb_revenue', revenue)
+        self._set('tmdb_log_revenue', np.log1p(revenue))
+        
+        # Content rating
+        content_rating = self._extract_content_rating(m)
+        self._set('rt_content_rating', content_rating)
+        
+        # Validate all features are set
+        super().update()
