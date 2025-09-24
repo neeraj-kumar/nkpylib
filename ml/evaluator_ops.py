@@ -18,6 +18,15 @@ from nkpylib.ml.feature_set import FeatureSet
 # Global registry instance that all Ops will register with
 _global_op_registry = None
 
+def find_subclasses(cls) -> list[type[Op]]:
+    """Find all concrete (non-abstract) subclasses of `cls`."""
+    ret = []
+    for subclass in cls.__subclasses__():
+        if not inspect.isabstract(subclass):
+            ret.append(subclass)
+        ret.extend(find_subclasses(subclass))  # Recursive for nested inheritance
+    return ret
+
 
 @dataclass
 class Result:
@@ -119,15 +128,6 @@ class ExecutionPlan:
         return {step_id: all_results[step_id] for step_id in self.final_outputs}
 
 
-def find_subclasses(cls) -> list[type[Op]]:
-    """Find all concrete (non-abstract) subclasses of `cls`."""
-    ret = []
-    for subclass in cls.__subclasses__():
-        if not inspect.isabstract(subclass):
-            ret.append(subclass)
-        ret.extend(find_subclasses(subclass))  # Recursive for nested inheritance
-    return ret
-
 class OpRegistry:
     """Registry of all available operations.
 
@@ -168,8 +168,8 @@ class OpRegistry:
             _global_op_registry = OpRegistry()
         return _global_op_registry
 
-    def gen_execution_plans(self, 
-                           start_types: set[str] = None,
+    @staticmethod
+    def gen_execution_plans(start_types: set[str] = None,
                            target_types: set[str] = None,
                            max_depth: int = 5) -> list[ExecutionPlan]:
         """Generate all valid execution plans using registered ops.
@@ -180,6 +180,7 @@ class OpRegistry:
 
         Returns list of ExecutionPlan objects.
         """
+        reg = OpRegistry.get_global_op_registry()
         if start_types is None:
             start_types = set()
         if target_types is None:
@@ -187,7 +188,7 @@ class OpRegistry:
 
         plans = []
 
-        def build_plan(current_steps: list[ExecutionStep], 
+        def build_plan(current_steps: list[ExecutionStep],
                       available_types: dict[str, str],  # type -> step_id
                       remaining_targets: set[str]):
 
@@ -394,8 +395,7 @@ class BasicChecksOp(Op):
         }
 
 if __name__ == '__main__':
-    registry = OpRegistry.get_global_op_registry()
-    plans = registry.gen_execution_plans(target_types={"basic_checks_report"})
+    plans = OpRegistry.gen_execution_plans(target_types={"basic_checks_report"})
     print(f'Generated {len(plans)} execution plans:')
     for i, plan in enumerate(plans):
         print(f"Plan {i}: {len(plan.steps)} steps")
