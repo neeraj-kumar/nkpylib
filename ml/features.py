@@ -80,7 +80,7 @@ from nkpylib.time_utils import parse_ts
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    'Template', 'Feature', 'ConstantFeature', 'EnumFeature', 'PairwiseMax', 'TimeContext', 'Recency',
+    'Template', 'Feature', 'CompositeFeature', 'ConstantFeature', 'EnumFeature', 'PairwiseMax', 'TimeContext', 'Recency',
     'MappingFeature', 'FunctionFeature', 'FeatureMap'
 ]
 
