@@ -142,7 +142,6 @@ class Feature(ABC):
         # Initialize schema-based features if schema exists
         if not self.SCHEMA:
             self.__class__.define_schema()
-        
         if self.SCHEMA:
             self._initialized_features = set()
             for name, template in self.SCHEMA:
