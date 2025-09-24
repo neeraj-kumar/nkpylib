@@ -135,14 +135,10 @@ class Feature(ABC):
                  template: Template=None,
                  name: str=''):
         self._template = template
-        if not name:
-            name = self.__class__.__name__
-        self.name = name
-
+        self.name = name or self.__class__.__name__
         # Initialize schema-based features if schema exists
         if not self.SCHEMA:
             self.__class__.define_schema()
-        
         if self.SCHEMA:
             # Pre-allocate array for all schema features
             self._children = [None] * len(self.SCHEMA)
@@ -189,7 +185,7 @@ class Feature(ABC):
         """Dynamic children list based on schema order."""
         if not self.SCHEMA:
             return []
-        return [f for f in self._children if f is not None]
+        return self._children
 
     def __len__(self) -> int:
         """Returns the length of the feature"""
@@ -224,7 +220,7 @@ class Feature(ABC):
             assert False, f"{type(e)} with feature {feat}: value {arr}"
 
     def _set(self, name: str, *args, **kwargs) -> Feature:
-        """Set a schema feature with given name and arguments."""
+        """Set a schema (child) feature with given name and arguments."""
         if not self.SCHEMA:
             raise ValueError("_set() can only be used with schema-based features")
 
@@ -236,10 +232,8 @@ class Feature(ABC):
                 template = schema_template
                 idx = i
                 break
-        
         if template is None:
             raise ValueError(f"Unknown feature name: {name}")
-
         # Create feature using template
         feature = template.create(name=name, *args, **kwargs)
         self._children[idx] = feature
@@ -249,12 +243,10 @@ class Feature(ABC):
         """Ensure all schema features have been initialized."""
         if not self.SCHEMA:
             return
-        
         missing = []
         for i, (name, _) in enumerate(self.SCHEMA):
             if self._children[i] is None:
                 missing.append(name)
-        
         if missing:
             raise ValueError(f"Uninitialized features: {missing}")
 
