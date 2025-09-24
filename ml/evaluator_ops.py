@@ -153,4 +153,109 @@ class Op(ABC):
         return hashlib.md5(combined.encode()).hexdigest()
 
 
+class LoadEmbeddingsOp(Op):
+    """Load embeddings from paths into a FeatureSet."""
+    
+    def __init__(self, paths: list[str], **kwargs):
+        self.paths = paths
+        self.kwargs = kwargs
+        super().__init__(
+            name=f"load_embeddings_{hash(tuple(paths))}",
+            input_types=set(),
+            output_type="feature_set"
+        )
+    
+    def execute(self, inputs: dict[str, Any]) -> Any:
+        from nkpylib.ml.feature_set import FeatureSet
+        return FeatureSet(self.paths, **self.kwargs)
+
+
+class CheckDimensionsOp(Op):
+    """Check that all embeddings have consistent dimensions."""
+    
+    def __init__(self):
+        super().__init__(
+            name="check_dimensions",
+            input_types={"feature_set"},
+            output_type="dimension_check_result"
+        )
+    
+    def execute(self, inputs: dict[str, Any]) -> Any:
+        from collections import Counter
+        
+        fs = inputs["feature_set"]
+        dims = Counter()
+        
+        for key, emb in fs.items():
+            dims[len(emb)] += 1
+        
+        is_consistent = len(dims) == 1
+        
+        return {
+            "is_consistent": is_consistent,
+            "dimension_counts": dict(dims),
+            "error_message": None if is_consistent else f"Inconsistent embedding dimensions: {dims.most_common()}"
+        }
+
+
+class CheckNaNsOp(Op):
+    """Check for NaN values in embeddings."""
+    
+    def __init__(self):
+        super().__init__(
+            name="check_nans",
+            input_types={"feature_set"},
+            output_type="nan_check_result"
+        )
+    
+    def execute(self, inputs: dict[str, Any]) -> Any:
+        import numpy as np
+        
+        fs = inputs["feature_set"]
+        n_nans = 0
+        nan_keys = []
+        
+        for key, emb in fs.items():
+            key_nans = np.sum(np.isnan(emb))
+            n_nans += key_nans
+            if key_nans > 0:
+                nan_keys.append((key, int(key_nans)))
+        
+        has_nans = n_nans > 0
+        
+        return {
+            "has_nans": has_nans,
+            "total_nans": int(n_nans),
+            "nan_keys": nan_keys,
+            "error_message": None if not has_nans else f"Found {n_nans} NaNs in embeddings"
+        }
+
+
+class BasicChecksOp(Op):
+    """Combine dimension and NaN checks into a single basic validation."""
+    
+    def __init__(self):
+        super().__init__(
+            name="basic_checks",
+            input_types={"dimension_check_result", "nan_check_result"},
+            output_type="basic_checks_result"
+        )
+    
+    def execute(self, inputs: dict[str, Any]) -> Any:
+        dim_result = inputs["dimension_check_result"]
+        nan_result = inputs["nan_check_result"]
+        
+        errors = []
+        if not dim_result["is_consistent"]:
+            errors.append(dim_result["error_message"])
+        if nan_result["has_nans"]:
+            errors.append(nan_result["error_message"])
+        
+        return {
+            "passed": len(errors) == 0,
+            "errors": errors,
+            "dimension_check": dim_result,
+            "nan_check": nan_result
+        }
+
 
