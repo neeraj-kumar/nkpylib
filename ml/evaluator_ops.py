@@ -109,13 +109,13 @@ class Op(ABC):
     """Base operation with input/output type definitions.
 
     Each operation defines:
-    - `name`: unique identifier for this operation
+    - `name`: unique identifier for this operation (class or instance variable)
     - `input_types`: set of type names this operation requires as input (class variable)
     - `output_type`: single type name this operation produces (class variable)
 
     When created, the operation automatically registers itself with the global registry.
     """
-    name: str
+    name: str = ""
 
     # These should be overridden as class variables in subclasses if not dynamic
     input_types: frozenset[str] = frozenset()
@@ -123,6 +123,9 @@ class Op(ABC):
 
     def __post_init__(self):
         """Automatically register this operation with the global registry."""
+        # Use class name if instance name is not set
+        if not self.name:
+            self.name = self.__class__.__name__
         OpRegistry.get_global_op_registry().register(self)
 
     @abstractmethod
@@ -175,11 +178,12 @@ class LoadEmbeddingsOp(Op):
 class CheckDimensionsOp(Op):
     """Check that all embeddings have consistent dimensions."""
 
+    name = "check_dimensions"
     input_types = frozenset({"feature_set"})
     output_type = "dimension_check_result"
 
     def __init__(self):
-        super().__init__(name="check_dimensions")
+        super().__init__()
 
     def execute(self, inputs: dict[str, Any]) -> Any:
         fs = inputs["feature_set"]
@@ -197,11 +201,12 @@ class CheckDimensionsOp(Op):
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
 
+    name = "check_nans"
     input_types = frozenset({"feature_set"})
     output_type = "nan_check_result"
 
     def __init__(self):
-        super().__init__(name="check_nans")
+        super().__init__()
 
     def execute(self, inputs: dict[str, Any]) -> Any:
         import numpy as np
@@ -229,11 +234,12 @@ class CheckNaNsOp(Op):
 class BasicChecksOp(Op):
     """Combine dimension and NaN checks into a single basic validation."""
     
+    name = "basic_checks"
     input_types = frozenset({"dimension_check_result", "nan_check_result"})
     output_type = "basic_checks_result"
     
     def __init__(self):
-        super().__init__(name="basic_checks")
+        super().__init__()
     
     def execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
