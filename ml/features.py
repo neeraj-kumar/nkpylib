@@ -143,6 +143,11 @@ class Feature(ABC):
 
     def __setattr__(self, name, value):
         """Don't store instance attributes that are already in template"""
+        # Always allow setting the template itself
+        if name == '_template':
+            super().__setattr__(name, value)
+            return
+        # Don't store instance attributes that are already in template
         if hasattr(self, '_template') and self._template is not None and name in self._template:
             return  # Skip storing this attribute
         super().__setattr__(name, value)
