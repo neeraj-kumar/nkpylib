@@ -188,20 +188,23 @@ class Feature(ABC):
 class CompositeFeature(Feature):
     """Feature with children, defined via schema."""
     SCHEMA: OrderedDict = OrderedDict()
+    DEFAULTS: dict = {}  # Store default args/kwargs by name
 
     @classmethod
     @abstractmethod
     def define_schema(cls):
         """Must be defined by subclasses to define the schema.
 
-        They should call `set_schema()` with a list of (name, template) tuples.
+        They should call `add_schema()` for each feature.
         """
         pass
 
     @classmethod
-    def set_schema(cls, schema_list):
-        """Called by subclasses to set up schema."""
-        cls.SCHEMA = OrderedDict(schema_list)
+    def add_schema(cls, name: str, template: Template, default: dict = None):
+        """Add a feature to the schema with optional default args/kwargs."""
+        cls.SCHEMA[name] = template
+        if default is not None:
+            cls.DEFAULTS[name] = default
 
     def __init__(self, **kw):
         """Initialize this composite feature.
@@ -242,15 +245,20 @@ class CompositeFeature(Feature):
         return feature
 
     def validate_complete(self) -> None:
-        """Ensure all schema features have been initialized."""
+        """Ensure all schema features have been initialized, using defaults if available."""
         if not self.SCHEMA:
             return
-        missing = []
+        
         for i, name in enumerate(self.SCHEMA):
             if self._children[i] is None:
-                missing.append(name)
-        if missing:
-            raise ValueError(f"Uninitialized features: {missing}")
+                if name in self.DEFAULTS:
+                    # Create default feature using template and default args
+                    template = self.SCHEMA[name]
+                    default_kwargs = self.DEFAULTS[name]
+                    self._children[i] = template.create(name=name, **default_kwargs)
+                else:
+                    # No default provided - this is an error
+                    raise ValueError(f"Uninitialized feature with no default: {name}")
 
     def update(self, **kw):
         """Updates the feature and validates completion for schema-based features."""
@@ -525,32 +533,33 @@ class MovieFeature(CompositeFeature):
     def define_schema(cls):
         """Define the schema for movie features."""
         constant = Template(ConstantFeature)
-        schema = [
-            ('year', constant),
-            ('runtime', constant),
-        ]
-        # Add rating features for each source
+        
+        # Features that should always exist (no defaults)
+        cls.add_schema('year', constant)
+        cls.add_schema('runtime', constant)
+        
+        # Rating features with defaults for missing sources
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
-                schema.append((f'{src}_{field}', constant))
-            schema.append((f'{src}_log_votes', constant))
-        # Add job count features
+                cls.add_schema(f'{src}_{field}', constant, default={'values': 0.0})
+            cls.add_schema(f'{src}_log_votes', constant, default={'values': 0.0})
+        
+        # Job count features with defaults
         for job in ['actor', 'actress', 'director', 'writer']:
-            schema.append((f'num_{job}', constant))
-        # Add financial features
-        schema.extend([
-            ('tmdb_budget', constant),
-            ('tmdb_log_budget', constant),
-            ('tmdb_revenue', constant),
-            ('tmdb_log_revenue', constant),
-        ])
-        # add content-rating features
+            cls.add_schema(f'num_{job}', constant, default={'values': 0.0})
+        
+        # Financial features with defaults
+        cls.add_schema('tmdb_budget', constant, default={'values': 0.0})
+        cls.add_schema('tmdb_log_budget', constant, default={'values': 0.0})
+        cls.add_schema('tmdb_revenue', constant, default={'values': 0.0})
+        cls.add_schema('tmdb_log_revenue', constant, default={'values': 0.0})
+        
+        # Content rating with default
         rating_enum = Template(EnumFeature,
                              enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
                              encoding='int')
-        schema.append(('rt_content_rating', rating_enum))
-        super().set_schema(schema)
+        cls.add_schema('rt_content_rating', rating_enum, default={'value': None})
 
     def __init__(self, m, **kw):
         super().__init__(**kw)
