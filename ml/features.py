@@ -15,6 +15,48 @@ Features can be combined, transformed, and used as inputs to machine learning mo
 The module handles proper typing, validation, and efficient computation of features.
 
 For groups of features put together, as well as storage and retrieval, see feature_set.py
+
+
+
+
+    A Feature instance represents one logical feature, but can be many dimensions.
+
+    This class provides a common interface for working with features that can be:
+    - Single values or arrays
+    - Computed on demand or cached
+    - Combined hierarchically (via children features)
+
+    Attributes:
+    - name (str): Name of the feature, defaults to class name
+    - children (list[Feature]): Child features that get concatenated with this one
+
+    Methods implemented here:
+    - get(): Returns the feature as a numpy array, and validates it.
+      - If we have children, it concatenates their results, else it calls `_get()`.
+    - len(): Returns the length of the feature (default is len(get()))
+
+    Key methods that subclasses must implement:
+    - _get(): Returns the feature as a numpy array
+    - _len(): (optional) Returns the length of the feature, defaults to len(self.get())
+
+    Optional methods subclasses may implement:
+    - update(**kw): Update the feature's internal state
+    - validate(arr, feat): Validate feature array output (default checks len > 0)
+
+    Usage:
+        Features can be used individually or composed into feature hierarchies:
+
+        # Single feature
+        feat = MyFeature(name='example')
+        arr = feat.get()  # Returns numpy array
+
+        # Composite features
+        parent = ParentFeature(children=[
+            ChildFeature1(),
+            ChildFeature2()
+        ])
+        arr = parent.get()  # Returns concatenated arrays from children
+
 """
 
 from __future__ import annotations
@@ -81,67 +123,26 @@ class Template(Mapping):
 
 class Feature(ABC):
     """Base class for all features.
-
-    A Feature instance represents one logical feature, but can be many dimensions.
-
-    This class provides a common interface for working with features that can be:
-    - Single values or arrays
-    - Computed on demand or cached
-    - Combined hierarchically (via children features)
-
-    Attributes:
-    - name (str): Name of the feature, defaults to class name
-    - description (str): Human-readable description of what this feature represents
-    - children (list[Feature]): Child features that get concatenated with this one
-
-    Methods implemented here:
-    - get(): Returns the feature as a numpy array, and validates it.
-      - If we have children, it concatenates their results, else it calls `_get()`.
-    - len(): Returns the length of the feature (default is len(get()))
-
-    Key methods that subclasses must implement:
-    - _get(): Returns the feature as a numpy array
-    - _len(): (optional) Returns the length of the feature, defaults to len(self.get())
-
-    Optional methods subclasses may implement:
-    - update(**kw): Update the feature's internal state
-    - validate(arr, feat): Validate feature array output (default checks len > 0)
-
-    Usage:
-        Features can be used individually or composed into feature hierarchies:
-
-        # Single feature
-        feat = MyFeature(name='example', description='An example feature')
-        arr = feat.get()  # Returns numpy array
-
-        # Composite features
-        parent = ParentFeature(children=[
-            ChildFeature1(),
-            ChildFeature2()
-        ])
-        arr = parent.get()  # Returns concatenated arrays from children
     """
     SCHEMA: list = []
-    
+
     @classmethod
     def define_schema(cls, schema_list):
         """Called by subclasses to set up schema."""
         cls.SCHEMA = schema_list
-    
+
     def __init__(self,
                  template: Template=None,
                  name: str='',
-                 description: str='',
                  children: list[Feature]|None=None):
         self._template = template
         if not name:
             name = self.__class__.__name__
         self.name = name
-        self.description = description
         if children is None:
             children = []
         self.children = children
-        
+
         # Initialize schema-based features if schema exists
         if self.SCHEMA:
             self._initialized_features = set()
