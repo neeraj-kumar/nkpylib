@@ -68,6 +68,57 @@ class Result:
         }
 
 
+@dataclass
+class ExecutionStep:
+    """A single step in an execution plan."""
+    step_id: str
+    op_class: type[Op]
+    params: dict[str, Any]
+    input_mappings: dict[str, str]  # input_type -> step_id that produces it
+    output_type: str
+    
+    @staticmethod
+    def execute_plan(steps: list[ExecutionStep]) -> dict[str, Result]:
+        """Execute a list of steps and return results for each step."""
+        results: dict[str, Result] = {}
+        
+        for step in steps:
+            # Gather inputs from previous steps
+            inputs = {}
+            for input_type, source_step_id in step.input_mappings.items():
+                inputs[input_type] = results[source_step_id].data
+            
+            # Instantiate and execute the op
+            op_instance = step.op_class(**step.params)
+            data = op_instance.execute(inputs)
+            
+            # Build provenance chain
+            provenance = [op_instance]
+            for source_step_id in step.input_mappings.values():
+                provenance = results[source_step_id].provenance + provenance
+            
+            # Store result
+            results[step.step_id] = Result(
+                data=data,
+                provenance=provenance,
+                cache_key=op_instance.get_cache_key(inputs)
+            )
+        
+        return results
+
+
+@dataclass
+class ExecutionPlan:
+    """A complete execution plan as an ordered list of steps."""
+    steps: list[ExecutionStep]
+    final_outputs: list[str]  # step_ids of final results we care about
+    
+    def execute(self) -> dict[str, Result]:
+        """Execute this plan and return final results."""
+        all_results = ExecutionStep.execute_plan(self.steps)
+        return {step_id: all_results[step_id] for step_id in self.final_outputs}
+
+
 def find_subclasses(cls) -> list[type[Op]]:
     """Find all concrete (non-abstract) subclasses of `cls`."""
     ret = []
@@ -117,62 +168,91 @@ class OpRegistry:
             _global_op_registry = OpRegistry()
         return _global_op_registry
 
-    @staticmethod
-    def gen_execution_paths(start_types: set[str] = None,
-                            target_types: set[str] = None,
-                            max_depth: int = 5) -> list[list[Op]]:
-        """Generate all valid execution paths using registered ops.
+    def gen_execution_plans(self, 
+                           start_types: set[str] = None,
+                           target_types: set[str] = None,
+                           max_depth: int = 5) -> list[ExecutionPlan]:
+        """Generate all valid execution plans using registered ops.
 
         - start_types: Types that are available at the beginning (empty set means no initial types)
         - target_types: Types we want to end up with (None means any final type is acceptable)
         - max_depth: Maximum number of operations in a path
 
-        Returns list of operation sequences that form valid execution paths.
+        Returns list of ExecutionPlan objects.
         """
-        reg = OpRegistry.get_global_op_registry()
         if start_types is None:
             start_types = set()
+        if target_types is None:
+            target_types = set()
 
-        # Use registered ops instead of discovering them
-        all_ops = reg.all_ops.copy()
+        plans = []
 
-        # DFS to find all valid execution paths
-        valid_paths = []
-
-        def dfs(current_path: list[Op], available_types: set[str], depth: int):
-            if depth > max_depth:
+        def build_plan(current_steps: list[ExecutionStep], 
+                      available_types: dict[str, str],  # type -> step_id
+                      remaining_targets: set[str]):
+            
+            if not remaining_targets or len(current_steps) >= max_depth:
+                if current_steps:  # Only add non-empty plans
+                    final_outputs = [step.step_id for step in current_steps 
+                                   if step.output_type in target_types or not target_types]
+                    if final_outputs:
+                        plans.append(ExecutionPlan(
+                            steps=current_steps.copy(),
+                            final_outputs=final_outputs
+                        ))
                 return
-
-            # Check if we've reached target types (if specified)
-            if target_types and available_types & target_types:
-                valid_paths.append(current_path.copy())
-            elif not target_types and current_path:  # Any non-empty path is valid if no targets
-                valid_paths.append(current_path.copy())
-
-            # Try each op that can consume available types
-            for type_name in available_types:
-                for next_op in reg.ops_by_input_type[type_name]:
-                    # Skip if already in path (avoid cycles)
-                    if any(op.name == next_op.name for op in current_path):
-                        continue
-
-                    # Check if all required inputs are available
-                    if not next_op.input_types.issubset(available_types):
-                        continue
-
-                    # Add this op and recurse
-                    current_path.append(next_op)
-                    new_available = available_types | {next_op.output_type}
-                    dfs(current_path, new_available, depth + 1)
-                    current_path.pop()
-
-        # Start DFS from ops that don't need inputs (or whose inputs are in start_types)
-        for op in all_ops:
-            if not op.input_types or op.input_types.issubset(start_types):
-                initial_types = start_types | {op.output_type}
-                dfs([op], initial_types, 1)
-
-        return valid_paths
+            
+            # Try each op class that could help
+            op_classes = find_subclasses(Op)
+            for op_class in op_classes:
+                # Skip if this op doesn't produce something we want
+                if target_types and op_class.output_type not in remaining_targets:
+                    continue
+                    
+                # Check if we can satisfy its inputs
+                if not op_class.input_types.issubset(available_types.keys()):
+                    continue
+                
+                # Skip if we already have this op type in the plan (avoid cycles)
+                if any(step.op_class == op_class for step in current_steps):
+                    continue
+                
+                # Create step
+                step = ExecutionStep(
+                    step_id=f"{op_class.name}_{len(current_steps)}",
+                    op_class=op_class,
+                    params={},  # Could generate parameter variations here
+                    input_mappings={t: available_types[t] for t in op_class.input_types},
+                    output_type=op_class.output_type
+                )
+                
+                # Recurse
+                new_steps = current_steps + [step]
+                new_available = available_types.copy()
+                new_available[step.output_type] = step.step_id
+                new_targets = remaining_targets - {step.output_type} if target_types else remaining_targets
+                
+                build_plan(new_steps, new_available, new_targets)
+        
+        # Start with ops that need no inputs
+        op_classes = find_subclasses(Op)
+        for op_class in op_classes:
+            if not op_class.input_types or op_class.input_types.issubset(start_types):
+                step = ExecutionStep(
+                    step_id=f"{op_class.name}_0",
+                    op_class=op_class,
+                    params={},
+                    input_mappings={t: f"start_{t}" for t in op_class.input_types & start_types},
+                    output_type=op_class.output_type
+                )
+                
+                available = dict(start_types) if isinstance(start_types, dict) else {t: f"start_{t}" for t in start_types}
+                available[step.output_type] = step.step_id
+                targets = target_types.copy() if target_types else {step.output_type}
+                
+                build_plan([step], available, targets)
+        
+        return plans
 
 
 @dataclass
