@@ -10,6 +10,18 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
+# Global registry instance that all Ops will register with
+_global_registry = None
+
+
+def get_global_registry() -> 'OpRegistry':
+    """Get the global registry, creating it if needed."""
+    global _global_registry
+    if _global_registry is None:
+        _global_registry = OpRegistry()
+    return _global_registry
+
+
 @dataclass
 class Op(ABC):
     """Base operation with input/output type definitions.
@@ -18,10 +30,16 @@ class Op(ABC):
     - `name`: unique identifier for this operation
     - `input_types`: set of type names this operation requires as input
     - `output_type`: single type name this operation produces
+    
+    When created, the operation automatically registers itself with the global registry.
     """
     name: str
     input_types: set[str]
     output_type: str
+
+    def __post_init__(self):
+        """Automatically register this operation with the global registry."""
+        get_global_registry().register(self)
 
     @abstractmethod
     def execute(self, inputs: dict[str, Any]) -> Any:
@@ -60,19 +78,24 @@ class Result:
     """Stores results with full provenance tracking.
 
     Each result contains:
-    - The operation that produced it
     - The actual data produced
     - Full provenance chain (list of operations that led to this result)
     - Cache key for deduplication
     - Timestamp and error information
+    
+    The operation that produced this result is always the last item in the provenance chain.
     """
-    op: Op
     data: Any
     provenance: list[Op]
     cache_key: str
     timestamp: float = field(default_factory=time.time)
     error: str = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def op(self) -> Op:
+        """The operation that produced this result (last in provenance chain)."""
+        return self.provenance[-1] if self.provenance else None
 
     def is_success(self) -> bool:
         """Returns True if the operation completed successfully."""
@@ -88,7 +111,7 @@ class Result:
         Note: Does not serialize the actual data as it may be large.
         """
         return {
-            "op_name": self.op.name,
+            "op_name": self.op.name if self.op else None,
             "success": self.is_success(),
             "error": self.error,
             "provenance": self.get_provenance_string(),
