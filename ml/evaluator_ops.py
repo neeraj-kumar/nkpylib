@@ -68,38 +68,34 @@ class Result:
         }
 
 
-def get_all_concrete_ops() -> list[type[Op]]:
-    """Find all concrete (non-abstract) Op subclasses."""
-    concrete_ops = []
-    
-    def find_subclasses(cls):
-        for subclass in cls.__subclasses__():
-            if not inspect.isabstract(subclass):
-                concrete_ops.append(subclass)
-            find_subclasses(subclass)  # Recursive for nested inheritance
-    
-    find_subclasses(Op)
-    return concrete_ops
+def find_subclasses(cls) -> list[type[Op]]:
+    """Find all concrete (non-abstract) subclasses of `cls`."""
+    ret = []
+    for subclass in cls.__subclasses__():
+        if not inspect.isabstract(subclass):
+            ret.append(subclass)
+        ret.extend(find_subclasses(subclass))  # Recursive for nested inheritance
+    return ret
 
 
-def generate_all_execution_paths(start_types: set[str] = None, 
+def generate_all_execution_paths(start_types: set[str] = None,
                                target_types: set[str] = None,
                                max_depth: int = 5) -> list[list[Op]]:
     """Generate all valid execution paths using graph search.
-    
+
     - start_types: Types that are available at the beginning (empty set means no initial types)
     - target_types: Types we want to end up with (None means any final type is acceptable)
     - max_depth: Maximum number of operations in a path
-    
+
     Returns list of operation sequences that form valid execution paths.
     """
     if start_types is None:
         start_types = set()
-    
+
     # Get all concrete op classes and try to instantiate them
-    op_classes = get_all_concrete_ops()
+    op_classes = find_subclasses(Op)
     all_ops = []
-    
+
     for op_cls in op_classes:
         try:
             # Try to instantiate with no args first
@@ -109,52 +105,52 @@ def generate_all_execution_paths(start_types: set[str] = None,
             # This op needs constructor arguments - skip for now
             # TODO: Handle parameterized ops by generating variants
             pass
-    
+
     # Build type dependency mappings
     producers = defaultdict(list)  # type -> [ops that produce it]
     consumers = defaultdict(list)  # type -> [ops that consume it]
-    
+
     for op in all_ops:
         producers[op.output_type].append(op)
         for input_type in op.input_types:
             consumers[input_type].append(op)
-    
+
     # DFS to find all valid execution paths
     valid_paths = []
-    
+
     def dfs(current_path: list[Op], available_types: set[str], depth: int):
         if depth > max_depth:
             return
-            
+
         # Check if we've reached target types (if specified)
         if target_types and available_types & target_types:
             valid_paths.append(current_path.copy())
         elif not target_types and current_path:  # Any non-empty path is valid if no targets
             valid_paths.append(current_path.copy())
-        
+
         # Try each op that can consume available types
         for type_name in available_types:
             for next_op in consumers[type_name]:
                 # Skip if already in path (avoid cycles)
                 if any(op.name == next_op.name for op in current_path):
                     continue
-                
+
                 # Check if all required inputs are available
                 if not next_op.input_types.issubset(available_types):
                     continue
-                
+
                 # Add this op and recurse
                 current_path.append(next_op)
                 new_available = available_types | {next_op.output_type}
                 dfs(current_path, new_available, depth + 1)
                 current_path.pop()
-    
+
     # Start DFS from ops that don't need inputs (or whose inputs are in start_types)
     for op in all_ops:
         if not op.input_types or op.input_types.issubset(start_types):
             initial_types = start_types | {op.output_type}
             dfs([op], initial_types, 1)
-    
+
     return valid_paths
 
 
@@ -320,7 +316,7 @@ class BasicChecksOp(Op):
 
     name = "basic_checks"
     input_types = frozenset({"dimension_check_result", "nan_check_result"})
-    output_type = "basic_checks_result"
+    output_type = "basic_checks_report"
 
     def execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
@@ -337,4 +333,8 @@ class BasicChecksOp(Op):
             "nan_check": nan_result
         }
 
-
+if __name__ == '__main__':
+    paths = generate_all_execution_paths()
+    print(f'Generated {len(paths)} execution paths:')
+    for path in paths:
+        print(" -> ".join(op.name for op in path))
