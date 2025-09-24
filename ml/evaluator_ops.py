@@ -108,14 +108,16 @@ class Op(ABC):
 
     Each operation defines:
     - `name`: unique identifier for this operation
-    - `input_types`: set of type names this operation requires as input
-    - `output_type`: single type name this operation produces
+    - `input_types`: set of type names this operation requires as input (class variable)
+    - `output_type`: single type name this operation produces (class variable)
 
     When created, the operation automatically registers itself with the global registry.
     """
     name: str
-    input_types: set[str]
-    output_type: str
+    
+    # These should be overridden as class variables in subclasses
+    input_types: frozenset[str] = frozenset()
+    output_type: str = ""
 
     def __post_init__(self):
         """Automatically register this operation with the global registry."""
@@ -156,14 +158,13 @@ class Op(ABC):
 class LoadEmbeddingsOp(Op):
     """Load embeddings from paths into a FeatureSet."""
     
+    input_types = frozenset()
+    output_type = "feature_set"
+    
     def __init__(self, paths: list[str], **kwargs):
         self.paths = paths
         self.kwargs = kwargs
-        super().__init__(
-            name=f"load_embeddings_{hash(tuple(paths))}",
-            input_types=set(),
-            output_type="feature_set"
-        )
+        super().__init__(name=f"load_embeddings_{hash(tuple(paths))}")
     
     def execute(self, inputs: dict[str, Any]) -> Any:
         from nkpylib.ml.feature_set import FeatureSet
@@ -173,12 +174,11 @@ class LoadEmbeddingsOp(Op):
 class CheckDimensionsOp(Op):
     """Check that all embeddings have consistent dimensions."""
     
+    input_types = frozenset({"feature_set"})
+    output_type = "dimension_check_result"
+    
     def __init__(self):
-        super().__init__(
-            name="check_dimensions",
-            input_types={"feature_set"},
-            output_type="dimension_check_result"
-        )
+        super().__init__(name="check_dimensions")
     
     def execute(self, inputs: dict[str, Any]) -> Any:
         from collections import Counter
@@ -201,12 +201,11 @@ class CheckDimensionsOp(Op):
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
     
+    input_types = frozenset({"feature_set"})
+    output_type = "nan_check_result"
+    
     def __init__(self):
-        super().__init__(
-            name="check_nans",
-            input_types={"feature_set"},
-            output_type="nan_check_result"
-        )
+        super().__init__(name="check_nans")
     
     def execute(self, inputs: dict[str, Any]) -> Any:
         import numpy as np
@@ -234,12 +233,11 @@ class CheckNaNsOp(Op):
 class BasicChecksOp(Op):
     """Combine dimension and NaN checks into a single basic validation."""
     
+    input_types = frozenset({"dimension_check_result", "nan_check_result"})
+    output_type = "basic_checks_result"
+    
     def __init__(self):
-        super().__init__(
-            name="basic_checks",
-            input_types={"dimension_check_result", "nan_check_result"},
-            output_type="basic_checks_result"
-        )
+        super().__init__(name="basic_checks")
     
     def execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
