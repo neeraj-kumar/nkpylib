@@ -399,6 +399,29 @@ class BasicChecksOp(Op):
             "nan_check": nan_result
         }
 
+
+class NormalizeOp(Op):
+    """Normalize embeddings from a FeatureSet based on normalization parameters."""
+
+    name = "normalize"
+    input_types = frozenset({"feature_set"})
+    output_type = "normalized_embeddings"
+
+    def __init__(self, normed: bool = False, scale_mean: bool = True, scale_std: bool = True):
+        self.normed = normed
+        self.scale_mean = scale_mean
+        self.scale_std = scale_std
+        super().__init__()
+
+    def execute(self, inputs: dict[str, Any]) -> Any:
+        fs = inputs["feature_set"]
+        keys, emb = fs.get_keys_embeddings(
+            normed=self.normed,
+            scale_mean=self.scale_mean,
+            scale_std=self.scale_std
+        )
+        return (keys, emb)
+
 if __name__ == '__main__':
     plans = OpRegistry.gen_execution_plans(target_types={"basic_checks_report"})
     print(f'Generated {len(plans)} execution plans:')
