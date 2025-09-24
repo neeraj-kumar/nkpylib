@@ -212,7 +212,6 @@ class CompositeFeature(Feature):
         super().__init__(**kw)
         if not self.SCHEMA:
             self.__class__.define_schema()
-        # Pre-allocate array for all schema features
         self._children = [None] * len(self.SCHEMA)
 
     @property
@@ -233,30 +232,21 @@ class CompositeFeature(Feature):
 
     def _set(self, name: str, *args, **kwargs) -> Feature:
         """Set a schema (child) feature with given name and arguments."""
-        if not self.SCHEMA:
-            raise ValueError("_set() can only be used with schema-based features")
-
         if name not in self.SCHEMA:
             raise ValueError(f"Unknown feature name: {name}")
-        
         template = self.SCHEMA[name]
-        idx = list(self.SCHEMA.keys()).index(name)
-        
         # Create feature using template
         feature = template.create(name=name, *args, **kwargs)
+        idx = list(self.SCHEMA).index(name)
         self._children[idx] = feature
         return feature
-
-    def _in_schema(self, name: str) -> bool:
-        """Check if a feature name is in the schema."""
-        return name in self.SCHEMA
 
     def validate_complete(self) -> None:
         """Ensure all schema features have been initialized."""
         if not self.SCHEMA:
             return
         missing = []
-        for i, name in enumerate(self.SCHEMA.keys()):
+        for i, name in enumerate(self.SCHEMA):
             if self._children[i] is None:
                 missing.append(name)
         if missing:
@@ -612,7 +602,7 @@ class MovieFeature(CompositeFeature):
         # Job counts
         job_counts = Counter(tp.job_id.name for tp in m.people)
         for job, count in job_counts.items():
-            if self._in_schema(job):
+            if job in self.SCHEMA:
                 self._set(f'num_{job}s', count)
         # Financial features
         budget, revenue = self._extract_financials(m)
