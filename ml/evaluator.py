@@ -116,7 +116,7 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator_ops import Op, OpRegistry, Task, Result
+from nkpylib.ml.evaluator_ops import Op, OpManager
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
@@ -1223,7 +1223,7 @@ class NormalizeOp(Op):
     input_types = frozenset({"feature_set"})
     output_type = "normalized_embeddings"
     is_intermediate = True
-    run_mode = 'thread'
+    run_mode = 'main'
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1261,7 +1261,7 @@ class CheckCorrelationsOp(Op):
     name = "check_correlations"
     input_types = frozenset({"normalized_embeddings", "labels"})
     output_type = "correlation_results"
-    run_mode = 'thread'
+    run_mode = 'main'
 
     def __init__(self, n_top: int = 10, **kw):
         self.n_top = n_top
@@ -1297,7 +1297,9 @@ class CheckCorrelationsOp(Op):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(format='%(asctime)s\t%(levelname)s\t%(funcName)s\t%(message)s', level=logging.INFO)
+    fmt_els = ['%(asctime)s', '%(process)d:%(thread)d', '%(levelname)s', '%(funcName)s', '%(message)s']
+    fmt_els = ['%(asctime)s', '%(levelname)s', '%(funcName)s', '%(message)s']
+    logging.basicConfig(format='\t'.join(fmt_els), level=logging.INFO)
     parser = ArgumentParser(description='Embeddings evaluator')
     parser.add_argument('paths', nargs='+', help='Paths to the embeddings lmdb file')
     parser.add_argument('-t', '--tag_path', help='Path to the tags sqlite db')
