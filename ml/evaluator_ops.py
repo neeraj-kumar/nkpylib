@@ -139,7 +139,7 @@ class Task:
 
 
 class OpRegistry:
-    """Registry of all available operations.
+    """Registry of all available operations and task runner.
 
     This maintains indexes by input and output types to enable automatic
     graph construction based on type matching.
@@ -154,8 +154,6 @@ class OpRegistry:
             self.ops_by_output_type[op_cls.output_type].append(op_cls)
             for input_type in op_cls.input_types:
                 self.ops_by_input_type[input_type].append(op_cls)
-        pprint(self.ops_by_output_type)
-        pprint(self.ops_by_input_type)
         # this contains a list of op instances
         self.all_ops: list[Op] = []
         self._results = defaultdict(dict) # output_type -> cache_key -> Result
@@ -167,37 +165,30 @@ class OpRegistry:
 
         Note that this is a little different than normal op execution.
         """
-        variants = op_cls.get_variants(inputs)
-        if variants is None:
-            variants = {None: {}}
-        for name, kwargs in variants.items():
-            task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
-            self.add_task(task)
-        self.run_next()
+        self.add_all_variants(op_cls, inputs)
+        self.run_tasks()
 
     def add_task(self, task: Task) -> None:
-        """Adds the given `task` if we don't already have it."""
+        """Adds the given `task` to our run queue if we don't already have it."""
         for existing in self.tasks + self.done_tasks:
             if existing.same_type(task):
                 return
         self.tasks.append(task)
         logger.info(f'Added task {task}')
 
-    def run_next(self) -> None:
-        """Run the next pending task, if any."""
-        if not self.tasks:
-            logger.info("No more pending tasks to run")
-            return
-        task = self.tasks.pop(0)
-        assert task.status == "pending"
-        result = task.run()
-        # the task running will also call create_tasks once it finishes
-        self.done_tasks.append(task)
+    def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
+        """Adds tasks for all variants of the given `op_cls` with the given `inputs`."""
+        variants = op_cls.get_variants(inputs)
+        if variants is None:
+            variants = {None: {}}
+        for name, kwargs in variants.items():
+            task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
+            self.add_task(task)
 
     def create_tasks(self, result: Result) -> None:
         """Create new work tasks to do based on a new result."""
         consumers = self.get_consumers(result.op.output_type)
-        logger.info(f'Creating new tasks from {result}: consumers={[c.__class__.__name__ for c in consumers]}')
+        logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
         for consumer in consumers:
             input_types = sorted(consumer.input_types)
             # generate lists of results for each input type
@@ -208,13 +199,19 @@ class OpRegistry:
             # (if any has an empty dict, it will result in no tasks)
             for cur_results in product(*input_results):
                 inputs = {t: r for t, r in zip(input_types, cur_results)}
-                variants = consumer.get_variants(inputs)
-                if variants is None:
-                    variants = {None: {}}
-                for name, kwargs in variants.items():
-                    task = Task(op_cls=consumer, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
-                    self.add_task(task)
-        self.run_next()
+                self.add_all_variants(consumer, inputs)
+
+    def run_tasks(self) -> None:
+        """Runs our task list in an infinite loop until done"""
+        while True:
+            if not self.tasks:
+                logger.info("No more pending tasks to run")
+                return
+            task = self.tasks.pop(0)
+            assert task.status == "pending"
+            result = task.run()
+            self.done_tasks.append(task)
+            self.create_tasks(result)
 
     @staticmethod
     def register(op: Op) -> None:
@@ -261,7 +258,6 @@ class OpRegistry:
                         error=error,
                         metadata=metadata or {})
         registry._results[op.output_type][op.cache_key] = result
-        registry.create_tasks(result)
         return result
 
     def results_to_dict(self) -> dict[str, Any]:
