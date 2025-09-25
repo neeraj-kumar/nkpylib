@@ -367,6 +367,7 @@ class FeatureSet(Mapping, Generic[KeyT]):
         We compute the intersection of the keys in all inputs, and use that as our list of _keys.
         """
         # remap any path inputs to NumpyLmdb objects
+        self.dtype = dtype
         self.inputs = [NumpyLmdb.open(inp, flag='r', dtype=dtype) if isinstance(inp, str) else inp
                        for inp in inputs]
         self._keys = self.get_keys()
@@ -375,6 +376,27 @@ class FeatureSet(Mapping, Generic[KeyT]):
             self.n_dims = len(value)
             break
         self.cached: dict[str, Any] = dict()
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Returns state of this suitable for pickling.
+
+        This just returns a dict with `inputs` and `dtype`. We replace any NumpyLmdb inputs with
+        their paths. If an input is of a non-pickleable type, it will raise an error when you try to
+        pickle this (not in this function).
+
+        When you unpickle this, setstate will simply rerun initialization with these.
+        """
+        return dict(
+            inputs=[inp.path if isinstance(inp, NumpyLmdb) else inp for inp in self.inputs],
+            dtype=self.dtype,
+        )
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Sets state of this from given `state` dict.
+
+        This simply reruns initialization with the given inputs and dtype.
+        """
+        self.__init__(**state)
 
     def get_keys(self) -> list[KeyT]:
         """Gets the intersection of all keys by reading all our inputs.
