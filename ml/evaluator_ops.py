@@ -407,7 +407,6 @@ class Op(ABC):
         cls_name = 'Op' if self.enabled else 'DisabledOp'
         variant_str = f' variant={self.variant}' if self.variant else ''
         return f'<{cls_name} name={self.name}{variant_str}>'
-        return s
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
