@@ -143,19 +143,22 @@ class Task:
         return result
 
 
-class WrappedPool:
-    """A wrapper around a thread or process pool that lets you check if it's busy or not."""
+class TaskPool:
+    """A wrapper around a thread or process pool that manages task execution."""
     def __init__(self, pool_type: str, max_workers: int):
         """Initializes the pool (either 'thread' or 'process') with given number of workers."""
         cls_by_type = dict(thread=ThreadPoolExecutor, process=ProcessPoolExecutor)
         self.pool = cls_by_type[pool_type](max_workers=max_workers)
         self.max_workers = max_workers
-        self.futures = []
+        self.futures = {}  # Future -> Task mapping
 
     @property
     def n_working(self) -> int:
         """Returns number of currently running tasks."""
-        self.futures = [f for f in self.futures if not f.done()]
+        # Clean up completed futures
+        done_futures = [f for f in self.futures if f.done()]
+        for f in done_futures:
+            del self.futures[f]
         return len(self.futures)
 
     @property
@@ -163,10 +166,33 @@ class WrappedPool:
         """Returns True if we have capacity to run more tasks."""
         return self.n_working < self.max_workers
 
+    def submit_task_if_available(self, task: Task) -> Future|None:
+        """Submit task if we have capacity, return Future or None."""
+        if not self.has_capacity:
+            return None
+        
+        future = self.pool.submit(task.run)
+        self.futures[future] = task
+        return future
+
+    def get_completed_tasks(self) -> list[tuple[Task, Result|Exception]]:
+        """Get all completed tasks and their results, removing them from tracking."""
+        completed = []
+        done_futures = [f for f in self.futures if f.done()]
+        
+        for future in done_futures:
+            task = self.futures.pop(future)
+            try:
+                result = future.result()
+                completed.append((task, result))
+            except Exception as e:
+                completed.append((task, e))
+        
+        return completed
+
     def submit(self, fn: Callable, *args, **kwargs) -> Future:
         """Submits a function to the pool."""
         f = self.pool.submit(fn, *args, **kwargs)
-        self.futures.append(f)
         return f
 
     def submit_when_available(self, fn: Callable, *args, **kwargs) -> Future:
@@ -189,8 +215,8 @@ class OpRegistry:
     def __init__(self, n_procs=4, n_threads=4):
         self.n_procs = n_procs
         self.n_threads = n_threads
-        self.proc_pool = WrappedPool('process', n_procs)
-        self.thread_pool = WrappedPool('thread', n_threads)
+        self.proc_pool = TaskPool('process', n_procs)
+        self.thread_pool = TaskPool('thread', n_threads)
         # these contain lists of Op Classes, not instances!
         self.ops_by_output_type: dict[str, list[type[Op]]] = defaultdict(list)
         self.ops_by_input_type: dict[str, list[type[Op]]] = defaultdict(list)
