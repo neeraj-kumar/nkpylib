@@ -115,6 +115,7 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
+from nkpylib.ml.evaluator_ops import Op, OpRegistry, Task, Result
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
@@ -690,25 +691,6 @@ class EmbeddingsValidator:
         logger.debug(f'Adding msg {msg}')
         self.msgs.append(msg)
 
-    def parse_tags(self, tag_path: str) -> None:
-        """Parses our tags from the tag db"""
-        tag_db = init_tag_db(tag_path)
-        grouped = defaultdict(list)
-        with db_session:
-            # get all tags, group by (type, key)
-            tags = Tag.select()
-            for t in Tag.select():
-                key = (t.type, t.key)
-                v = specialize(t.value)
-                grouped[key].append((t.id, v))
-        logger.info(f'Loaded {len(grouped)} types of tags from {tag_path}')
-        for (tag_type, key), ids_values in grouped.items():
-            if key == 'title':
-                continue
-            if cur := parse_into_labels(tag_type, key, ids_values):
-                self.labels[key] = cur
-        #pprint(self.labels)
-
     def check_correlations(self, keys, matrix: array2D, n_top:int=10) -> None:
         """Checks correlations against all numeric labels"""
         logger.debug(f'Got matrix: {matrix.shape}, {len(keys)} keys: {keys[:10]}, {matrix}')
@@ -1146,6 +1128,167 @@ class EmbeddingsValidator:
             print(f'PCA with {pca.n_components_} comps, explained variance: {pca.explained_variance_ratio_}: {emb.shape} -> {trans.shape}')
             self.check_correlations(keys, trans, n_top=n_top)
 
+class StartValidatorOp(Op):
+    """Starting point for running embeddings validation.
+
+    Takes kw version of parsed args from ArgumentParser.
+    """
+    name = 'start_validator'
+    input_types = frozenset()
+    output_type = "argparse"
+    is_intermediate = True
+
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
+        return inputs
+
+
+class LoadEmbeddingsOp(Op):
+    """Load embeddings from paths into a FeatureSet."""
+    name = 'load_embeddings'
+    input_types = frozenset({'argparse'})
+    output_type = "feature_set"
+    is_intermediate = True
+
+    #TODO return cartesian product of inputs as variants
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
+        paths = inputs['argparse']['paths']
+        return FeatureSet(paths, **kwargs)
+
+class ParseTagsOp(Op):
+    """Parses our tags from the tag db"""
+    name = 'parse_tags'
+    input_types = frozenset({'argparse'})
+    output_type = 'labels'
+    is_intermediate = True
+
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
+        tag_path = inputs['argparse'].get('tag_path')
+        if not tag_path:
+            raise ValueError('No tag_path provided')
+        tag_db = init_tag_db(tag_path)
+        grouped = defaultdict(list)
+        with db_session:
+            # get all tags, group by (type, key)
+            tags = Tag.select()
+            for t in Tag.select():
+                key = (t.type, t.key)
+                v = specialize(t.value)
+                grouped[key].append((t.id, v))
+        logger.info(f'Loaded {len(grouped)} types of tags from {tag_path}')
+        labels = {}
+        for (tag_type, key), ids_values in grouped.items():
+            if key == 'title':
+                continue
+            if cur := parse_into_labels(tag_type, key, ids_values):
+                labels[key] = cur
+        return labels
+
+
+class CheckDimensionsOp(Op):
+    """Check that all embeddings have consistent dimensions."""
+
+    name = "check_dimensions"
+    input_types = frozenset({"feature_set"})
+    output_type = "dimension_check_result"
+
+    def _execute(self, inputs: dict[str, Any]) -> Any:
+        fs = inputs["feature_set"]
+        dims = Counter()
+        for key, emb in fs.items():
+            dims[len(emb)] += 1
+        is_consistent = len(dims) == 1
+        return {
+            "is_consistent": is_consistent,
+            "dimension_counts": dict(dims),
+            "error_message": None if is_consistent else f"Inconsistent embedding dimensions: {dims.most_common()}"
+        }
+
+
+class CheckNaNsOp(Op):
+    """Check for NaN values in embeddings."""
+
+    name = "check_nans"
+    input_types = frozenset({"feature_set"})
+    output_type = "nan_check_result"
+
+    def _execute(self, inputs: dict[str, Any]) -> Any:
+        fs = inputs["feature_set"]
+        n_nans = 0
+        nan_keys = []
+        for key, emb in fs.items():
+            key_nans = np.sum(np.isnan(emb))
+            n_nans += key_nans
+            if key_nans > 0:
+                nan_keys.append((key, int(key_nans)))
+        has_nans = n_nans > 0
+        return {
+            "has_nans": has_nans,
+            "total_nans": int(n_nans),
+            "nan_keys": nan_keys,
+            "error_message": None if not has_nans else f"Found {n_nans} NaNs in embeddings"
+        }
+
+
+class BasicChecksOp(Op):
+    """Combine dimension and NaN checks into a single basic validation."""
+
+    name = "basic_checks"
+    input_types = frozenset({"dimension_check_result", "nan_check_result"})
+    output_type = "basic_checks_report"
+
+    def _execute(self, inputs: dict[str, Any]) -> Any:
+        dim_result = inputs["dimension_check_result"]
+        nan_result = inputs["nan_check_result"]
+        errors = []
+        if not dim_result["is_consistent"]:
+            errors.append(dim_result["error_message"])
+        if nan_result["has_nans"]:
+            errors.append(nan_result["error_message"])
+        return {
+            "passed": len(errors) == 0,
+            "errors": errors,
+            "dimension_check": dim_result,
+            "nan_check": nan_result
+        }
+
+
+class NormalizeOp(Op):
+    """Normalize embeddings from a FeatureSet based on normalization parameters."""
+
+    name = "normalize"
+    input_types = frozenset({"feature_set"})
+    output_type = "normalized_embeddings"
+    is_intermediate = True
+
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants of this op based on normalization options."""
+        return None #FIXME
+        ret = {}
+        for normed, scale_mean, scale_std in product([True, False], repeat=3):
+            variant_name = f"normed:{int(normed)}_mean:{int(scale_mean)}_std:{int(scale_std)}"
+            ret[variant_name] = {
+                "normed": normed,
+                "scale_mean": scale_mean,
+                "scale_std": scale_std
+            }
+        return ret
+
+    def __init__(self, normed: bool = False, scale_mean: bool = True, scale_std: bool = True, **kw):
+        self.normed = normed
+        self.scale_mean = scale_mean
+        self.scale_std = scale_std
+        super().__init__(**kw)
+
+    def _execute(self, inputs: dict[str, Any]) -> Any:
+        fs = inputs["feature_set"]
+        keys, emb = fs.get_keys_embeddings(
+            normed=self.normed,
+            scale_mean=self.scale_mean,
+            scale_std=self.scale_std
+        )
+        return (keys, emb)
+
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s\t%(levelname)s\t%(funcName)s\t%(message)s', level=logging.INFO)
@@ -1153,5 +1296,11 @@ if __name__ == '__main__':
     parser.add_argument('paths', nargs='+', help='Paths to the embeddings lmdb file')
     parser.add_argument('-t', '--tag_path', help='Path to the tags sqlite db')
     args = parser.parse_args()
-    ev = EmbeddingsValidator(args.paths, tag_path=args.tag_path)
-    ev.run()
+    if 0:
+        ev = EmbeddingsValidator(args.paths, tag_path=args.tag_path)
+        ev.run()
+    else:
+        reg = OpRegistry.get_global_op_registry()
+        #reg.start(LoadEmbeddingsOp, {'paths': [sys.argv[1]]})
+        reg.start(StartValidatorOp, vars(args))
+        print(json.dumps(reg.results_to_dict(), indent=2))
