@@ -1,4 +1,12 @@
-"""Op-related code for ml evaluator"""
+"""Op-related code for ml evaluator.
+
+TODO:
+- parallelization options
+- bayesian optimization
+- updating progress to disk
+- flexible logging levels per op
+- caching
+"""
 
 from __future__ import annotations
 
@@ -11,6 +19,7 @@ import time
 
 from abc import ABC, abstractmethod
 from collections import defaultdict, Counter
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, Future, as_completed
 from dataclasses import dataclass, field
 from itertools import product
 from pprint import pprint
@@ -134,6 +143,41 @@ class Task:
         return result
 
 
+class WrappedPool:
+    """A wrapper around a thread or process pool that lets you check if it's busy or not."""
+    def __init__(self, pool_type: str, max_workers: int):
+        """Initializes the pool (either 'thread' or 'process') with given number of workers."""
+        cls_by_type = dict(thread=ThreadPoolExecutor, process=ProcessPoolExecutor)
+        self.pool = cls_by_type[pool_type](max_workers=max_workers)
+        self.max_workers = max_workers
+        self.futures = []
+
+    @property
+    def n_working(self) -> int:
+        """Returns number of currently running tasks."""
+        self.futures = [f for f in self.futures if not f.done()]
+        return len(self.futures)
+
+    @property
+    def has_capacity(self) -> bool:
+        """Returns True if we have capacity to run more tasks."""
+        return self.n_working < self.max_workers
+
+    def submit(self, fn: Callable, *args, **kwargs) -> Future:
+        """Submits a function to the pool."""
+        f = self.pool.submit(fn, *args, **kwargs)
+        self.futures.append(f)
+        return f
+
+    def submit_when_available(self, fn: Callable, *args, **kwargs) -> Future:
+        """Submits a function to the pool when we have capacity, blocking till then."""
+        if self.has_capacity:
+            return self.submit(fn, *args, **kwargs)
+        for f in as_completed(self.futures):
+            if self.has_capacity:
+                return self.submit(fn, *args, **kwargs)
+
+
 class OpRegistry:
     """Registry of all available operations and task runner.
 
@@ -142,11 +186,17 @@ class OpRegistry:
 
     It also deals with execution.
     """
-    def __init__(self):
+    def __init__(self, n_procs=4, n_threads=4):
+        self.n_procs = n_procs
+        self.n_threads = n_threads
+        self.proc_pool = WrappedPool('process', n_procs)
+        self.thread_pool = WrappedPool('thread', n_threads)
         # these contain lists of Op Classes, not instances!
         self.ops_by_output_type: dict[str, list[type[Op]]] = defaultdict(list)
         self.ops_by_input_type: dict[str, list[type[Op]]] = defaultdict(list)
         for op_cls in find_subclasses(Op):
+            if op_cls.enabled is False:
+                continue
             self.ops_by_output_type[op_cls.output_type].append(op_cls)
             for input_type in op_cls.input_types:
                 self.ops_by_input_type[input_type].append(op_cls)
@@ -293,6 +343,12 @@ class Op(ABC):
     # by default we assume ops are not intermediate. If they are, override this
     is_intermediate = False
 
+    # you can set this in your class to disable the op (e.g. for debugging)
+    enabled = True
+
+    # where this op should run (main=main process, thread=thread pool, process=process pool)
+    run_mode = "main" # main, thread, process
+
     def __init__(self, variant: str|None=None, name: str|None = None, input_types: frozenset[str]|None=None, output_type: str|None=None):
         """Initialize this operation.
 
@@ -315,9 +371,17 @@ class Op(ABC):
         # make sure we have a name of some sort
         if not name and not self.__class__.name:
             self.__class__.name = self.__class__.__name__
-        assert self.output_type, f"Op {self.name} must have a non-empty output_type"
+        assert self.output_type, f"{self} must have a non-empty output_type"
+        assert self.enabled, f"{self} is disabled!"
+        assert self.run_mode in ("main", "thread", "process"), f"{self} has invalid run_mode {self.run_mode}"
         OpRegistry.register(self)
         self.cache_key = None
+
+    def __repr__(self) -> str:
+        cls_name = 'Op' if self.enabled else 'DisabledOp'
+        variant_str = f' variant={self.variant}' if self.variant else ''
+        return f'<{cls_name} name={self.name}{variant_str}>'
+        return s
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
