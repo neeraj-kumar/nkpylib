@@ -585,31 +585,32 @@ class MovieFeature(CompositeFeature):
     @classmethod
     def define_schema(cls, enum_dbs):
         """Define the schema for movie features."""
-        constant = Template(ConstantFeature)
+        # lambda to create a constant feature of given length
+        C = lambda n_dims: Template(ConstantFeature, n_dims=n_dims)
         # Features that should always exist (no defaults)
-        cls.add_schema('year', constant)
-        cls.add_schema('runtime', constant)
+        cls.add_schema('year', C(1))
+        cls.add_schema('runtime', C(1))
         # Rating features with defaults for missing sources
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
-                cls.add_schema(f'{src}_{field}', constant, default={'values': 0.0})
-            cls.add_schema(f'{src}_log_votes', constant, default={'values': 0.0})
+                cls.add_schema(f'{src}_{field}', C(1), default={'values': 0.0})
+            cls.add_schema(f'{src}_log_votes', C(1), default={'values': 0.0})
         # Job count features with defaults
         for job in ['actor', 'actress', 'director', 'writer']:
-            cls.add_schema(f'num_{job}', constant, default={'values': 0.0})
+            cls.add_schema(f'num_{job}', C(1), default={'values': 0.0})
         # Financial features with defaults
-        cls.add_schema('tmdb_budget', constant, default={'values': 0.0})
-        cls.add_schema('tmdb_log_budget', constant, default={'values': 0.0})
-        cls.add_schema('tmdb_revenue', constant, default={'values': 0.0})
-        cls.add_schema('tmdb_log_revenue', constant, default={'values': 0.0})
+        cls.add_schema('tmdb_budget', C(1), default={'values': 0.0})
+        cls.add_schema('tmdb_log_budget', C(1), default={'values': 0.0})
+        cls.add_schema('tmdb_revenue', C(1), default={'values': 0.0})
+        cls.add_schema('tmdb_log_revenue', C(1), default={'values': 0.0})
         # Content rating with default
         rating_enum = Template(EnumFeature,
                              enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
                              encoding='int')
         cls.add_schema('rt_content_rating', rating_enum, default={'value': None})
         for key, db in sorted(enum_dbs.items()):
-            cls.add_schema(f'{key}_emb', constant,
+            cls.add_schema(f'{key}_emb', C(db.n_dims),
                            default={'values': np.zeros(db.n_dims, dtype=np.float32)})
 
     def __init__(self, m, *, enum_dbs: dict[str, NumpyLmdb], **kw):
