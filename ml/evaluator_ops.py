@@ -1,7 +1,6 @@
 """Op-related code for ml evaluator.
 
 TODO:
-- parallelization options
 - bayesian optimization
 - updating progress to disk
 - flexible logging levels per op
@@ -128,6 +127,11 @@ class Task:
                 self.variant_name == other.variant_name and
                 self.inputs == other.inputs)
 
+    @property
+    def run_mode(self) -> str:
+        """Returns where this task should run (main/thread/process)."""
+        return self.op_cls.run_mode
+
     def run(self) -> Result | Exception:
         """Runs this task"""
         logger.info(f'Starting {self}')
@@ -155,39 +159,42 @@ class TaskPool:
     @property
     def n_working(self) -> int:
         """Returns number of currently running tasks."""
-        # Clean up completed futures
-        done_futures = [f for f in self.futures if f.done()]
-        for f in done_futures:
-            del self.futures[f]
-        return len(self.futures)
+        return len([f for f in self.futures if not f.done()])
+
+    @property
+    def is_active(self) -> bool:
+        """Returns if this pool is active (has running or finished tasks)."""
+        return bool(self.futures)
 
     @property
     def has_capacity(self) -> bool:
         """Returns True if we have capacity to run more tasks."""
         return self.n_working < self.max_workers
 
-    def submit_task_if_available(self, task: Task) -> Future|None:
+    def submit_task_if_free(self, task: Task) -> Future|None:
         """Submit task if we have capacity, return Future or None."""
         if not self.has_capacity:
             return None
-        
         future = self.pool.submit(task.run)
         self.futures[future] = task
         return future
 
     def get_completed_tasks(self) -> list[tuple[Task, Result|Exception]]:
-        """Get all completed tasks and their results, removing them from tracking."""
+        """Get all completed tasks and their results, removing them from tracking.
+
+        This updates the state on the task appropriately.
+        """
         completed = []
         done_futures = [f for f in self.futures if f.done()]
-        
         for future in done_futures:
             task = self.futures.pop(future)
             try:
                 result = future.result()
                 completed.append((task, result))
             except Exception as e:
+                task.status = 'failed'
+                task.error = e
                 completed.append((task, e))
-        
         return completed
 
     def submit(self, fn: Callable, *args, **kwargs) -> Future:
@@ -257,7 +264,7 @@ class OpRegistry:
             task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
             self.add_task(task)
 
-    def create_tasks(self, result: Result) -> None:
+    def create_tasks(self, result: Result|Exception) -> None:
         """Create new work tasks to do based on a new result."""
         if isinstance(result, Exception):
             return
@@ -276,16 +283,32 @@ class OpRegistry:
                 self.add_all_variants(consumer, inputs)
 
     def run_tasks(self) -> None:
-        """Runs our task list in an infinite loop until done"""
-        while True:
-            if not self.tasks:
-                logger.info("No more pending tasks to run")
-                return
-            task = self.tasks.pop(0)
-            assert task.status == "pending"
-            result = task.run()
+        """Runs our task list using our thread and process pools."""
+        t_pool, p_pool = self.thread_pool, self.proc_pool
+        pools = dict(thread=t_pool, process=p_pool)
+        matching_tasks = lambda *modes: [t for t in self.tasks if t.run_mode in modes and t.status == "pending"]
+        def finish_task(task, result):
             self.done_tasks.append(task)
             self.create_tasks(result)
+
+        while self.tasks or t_pool.is_active or p_pool.is_active:
+            # submit pool tasks if they have capacity
+            for task in matching_tasks("thread", "process"):
+                if pools[task.run_mode].submit_task_if_free(task):
+                    self.tasks.remove(task)
+            # if we still have pending tasks, run one in main thread
+            for_main = matching_tasks("main")
+            if for_main:
+                task = for_main[0]
+                self.tasks.remove(task)
+                result = task.run()
+                finish_task(task, result)
+            # check for completed tasks
+            for pool in pools.values():
+                for task, result in pool.get_completed_tasks():
+                    finish_task(task, result)
+            # avoid busy loop
+            time.sleep(0.1)
 
     @staticmethod
     def register(op: Op) -> None:

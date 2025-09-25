@@ -79,6 +79,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import pickle
 import random
 import sys
 import time
@@ -691,25 +692,6 @@ class EmbeddingsValidator:
         logger.debug(f'Adding msg {msg}')
         self.msgs.append(msg)
 
-    def check_correlations(self, keys, matrix: array2D, n_top:int=10) -> None:
-        """Checks correlations against all numeric labels"""
-        logger.debug(f'Got matrix: {matrix.shape}, {len(keys)} keys: {keys[:10]}, {matrix}')
-        for key, labels in self.labels.items():
-            top = labels.check_correlations(keys, matrix, n_top=n_top)
-            if not isinstance(top, dict):
-                top = dict(all=top)
-            for label, lsts in top.items():
-                for name, lst in zip(['pearson', 'spearman'], lsts):
-                    for corr, dim in lst:
-                        if abs(corr) > 0.5:
-                            self.add_msg(unit='correlation',
-                                         label=label,
-                                         key=key,
-                                         dim=dim,
-                                         method=name,
-                                         value=corr,
-                                         score=3,
-                                         warning=f'High correlation {corr:.3f} for {key}={label} at dim {dim}')
 
     def compare_stats(self, a: array1d, b: array1d) -> tuple[Stats, Stats, Stats]:
         """Compares various stats between two 1D arrays.
@@ -1094,7 +1076,6 @@ class EmbeddingsValidator:
         # scaling mean/std doesn't do anything, because correlation is scale-invariant
         keys, emb = self.fs.get_keys_embeddings(normed=False, scale_mean=False, scale_std=False)
         n_top = 10
-        self.check_correlations(keys, emb, n_top=n_top)
         if 0:
             # pca correlations
             pca = PCA(n_components=min(n_top, emb.shape[1]))
@@ -1103,7 +1084,6 @@ class EmbeddingsValidator:
             if pca.explained_variance_ratio_[0] > 0.5:
                 self.add_msg(unit='pca', warning=f'PCA first dimension explains too much variance: {pca.explained_variance_ratio_[0]:.3f}', score=-2)
             print(f'PCA with {pca.n_components_} comps, explained variance: {pca.explained_variance_ratio_}: {emb.shape} -> {trans.shape}')
-            self.check_correlations(keys, trans, n_top=n_top)
 
 class StartValidatorOp(Op):
     """Starting point for running embeddings validation.
@@ -1164,6 +1144,9 @@ class ParseTagsOp(Op):
 class CheckDimensionsOp(Op):
     """Check that all embeddings have consistent dimensions."""
 
+    enabled = True
+    run_mode = 'process'
+
     name = "check_dimensions"
     input_types = frozenset({"feature_set"})
     output_type = "dimension_check_result"
@@ -1183,6 +1166,9 @@ class CheckDimensionsOp(Op):
 
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
+
+    enabled = True
+    run_mode = 'process'
 
     name = "check_nans"
     input_types = frozenset({"feature_set"})
@@ -1212,6 +1198,7 @@ class BasicChecksOp(Op):
     name = "basic_checks"
     input_types = frozenset({"dimension_check_result", "nan_check_result"})
     output_type = "basic_checks_report"
+    run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
@@ -1236,6 +1223,7 @@ class NormalizeOp(Op):
     input_types = frozenset({"feature_set"})
     output_type = "normalized_embeddings"
     is_intermediate = True
+    run_mode = 'thread'
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1273,46 +1261,38 @@ class CheckCorrelationsOp(Op):
     name = "check_correlations"
     input_types = frozenset({"normalized_embeddings", "labels"})
     output_type = "correlation_results"
+    run_mode = 'thread'
 
     def __init__(self, n_top: int = 10, **kw):
         self.n_top = n_top
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
-        keys, matrix = inputs["normalized_embeddings"]
-        labels = inputs["labels"]
-        
-        results = {}
+        (keys, matrix), labels = inputs['normalized_embeddings'], inputs['labels']
+        print(f'Checking correlations for {len(labels)} labels on {matrix.shape} embeddings')
+        results = dict(by_label_key={}, warnings=[])
         for key, label in labels.items():
-            try:
-                correlations = label.check_correlations(keys, matrix, n_top=self.n_top)
-                results[key] = correlations
-                
-                # Check for high correlations and create warnings
-                if not isinstance(correlations, dict):
-                    correlations = {"all": correlations}
-                
-                for label_name, (pearson_list, spearman_list) in correlations.items():
-                    for method, corr_list in [("pearson", pearson_list), ("spearman", spearman_list)]:
-                        for corr, dim in corr_list:
-                            if abs(corr) > 0.5:
-                                warning = f'High correlation {corr:.3f} for {key}={label_name} at dim {dim}'
-                                if "warnings" not in results:
-                                    results["warnings"] = []
-                                results["warnings"].append({
-                                    "unit": "correlation",
-                                    "label": label_name,
-                                    "key": key,
-                                    "dim": dim,
-                                    "method": method,
-                                    "value": corr,
-                                    "score": 3,
-                                    "warning": warning
-                                })
-            except Exception as e:
-                logger.warning(f"Failed to check correlations for {key}: {e}")
-                continue
-        
+            print(f'  Checking correlations for label {label} with {len(label.ids)} ids')
+            correlations = label.check_correlations(keys, matrix, n_top=self.n_top)
+            results['by_label_key'][key] = correlations
+            # Check for high correlations and create warnings
+            if not isinstance(correlations, dict):
+                correlations = {"all": correlations}
+            for label_name, (pearson_list, spearman_list) in correlations.items():
+                for method, corr_list in [("pearson", pearson_list), ("spearman", spearman_list)]:
+                    for corr, dim in corr_list:
+                        if abs(corr) > 0.5:
+                            warning = f'High correlation {corr:.3f} for {key}={label_name} at dim {dim}'
+                            results["warnings"].append({
+                                "unit": "correlation",
+                                "label": label_name,
+                                "key": key,
+                                "dim": dim,
+                                "method": method,
+                                "value": corr,
+                                "score": 3,
+                                "warning": warning
+                            })
         return results
 
 
