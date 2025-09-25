@@ -82,8 +82,9 @@ from nkpylib.time_utils import parse_ts
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    'Template', 'Feature', 'CompositeFeature', 'ConstantFeature', 'EnumFeature', 'PairwiseMax', 'TimeContext', 'Recency',
-    'MappingFeature', 'FunctionFeature', 'FeatureMap'
+    'Template', 'Feature', 'CompositeFeature', # base classes
+    'ConstantFeature', 'EnumFeature', 'PairwiseMax', 'TimeContext', 'Recency', # specific features
+    'MappingFeature', 'FunctionFeature', 'FeatureMap', # utility classes
 ]
 
 class PrintableJSONEncoder(json.JSONEncoder):
@@ -93,6 +94,14 @@ class PrintableJSONEncoder(json.JSONEncoder):
             return super().default(obj)
         except TypeError:
             return str(obj)
+
+def make_jsonable(obj: Any) -> Any:
+    """Convert an object to a JSON-serializable form.
+
+    This uses the `PrintableJSONEncoder` to convert any non-serializable objects to strings. It
+    will first serialize to JSON string and then parse back to a Python object.
+    """
+    return json.loads(json.dumps(obj, cls=PrintableJSONEncoder))
 
 class Template(Mapping):
     """Base class for feature templates that hold shared parameters."""
@@ -141,7 +150,7 @@ class Template(Mapping):
                    n_instances=self.num_instances,
                    params=self.shared_params)
         if jsonable:
-            ret = json.loads(json.dumps(ret, cls=PrintableJSONEncoder))
+            ret = make_jsonable(ret)
         return ret
 
 class Feature(ABC):
@@ -247,7 +256,7 @@ class CompositeFeature(Feature):
                        'default': cls.DEFAULTS.get(name),
                    } for name, template in cls.SCHEMA.items()])
         if jsonable:
-            ret = json.loads(json.dumps(ret, cls=PrintableJSONEncoder))
+            ret = make_jsonable(ret)
         return ret
 
     def __init__(self, **kw):

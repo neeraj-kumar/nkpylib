@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
+import sys
 import time
 
 from abc import ABC, abstractmethod
@@ -14,6 +16,7 @@ from typing import Any, Callable
 import numpy as np
 
 from nkpylib.ml.feature_set import FeatureSet
+from nkpylib.ml.features import make_jsonable
 
 # Global registry instance that all Ops will register with
 _global_op_registry = None
@@ -69,7 +72,8 @@ class Result:
             "op_name": self.op.name if self.op else None,
             "success": self.is_success(),
             "error": self.error,
-            "provenance": self.get_provenance_string(),
+            "provenance_str": self.get_provenance_string(),
+            "provenance": [op.cache_key for op in self.provenance],
             "timestamp": self.timestamp,
             "metadata": self.metadata,
             "data_type": type(self.data).__name__ if self.data else None,
@@ -77,67 +81,19 @@ class Result:
         }
 
 
-@dataclass
-class ExecutionStep:
-    """A single step in an execution plan."""
-    step_id: str
-    op_class: type[Op]
-    params: dict[str, Any]
-    input_mappings: dict[str, str]  # input_type -> step_id that produces it
-    output_type: str
-
-    @staticmethod
-    def execute_plan(steps: list[ExecutionStep]) -> dict[str, Result]:
-        """Execute a list of steps and return results for each step."""
-        results: dict[str, Result] = {}
-
-        for step in steps:
-            # Gather inputs from previous steps
-            inputs = {}
-            for input_type, source_step_id in step.input_mappings.items():
-                inputs[input_type] = results[source_step_id].data
-
-            # Instantiate and execute the op
-            op_instance = step.op_class(**step.params)
-            data = op_instance.execute(inputs)
-
-            # Build provenance chain
-            provenance = [op_instance]
-            for source_step_id in step.input_mappings.values():
-                provenance = results[source_step_id].provenance + provenance
-
-            # Store result
-            results[step.step_id] = Result(
-                data=data,
-                provenance=provenance,
-                cache_key=op_instance.get_cache_key(inputs)
-            )
-
-        return results
-
-
-@dataclass
-class ExecutionPlan:
-    """A complete execution plan as an ordered list of steps."""
-    steps: list[ExecutionStep]
-    final_outputs: list[str]  # step_ids of final results we care about
-
-    def execute(self) -> dict[str, Result]:
-        """Execute this plan and return final results."""
-        all_results = ExecutionStep.execute_plan(self.steps)
-        return {step_id: all_results[step_id] for step_id in self.final_outputs}
-
-
 class OpRegistry:
     """Registry of all available operations.
 
     This maintains indexes by input and output types to enable automatic
     graph construction based on type matching.
+
+    It also deals with execution.
     """
     def __init__(self):
         self.ops_by_output_type: dict[str, list[Op]] = defaultdict(list)
         self.ops_by_input_type: dict[str, list[Op]] = defaultdict(list)
         self.all_ops: list[Op] = []
+        self._results = defaultdict(dict) # output_type -> cache_key -> Result
 
     @staticmethod
     def register(op: Op) -> None:
@@ -169,196 +125,117 @@ class OpRegistry:
         return _global_op_registry
 
     @staticmethod
-    def gen_execution_plans(start_types: set[str] = None,
-                           target_types: set[str] = None,
-                           max_depth: int = 10):
-        """Generate all valid execution plans using registered ops.
+    def add_result(op: Op,
+                   data: Any,
+                   inputs: dict[str, Any],
+                   error: str = None,
+                   metadata: dict[str, Any] = None) -> Result:
+        """Add a result produced by an operation to the registry.
 
-        - start_types: Types that are available at the beginning (None means use ops with empty input_types)
-        - target_types: Types we want to end up with (None means any final type is acceptable)
-        - max_depth: Maximum number of operations in a path
-
-        Returns a dict with:
-        - 'plans': list of ExecutionPlan objects
-        - 'children_by_op': dict mapping op classes to lists of op classes that depend on them
+        This creates a `Result` object with full provenance and stores it.
         """
-        print(f"=== gen_execution_plans called ===")
-        print(f"Input start_types: {start_types}")
-        print(f"Input target_types: {target_types}")
-        print(f"Max depth: {max_depth}")
-        
-        reg = OpRegistry.get_global_op_registry()
-        if start_types is None:
-            # Use output types from ops that have no input requirements
-            op_classes = find_subclasses(Op)
-            print(f"Found {len(op_classes)} op classes: {[cls.__name__ for cls in op_classes]}")
-            start_types = {op_class.output_type for op_class in op_classes if not op_class.input_types}
-            print(f"Ops with no input requirements: {[(cls.__name__, cls.output_type) for cls in op_classes if not cls.input_types]}")
-        if target_types is None:
-            target_types = set()
-        print(f'Final start_types: {start_types}')
-        print(f'Final target_types: {target_types}')
+        registry = OpRegistry.get_global_op_registry()
+        provenance = []
+        for input_type in op.input_types:
+            if input_type in inputs and hasattr(inputs[input_type], 'provenance'):
+                provenance.extend(inputs[input_type].provenance)
+        provenance.append(op)
+        result = Result(data=data, provenance=provenance, cache_key=op.cache_key, error=error, metadata=metadata or {})
+        registry._results[op.output_type][op.cache_key] = result
+        return result
 
-        plans = []
+    def results_to_dict(self) -> dict[str, Any]:
+        """Serialize all our results for logging/reporting.
 
-        def build_plan(current_steps: list[ExecutionStep],
-                      available_types: dict[str, str],  # type -> step_id
-                      remaining_targets: set[str],
-                      depth: int = 0):
-            
-            indent = "  " * depth
-            print(f"{indent}build_plan called:")
-            print(f"{indent}  current_steps: {[s.step_id for s in current_steps]}")
-            print(f"{indent}  available_types: {available_types}")
-            print(f"{indent}  remaining_targets: {remaining_targets}")
-            print(f"{indent}  depth: {depth}")
+        This calls `make_jsonable(result.to_dict())` on each Result.
+        """
+        ret = {}
+        for type_name, results in self._results.items():
+            ret[type_name] = {cache_key: make_jsonable(result.to_dict())
+                              for cache_key, result in results.items()}
+        return ret
 
-            if not remaining_targets or len(current_steps) >= max_depth:
-                print(f"{indent}  Terminating: remaining_targets={bool(remaining_targets)}, depth={len(current_steps)}/{max_depth}")
-                if current_steps:  # Only add non-empty plans
-                    final_outputs = [step.step_id for step in current_steps 
-                                   if step.output_type in target_types or not target_types]
-                    print(f"{indent}  Final outputs: {final_outputs}")
-                    if final_outputs:
-                        plan = ExecutionPlan(
-                            steps=current_steps.copy(),
-                            final_outputs=final_outputs
-                        )
-                        plans.append(plan)
-                        print(f"{indent}  Added plan #{len(plans)}: {[s.step_id for s in plan.steps]}")
-                return
+    @staticmethod
+    def get_results(type_names: set[str]) -> dict[str, Any]:
+        """Get the latest results for the given set of type names.
 
-            # Try each op class that could help
-            op_classes = find_subclasses(Op)
-            print(f"{indent}  Trying {len(op_classes)} op classes...")
-            
-            for op_class in op_classes:
-                # filter out running the same step again
-                if op_class == Op:
-                    continue
-                print(f"{indent}    Considering {op_class.__name__}:")
-                print(f"{indent}      input_types: {op_class.input_types}")
-                print(f"{indent}      output_type: {op_class.output_type}")
-                
-                # Skip if this op doesn't produce something we want
-                if target_types and op_class.output_type not in remaining_targets:
-                    print(f"{indent}      SKIP: output_type not in remaining_targets")
-                    continue
-
-                # Check if we can satisfy its inputs
-                if not op_class.input_types.issubset(available_types.keys()):
-                    print(f"{indent}      SKIP: input_types not satisfied")
-                    print(f"{indent}        needed: {op_class.input_types}")
-                    print(f"{indent}        available: {set(available_types.keys())}")
-                    continue
-
-                # Skip if we already have this op type in the plan (avoid cycles)
-                if any(step.op_class == op_class for step in current_steps):
-                    print(f"{indent}      SKIP: already have this op type in plan")
-                    continue
-
-                # Create step
-                step = ExecutionStep(
-                    step_id=f"{op_class.name}_{len(current_steps)}",
-                    op_class=op_class,
-                    params={},  # Could generate parameter variations here
-                    input_mappings={t: available_types[t] for t in op_class.input_types},
-                    output_type=op_class.output_type
-                )
-                print(f"{indent}      ADDING step: {step.step_id}")
-
-                # Recurse
-                new_steps = current_steps + [step]
-                new_available = available_types.copy()
-                new_available[step.output_type] = step.step_id
-                new_targets = remaining_targets - {step.output_type} if target_types else remaining_targets
-                
-                print(f"{indent}      Recursing with:")
-                print(f"{indent}        new_available: {new_available}")
-                print(f"{indent}        new_targets: {new_targets}")
-
-                build_plan(new_steps, new_available, new_targets, depth + 1)
-
-        # Start with ops that need no inputs
-        print(f"\n=== Starting initial ops ===")
-        op_classes = find_subclasses(Op)
-        starter_ops = [op_class for op_class in op_classes 
-                      if not op_class.input_types or op_class.input_types.issubset(start_types)]
-        print(f"Found {len(starter_ops)} starter ops: {[cls.__name__ for cls in starter_ops]}")
-        
-        for op_class in starter_ops:
-            print(f"\nStarting with {op_class.__name__}:")
-            step = ExecutionStep(
-                step_id=f"{op_class.name}_0",
-                op_class=op_class,
-                params={},
-                input_mappings={t: f"start_{t}" for t in op_class.input_types & start_types},
-                output_type=op_class.output_type
-            )
-            print(f"  Created initial step: {step.step_id}")
-
-            available = dict(start_types) if isinstance(start_types, dict) else {t: f"start_{t}" for t in start_types}
-            available[step.output_type] = step.step_id
-            targets = target_types.copy() if target_types else {step.output_type}
-            
-            print(f"  Initial available: {available}")
-            print(f"  Initial targets: {targets}")
-
-            build_plan([step], available, targets, 0)
-
-        # Build children_by_op mapping
-        children_by_op = defaultdict(list)
-        op_classes = find_subclasses(Op)
-        
-        for op_class in op_classes:
-            if op_class == Op:
-                continue
-            # Find all ops that consume this op's output
-            for other_op_class in op_classes:
-                if other_op_class == Op or other_op_class == op_class:
-                    continue
-                if op_class.output_type in other_op_class.input_types:
-                    children_by_op[op_class].append(other_op_class)
-        
-        print(f"\n=== Dependency mapping ===")
-        for parent_op, children in children_by_op.items():
-            if children:
-                child_names = [child.__name__ for child in children]
-                print(f"{parent_op.__name__} -> {child_names}")
-
-        print(f"\n=== Final result: {len(plans)} plans generated ===")
-        return {
-            'plans': plans,
-            'children_by_op': dict(children_by_op)
-        }
+        Returns a dict mapping type names to `Result` objects. You can get the underlying data
+        via `result.data`.
+        """
+        registry = OpRegistry.get_global_op_registry()
+        results = {}
+        for type_name in type_names:
+            type_results = registry._results.get(type_name, {})
+            if type_results:
+                # Get the most recent result
+                latest_result = max(type_results.values(), key=lambda r: r.timestamp)
+                results[type_name] = latest_result
+        return results
 
 
-@dataclass
 class Op(ABC):
     """Base operation with input/output type definitions.
 
     Each operation defines:
-    - `name`: unique identifier for this operation (class or instance variable)
-    - `input_types`: set of type names this operation requires as input (class variable)
-    - `output_type`: single type name this operation produces (class variable)
+    - `name`: unique identifier for this operation
+    - `input_types`: set of type names this operation requires as input
+    - `output_type`: single type name this operation produces
+
+    These are by default defined at the class level, but if they are dependent on init parameters,
+    you can also define them at the instance level. They are always referred to be `self.name`
+    (e.g.), so python method resolution order will find the instance var first if it exists, then
+    the class var.
 
     When created, the operation automatically registers itself with the global registry.
     """
     name: str = ""
-
-    # These should be overridden as class variables in subclasses if not dynamic
     input_types: frozenset[str] = frozenset()
     output_type: str = ""
 
-    def __post_init__(self):
-        """Automatically register this operation with the global registry."""
-        # Use class name if instance name is not set
-        if not self.name:
-            self.name = self.__class__.__name__
+    def __init__(self, name: str|None = None, input_types: frozenset[str]|None=None, output_type: str|None=None):
+        """Initialize the operation, optionally overriding class-level attributes.
+
+        - name: optional instance-specific name
+        - input_types: optional instance-specific input types
+        - output_type: optional instance-specific output type
+
+        If you don't specify these, the class-level ones are used. For `name`, if both are missing,
+        the name of the python class is assigned to the class variable. For `output_type`, we
+        require that either the class-level var or the arg to this func is non-empty.
+        """
+        if name is not None:
+            self.name = name
+        if input_types is not None:
+            self.input_types = input_types
+        if output_type is not None:
+            self.output_type = output_type
+        # make sure we have a name of some sort
+        if not name and not self.__class__.name:
+            self.__class__.name = self.__class__.__name__
+        assert self.output_type, f"Op {self.name} must have a non-empty output_type"
         OpRegistry.register(self)
+        self.cache_key = None
+
+    def execute(self, inputs: dict[str, Any]|None=None) -> Any:
+        """Execute the operation with given inputs.
+
+        - inputs: dict mapping type names to actual data
+
+        If the inputs are None, we get them from the registry
+
+        Returns the output data of type `self.output_type`.
+        """
+        if inputs is None:
+            full_inputs = OpRegistry.get_results(self.input_types)
+            inputs = {k: v.data for k, v in full_inputs.items()}
+        print(f'Going to execute op {self.name} with inputs: {inputs}, {self.input_types}, {self.__class__.input_types}')
+        self.cache_key = self.get_cache_key(inputs)
+        out = self._execute(inputs)
+        result = OpRegistry.add_result(self, out, inputs=full_inputs)
+        return result
 
     @abstractmethod
-    def execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> Any:
         """Execute the operation with given inputs.
 
         - inputs: dict mapping type names to actual data
@@ -400,7 +277,7 @@ class LoadEmbeddingsOp(Op):
         self.paths = paths
         self.kwargs = kwargs
 
-    def execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> Any:
         return FeatureSet(self.paths, **self.kwargs)
 
 
@@ -411,7 +288,7 @@ class CheckDimensionsOp(Op):
     input_types = frozenset({"feature_set"})
     output_type = "dimension_check_result"
 
-    def execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> Any:
         fs = inputs["feature_set"]
         dims = Counter()
         for key, emb in fs.items():
@@ -431,7 +308,7 @@ class CheckNaNsOp(Op):
     input_types = frozenset({"feature_set"})
     output_type = "nan_check_result"
 
-    def execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> Any:
         fs = inputs["feature_set"]
         n_nans = 0
         nan_keys = []
@@ -456,7 +333,7 @@ class BasicChecksOp(Op):
     input_types = frozenset({"dimension_check_result", "nan_check_result"})
     output_type = "basic_checks_report"
 
-    def execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
         nan_result = inputs["nan_check_result"]
         errors = []
@@ -485,7 +362,7 @@ class NormalizeOp(Op):
         self.scale_std = scale_std
         super().__init__()
 
-    def execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> Any:
         fs = inputs["feature_set"]
         keys, emb = fs.get_keys_embeddings(
             normed=self.normed,
@@ -495,15 +372,17 @@ class NormalizeOp(Op):
         return (keys, emb)
 
 if __name__ == '__main__':
-    result = OpRegistry.gen_execution_plans(target_types={"basic_checks_report"})
-    plans = result['plans']
-    children_by_op = result['children_by_op']
-    
-    print(f'Generated {len(plans)} execution plans:')
-    for i, plan in enumerate(plans):
-        print(f"Plan {i}: {len(plan.steps)} steps")
-        for step in plan.steps:
-            inputs = " + ".join(step.input_mappings.keys()) if step.input_mappings else "∅"
-            print(f"  {step.step_id}: {inputs} → {step.output_type}")
-        print(f"  Final outputs: {plan.final_outputs}")
-        print()
+    # run sequence of load, checks, basic and look at results
+    ops = [
+        LoadEmbeddingsOp(paths=[sys.argv[1]]),
+        CheckDimensionsOp(),
+        CheckNaNsOp(),
+        BasicChecksOp(),
+    ]
+    reg = OpRegistry.get_global_op_registry()
+    for op in ops:
+        print(f"\nRunning op: {op.name} (inputs: {op.input_types}, output: {op.output_type})")
+        result = op.execute()
+        print(f"Result: {result.to_dict()}")
+        print(f'Registry results: {dict(reg._results)}')
+    print(json.dumps(reg.results_to_dict(), indent=2))

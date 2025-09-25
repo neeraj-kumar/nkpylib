@@ -49,6 +49,8 @@ TODO:
   - Run unsupervised outlier detection algorithms (e.g., Isolation Forest, LOF) on the embedding space — helpful to spot anomalies or collapsed modes.
 - Maybe more generally for each Label, output best predictors/correlators/etc
 - In the future, do ML doctor stuff
+- Feature selection
+  - E.g. we have budget/revenue, but only as one or two dims
 - Performance
   - More parallelization
   - sigopt for hyperparameter tuning (including which classifier to use)
@@ -80,6 +82,7 @@ import os
 import random
 import sys
 import time
+import warnings
 
 from argparse import ArgumentParser
 from collections.abc import Mapping
@@ -98,6 +101,7 @@ import sklearn
 from pony.orm import * # type: ignore
 from scipy.spatial.distance import pdist, squareform # type: ignore
 from scipy.special import kl_div
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import PCA # type: ignore
@@ -121,6 +125,8 @@ from nkpylib.ml.feature_set import (
     NumpyLmdb,
 )
 from nkpylib.ml.tag_db import Tag, get_all_tags, init_tag_db
+
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -648,7 +654,30 @@ def parse_into_labels(tag_type: str,
 
 
 class EmbeddingsValidator:
-    """A class to validate/evaluate embeddings in various ways, semi-automatically."""
+    """A class to validate/evaluate embeddings in various ways, semi-automatically.
+
+    WANTED:
+    - I have several forms of cartesian products that will be happening, which I want to manage:
+      - Many input embeddings, which I want to generate all combinations of when testing
+      - Many ways of transforming input embeddings (e.g. pca, lle, etc)
+      - Many ways of normalizing transformed embeddings (e.g., standard scaler, minmax scaler, etc)
+      - Many ways of computing distances (e.g. euclidean, cosine, etc)
+    - Ideally I'd be able to define something like an `Op` class that defines its input and output
+      types, and then a system for automatically generating all combinations of operations.
+      - I'd like to avoid duplicate work if possible, e.g. don't recompute pca if possible!
+    - I'd like all operations to go into a work queue
+      - Somethings can be processed in a process pool, others probably can't (depending on
+        complexity of input/output data and whether it's reasonable to pay the serialization cost)
+    - I'd like results of various kinds to be automatically (or semi-auto) annotated with their
+      "provenance", i.e., what set of operations led to them being created
+    - I'd like every single result to be logged (similar to add_msg), which all goes into a report
+      that can be written out to json
+    - I'd like to be able to define rules for flagging certain results as warnings, errors, etc
+    - I'd eventually like to use a bayesian optimization framework to decide what operations to run
+      next, and which ones to totally skip.
+      - This will probably require annotations of some sort on the operations/results
+
+    """
     def __init__(self, paths: list[str], tag_path: str, **kw):
         self.paths = paths
         self.fs = FeatureSet(paths, **kw)
@@ -772,7 +801,13 @@ class EmbeddingsValidator:
         return ret
 
     def check_distances(self, n: int=200, sample_ids:bool=True) -> None:
-        """Does various tests based on distances"""
+        """Does various tests based on distances.
+
+        This uses our labels to generate sets of `n` items, and then compute all-pairs distances
+        between them. We then compute all-pairs distances on our embeddings, and can the compare
+        these against the label distances. We can also compute neighbors from distances and run
+        neighbor-based tests.
+        """
         fs_keys = set(self.fs.keys())
         for key, label in self.labels.items():
             kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
@@ -849,7 +884,12 @@ class EmbeddingsValidator:
                         key: str,
                         n_neighbors:int = 20,
                         **kw) -> None:
-        """Checks neighbors based on distances"""
+        """Checks neighbors based on distances.
+
+        Given a set of `ids`, the pairwise `label_dists` between them, and a dict of distances
+        computed via different methods, we generate upto `n_neighbors` nearest neighbors for each
+        method and compare them to the label-based neighbors using various metrics.
+        """
         n = len(ids)
         id_indices = {id: i for i, id in enumerate(ids)}
         def upper_tri_to_full(m):
@@ -914,6 +954,7 @@ class EmbeddingsValidator:
                                  warning=f'High neighbor {k}={avg:.3f} for {key} using {method}')
 
     def test_distances(self) -> None:
+        """Quick test to see if distances are working"""
         print(', '.join(self.labels))
         label = self.labels['ml-genre']
         kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
@@ -937,13 +978,25 @@ class EmbeddingsValidator:
         print_pairs(pairs)
 
     def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> dict[str, array1d]:
-        """Generates prediction tasks derived from a set of ids and a `Labels` instance."""
+        """Generates prediction tasks derived from a set of `ids` and a `Labels` instance.
+
+        For numeric labels, this takes the original values and also generates log- and
+        exp-transformed versions of them, and returns all 3 as separate tasks.
+
+        For multiclass labels, this takes the original values and also generates binarized versions
+        for each label class. We only generate upto `max_tasks` binarized tasks, choosing the ones
+        with the most positive examples (at least `min_pos`).
+
+        We return a dict mapping task name to the array of values (training labels) for each id.
+        """
         ret = {}
         if isinstance(label, NumericLabels):
             values = np.array([label.values[label.ids.index(id)] for id in ids])
             ret['orig-num'] = values
             ret['log'] = np.log1p(values - np.min(values) + 1.0)
             ret['exp'] = np.expm1(values - np.min(values) + 1.0)
+            #TODO other kinds of normalizations (e.g., currently the values are very large)
+            #     - also might want to e.g. std-normalize before applying log/exp?
             #TODO also generate classification tasks
         elif isinstance(label, MulticlassLabels):
             values = np.array([label.values[label.ids.index(id)] for id in ids])
@@ -965,7 +1018,15 @@ class EmbeddingsValidator:
         return ret
 
     def check_prediction(self, n_jobs=10) -> None:
-        """Does prediction tests on our labels"""
+        """Does prediction tests on our labels.
+
+        For each label, we generate a number of prediction tasks. For numeric labels, these are
+        regression, and for categorical labels, these are classification tasks. We then run a number
+        of different prediction methods on each task, using cross-validation, and report the results.
+
+        For classification tasks, we report balanced accuracy, and for regression tasks, we report
+        R^2.
+        """
         fs_keys = set(self.fs.keys())
         pool = ProcessPoolExecutor(max_workers=n_jobs)
         for key, label in self.labels.items():
@@ -1042,16 +1103,31 @@ class EmbeddingsValidator:
                                  warning=f'High prediction {score_type} {score:.3f} for {key} using {method_name}')
 
     def basic_checks(self) -> None:
+        """Run a number of basic checks on our embeddings.
+
+        Currently this checks for:
+        - consistent number of embedding dimensions
+        - any NaNs
+
+        Currently raises `ValueError` if any issues are found.
+        """
         dims = Counter()
+        n_nans = 0
         for key, emb in self.fs.items():
+            # check for consistent embedding dimensions
             dims[len(emb)] += 1
+            # check for nans
+            n_nans += np.sum(np.isnan(emb))
         if len(dims) > 1:
             raise ValueError(f'Inconsistent embedding dimensions: {dims.most_common()}')
+        if n_nans > 0:
+            raise ValueError(f'Found {n_nans} NaNs in embeddings')
+
 
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
         self.basic_checks()
-        self.check_distances(n=200, sample_ids=True)
+        #self.check_distances(n=200, sample_ids=True)
         self.check_prediction()
         return
         # raw correlations
