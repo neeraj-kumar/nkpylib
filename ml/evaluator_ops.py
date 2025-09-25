@@ -2,7 +2,7 @@
 
 TODO:
 - updating progress to disk
-  - global stats (tasks exceuted and where, throughput, etc)
+  - global stats (tasks executed and where, throughput, etc)
 - bayesian optimization
 - flexible logging levels per op
 - caching

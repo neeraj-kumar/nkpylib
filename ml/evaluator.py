@@ -48,25 +48,19 @@ TODO:
 - Outlier detection
   - Run unsupervised outlier detection algorithms (e.g., Isolation Forest, LOF) on the embedding space — helpful to spot anomalies or collapsed modes.
 - Maybe more generally for each Label, output best predictors/correlators/etc
+- Each op should define criteria for highlighting things and add them to a special obj in OM
 - In the future, do ML doctor stuff
 - Feature selection
   - E.g. we have budget/revenue, but only as one or two dims
 - Performance
-  - More parallelization
   - sigopt for hyperparameter tuning (including which classifier to use)
     - different rbf params (C, alpha)
   - Figure out how to order different operations, including not evaluating things if already
     promising alternatives
-- Implement a task management system with worker pool
-  - Prioritize these using Bayesian optimization
-- standardized result storage method (like add_msg)
-- provenance tracking?
-  - e.g. source embs -> pca -> normed means -> euclidean dist vs genre label distances
 
 Old stuff:
 - Recommendation system
 - Few-shot classifier
-- Pairwise/triplet-loss task eval
 - Analogies, e.g., "comedy - dark + romance" ≈ "romcom"
 - Sequence modeling using embeddings as input
 - Calibration of similarity scores
@@ -1309,6 +1303,4 @@ if __name__ == '__main__':
         ev.run()
     else:
         om = OpManager.get()
-        #om.start(LoadEmbeddingsOp, {'paths': [sys.argv[1]]})
         om.start(StartValidatorOp, vars(args))
-        print(json.dumps(om.results_to_dict(), indent=2))
