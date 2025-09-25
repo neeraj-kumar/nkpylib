@@ -1267,6 +1267,55 @@ class NormalizeOp(Op):
         return (keys, emb)
 
 
+class CheckCorrelationsOp(Op):
+    """Check correlations between embeddings and labels."""
+
+    name = "check_correlations"
+    input_types = frozenset({"normalized_embeddings", "labels"})
+    output_type = "correlation_results"
+
+    def __init__(self, n_top: int = 10, **kw):
+        self.n_top = n_top
+        super().__init__(**kw)
+
+    def _execute(self, inputs: dict[str, Any]) -> Any:
+        keys, matrix = inputs["normalized_embeddings"]
+        labels = inputs["labels"]
+        
+        results = {}
+        for key, label in labels.items():
+            try:
+                correlations = label.check_correlations(keys, matrix, n_top=self.n_top)
+                results[key] = correlations
+                
+                # Check for high correlations and create warnings
+                if not isinstance(correlations, dict):
+                    correlations = {"all": correlations}
+                
+                for label_name, (pearson_list, spearman_list) in correlations.items():
+                    for method, corr_list in [("pearson", pearson_list), ("spearman", spearman_list)]:
+                        for corr, dim in corr_list:
+                            if abs(corr) > 0.5:
+                                warning = f'High correlation {corr:.3f} for {key}={label_name} at dim {dim}'
+                                if "warnings" not in results:
+                                    results["warnings"] = []
+                                results["warnings"].append({
+                                    "unit": "correlation",
+                                    "label": label_name,
+                                    "key": key,
+                                    "dim": dim,
+                                    "method": method,
+                                    "value": corr,
+                                    "score": 3,
+                                    "warning": warning
+                                })
+            except Exception as e:
+                logger.warning(f"Failed to check correlations for {key}: {e}")
+                continue
+        
+        return results
+
+
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s\t%(levelname)s\t%(funcName)s\t%(message)s', level=logging.INFO)
     parser = ArgumentParser(description='Embeddings evaluator')
