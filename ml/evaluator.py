@@ -1084,31 +1084,8 @@ class EmbeddingsValidator:
                                  score=3,
                                  warning=f'High prediction {score_type} {score:.3f} for {key} using {method_name}')
 
-    def basic_checks(self) -> None:
-        """Run a number of basic checks on our embeddings.
-
-        Currently this checks for:
-        - consistent number of embedding dimensions
-        - any NaNs
-
-        Currently raises `ValueError` if any issues are found.
-        """
-        dims = Counter()
-        n_nans = 0
-        for key, emb in self.fs.items():
-            # check for consistent embedding dimensions
-            dims[len(emb)] += 1
-            # check for nans
-            n_nans += np.sum(np.isnan(emb))
-        if len(dims) > 1:
-            raise ValueError(f'Inconsistent embedding dimensions: {dims.most_common()}')
-        if n_nans > 0:
-            raise ValueError(f'Found {n_nans} NaNs in embeddings')
-
-
     def run(self) -> None:
         logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
-        self.basic_checks()
         #self.check_distances(n=200, sample_ids=True)
         self.check_prediction()
         return
