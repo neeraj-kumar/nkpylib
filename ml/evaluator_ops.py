@@ -26,13 +26,12 @@ from typing import Any, Callable
 
 import numpy as np
 
-from nkpylib.ml.feature_set import FeatureSet
 from nkpylib.ml.features import make_jsonable
 
 logger = logging.getLogger(__name__)
 
-# Global registry instance that all Ops will register with
-_global_op_registry = None
+# Global manager instance that all Ops will register with
+_global_op_manager: 'OpManager'|None = None
 
 def find_subclasses(cls) -> list[type[Op]]:
     """Find all concrete (non-abstract) subclasses of `cls`."""
@@ -61,7 +60,7 @@ class Result:
     cache_key: str
     variant: str|None = None
     timestamp: float = field(default_factory=time.time)
-    error: Exception = None
+    error: Exception|None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __eq__(self, other: Any) -> bool:
@@ -74,7 +73,7 @@ class Result:
         return (f"<Result op={self.op.name if self.op else None} variant={self.variant} status={status} cache_key={self.cache_key}>")
 
     @property
-    def op(self) -> Op:
+    def op(self) -> Op|None:
         """The operation that produced this result (last in provenance chain)."""
         return self.provenance[-1] if self.provenance else None
 
@@ -109,7 +108,7 @@ class Result:
 class Task:
     """A task to execute an operation with specific inputs."""
     status: str = "pending"  # pending, running, completed, failed
-    op_cls: type[Op] = None # the op to run
+    op_cls: type[Op]|None = None # the op to run
     inputs: dict[str, Result] = field(default_factory=dict) # type name -> Result object
     variant_name: str|None = None # if applicable
     variant_kwargs: dict[str, Any]|None = None # if applicable
@@ -204,21 +203,29 @@ class TaskPool:
 
     def submit_when_available(self, fn: Callable, *args, **kwargs) -> Future:
         """Submits a function to the pool when we have capacity, blocking till then."""
-        if self.has_capacity:
-            return self.submit(fn, *args, **kwargs)
         for f in as_completed(self.futures):
             if self.has_capacity:
                 return self.submit(fn, *args, **kwargs)
+        else: # we have capacity now
+            return self.submit(fn, *args, **kwargs)
 
 
-class OpRegistry:
-    """Registry of all available operations and task runner.
+class OpManager:
+    """Manager of operations and task runner.
 
     This maintains indexes by input and output types to enable automatic
     graph construction based on type matching.
 
     It also deals with execution.
     """
+    @staticmethod
+    def get() -> OpManager:
+        """Get the global manager, creating it if needed."""
+        global _global_op_manager
+        if _global_op_manager is None:
+            _global_op_manager = OpManager()
+        return _global_op_manager # type: ignore
+
     def __init__(self, n_procs=4, n_threads=4):
         self.n_procs = n_procs
         self.n_threads = n_threads
@@ -312,9 +319,8 @@ class OpRegistry:
 
     @staticmethod
     def register(op: Op) -> None:
-        """Register an operation in the registry."""
-        registry = OpRegistry.get_global_op_registry()
-        registry.all_ops.append(op)
+        """Register an operation."""
+        OpManager.get().all_ops.append(op)
 
     def get_producers(self, type_name: str) -> list[type[Op]]:
         """Get all operations that produce a given type."""
@@ -325,24 +331,15 @@ class OpRegistry:
         return self.ops_by_input_type[type_name]
 
     @staticmethod
-    def get_global_op_registry() -> OpRegistry:
-        """Get the global registry, creating it if needed."""
-        global _global_op_registry
-        if _global_op_registry is None:
-            _global_op_registry = OpRegistry()
-        return _global_op_registry
-
-    @staticmethod
     def add_result(op: Op,
                    data: Any,
                    inputs: dict[str, Any],
-                   error: Exception = None,
-                   metadata: dict[str, Any] = None) -> Result:
-        """Add a result produced by an operation to the registry.
+                   error: Exception|None = None,
+                   metadata: dict[str, Any]|None = None) -> Result:
+        """Add a result produced by an operation to the manager.
 
         This creates a `Result` object with full provenance and stores it.
         """
-        registry = OpRegistry.get_global_op_registry()
         provenance = []
         for input_type in op.input_types:
             if input_type in inputs and hasattr(inputs[input_type], 'provenance'):
@@ -354,7 +351,7 @@ class OpRegistry:
                         variant=op.variant,
                         error=error,
                         metadata=metadata or {})
-        registry._results[op.output_type][op.cache_key] = result
+        OpManager.get()._results[op.output_type][op.cache_key] = result
         return result
 
     def results_to_dict(self) -> dict[str, Any]:
@@ -383,7 +380,7 @@ class Op(ABC):
     (e.g.), so python method resolution order will find the instance var first if it exists, then
     the class var.
 
-    When created, the operation automatically registers itself with the global registry.
+    When created, the operation automatically registers itself with the global manager.
     """
     name = ""
     input_types: frozenset[str] = frozenset()
@@ -423,8 +420,8 @@ class Op(ABC):
         assert self.output_type, f"{self} must have a non-empty output_type"
         assert self.enabled, f"{self} is disabled!"
         assert self.run_mode in ("main", "thread", "process"), f"{self} has invalid run_mode {self.run_mode}"
-        OpRegistry.register(self)
-        self.cache_key = None
+        OpManager.register(self)
+        self.cache_key = ''
 
     def __repr__(self) -> str:
         cls_name = 'Op' if self.enabled else 'DisabledOp'
@@ -463,7 +460,7 @@ class Op(ABC):
             # print stack trace
             logger.exception(e)
             error = e
-        result = OpRegistry.add_result(self, out, inputs=inputs or op_inputs, error=error)
+        result = OpManager.add_result(self, out, inputs=inputs or op_inputs, error=error)
         return result
 
     @abstractmethod

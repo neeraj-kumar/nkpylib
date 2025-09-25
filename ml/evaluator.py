@@ -1306,7 +1306,7 @@ if __name__ == '__main__':
         ev = EmbeddingsValidator(args.paths, tag_path=args.tag_path)
         ev.run()
     else:
-        reg = OpRegistry.get_global_op_registry()
-        #reg.start(LoadEmbeddingsOp, {'paths': [sys.argv[1]]})
-        reg.start(StartValidatorOp, vars(args))
-        print(json.dumps(reg.results_to_dict(), indent=2))
+        om = OpManager.get()
+        #om.start(LoadEmbeddingsOp, {'paths': [sys.argv[1]]})
+        om.start(StartValidatorOp, vars(args))
+        print(json.dumps(om.results_to_dict(), indent=2))
