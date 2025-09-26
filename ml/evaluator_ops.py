@@ -279,7 +279,6 @@ class OpManager:
             # Convert to frozensets for safe internal operations
             frozen_output_types = frozenset(op_cls.output_types)
             frozen_input_types = frozenset(op_cls.input_types)
-            
             for output_type in frozen_output_types:
                 self.ops_by_output_type[output_type].append(op_cls)
             for input_type in frozen_input_types:
