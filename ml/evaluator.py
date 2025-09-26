@@ -722,29 +722,6 @@ class EmbeddingsValidator:
         logger.debug(f'Adding msg {msg}')
         self.msgs.append(msg)
 
-    def compare_stats(self, a: array1d, b: array1d) -> tuple[Stats, Stats, Stats]:
-        """Compares various stats between two 1D arrays.
-
-        Returns 3 dicts of stats, one for each array and one for the comparison.
-        """
-        stats_a = get_array1d_stats(a)
-        stats_b = get_array1d_stats(b)
-        stats_cmp = {k: stats_a[k] - stats_b[k] for k in stats_a}
-        # add comparison-only stats
-        stats_cmp.update(dict(
-            pearson=float(np.corrcoef(a, b)[0, 1]),
-            spearman=float(stats.spearmanr(a, b).statistic),
-            tau=float(stats.kendalltau(a, b).statistic),
-            kl_div=float(stats.entropy(a, b)),
-        ))
-        # compute least squares linear fit to get rvalue
-        res = stats.linregress(a, b)
-        stats_cmp.update(dict(
-            linear_least_square_r2=float(res.rvalue)**2.0,
-        ))
-
-        return stats_a, stats_b, stats_cmp
-
     def init_fig(self):
         plt.figure(figsize=(10, 10))
         plt.grid(True)
@@ -1096,7 +1073,7 @@ class EmbeddingsValidator:
 class StartValidatorOp(Op):
     """Starting point for running embeddings validation.
 
-    Takes kw version of parsed args from ArgumentParser.
+    Passes through kw version of parsed args from ArgumentParser.
     """
     name = 'start_validator'
     input_types = set()
@@ -1118,6 +1095,7 @@ class LoadEmbeddingsOp(Op):
     def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
         paths = inputs['argparse']['paths']
         return FeatureSet(paths, **kwargs)
+
 
 class ParseTagsOp(Op):
     """Parses our tags from the tag db"""
