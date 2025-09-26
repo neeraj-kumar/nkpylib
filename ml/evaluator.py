@@ -1267,10 +1267,10 @@ class CheckCorrelationsOp(Op):
 
 
 class CompareStatsOp(Op):
-    """Compare various statistics between two 1D arrays."""
+    """Compare various statistics between cartesian product of rows from two 2D arrays."""
 
     name = "compare_stats"
-    input_types = frozenset({"array_a", "array_b"})
+    input_types = frozenset({"many_array1d_a", "many_array1d_b"})
     output_type = "stats_comparison"
     run_mode = 'main'
 
@@ -1280,8 +1280,8 @@ class CompareStatsOp(Op):
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
-        a = inputs["array_a"]
-        b = inputs["array_b"]
+        arrays_a = inputs["many_array1d_a"]  # 2D numpy array, each row is a 1D array
+        arrays_b = inputs["many_array1d_b"]  # 2D numpy array, each row is a 1D array
         
         def get_stats(x: array1d) -> Stats:
             return dict(
@@ -1305,28 +1305,43 @@ class CompareStatsOp(Op):
                 entropy=float(stats.entropy(x)),
             )
         
-        stats_a = get_stats(a)
-        stats_b = get_stats(b)
-        stats_cmp = {k: stats_a[k] - stats_b[k] for k in stats_a}
+        results = []
         
-        # add comparison-only stats
-        stats_cmp.update(dict(
-            pearson=float(np.corrcoef(a, b)[0, 1]),
-            spearman=float(stats.spearmanr(a, b).statistic),
-            tau=float(stats.kendalltau(a, b).statistic),
-            kl_div=float(stats.entropy(a, b)),
-        ))
-        
-        # compute least squares linear fit to get rvalue
-        res = stats.linregress(a, b)
-        stats_cmp.update(dict(
-            linear_least_square_r2=float(res.rvalue)**2.0,
-        ))
+        # Compare cartesian product of rows
+        for i, a in enumerate(arrays_a):
+            for j, b in enumerate(arrays_b):
+                stats_a = get_stats(a)
+                stats_b = get_stats(b)
+                stats_cmp = {k: stats_a[k] - stats_b[k] for k in stats_a}
+                
+                # add comparison-only stats
+                stats_cmp.update(dict(
+                    pearson=float(np.corrcoef(a, b)[0, 1]),
+                    spearman=float(stats.spearmanr(a, b).statistic),
+                    tau=float(stats.kendalltau(a, b).statistic),
+                    kl_div=float(stats.entropy(a, b)),
+                ))
+                
+                # compute least squares linear fit to get rvalue
+                res = stats.linregress(a, b)
+                stats_cmp.update(dict(
+                    linear_least_square_r2=float(res.rvalue)**2.0,
+                ))
 
+                comparison_result = {
+                    "index_a": i,
+                    "index_b": j,
+                    self.array_a_name: stats_a,
+                    self.array_b_name: stats_b,
+                    "comparison": stats_cmp
+                }
+                results.append(comparison_result)
+        
         return {
-            self.array_a_name: stats_a,
-            self.array_b_name: stats_b,
-            "comparison": stats_cmp
+            "comparisons": results,
+            "n_comparisons": len(results),
+            "shape_a": arrays_a.shape,
+            "shape_b": arrays_b.shape
         }
 
 
