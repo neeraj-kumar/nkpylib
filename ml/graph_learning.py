@@ -5,6 +5,8 @@ Implementation of Graph Attention Network (GAT) using PyTorch and PyTorch Geomet
 TODO:
 - Develop multi-task classification heads
 - Fix memory issues
+- contrastive loss is good for link prediction?
+  - maybe instead of concatenating node vectors, could do elementwise product/diff/etc?
 
 
 Yes, the current GAT implementation is designed around a node classification task, as evidenced by:
