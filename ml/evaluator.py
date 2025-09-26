@@ -1266,6 +1266,70 @@ class CheckCorrelationsOp(Op):
         return results
 
 
+class CompareStatsOp(Op):
+    """Compare various statistics between two 1D arrays."""
+
+    name = "compare_stats"
+    input_types = frozenset({"array_a", "array_b"})
+    output_type = "stats_comparison"
+    run_mode = 'main'
+
+    def __init__(self, array_a_name: str = "a", array_b_name: str = "b", **kw):
+        self.array_a_name = array_a_name
+        self.array_b_name = array_b_name
+        super().__init__(**kw)
+
+    def _execute(self, inputs: dict[str, Any]) -> Any:
+        a = inputs["array_a"]
+        b = inputs["array_b"]
+        
+        def get_stats(x: array1d) -> Stats:
+            return dict(
+                mean=float(np.mean(x)),
+                std=float(np.std(x)),
+                min=float(np.min(x)),
+                p1=float(np.percentile(x, 1)),
+                p5=float(np.percentile(x, 5)),
+                p25=float(np.percentile(x, 25)),
+                median=float(np.median(x)),
+                p75=float(np.percentile(x, 75)),
+                p95=float(np.percentile(x, 95)),
+                p99=float(np.percentile(x, 99)),
+                max=float(np.max(x)),
+                n_neg=int(np.sum(x < 0)),
+                n_zeros=int(np.sum(x == 0)),
+                n_pos=int(np.sum(x > 0)),
+                kurtosis=float(stats.kurtosis(x)),
+                gmean=float(stats.gmean(x)),
+                skew=float(stats.skew(x)),
+                entropy=float(stats.entropy(x)),
+            )
+        
+        stats_a = get_stats(a)
+        stats_b = get_stats(b)
+        stats_cmp = {k: stats_a[k] - stats_b[k] for k in stats_a}
+        
+        # add comparison-only stats
+        stats_cmp.update(dict(
+            pearson=float(np.corrcoef(a, b)[0, 1]),
+            spearman=float(stats.spearmanr(a, b).statistic),
+            tau=float(stats.kendalltau(a, b).statistic),
+            kl_div=float(stats.entropy(a, b)),
+        ))
+        
+        # compute least squares linear fit to get rvalue
+        res = stats.linregress(a, b)
+        stats_cmp.update(dict(
+            linear_least_square_r2=float(res.rvalue)**2.0,
+        ))
+
+        return {
+            self.array_a_name: stats_a,
+            self.array_b_name: stats_b,
+            "comparison": stats_cmp
+        }
+
+
 if __name__ == '__main__':
     fmt_els = ['%(asctime)s', '%(process)d:%(thread)d', '%(levelname)s', '%(funcName)s', '%(message)s']
     fmt_els = ['%(asctime)s', '%(levelname)s', '%(funcName)s', '%(message)s']
