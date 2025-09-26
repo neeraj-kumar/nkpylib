@@ -112,7 +112,7 @@ class Result:
             "provenance": [op.cache_key for op in self.provenance],
             "timestamps": self.timestamps,
             "input_types": sorted(self.op.input_types) if self.op else None,
-            "output_type": self.op.output_type if self.op else None,
+            "output_types": sorted(self.op.output_types) if self.op else None,
             "output_py_type": type(self.output).__name__ if self.output else None,
             "cache_key": self.cache_key,
             "output": None if self.op.is_intermediate else self.output,
@@ -276,7 +276,8 @@ class OpManager:
         for op_cls in find_subclasses(Op):
             if op_cls.enabled is False:
                 continue
-            self.ops_by_output_type[op_cls.output_type].append(op_cls)
+            for output_type in op_cls.output_types:
+                self.ops_by_output_type[output_type].append(op_cls)
             for input_type in op_cls.input_types:
                 self.ops_by_input_type[input_type].append(op_cls)
         # this contains a list of op instances
@@ -315,7 +316,10 @@ class OpManager:
         """Create new work tasks to do based on a new result."""
         if isinstance(result, Exception):
             return
-        consumers = self.get_consumers(result.op.output_type)
+        # Get consumers for all output types of this result
+        consumers = set()
+        for output_type in result.op.output_types:
+            consumers.update(self.get_consumers(output_type))
         logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
         for consumer in consumers:
             input_types = sorted(consumer.input_types)
@@ -400,7 +404,9 @@ class OpManager:
                         error=task.error,
                         timestamps=task.timestamps)
         om = OpManager.get()
-        om._results[op.output_type][op.cache_key] = result
+        # Store result under all output types
+        for output_type in op.output_types:
+            om._results[output_type][op.cache_key] = result
         om.log_result(result)
         return result
 
@@ -418,8 +424,9 @@ class OpManager:
         to_update = {
             # full result for this key
             f'key:{result.cache_key}': make_jsonable(result.to_dict()),
-            # all cache keys of this type
-            f'type:{result.op.output_type}': sorted(self._results[result.op.output_type]),
+            # all cache keys of each output type
+            **{f'type:{output_type}': sorted(self._results[output_type]) 
+               for output_type in result.op.output_types},
             # all cache keys of this op class
             f'op_name:{result.op.name}': sorted({r.cache_key for r in all_results if r.op and isinstance(r.op, result.op.__class__)}),
             # all cache keys with this status
@@ -452,7 +459,7 @@ class Op(ABC):
     Each operation defines:
     - `name`: unique identifier for this operation
     - `input_types`: set of type names this operation requires as input
-    - `output_type`: single type name this operation produces
+    - `output_types`: set of type names this operation produces
     - `is_intermediate`: if True, the output is not stored in results
 
     These are by default defined at the class level, but if they are dependent on init parameters,
@@ -464,7 +471,7 @@ class Op(ABC):
     """
     name = ""
     input_types: frozenset[str] = frozenset()
-    output_type = ""
+    output_types: frozenset[str] = frozenset()
 
     # by default we assume ops are not intermediate. If they are, override this
     is_intermediate = False
@@ -475,16 +482,16 @@ class Op(ABC):
     # where this op should run (main=main process, thread=thread pool, process=process pool)
     run_mode = "main" # main, thread, process
 
-    def __init__(self, variant: str|None=None, name: str|None = None, input_types: frozenset[str]|None=None, output_type: str|None=None):
+    def __init__(self, variant: str|None=None, name: str|None = None, input_types: frozenset[str]|None=None, output_types: frozenset[str]|None=None):
         """Initialize this operation.
 
         - variant: optional variant name for this instance
         - name: optional instance-specific name
         - input_types: optional instance-specific input types
-        - output_type: optional instance-specific output type
+        - output_types: optional instance-specific output types
 
         If you don't specify these, the class-level ones are used. For `name`, if both are missing,
-        the name of the python class is assigned to the class variable. For `output_type`, we
+        the name of the python class is assigned to the class variable. For `output_types`, we
         require that either the class-level var or the arg to this func is non-empty.
         """
         self.variant = variant
@@ -492,12 +499,12 @@ class Op(ABC):
             self.name = name
         if input_types is not None:
             self.input_types = input_types
-        if output_type is not None:
-            self.output_type = output_type
+        if output_types is not None:
+            self.output_types = output_types
         # make sure we have a name of some sort
         if not name and not self.__class__.name:
             self.__class__.name = self.__class__.__name__
-        assert self.output_type, f"{self} must have a non-empty output_type"
+        assert self.output_types, f"{self} must have a non-empty output_types"
         assert self.enabled, f"{self} is disabled!"
         assert self.run_mode in ("main", "thread", "process"), f"{self} has invalid run_mode {self.run_mode}"
         OpManager.register(self)
@@ -522,7 +529,7 @@ class Op(ABC):
 
         - inputs: dict mapping type names to Result objects
 
-        Returns `(output, error)` where the output is of type `self.output_type` and the error
+        Returns `(output, error)` where the output is of types `self.output_types` and the error
         is the exception if any occurred, else None.
         """
         logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
@@ -549,7 +556,7 @@ class Op(ABC):
 
         - inputs: dict mapping type names to actual data
 
-        Returns the output type `self.output_type`.
+        Returns the output of types `self.output_types`.
         """
         raise NotImplementedError()
 
