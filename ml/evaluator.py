@@ -1281,6 +1281,28 @@ class CheckCorrelationsOp(Op):
                             })
         return results
 
+class GetEmbeddingDimsOp(Op):
+    """Extract embedding dimensions from normalized embeddings.
+    
+    Returns a dict with:
+    - dims: 2D array where each row is one embedding dimension across all samples
+    - keys: list of sample keys
+    - matrix: original embedding matrix
+    """
+    name = "get_embedding_dims"
+    input_types = {"normalized_embeddings"}
+    output_types = {"embedding_dims"}
+
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        keys, matrix = inputs["normalized_embeddings"]
+        dims = matrix.T  # Transpose so each row is one dimension across all samples
+        return {
+            "dims": dims,
+            "keys": keys,
+            "matrix": matrix
+        }
+
+
 class CompareStatsOp(Op):
     """Compare various statistics between cartesian product of rows from two 2D arrays.
 
