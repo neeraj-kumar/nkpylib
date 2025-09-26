@@ -650,30 +650,7 @@ def parse_into_labels(tag_type: str,
 
 
 class EmbeddingsValidator:
-    """A class to validate/evaluate embeddings in various ways, semi-automatically.
-
-    WANTED:
-    - I have several forms of cartesian products that will be happening, which I want to manage:
-      - Many input embeddings, which I want to generate all combinations of when testing
-      - Many ways of transforming input embeddings (e.g. pca, lle, etc)
-      - Many ways of normalizing transformed embeddings (e.g., standard scaler, minmax scaler, etc)
-      - Many ways of computing distances (e.g. euclidean, cosine, etc)
-    - Ideally I'd be able to define something like an `Op` class that defines its input and output
-      types, and then a system for automatically generating all combinations of operations.
-      - I'd like to avoid duplicate work if possible, e.g. don't recompute pca if possible!
-    - I'd like all operations to go into a work queue
-      - Somethings can be processed in a process pool, others probably can't (depending on
-        complexity of input/output data and whether it's reasonable to pay the serialization cost)
-    - I'd like results of various kinds to be automatically (or semi-auto) annotated with their
-      "provenance", i.e., what set of operations led to them being created
-    - I'd like every single result to be logged (similar to add_msg), which all goes into a report
-      that can be written out to json
-    - I'd like to be able to define rules for flagging certain results as warnings, errors, etc
-    - I'd eventually like to use a bayesian optimization framework to decide what operations to run
-      next, and which ones to totally skip.
-      - This will probably require annotations of some sort on the operations/results
-
-    """
+    """A class to validate/evaluate embeddings in various ways, semi-automatically."""
     def __init__(self, paths: list[str], tag_path: str, **kw):
         self.paths = paths
         self.fs = FeatureSet(paths, **kw)
@@ -685,7 +662,6 @@ class EmbeddingsValidator:
         """Adds a message to our internal message list."""
         logger.debug(f'Adding msg {msg}')
         self.msgs.append(msg)
-
 
     def compare_stats(self, a: array1d, b: array1d) -> tuple[Stats, Stats, Stats]:
         """Compares various stats between two 1D arrays.
