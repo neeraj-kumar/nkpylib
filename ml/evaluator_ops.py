@@ -459,7 +459,8 @@ class Op(ABC):
     Each operation defines:
     - `name`: unique identifier for this operation
     - `input_types`: set of type names this operation requires as input
-    - `output_types`: set of type names this operation produces
+    - `output_types`: set of type names this operation produces (it's a single output, but it can be
+      "known" by multiple types).
     - `is_intermediate`: if True, the output is not stored in results
 
     These are by default defined at the class level, but if they are dependent on init parameters,
