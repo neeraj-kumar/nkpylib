@@ -166,7 +166,7 @@ def get_array1d_stats(x: nparray2d) -> list[Stats]:
     S['median'] = np.median(x, axis=1)
     # Percentiles - computed for all rows at once
     percentiles = np.percentile(x, [1, 5, 25, 75, 95, 99], axis=1)
-    S['p1'], S['p5'], S['p25'], S['p75'], ['p95'], ['p99'] = percentiles
+    S['p1'], S['p5'], S['p25'], S['p75'], S['p95'], S['p99'] = percentiles
     # Count-based stats
     S['n_neg'] = np.sum(x < 0, axis=1)
     S['n_zero'] = np.sum(x == 0, axis=1)
