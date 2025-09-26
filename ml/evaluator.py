@@ -114,6 +114,8 @@ from nkpylib.ml.evaluator_ops import Op, OpManager
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
+    nparray1d,
+    nparray2d,
     FeatureSet,
     JsonLmdb,
     LmdbUpdater,
@@ -154,82 +156,28 @@ def train_and_predict(model, X_train, y_train, X_test):
     preds = model.predict(X_test)
     return preds
 
-def get_array1d_stats(x: array1d | array2d) -> Stats | list[Stats]:
-    """Returns stats for a 1D array or list of stats for each row of a 2D array."""
-    if np.ndim(x) == 1:
-        # Original 1D behavior
-        return dict(
-            mean=float(np.mean(x)),
-            std=float(np.std(x)),
-            min=float(np.min(x)),
-            p1=float(np.percentile(x, 1)),
-            p5=float(np.percentile(x, 5)),
-            p25=float(np.percentile(x, 25)),
-            median=float(np.median(x)),
-            p75=float(np.percentile(x, 75)),
-            p95=float(np.percentile(x, 95)),
-            p99=float(np.percentile(x, 99)),
-            max=float(np.max(x)),
-            n_neg=int(np.sum(x < 0)),
-            n_zeros=int(np.sum(x == 0)),
-            n_pos=int(np.sum(x > 0)),
-            kurtosis=float(stats.kurtosis(x)),
-            gmean=float(stats.gmean(x)),
-            skew=float(stats.skew(x)),
-            entropy=float(stats.entropy(x)),
-        )
-    else:
-        # Vectorized 2D behavior - compute stats per row
-        x = np.asarray(x)
-        n_rows = x.shape[0]
-        
-        # Vectorized computations
-        means = np.mean(x, axis=1)
-        stds = np.std(x, axis=1)
-        mins = np.min(x, axis=1)
-        maxs = np.max(x, axis=1)
-        medians = np.median(x, axis=1)
-        
-        # Percentiles - computed for all rows at once
-        percentiles = np.percentile(x, [1, 5, 25, 75, 95, 99], axis=1)
-        p1s, p5s, p25s, p75s, p95s, p99s = percentiles
-        
-        # Count-based stats
-        n_negs = np.sum(x < 0, axis=1)
-        n_zeros = np.sum(x == 0, axis=1)
-        n_poss = np.sum(x > 0, axis=1)
-        
-        # Statistical measures
-        kurtoses = stats.kurtosis(x, axis=1)
-        gmeans = stats.gmean(x, axis=1)
-        skews = stats.skew(x, axis=1)
-        entropies = np.array([stats.entropy(row) for row in x])
-        
-        # Build list of stats dictionaries
-        results = []
-        for i in range(n_rows):
-            results.append(dict(
-                mean=float(means[i]),
-                std=float(stds[i]),
-                min=float(mins[i]),
-                p1=float(p1s[i]),
-                p5=float(p5s[i]),
-                p25=float(p25s[i]),
-                median=float(medians[i]),
-                p75=float(p75s[i]),
-                p95=float(p95s[i]),
-                p99=float(p99s[i]),
-                max=float(maxs[i]),
-                n_neg=int(n_negs[i]),
-                n_zeros=int(n_zeros[i]),
-                n_pos=int(n_poss[i]),
-                kurtosis=float(kurtoses[i]),
-                gmean=float(gmeans[i]),
-                skew=float(skews[i]),
-                entropy=float(entropies[i]),
-            ))
-        
-        return results
+def get_array1d_stats(x: nparray2d) -> list[Stats]:
+    """Returns a list of 1d array stats for each row of an input 2D numpy array."""
+    S = dict() # temporary storage of stats arrays
+    S['mean'] = np.mean(x, axis=1)
+    S['std'] = np.std(x, axis=1)
+    S['min'] = np.min(x, axis=1)
+    S['max'] = np.max(x, axis=1)
+    S['median'] = np.median(x, axis=1)
+    # Percentiles - computed for all rows at once
+    percentiles = np.percentile(x, [1, 5, 25, 75, 95, 99], axis=1)
+    S['p1'], S['p5'], S['p25'], S['p75'], ['p95'], ['p99'] = percentiles
+    # Count-based stats
+    S['n_neg'] = np.sum(x < 0, axis=1)
+    S['n_zero'] = np.sum(x == 0, axis=1)
+    S['n_pos'] = np.sum(x > 0, axis=1)
+    # Statistical measures
+    S['kurtose'] = stats.kurtosis(x, axis=1)
+    S['gmean'] = stats.gmean(x, axis=1)
+    S['skew'] = stats.skew(x, axis=1)
+    S['entropy'] = np.array([stats.entropy(row) for row in x])
+    ret = [{k: v[i] for k, v in S.items()} for i in range(x.shape[0])]
+    return ret
 
 def compare_array1d_stats(a: array1d, b: array1d, *,
                           stats_a: Stats|None=None, stats_b: Stats|None=None) -> Stats:
@@ -243,8 +191,14 @@ def compare_array1d_stats(a: array1d, b: array1d, *,
     - R^2 value of computing a linear regression of `a` vs `b`
 
     In addition, if you provide 1d array stats for `a` and `b`, it will compute the the differences
-    between the stats and include them in the output.
+    between the stats (b-a) and include them in the output dict, with keys prefixed by `diff_`.
+
+    These are all returned in a dict.
     """
+    a = np.asarray(a)
+    b = np.asarray(b)
+    assert a.shape == b.shape
+    assert a.ndim == b.ndim == 1
     ret = dict(
         pearson=float(np.corrcoef(a, b)[0, 1]),
         spearman=float(stats.spearmanr(a, b).statistic),
@@ -257,7 +211,7 @@ def compare_array1d_stats(a: array1d, b: array1d, *,
         linear_least_square_r2=float(res.rvalue)**2.0,
     ))
     if stats_a is not None and stats_b is not None:
-        ret.update({k: stats_b[k] - stats_a[k] for k in stats_a})
+        ret.update({f'diff_{k}': stats_b[k] - stats_a[k] for k in stats_a})
     return ret
 
 def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure.Figure:
@@ -280,7 +234,7 @@ def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure
         original_ax = fig.axes[0]
         # Copy to new subplot
         axes[i].get_figure().canvas.draw()
-        axes[i].imshow(np.array(fig.canvas.renderer.buffer_rgba()))
+        axes[i].imshow(np.asarray(fig.canvas.renderer.buffer_rgba()))
     return fig_combined
 
 
@@ -382,7 +336,7 @@ class Labels:
             mat_indices.append(mat_idx)
             id_indices.append(label_idx)
         logger.debug(f'  Found {len(common)} matching ids in embeddings')
-        id_indices = np.array(id_indices)
+        id_indices = np.asarray(id_indices)
         sub_matrix = matrix[mat_indices, :]
         logger.debug(f'Got sub matrix of shape {sub_matrix.shape}: {sub_matrix}')
         assert sub_matrix.shape == (len(id_indices), matrix.shape[1])
@@ -851,7 +805,7 @@ class EmbeddingsValidator:
                 if not pairs:
                     continue
                 a_keys, b_keys, label_dists = zip(*pairs)
-                label_dists = np.array(label_dists)
+                label_dists = np.asarray(label_dists)
                 print(f'\nFor {key} got {len(pairs)} pairs: {pairs[:3]}')
                 ids = sorted(set(a_keys) | set(b_keys))
                 # get A and B matrix of embeddings to then compute distances
@@ -1350,37 +1304,37 @@ class CheckCorrelationsOp(Op):
         return results
 
 class CompareStatsOp(Op):
-    """Compare various statistics between cartesian product of rows from two 2D arrays."""
+    """Compare various statistics between cartesian product of rows from two 2D arrays.
 
+    Returns a dict with:
+    - stats_a: list of stats dicts for each row in array A
+    - stats_b: list of stats dicts for each row in array B
+    - shape_a: shape of array A
+    - shape_b: shape of array B
+    - comparisons: dict mapping (i,j) to comparison stats between row i of A and row j of B
+    - n_comparisons: total number of comparisons made
+    """
     name = "compare_stats"
     input_types = frozenset({"many_array1d_a", "many_array1d_b"})
     output_type = "stats_comparison"
-    run_mode = 'main'
 
-
-    def _execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         arrays_a = inputs["many_array1d_a"]  # 2D numpy array, each row is a 1D array
         arrays_b = inputs["many_array1d_b"]  # 2D numpy array, each row is a 1D array
-        ret = dict(a_stats=[],
-                   b_stats=[],
+        assert arrays_a.ndim == 2
+        assert arrays_b.ndim == 2
+        assert arrays_a.shape[1] == arrays_b.shape[1], f'Arrays must have same number of columns, got {arrays_a.shape} vs {arrays_b.shape}'
+        ret = dict(stats_a=get_array1d_stats(arrays_a),
+                   stats_b=get_array1d_stats(arrays_b),
                    shape_a=arrays_a.shape,
                    shape_b=arrays_b.shape,
-                   comparisons=[],
-                   )
-
-        # Compare cartesian product of rows
+                   comparisons={})
+        # compare cartesian product of rows
         for i, a in enumerate(arrays_a):
-            stats_a = get_array1d_stats(a)
-            ret['a_stats'].append(stats_a)
             for j, b in enumerate(arrays_b):
-                stats_b = get_array1d_stats(b)
-                stats_cmp = compare_array1d_stats(a, b, stats_a=stats_a, stats_b=stats_b)
-                comparison_result = {
-                    "index_a": i,
-                    "index_b": j,
-                    "comparison": stats_cmp
-                }
-                ret['comparisons'].append(comparison_result)
+                ret['comparisons'][(i,j)] = compare_array1d_stats(
+                    a, b, stats_a=ret['stats_a'][i], stats_b=ret['stats_b'][j]
+                )
         ret['n_comparisons'] = len(ret['comparisons'])
         return ret
 
