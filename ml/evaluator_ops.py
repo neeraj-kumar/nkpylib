@@ -428,15 +428,13 @@ class OpManager:
         print(f'Logging result: {result}')
         if isinstance(result, Exception):
             return
-        all_results = []
-        for results in self._results.values():
-            all_results.extend(results.values())
+        all_results = list(self._results.values())
         status_key = 'status:success' if result.is_success else 'status:failed'
         to_update = {
             # full result for this key
             f'key:{result.cache_key}': make_jsonable(result.to_dict()),
             # all cache keys of each output type
-            **{f'type:{output_type}': sorted(self._results[output_type]) 
+            **{f'type:{output_type}': sorted(self._results_by_type[output_type]) 
                for output_type in result.op.output_types},
             # all cache keys of this op class
             f'op_name:{result.op.name}': sorted({r.cache_key for r in all_results if r.op and isinstance(r.op, result.op.__class__)}),
