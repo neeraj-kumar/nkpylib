@@ -154,6 +154,57 @@ def train_and_predict(model, X_train, y_train, X_test):
     preds = model.predict(X_test)
     return preds
 
+def get_array1d_stats(self, x: array1d) -> Stats:
+    """Returns stats for a 1D array."""
+    return dict(
+        mean=float(np.mean(x)),
+        std=float(np.std(x)),
+        min=float(np.min(x)),
+        p1=float(np.percentile(x, 1)),
+        p5=float(np.percentile(x, 5)),
+        p25=float(np.percentile(x, 25)),
+        median=float(np.median(x)),
+        p75=float(np.percentile(x, 75)),
+        p95=float(np.percentile(x, 95)),
+        p99=float(np.percentile(x, 99)),
+        max=float(np.max(x)),
+        n_neg=int(np.sum(x < 0)),
+        n_zeros=int(np.sum(x == 0)),
+        n_pos=int(np.sum(x > 0)),
+        kurtosis=float(stats.kurtosis(x)),
+        gmean=float(stats.gmean(x)),
+        skew=float(stats.skew(x)),
+        entropy=float(stats.entropy(x)),
+    )
+
+def compare_array1d_stats(a: array1d, b: array1d, *,
+                          stats_a: Stats|None=None, stats_b: Stats|None=None) -> Stats:
+    """Returns comparison stats between two 1D arrays.
+
+    This computes some pairwise measures between `a` and `b`, such as:
+    - Pearson correlation coefficient
+    - Spearman's rank correlation coefficient
+    - Kendall's tau (rank correlation)
+    - KL divergence (treating as distributions)
+    - R^2 value of computing a linear regression of `a` vs `b`
+
+    In addition, if you provide 1d array stats for `a` and `b`, it will compute the the differences
+    between the stats and include them in the output.
+    """
+    ret = dict(
+        pearson=float(np.corrcoef(a, b)[0, 1]),
+        spearman=float(stats.spearmanr(a, b).statistic),
+        tau=float(stats.kendalltau(a, b).statistic),
+        kl_div=float(stats.entropy(a, b)),
+    )
+    # compute least squares linear fit to get rvalue
+    res = stats.linregress(a, b)
+    stats_cmp.update(dict(
+        linear_least_square_r2=float(res.rvalue)**2.0,
+    ))
+    if stats_a is not None and stats_b is not None:
+        ret.update({k: stats_b[k] - stats_a[k] for k in stats_a})
+    return ret
 
 def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure.Figure:
     """Joins multiple matplotlib figures into one figure with subplots.
@@ -668,29 +719,8 @@ class EmbeddingsValidator:
 
         Returns 3 dicts of stats, one for each array and one for the comparison.
         """
-        def get_stats(x: array1d) -> Stats:
-            return dict(
-                mean=float(np.mean(x)),
-                std=float(np.std(x)),
-                min=float(np.min(x)),
-                p1=float(np.percentile(x, 1)),
-                p5=float(np.percentile(x, 5)),
-                p25=float(np.percentile(x, 25)),
-                median=float(np.median(x)),
-                p75=float(np.percentile(x, 75)),
-                p95=float(np.percentile(x, 95)),
-                p99=float(np.percentile(x, 99)),
-                max=float(np.max(x)),
-                n_neg=int(np.sum(x < 0)),
-                n_zeros=int(np.sum(x == 0)),
-                n_pos=int(np.sum(x > 0)),
-                kurtosis=float(stats.kurtosis(x)),
-                gmean=float(stats.gmean(x)),
-                skew=float(stats.skew(x)),
-                entropy=float(stats.entropy(x)),
-            )
-        stats_a = get_stats(a)
-        stats_b = get_stats(b)
+        stats_a = get_array1d_stats(a)
+        stats_b = get_array1d_stats(b)
         stats_cmp = {k: stats_a[k] - stats_b[k] for k in stats_a}
         # add comparison-only stats
         stats_cmp.update(dict(
@@ -1265,7 +1295,6 @@ class CheckCorrelationsOp(Op):
                             })
         return results
 
-
 class CompareStatsOp(Op):
     """Compare various statistics between cartesian product of rows from two 2D arrays."""
 
@@ -1274,75 +1303,32 @@ class CompareStatsOp(Op):
     output_type = "stats_comparison"
     run_mode = 'main'
 
-    def __init__(self, array_a_name: str = "a", array_b_name: str = "b", **kw):
-        self.array_a_name = array_a_name
-        self.array_b_name = array_b_name
-        super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
         arrays_a = inputs["many_array1d_a"]  # 2D numpy array, each row is a 1D array
         arrays_b = inputs["many_array1d_b"]  # 2D numpy array, each row is a 1D array
-        
-        def get_stats(x: array1d) -> Stats:
-            return dict(
-                mean=float(np.mean(x)),
-                std=float(np.std(x)),
-                min=float(np.min(x)),
-                p1=float(np.percentile(x, 1)),
-                p5=float(np.percentile(x, 5)),
-                p25=float(np.percentile(x, 25)),
-                median=float(np.median(x)),
-                p75=float(np.percentile(x, 75)),
-                p95=float(np.percentile(x, 95)),
-                p99=float(np.percentile(x, 99)),
-                max=float(np.max(x)),
-                n_neg=int(np.sum(x < 0)),
-                n_zeros=int(np.sum(x == 0)),
-                n_pos=int(np.sum(x > 0)),
-                kurtosis=float(stats.kurtosis(x)),
-                gmean=float(stats.gmean(x)),
-                skew=float(stats.skew(x)),
-                entropy=float(stats.entropy(x)),
-            )
-        
-        results = []
-        
+        ret = dict(a_stats=[],
+                   b_stats=[],
+                   shape_a=arrays_a.shape,
+                   shape_b=arrays_b.shape,
+                   comparisons=[],
+                   )
+
         # Compare cartesian product of rows
         for i, a in enumerate(arrays_a):
+            stats_a = get_array1d_stats(a)
+            ret['a_stats'].append(stats_a)
             for j, b in enumerate(arrays_b):
-                stats_a = get_stats(a)
-                stats_b = get_stats(b)
-                stats_cmp = {k: stats_a[k] - stats_b[k] for k in stats_a}
-                
-                # add comparison-only stats
-                stats_cmp.update(dict(
-                    pearson=float(np.corrcoef(a, b)[0, 1]),
-                    spearman=float(stats.spearmanr(a, b).statistic),
-                    tau=float(stats.kendalltau(a, b).statistic),
-                    kl_div=float(stats.entropy(a, b)),
-                ))
-                
-                # compute least squares linear fit to get rvalue
-                res = stats.linregress(a, b)
-                stats_cmp.update(dict(
-                    linear_least_square_r2=float(res.rvalue)**2.0,
-                ))
-
+                stats_b = get_array1d_stats(b)
+                stats_cmp = compare_array1d_stats(a, b, stats_a=stats_a, stats_b=stats_b)
                 comparison_result = {
                     "index_a": i,
                     "index_b": j,
-                    self.array_a_name: stats_a,
-                    self.array_b_name: stats_b,
                     "comparison": stats_cmp
                 }
-                results.append(comparison_result)
-        
-        return {
-            "comparisons": results,
-            "n_comparisons": len(results),
-            "shape_a": arrays_a.shape,
-            "shape_b": arrays_b.shape
-        }
+                ret['comparisons'].append(comparison_result)
+        ret['n_comparisons'] = len(ret['comparisons'])
+        return ret
 
 
 if __name__ == '__main__':
