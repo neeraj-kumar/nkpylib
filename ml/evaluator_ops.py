@@ -285,7 +285,8 @@ class OpManager:
                 self.ops_by_input_type[input_type].append(op_cls)
         # this contains a list of op instances
         self.all_ops: list[Op] = []
-        self._results = defaultdict(dict) # output_type -> cache_key -> Result
+        self._results: dict[str, Result] = {}  # cache_key -> Result
+        self._results_by_type: dict[str, list[str]] = defaultdict(list)  # output_type -> list of cache_keys
         self.tasks = []
         self.done_tasks = []
         self.results_db = JsonLmdb.open(results_db_path, flag='c') if results_db_path else None
@@ -327,11 +328,15 @@ class OpManager:
         for consumer in consumers:
             input_types = sorted(consumer.input_types)
             # generate lists of results for each input type
-            input_results = [list(self._results.get(t, {}).values()) for t in input_types]
+            input_results = []
+            for t in input_types:
+                cache_keys = self._results_by_type.get(t, [])
+                results = [self._results[cache_key] for cache_key in cache_keys]
+                input_results.append(results)
             if not input_results:
                 continue
             # now generate cartesian product of tasks
-            # (if any has an empty dict, it will result in no tasks)
+            # (if any has an empty list, it will result in no tasks)
             for cur_results in product(*input_results):
                 inputs = {t: r for t, r in zip(input_types, cur_results)}
                 self.add_all_variants(consumer, inputs)
@@ -407,9 +412,12 @@ class OpManager:
                         error=task.error,
                         timestamps=task.timestamps)
         om = OpManager.get()
-        # Store result under all output types
+        # Store result by cache key
+        om._results[op.cache_key] = result
+        # Store cache key under all output types
         for output_type in op.output_types:
-            om._results[output_type][op.cache_key] = result
+            if op.cache_key not in om._results_by_type[output_type]:
+                om._results_by_type[output_type].append(op.cache_key)
         om.log_result(result)
         return result
 
@@ -450,9 +458,9 @@ class OpManager:
         This calls `make_jsonable(result.to_dict())` on each Result.
         """
         ret = {}
-        for type_name, results in self._results.items():
-            ret[type_name] = {cache_key: make_jsonable(result.to_dict())
-                              for cache_key, result in results.items()}
+        for type_name, cache_keys in self._results_by_type.items():
+            ret[type_name] = {cache_key: make_jsonable(self._results[cache_key].to_dict())
+                              for cache_key in cache_keys}
         return ret
 
 
