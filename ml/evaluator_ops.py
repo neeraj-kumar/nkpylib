@@ -52,14 +52,14 @@ class Result:
     Each result contains:
     - The actual output produced
     - Full provenance chain (list of operations that led to this result)
-    - Cache key for deduplication
+    - Key for deduplication
     - Timestamp and error information
 
     The operation that produced this result is always the last item in the provenance chain.
     """
     output: Any
     provenance: list[Op]
-    cache_key: str
+    key: str
     variant: str|None = None
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
     error: Exception|None = None
@@ -67,11 +67,11 @@ class Result:
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Result):
             return False
-        return self.cache_key == other.cache_key
+        return self.key == other.key
 
     def __repr__(self) -> str:
         status = "success" if self.is_success else f"error: {self.error}"
-        return (f"<Result op={self.op.name if self.op else None} variant={self.variant} status={status} cache_key={self.cache_key}>")
+        return (f"<Result op={self.op.name if self.op else None} variant={self.variant} status={status} key={self.key}>")
 
     @property
     def op(self) -> Op|None:
@@ -109,12 +109,12 @@ class Result:
             "error": self.error,
             "variant": self.variant,
             "provenance_str": self.provenance_str,
-            "provenance": [op.cache_key for op in self.provenance],
+            "provenance": [op.key for op in self.provenance],
             "timestamps": self.timestamps,
             "input_types": sorted(self.op.input_types) if self.op else None,
             "output_types": sorted(self.op.output_types) if self.op else None,
             "output_py_type": type(self.output).__name__ if self.output else None,
-            "cache_key": self.cache_key,
+            "key": self.key,
             "output": None if self.op.is_intermediate else self.output,
         }
 
@@ -285,8 +285,8 @@ class OpManager:
                 self.ops_by_input_type[input_type].append(op_cls)
         # this contains a list of op instances
         self.all_ops: list[Op] = []
-        self._results: dict[str, Result] = {}  # cache_key -> Result
-        self._results_by_type: dict[str, list[str]] = defaultdict(list)  # output_type -> list of cache_keys
+        self._results: dict[str, Result] = {}  # key -> Result
+        self._results_by_type: dict[str, list[str]] = defaultdict(list)  # output_type -> list of keys
         self.tasks = []
         self.done_tasks = []
         self.results_db = JsonLmdb.open(results_db_path, flag='c') if results_db_path else None
@@ -330,8 +330,8 @@ class OpManager:
             # generate lists of results for each input type
             input_results = []
             for t in input_types:
-                cache_keys = self._results_by_type.get(t, [])
-                results = [self._results[cache_key] for cache_key in cache_keys]
+                keys = self._results_by_type.get(t, [])
+                results = [self._results[key] for key in keys]
                 input_results.append(results)
             if not input_results:
                 continue
@@ -407,17 +407,17 @@ class OpManager:
         provenance.append(op)
         result = Result(output=task.output,
                         provenance=provenance,
-                        cache_key=op.cache_key,
+                        key=op.key,
                         variant=op.variant,
                         error=task.error,
                         timestamps=task.timestamps)
         om = OpManager.get()
-        # Store result by cache key
-        om._results[op.cache_key] = result
-        # Store cache key under all output types
+        # Store result by key
+        om._results[op.key] = result
+        # Store key under all output types
         for output_type in op.output_types:
-            if op.cache_key not in om._results_by_type[output_type]:
-                om._results_by_type[output_type].append(op.cache_key)
+            if op.key not in om._results_by_type.setdefault(output_type, []):
+                om._results_by_type[output_type].append(op.key)
         om.log_result(result)
         return result
 
@@ -432,17 +432,17 @@ class OpManager:
         status_key = 'status:success' if result.is_success else 'status:failed'
         to_update = {
             # full result for this key
-            f'key:{result.cache_key}': make_jsonable(result.to_dict()),
-            # all cache keys of each output type
-            **{f'type:{output_type}': sorted(self._results_by_type[output_type]) 
+            f'key:{result.key}': make_jsonable(result.to_dict()),
+            # all keys of each output type
+            **{f'type:{output_type}': sorted(self._results_by_type[output_type])
                for output_type in result.op.output_types},
-            # all cache keys of this op class
-            f'op_name:{result.op.name}': sorted({r.cache_key for r in all_results if r.op and isinstance(r.op, result.op.__class__)}),
-            # all cache keys with this status
-            status_key: sorted({r.cache_key for r in all_results if r.is_success == result.is_success}),
-            # all cache keys sorted by various criteria
-            'by:start_time': [(r.cache_key, r.start_ts) for r in sorted(all_results, key=lambda r: r.start_ts)],
-            'by:end_time': [(r.cache_key, r.end_ts) for r in sorted(all_results, key=lambda r: r.end_ts)],
+            # all keys of this op class
+            f'op_name:{result.op.name}': sorted({r.key for r in all_results if r.op and isinstance(r.op, result.op.__class__)}),
+            # all keys with this status
+            status_key: sorted({r.key for r in all_results if r.is_success == result.is_success}),
+            # all keys sorted by various criteria
+            'by:start_time': [(r.key, r.start_ts) for r in sorted(all_results, key=lambda r: r.start_ts)],
+            'by:end_time': [(r.key, r.end_ts) for r in sorted(all_results, key=lambda r: r.end_ts)],
             # current update time
             'last_update': time.time(),
         }
@@ -454,11 +454,14 @@ class OpManager:
         """Serialize all our results for logging/reporting.
 
         This calls `make_jsonable(result.to_dict())` on each Result.
+        Returns a dict with keys:
+        - results: mapping key -> result dict
+        - result_keys_by_type: mapping output_type -> list of keys
         """
-        ret = {}
-        for type_name, cache_keys in self._results_by_type.items():
-            ret[type_name] = {cache_key: make_jsonable(self._results[cache_key].to_dict())
-                              for cache_key in cache_keys}
+        ret = dict(
+            results={key: make_jsonable(r.to_dict()) for key, r in self._results.items()},
+            result_keys_by_type=self._results_by_type,
+        )
         return ret
 
 
@@ -518,7 +521,7 @@ class Op(ABC):
         assert self.enabled, f"{self} is disabled!"
         assert self.run_mode in ("main", "thread", "process"), f"{self} has invalid run_mode {self.run_mode}"
         OpManager.register(self)
-        self.cache_key = ''
+        self.key = ''
 
     def __repr__(self) -> str:
         cls_name = 'Op' if self.enabled else 'DisabledOp'
@@ -548,8 +551,8 @@ class Op(ABC):
             op_inputs = {k: v.output for k, v in inputs.items()}
         except Exception:
             op_inputs = inputs
-        self.cache_key = self.get_cache_key(op_inputs)
-        logger.info(f'Executing op {self.name} ({self.variant}) -> {self.cache_key}')
+        self.key = self.get_key(op_inputs)
+        logger.info(f'Executing op {self.name} ({self.variant}) -> {self.key}')
         out, error = None, None
         try:
             output = self._execute(op_inputs)
@@ -570,8 +573,8 @@ class Op(ABC):
         """
         raise NotImplementedError()
 
-    def get_cache_key(self, inputs: dict[str, Any]) -> str:
-        """Generate cache key based on operation and inputs.
+    def get_key(self, inputs: dict[str, Any]) -> str:
+        """Generate key based on operation and inputs.
 
         This creates a hash of the operation name and input data to enable
         caching of results and avoiding duplicate work.
@@ -588,5 +591,5 @@ class Op(ABC):
             input_items.append(f"{key}:{value_str}")
         input_str = "|".join(input_items)
         combined = f"{self.name}_{input_str}"
-        # Hash to keep cache keys manageable
+        # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()
