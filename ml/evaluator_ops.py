@@ -276,9 +276,13 @@ class OpManager:
         for op_cls in find_subclasses(Op):
             if op_cls.enabled is False:
                 continue
-            for output_type in op_cls.output_types:
+            # Convert to frozensets for safe internal operations
+            frozen_output_types = frozenset(op_cls.output_types)
+            frozen_input_types = frozenset(op_cls.input_types)
+            
+            for output_type in frozen_output_types:
                 self.ops_by_output_type[output_type].append(op_cls)
-            for input_type in op_cls.input_types:
+            for input_type in frozen_input_types:
                 self.ops_by_input_type[input_type].append(op_cls)
         # this contains a list of op instances
         self.all_ops: list[Op] = []
@@ -471,8 +475,8 @@ class Op(ABC):
     When created, the operation automatically registers itself with the global manager.
     """
     name = ""
-    input_types: frozenset[str] = frozenset()
-    output_types: frozenset[str] = frozenset()
+    input_types: set[str] = set()
+    output_types: set[str] = set()
 
     # by default we assume ops are not intermediate. If they are, override this
     is_intermediate = False
@@ -483,7 +487,7 @@ class Op(ABC):
     # where this op should run (main=main process, thread=thread pool, process=process pool)
     run_mode = "main" # main, thread, process
 
-    def __init__(self, variant: str|None=None, name: str|None = None, input_types: frozenset[str]|None=None, output_types: frozenset[str]|None=None):
+    def __init__(self, variant: str|None=None, name: str|None = None, input_types: set[str]|None=None, output_types: set[str]|None=None):
         """Initialize this operation.
 
         - variant: optional variant name for this instance

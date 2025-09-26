@@ -1099,8 +1099,8 @@ class StartValidatorOp(Op):
     Takes kw version of parsed args from ArgumentParser.
     """
     name = 'start_validator'
-    input_types = frozenset()
-    output_type = "argparse"
+    input_types = set()
+    output_types = {"argparse"}
     is_intermediate = True
 
     def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
@@ -1110,8 +1110,8 @@ class StartValidatorOp(Op):
 class LoadEmbeddingsOp(Op):
     """Load embeddings from paths into a FeatureSet."""
     name = 'load_embeddings'
-    input_types = frozenset({'argparse'})
-    output_type = "feature_set"
+    input_types = {'argparse'}
+    output_types = {"feature_set"}
     is_intermediate = True
 
     #TODO return cartesian product of inputs as variants
@@ -1122,8 +1122,8 @@ class LoadEmbeddingsOp(Op):
 class ParseTagsOp(Op):
     """Parses our tags from the tag db"""
     name = 'parse_tags'
-    input_types = frozenset({'argparse'})
-    output_type = 'labels'
+    input_types = {'argparse'}
+    output_types = {'labels'}
     is_intermediate = True
 
     def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
@@ -1156,8 +1156,8 @@ class CheckDimensionsOp(Op):
     run_mode = 'process'
 
     name = "check_dimensions"
-    input_types = frozenset({"feature_set"})
-    output_type = "dimension_check_result"
+    input_types = {"feature_set"}
+    output_types = {"dimension_check_result"}
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
         fs = inputs["feature_set"]
@@ -1179,8 +1179,8 @@ class CheckNaNsOp(Op):
     run_mode = 'process'
 
     name = "check_nans"
-    input_types = frozenset({"feature_set"})
-    output_type = "nan_check_result"
+    input_types = {"feature_set"}
+    output_types = {"nan_check_result"}
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
         fs = inputs["feature_set"]
@@ -1204,8 +1204,8 @@ class BasicChecksOp(Op):
     """Combine dimension and NaN checks into a single basic validation."""
 
     name = "basic_checks"
-    input_types = frozenset({"dimension_check_result", "nan_check_result"})
-    output_type = "basic_checks_report"
+    input_types = {"dimension_check_result", "nan_check_result"}
+    output_types = {"basic_checks_report"}
     run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
@@ -1228,8 +1228,8 @@ class NormalizeOp(Op):
     """Normalize embeddings from a FeatureSet based on normalization parameters."""
 
     name = "normalize"
-    input_types = frozenset({"feature_set"})
-    output_type = "normalized_embeddings"
+    input_types = {"feature_set"}
+    output_types = {"normalized_embeddings"}
     is_intermediate = True
     run_mode = 'main'
 
@@ -1267,8 +1267,8 @@ class CheckCorrelationsOp(Op):
     """Check correlations between embeddings and labels."""
 
     name = "check_correlations"
-    input_types = frozenset({"normalized_embeddings", "labels"})
-    output_type = "correlation_results"
+    input_types = {"normalized_embeddings", "labels"}
+    output_types = {"correlation_results"}
     run_mode = 'main'
 
     def __init__(self, n_top: int = 10, **kw):
@@ -1315,8 +1315,8 @@ class CompareStatsOp(Op):
     - n_comparisons: total number of comparisons made
     """
     name = "compare_stats"
-    input_types = frozenset({"many_array1d_a", "many_array1d_b"})
-    output_type = "stats_comparison"
+    input_types = {"many_array1d_a", "many_array1d_b"}
+    output_types = {"stats_comparison"}
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         arrays_a = inputs["many_array1d_a"]  # 2D numpy array, each row is a 1D array
