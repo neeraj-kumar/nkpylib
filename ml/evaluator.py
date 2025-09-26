@@ -1296,8 +1296,49 @@ class GetEmbeddingDimsOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         ret = {}
         ret['keys'], ret['matrix'] = inputs["normalized_embeddings"]
-        ret['dims'] = matrix.T  # Transpose so each row is one dimension across all samples
+        ret['dims'] = ret['matrix'].T  # Transpose so each row is one dimension across all samples
         return ret
+
+
+class GetLabelArraysOp(Op):
+    """Extract label arrays from labels, using embedding_dims for consistency.
+    
+    Returns a 2D array where each row is one label array across all samples.
+    Uses the keys and matrix from embedding_dims to ensure consistency.
+    """
+    name = "get_label_arrays"
+    input_types = {"labels", "embedding_dims"}
+    output_types = {"many_array1d_a"}
+
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        labels = inputs["labels"]
+        embedding_data = inputs["embedding_dims"]
+        keys = embedding_data["keys"]
+        matrix = embedding_data["matrix"]
+        
+        label_arrays = []
+        
+        for key, label in labels.items():
+            if isinstance(label, NumericLabels):
+                # Get matching submatrix and extract label values
+                _, id_indices = label.get_matching_matrix(keys, matrix)
+                if len(id_indices) > 0:
+                    label_values = label.values[id_indices]
+                    label_arrays.append(label_values)
+            elif isinstance(label, (MulticlassLabels, MultilabelLabels)):
+                # For each specific label value, create +1/-1 array
+                for label_name, ids in label.by_label().items():
+                    _, id_indices = label.get_matching_matrix(keys, matrix)
+                    if len(id_indices) > 0:
+                        binary_array = np.array([1.0 if label.ids[i] in ids else -1.0 
+                                               for i in id_indices])
+                        label_arrays.append(binary_array)
+        
+        if not label_arrays:
+            # Return empty array with correct shape
+            return np.empty((0, len(keys)))
+        
+        return np.vstack(label_arrays)  # shape: (n_labels, n_samples)
 
 
 class CompareStatsOp(Op):
