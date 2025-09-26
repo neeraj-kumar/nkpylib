@@ -3,6 +3,7 @@
 Note that I'm starting over in 2024, as the old threadutils.py (no underscore) was getting too messy
 and most of it is outdated.
 """
+#TODO sql progress updater
 
 from __future__ import annotations
 
