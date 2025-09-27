@@ -388,10 +388,6 @@ class Labels(ABC):
         ret = [format_results([func(i) for i in range(sub_matrix.shape[1])]) for func in funcs]
         return tuple(ret)
 
-    def check_correlations(self, keys: list[str], matrix: array2d, n_top:int=10) -> Correlations:
-        """Checks correlations between our labels and each dimension of the given `matrix`"""
-        raise NotImplementedError()
-
     def _pairs_to_list(self, pairs: dict[frozenset[str], float]) -> list[DistTuple]:
         """Converts `pairs` dict to list of `(id1, id2, distance)` tuples."""
         ret = []
@@ -1289,46 +1285,6 @@ class NormalizeOp(Op):
         return (keys, emb)
 
 
-class CheckCorrelationsOp(Op):
-    """Check correlations between embeddings and labels."""
-
-    name = "check_correlations"
-    input_types = {"normalized_embeddings", "labels"}
-    output_types = {"correlation_results"}
-    run_mode = 'main'
-
-    def __init__(self, n_top: int = 10, **kw):
-        self.n_top = n_top
-        super().__init__(**kw)
-
-    def _execute(self, inputs: dict[str, Any]) -> Any:
-        (keys, matrix), labels = inputs['normalized_embeddings'], inputs['labels']
-        print(f'Checking correlations for {len(labels)} labels on {matrix.shape} embeddings')
-        results = dict(by_label_key={}, warnings=[])
-        for key, label in labels.items():
-            print(f'  Checking correlations for label {label} with {len(label.ids)} ids')
-            correlations = label.check_correlations(keys, matrix, n_top=self.n_top)
-            results['by_label_key'][key] = correlations
-            # Check for high correlations and create warnings
-            if not isinstance(correlations, dict):
-                correlations = {"all": correlations}
-            for label_name, (pearson_list, spearman_list) in correlations.items():
-                for method, corr_list in [("pearson", pearson_list), ("spearman", spearman_list)]:
-                    for corr, dim in corr_list:
-                        if abs(corr) > 0.5:
-                            warning = f'High correlation {corr:.3f} for {key}={label_name} at dim {dim}'
-                            results["warnings"].append({
-                                "unit": "correlation",
-                                "label": label_name,
-                                "key": key,
-                                "dim": dim,
-                                "method": method,
-                                "value": corr,
-                                "score": 3,
-                                "warning": warning
-                            })
-        return results
-
 class GetLabelArraysOp(Op):
     """Extract label arrays from labels, determining the intersection with embeddings.
 
@@ -1378,6 +1334,7 @@ class GetEmbeddingDimsOp(Op):
     Uses the keys and matrix from label_arrays_data to ensure both arrays
     have the same samples in the same order.
     """
+    #FIXME currently broken
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
     output_types = {"many_array1d_b"}
@@ -1424,6 +1381,7 @@ class CompareStatsOp(Op):
     - comparisons: dict mapping (i,j) to comparison stats between row i of A and row j of B
     - n_comparisons: total number of comparisons made
     """
+    #FIXME currently broken
     name = "compare_stats"
     input_types = {
         ('many_array1d_a', 'many_array1d_b'): {},
