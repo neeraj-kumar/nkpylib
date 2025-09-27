@@ -1281,73 +1281,132 @@ class CheckCorrelationsOp(Op):
                             })
         return results
 
-class GetEmbeddingDimsOp(Op):
-    """Extract embedding dimensions from normalized embeddings.
-
-    Returns a dict with:
-    - dims: 2D array where each row is one embedding dimension across all samples
-    - keys: list of sample keys
-    - matrix: original embedding matrix
-    """
-    name = "get_embedding_dims"
-    input_types = {"normalized_embeddings"}
-    output_types = {"embedding_dims", "many_array1d_b"}
-
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        ret = {}
-        ret['keys'], ret['matrix'] = inputs["normalized_embeddings"]
-        ret['dims'] = ret['matrix'].T  # Transpose so each row is one dimension across all samples
-        return ret
-
-
 class GetLabelArraysOp(Op):
-    """Extract label arrays from labels and embedding_dims for consistency.
+    """Extract label arrays from labels, determining the intersection with embeddings.
 
-    Returns a 2D array where each row is one label array across all samples.
-    Uses the keys and matrix from embedding_dims to ensure consistency.
+    Returns label arrays and the filtered keys/matrix for consistency.
+    This op runs first to establish the intersection of embedding keys and label IDs.
     """
     name = "get_label_arrays"
-    input_types = {"labels", "embedding_dims"}
-    output_types = {"label_arrays", "many_array1d_a"}
+    input_types = {"normalized_embeddings", "labels"}
+    output_types = {"label_arrays_data", "many_array1d_a"}
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants of this op, one per label key."""
         labels = inputs.get("labels", {})
+        if not labels:
+            return None
         ret = {}
         for key in labels:
             variant_name = f"label_key:{key}"
             ret[variant_name] = {"label_key": key}
-        return ret or None
+        return ret
 
     def __init__(self, label_key: str|None = None, **kw):
         self.label_key = label_key
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        keys, matrix = inputs["normalized_embeddings"]
         labels = inputs["labels"]
-        embedding_data = inputs["embedding_dims"]
-        keys, matrix = embedding_data["keys"], embedding_data["matrix"]
+        
+        # If we have a specific label_key, only process that label
+        if self.label_key:
+            if self.label_key not in labels:
+                raise ValueError(f"Label key {self.label_key} not found in labels")
+            labels_to_process = {self.label_key: labels[self.label_key]}
+        else:
+            labels_to_process = labels
+        
         label_arrays = []
-        for key, label in labels.items():
+        filtered_keys = None
+        filtered_matrix = None
+        
+        for key, label in labels_to_process.items():
             if isinstance(label, NumericLabels):
                 # Get matching submatrix and extract label values
-                _, id_indices = label.get_matching_matrix(keys, matrix)
+                sub_matrix, id_indices = label.get_matching_matrix(keys, matrix)
                 if len(id_indices) > 0:
                     label_values = label.values[id_indices]
                     label_arrays.append(label_values)
+                    # Store the filtered keys and matrix for consistency
+                    if filtered_keys is None:
+                        # Get the actual keys that correspond to the intersection
+                        common_ids = set(keys) & set(label.ids)
+                        filtered_keys = [k for k in keys if k in common_ids]
+                        filtered_matrix = sub_matrix
             elif isinstance(label, (MulticlassLabels, MultilabelLabels)):
                 # For each specific label value, create +1/-1 array
                 for label_name, ids in label.by_label().items():
-                    _, id_indices = label.get_matching_matrix(keys, matrix)
+                    sub_matrix, id_indices = label.get_matching_matrix(keys, matrix)
                     if len(id_indices) > 0:
                         binary_array = np.array([1.0 if label.ids[i] in ids else -1.0
                                                for i in id_indices])
                         label_arrays.append(binary_array)
+                        # Store the filtered keys and matrix for consistency
+                        if filtered_keys is None:
+                            common_ids = set(keys) & set(label.ids)
+                            filtered_keys = [k for k in keys if k in common_ids]
+                            filtered_matrix = sub_matrix
+        
         if not label_arrays:
-            # Return empty array with correct shape
-            return np.empty((0, len(keys)))
-        return np.vstack(label_arrays)  # shape: (n_labels, n_samples)
+            # Return empty arrays with correct shape
+            filtered_keys = keys
+            filtered_matrix = matrix
+            label_arrays_result = np.empty((0, len(keys)))
+        else:
+            label_arrays_result = np.vstack(label_arrays)
+        
+        return {
+            "label_arrays_data": {
+                "arrays": label_arrays_result,
+                "keys": filtered_keys,
+                "matrix": filtered_matrix
+            },
+            "many_array1d_a": label_arrays_result
+        }
+
+
+class GetEmbeddingDimsOp(Op):
+    """Extract embedding dimensions from filtered label data for consistency.
+
+    Uses the keys and matrix from label_arrays_data to ensure both arrays
+    have the same samples in the same order.
+    """
+    name = "get_embedding_dims"
+    input_types = {"label_arrays_data"}
+    output_types = {"many_array1d_b"}
+
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants for embedding dimension processing."""
+        ret = {
+            "raw": {"transform": "raw"},
+            "log": {"transform": "log"},
+            "abs": {"transform": "abs"},
+        }
+        return ret
+
+    def __init__(self, transform: str = "raw", **kw):
+        self.transform = transform
+        super().__init__(**kw)
+
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        label_data = inputs["label_arrays_data"]
+        matrix = label_data["matrix"]  # Already filtered to the right intersection
+        
+        dims = matrix.T  # Each row is one dimension across all samples
+        
+        # Apply transformation based on variant
+        if self.transform == "log":
+            # Apply log transform, handling negative values
+            dims = np.log1p(np.abs(dims))
+        elif self.transform == "abs":
+            dims = np.abs(dims)
+        # "raw" needs no transformation
+        
+        return dims
 
 
 class CompareStatsOp(Op):
