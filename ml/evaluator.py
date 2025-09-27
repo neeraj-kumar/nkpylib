@@ -79,6 +79,7 @@ import sys
 import time
 import warnings
 
+from abc import ABC, abstractmethod
 from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter, defaultdict
@@ -238,7 +239,7 @@ def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure
     return fig_combined
 
 
-class Labels:
+class Labels(ABC):
     """A base class for different types of labels that we get from tags.
 
     This stores metadata about the types of labels, and the specialized values.
@@ -297,6 +298,7 @@ class Labels:
                 dists[i, j] = dists[j, i] = dist = self.get_distance(idx1, idx2, **kw)
         return dists
 
+    @abstractmethod
     def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples.
 
@@ -311,15 +313,18 @@ class Labels:
         """
         raise NotImplementedError()
 
-    def get_matching_matrix(self, keys: list[str], matrix: array2d) -> tuple[array2d, array1d]:
+    def get_matching_matrix(self, keys: list[str], matrix: array2d) -> tuple[array1d, list[str], nparray2d]:
         """Returns matching submatrix based on overlapping keys.
 
         This does a set intersection between our ids and the given `keys`, and returns a tuple of
-        `(sub_matrix, id_indices)`, where `sub_matrix` is the submatrix of `matrix` corresponding
-        to the overlapping keys, and `id_indices` is the list of indices into our `self.ids`
-        array corresponding to the overlapping keys, so that `sub_matrix[i]` corresponds to
-        `self.ids[id_indices[i]]`. The output `sub_matrix` has the same dimensionality as the
-        input `matrix`.
+        `(id_indices, sub_keys, sub_matrix)`, where:
+        - `id_indices` is the list of indices into our `self.ids` array corresponding to the
+          overlapping keys, so that `sub_matrix[i]` corresponds to `self.ids[id_indices[i]]`,
+        - `sub_keys` is the filtered list of keys that correspond to the intersection
+        - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys, with same
+          dimensionality as the input `matrix`.
+
+        In other words, you can iterate through all 3 in parallel.
 
         Note that if ids repeat in `self.ids`, this will use the first matching index.
         """
@@ -329,18 +334,41 @@ class Labels:
         id_indices = []
         assert len(keys) == len(set(keys)), 'Keys should be unique'
         common = set(keys) & set(self.ids)
+        assert common, 'No matching ids found between {len(keys)} input keys and {self}'
+        sub_keys = []
         for mat_idx, id in enumerate(keys):
             if id not in common:
                 continue
             label_idx = self.ids.index(id)
             mat_indices.append(mat_idx)
             id_indices.append(label_idx)
+            sub_keys.append(id)
         logger.debug(f'  Found {len(common)} matching ids in embeddings')
         id_indices = np.asarray(id_indices)
         sub_matrix = matrix[mat_indices, :]
         logger.debug(f'Got sub matrix of shape {sub_matrix.shape}: {sub_matrix}')
         assert sub_matrix.shape == (len(id_indices), matrix.shape[1])
-        return sub_matrix, id_indices
+        assert len(id_indices) == len(sub_keys) == len(sub_matrix)
+        return id_indices, sub_keys, sub_matrix
+
+    @abstractmethod
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> dict[str, Any]:
+        """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
+
+        This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
+        1d arrays, packed into a numpy 2d array. These might correspond to a different label, or to
+        different transformations of our underlying data, but in any case they are given unique
+        names.
+
+        It returns a dict with the fillowing keys:
+        - `sub_keys` is the list of overlapping keys
+        - `label_names` is a list of names, one for each row of `label_arrays`
+        - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
+          - Shape `(len(label_names), len(sub_keys))`
+        - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
+          - Shape `(len(sub_keys), matrix.shape[1])`
+        """
+        raise NotImplementedError()
 
     def get_correlations(self, sub_matrix: array2d, sub_labels: array1d, n_top: int=10) -> Correlations:
         """Computes correlations between each dimension of `sub_matrix` and `sub_labels`.
@@ -391,19 +419,31 @@ class NumericLabels(Labels):
         )
         super().__init__(tag_type, key, ids=ids, values=values)
 
-    def check_correlations(self, keys: list[str], matrix: array2d, n_top:int=10) -> Correlations:
-        """Checks correlations between our labels and each dimension of the given `matrix`.
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> dict[str, Any]:
+        """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
-        The input `keys` should be the list of ids corresponding to the rows of `matrix`.
+        This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
+        1d arrays, packed into a numpy 2d array. These might correspond to a different label, or to
+        different transformations of our underlying data, but in any case they are given unique
+        names.
 
-        Returns 2 lists of upto `n_top` (correlation, dim) tuples, sorted by highest absolute
-        correlation, one using Pearson correlation and the other using Spearman correlation.
-        The latter is better for ordinal or non-normally-distributed data.
+        It returns a dict with the fillowing keys:
+        - `sub_keys` is the list of overlapping keys
+        - `label_names` is a list of names, one for each row of `label_arrays`
+        - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
+          - Shape `(len(label_names), len(sub_keys))`
+        - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
+          - Shape `(len(sub_keys), matrix.shape[1])`
         """
-        sub_matrix, id_indices = self.get_matching_matrix(keys, matrix)
-        sub_labels = self.values[id_indices]
-        logger.debug(f'Got sub labels of shape {sub_labels.shape}: {sub_labels}')
-        return self.get_correlations(sub_matrix, sub_labels, n_top=n_top)
+        ret = dict(label_names=['value'])
+        id_indices, ret['sub_keys'], ret['sub_matrix'] = self.get_matching_matrix(keys, matrix)
+        # convert the values into a 2d array with one row
+        ret['label_arrays'] = self.values[id_indices].reshape((1, -1))
+        assert len(ret['label_arrays']) == len(ret['label_names'])
+        assert len(ret['label_arrays'][0]) == len(ret['sub_keys']) == len(ret['sub_matrix'])
+        assert ret['sub_matrix'].shape[1] == matrix.shape[1]
+        return ret
+
 
     def get_distance(self, idx1: int, idx2: int, norm_type: str='raw', **kw) -> float:
         """Returns distance between two id indices.
@@ -569,26 +609,34 @@ class MulticlassBase(Labels):
             add_pairs(poss, n_remaining)
         return self._pairs_to_list(pairs)
 
-    def check_correlations(self, keys: list[str], matrix: array2d, n_top:int=10) -> dict[str, Correlations]:
-        """Checks correlations between our labels and each dimension of the given `matrix`.
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> dict[str, Any]:
+        """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
-        We use the `by_labels` representation, where for each label, we have a set of ids that have
-        that label and the rest (implicitly) don't. We then compute a +1/-1 correlation for each
-        label against each dimension of the matrix, and return the top `n_top` correlations.
+        This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
+        1d arrays, packed into a numpy 2d array. These might correspond to a different label, or to
+        different transformations of our underlying data, but in any case they are given unique
+        names.
 
-        The input `keys` should be the list of ids corresponding to the rows of `matrix`.
-
-        Returns a dict mapping labels to `(pearson, spearman)` correlations results, each of which
-        has upto `n_top` (correlation, dim) tuples, sorted by highest absolute correlation.
+        It returns a dict with the fillowing keys:
+        - `sub_keys` is the list of overlapping keys
+        - `label_names` is a list of names, one for each row of `label_arrays`
+        - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
+          - Shape `(len(label_names), len(sub_keys))`
+        - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
+          - Shape `(len(sub_keys), matrix.shape[1])`
         """
-        sub_matrix, id_indices = self.get_matching_matrix(keys, matrix)
-        ret = {}
-        # iterate through each label and construct +1/-1 labels
-        for label, ids in self.by_label().items():
-            sub_labels = np.array([1.0 if self.ids[i] in ids else -1.0 for i in id_indices])
-            logger.debug(f'  {self.key}: Checking label {label} with {len(ids)} ids: {sub_labels}')
-            assert sub_labels.shape == (len(id_indices),)
-            ret[label] = self.get_correlations(sub_matrix, sub_labels, n_top=n_top)
+        ret = dict(label_names=[])
+        id_indices, ret['sub_keys'], ret['sub_matrix'] = self.get_matching_matrix(keys, matrix)
+        # For each specific label value, create +1/-1 array
+        label_arrays = []
+        for label_name, ids in self.by_label().items():
+            binary_array = np.array([1.0 if self.ids[i] in ids else -1.0 for i in id_indices])
+            ret['label_names'].append(label_name)
+            label_arrays.append(binary_array)
+        ret['label_arrays'] = np.array(label_arrays)
+        assert len(ret['label_arrays']) == len(ret['label_names'])
+        assert len(ret['label_arrays'][0]) == len(ret['sub_keys']) == len(ret['sub_matrix'])
+        assert ret['sub_matrix'].shape[1] == matrix.shape[1]
         return ret
 
 
@@ -1284,8 +1332,18 @@ class CheckCorrelationsOp(Op):
 class GetLabelArraysOp(Op):
     """Extract label arrays from labels, determining the intersection with embeddings.
 
-    Returns label arrays and the filtered keys/matrix for consistency.
-    This op runs first to establish the intersection of embedding keys and label IDs.
+    Each label key gets its own variant of this op, so we can process each one separately, and
+    because they have different intersections with the embeddings. But each label can have 1 or more
+    rows of labels (which get stacked together into 2d numpy array), each with their own name.
+
+    Returns a dict with:
+    - `label_key`, which is the variant name, corresponding to the label that these arrays are from.
+    - `sub_keys` is the list of overlapping keys
+    - `label_names` is a list of names, one for each row of `label_arrays`
+    - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
+      - Shape `(len(label_names), len(sub_keys))`
+    - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
+      - Shape `(len(sub_keys), matrix.shape[1])`
     """
     name = "get_label_arrays"
     input_types = {"normalized_embeddings", "labels"}
@@ -1295,77 +1353,23 @@ class GetLabelArraysOp(Op):
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants of this op, one per label key."""
         labels = inputs.get("labels", {})
-        if not labels:
-            return None
+        assert labels, 'Must have some labels!'
         ret = {}
         for key in labels:
             variant_name = f"label_key:{key}"
             ret[variant_name] = {"label_key": key}
         return ret
 
-    def __init__(self, label_key: str|None = None, **kw):
+    def __init__(self, label_key: str, **kw):
         self.label_key = label_key
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         keys, matrix = inputs["normalized_embeddings"]
-        labels = inputs["labels"]
-        
-        # If we have a specific label_key, only process that label
-        if self.label_key:
-            if self.label_key not in labels:
-                raise ValueError(f"Label key {self.label_key} not found in labels")
-            labels_to_process = {self.label_key: labels[self.label_key]}
-        else:
-            labels_to_process = labels
-        
-        label_arrays = []
-        filtered_keys = None
-        filtered_matrix = None
-        
-        for key, label in labels_to_process.items():
-            if isinstance(label, NumericLabels):
-                # Get matching submatrix and extract label values
-                sub_matrix, id_indices = label.get_matching_matrix(keys, matrix)
-                if len(id_indices) > 0:
-                    label_values = label.values[id_indices]
-                    label_arrays.append(label_values)
-                    # Store the filtered keys and matrix for consistency
-                    if filtered_keys is None:
-                        # Get the actual keys that correspond to the intersection
-                        common_ids = set(keys) & set(label.ids)
-                        filtered_keys = [k for k in keys if k in common_ids]
-                        filtered_matrix = sub_matrix
-            elif isinstance(label, (MulticlassLabels, MultilabelLabels)):
-                # For each specific label value, create +1/-1 array
-                for label_name, ids in label.by_label().items():
-                    sub_matrix, id_indices = label.get_matching_matrix(keys, matrix)
-                    if len(id_indices) > 0:
-                        binary_array = np.array([1.0 if label.ids[i] in ids else -1.0
-                                               for i in id_indices])
-                        label_arrays.append(binary_array)
-                        # Store the filtered keys and matrix for consistency
-                        if filtered_keys is None:
-                            common_ids = set(keys) & set(label.ids)
-                            filtered_keys = [k for k in keys if k in common_ids]
-                            filtered_matrix = sub_matrix
-        
-        if not label_arrays:
-            # Return empty arrays with correct shape
-            filtered_keys = keys
-            filtered_matrix = matrix
-            label_arrays_result = np.empty((0, len(keys)))
-        else:
-            label_arrays_result = np.vstack(label_arrays)
-        
-        return {
-            "label_arrays_data": {
-                "arrays": label_arrays_result,
-                "keys": filtered_keys,
-                "matrix": filtered_matrix
-            },
-            "many_array1d_a": label_arrays_result
-        }
+        label = inputs["labels"][self.label_key]
+        ret = label.get_label_arrays(keys, matrix)
+        ret['label_key'] = self.label_key
+        return ret
 
 
 class GetEmbeddingDimsOp(Op):
@@ -1424,7 +1428,7 @@ class CompareStatsOp(Op):
     input_types = {
         ('many_array1d_a', 'many_array1d_b'): {},
         ("label_dimensions_a", "embedding_dimensions_b"): {
-            "consistency_fields": ["label_variant"]
+            "consistency_fields": ["label_key"]
         },
         ("label_distances_a", "embedding_distances_b"): {
             "consistency_fields": ["label_variant", "distance_type"]

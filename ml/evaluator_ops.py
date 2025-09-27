@@ -54,7 +54,6 @@ class Result:
     - Full provenance chain (list of operations that led to this result)
     - Key for deduplication
     - Timestamp and error information
-    - Metadata for contract consistency checking
 
     The operation that produced this result is always the last item in the provenance chain.
     """
@@ -64,7 +63,6 @@ class Result:
     variant: str|None = None
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
     error: Exception|None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Result):
@@ -280,7 +278,6 @@ class OpManager:
                 continue
             # Convert to frozensets for safe internal operations
             frozen_output_types = frozenset(op_cls.output_types)
-            
             # Handle input_types - could be set or dict (contracts)
             if isinstance(op_cls.input_types, set):
                 frozen_input_types = frozenset(op_cls.input_types)
@@ -291,7 +288,6 @@ class OpManager:
                 for input_tuple in op_cls.input_types.keys():
                     all_input_types.update(input_tuple)
                 input_types_to_register = frozenset(all_input_types)
-            
             for output_type in frozen_output_types:
                 self.ops_by_output_type[output_type].append(op_cls)
             for input_type in input_types_to_register:
@@ -342,45 +338,44 @@ class OpManager:
             self._create_tasks_for_consumer(consumer, result)
 
     def _create_tasks_for_consumer(self, consumer: type[Op], new_result: Result) -> None:
-        """Create tasks for a specific consumer op, respecting input contracts."""
-        contracts = consumer.get_input_contracts() if hasattr(consumer, 'get_input_contracts') else {tuple(sorted(consumer.input_types)): {}}
-        
+        """Create tasks for a specific `consumer` op, respecting input contracts.
+
+        A contract is a dict mapping input type tuples to consistency requirements. E.g.:
+          ("input_a", "input_b"): {"consistency_fields": ["field1"]}
+
+        For that contract, it requires that the inputs be of type "input_a" and "input_b", and that
+        they contain field "field1" and it be consistent across both inputs. This is often a variant
+        name.
+        """
+        contracts = consumer.get_input_contracts()
         for input_tuple, contract in contracts.items():
             # Check if this contract can use the new result
             if not any(output_type in input_tuple for output_type in new_result.op.output_types):
                 continue
-                
             # Generate lists of results for each input type in this contract
             input_results = []
             for input_type in input_tuple:
                 keys = self._results_by_type.get(input_type, [])
                 results = [self._results[key] for key in keys]
                 input_results.append(results)
-            
             if not input_results or any(not results for results in input_results):
                 continue
-                
-            # Generate cartesian product of tasks for this contract
+            # Generate cartesian product of tasks for this contract and add variants
             for cur_results in product(*input_results):
                 inputs = {t: r for t, r in zip(input_tuple, cur_results)}
-                
-                # Check contract consistency requirements
                 if self._satisfies_contract(inputs, contract):
                     self.add_all_variants(consumer, inputs)
 
     def _satisfies_contract(self, inputs: dict[str, Result], contract: dict[str, Any]) -> bool:
-        """Check if inputs satisfy the contract's consistency requirements."""
+        """Check if `inputs` satisfy the `contract` requirements."""
         consistency_fields = contract.get("consistency_fields", [])
-        
         for field in consistency_fields:
             values = set()
             for result in inputs.values():
-                if hasattr(result, 'metadata') and field in result.metadata:
-                    values.add(result.metadata[field])
-            
+                if value := result.get(field):
+                    values.add(value)
             if len(values) > 1:  # Inconsistent values found
                 return False
-                
         return True
 
     def run_tasks(self) -> None:
