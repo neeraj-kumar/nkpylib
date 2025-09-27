@@ -54,6 +54,7 @@ class Result:
     - Full provenance chain (list of operations that led to this result)
     - Key for deduplication
     - Timestamp and error information
+    - Metadata for contract consistency checking
 
     The operation that produced this result is always the last item in the provenance chain.
     """
@@ -63,6 +64,7 @@ class Result:
     variant: str|None = None
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
     error: Exception|None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Result):
@@ -326,20 +328,49 @@ class OpManager:
             consumers.update(self.get_consumers(output_type))
         logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
         for consumer in consumers:
-            input_types = sorted(consumer.input_types)
-            # generate lists of results for each input type
+            self._create_tasks_for_consumer(consumer, result)
+
+    def _create_tasks_for_consumer(self, consumer: type[Op], new_result: Result) -> None:
+        """Create tasks for a specific consumer op, respecting input contracts."""
+        contracts = consumer.get_input_contracts() if hasattr(consumer, 'get_input_contracts') else {tuple(sorted(consumer.input_types)): {}}
+        
+        for input_tuple, contract in contracts.items():
+            # Check if this contract can use the new result
+            if not any(output_type in input_tuple for output_type in new_result.op.output_types):
+                continue
+                
+            # Generate lists of results for each input type in this contract
             input_results = []
-            for t in input_types:
-                keys = self._results_by_type.get(t, [])
+            for input_type in input_tuple:
+                keys = self._results_by_type.get(input_type, [])
                 results = [self._results[key] for key in keys]
                 input_results.append(results)
-            if not input_results:
+            
+            if not input_results or any(not results for results in input_results):
                 continue
-            # now generate cartesian product of tasks
-            # (if any has an empty list, it will result in no tasks)
+                
+            # Generate cartesian product of tasks for this contract
             for cur_results in product(*input_results):
-                inputs = {t: r for t, r in zip(input_types, cur_results)}
-                self.add_all_variants(consumer, inputs)
+                inputs = {t: r for t, r in zip(input_tuple, cur_results)}
+                
+                # Check contract consistency requirements
+                if self._satisfies_contract(inputs, contract):
+                    self.add_all_variants(consumer, inputs)
+
+    def _satisfies_contract(self, inputs: dict[str, Result], contract: dict[str, Any]) -> bool:
+        """Check if inputs satisfy the contract's consistency requirements."""
+        consistency_fields = contract.get("consistency_fields", [])
+        
+        for field in consistency_fields:
+            values = set()
+            for result in inputs.values():
+                if hasattr(result, 'metadata') and field in result.metadata:
+                    values.add(result.metadata[field])
+            
+            if len(values) > 1:  # Inconsistent values found
+                return False
+                
+        return True
 
     def run_tasks(self) -> None:
         """Runs our task list using our thread and process pools."""
@@ -470,10 +501,14 @@ class Op(ABC):
 
     Each operation defines:
     - `name`: unique identifier for this operation
-    - `input_types`: set of type names this operation requires as input
+    - `input_types`: set of type names this operation requires as input, OR dict of input contracts
     - `output_types`: set of type names this operation produces (it's a single output, but it can be
       "known" by multiple types).
     - `is_intermediate`: if True, the output is not stored in results
+
+    For `input_types`, you can use either:
+    1. Simple set format: {"feature_set", "labels"} - for basic cases
+    2. Contract format: {("input_a", "input_b"): {"consistency_fields": ["field1"]}} - for complex cases
 
     These are by default defined at the class level, but if they are dependent on init parameters,
     you can also define them at the instance level. They are always referred to be `self.name`
@@ -483,7 +518,7 @@ class Op(ABC):
     When created, the operation automatically registers itself with the global manager.
     """
     name = ""
-    input_types: set[str] = set()
+    input_types: set[str] | dict[tuple[str, ...], dict[str, Any]] = set()
     output_types: set[str] = set()
 
     # by default we assume ops are not intermediate. If they are, override this
@@ -495,12 +530,12 @@ class Op(ABC):
     # where this op should run (main=main process, thread=thread pool, process=process pool)
     run_mode = "main" # main, thread, process
 
-    def __init__(self, variant: str|None=None, name: str|None = None, input_types: set[str]|None=None, output_types: set[str]|None=None):
+    def __init__(self, variant: str|None=None, name: str|None = None, input_types: set[str] | dict[tuple[str, ...], dict[str, Any]] | None=None, output_types: set[str]|None=None):
         """Initialize this operation.
 
         - variant: optional variant name for this instance
         - name: optional instance-specific name
-        - input_types: optional instance-specific input types
+        - input_types: optional instance-specific input types (set or contract dict)
         - output_types: optional instance-specific output types
 
         If you don't specify these, the class-level ones are used. For `name`, if both are missing,
@@ -562,6 +597,17 @@ class Op(ABC):
             logger.exception(e)
             error = e
         return output, error
+
+    def get_input_contracts(self) -> dict[tuple[str, ...], dict[str, Any]]:
+        """Convert input_types to contract format for consistent processing."""
+        if isinstance(self.input_types, set):
+            # Convert simple set to contract format
+            return {tuple(sorted(self.input_types)): {}}
+        elif isinstance(self.input_types, dict):
+            # Already in contract format
+            return self.input_types
+        else:
+            raise ValueError(f"Invalid input_types format: {type(self.input_types)}")
 
     @abstractmethod
     def _execute(self, inputs: dict[str, Any]) -> Any:
