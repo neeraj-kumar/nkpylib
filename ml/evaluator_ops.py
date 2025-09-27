@@ -280,10 +280,21 @@ class OpManager:
                 continue
             # Convert to frozensets for safe internal operations
             frozen_output_types = frozenset(op_cls.output_types)
-            frozen_input_types = frozenset(op_cls.input_types)
+            
+            # Handle input_types - could be set or dict (contracts)
+            if isinstance(op_cls.input_types, set):
+                frozen_input_types = frozenset(op_cls.input_types)
+                input_types_to_register = frozen_input_types
+            else:
+                # For contract format, collect all input types from all contracts
+                all_input_types = set()
+                for input_tuple in op_cls.input_types.keys():
+                    all_input_types.update(input_tuple)
+                input_types_to_register = frozenset(all_input_types)
+            
             for output_type in frozen_output_types:
                 self.ops_by_output_type[output_type].append(op_cls)
-            for input_type in frozen_input_types:
+            for input_type in input_types_to_register:
                 self.ops_by_input_type[input_type].append(op_cls)
         # this contains a list of op instances
         self.all_ops: list[Op] = []
