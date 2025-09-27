@@ -1301,23 +1301,34 @@ class GetEmbeddingDimsOp(Op):
 
 
 class GetLabelArraysOp(Op):
-    """Extract label arrays from labels, using embedding_dims for consistency.
-    
+    """Extract label arrays from labels and embedding_dims for consistency.
+
     Returns a 2D array where each row is one label array across all samples.
     Uses the keys and matrix from embedding_dims to ensure consistency.
     """
     name = "get_label_arrays"
     input_types = {"labels", "embedding_dims"}
-    output_types = {"many_array1d_a"}
+    output_types = {"label_arrays", "many_array1d_a"}
+
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants of this op, one per label key."""
+        labels = inputs.get("labels", {})
+        ret = {}
+        for key in labels:
+            variant_name = f"label_key:{key}"
+            ret[variant_name] = {"label_key": key}
+        return ret or None
+
+    def __init__(self, label_key: str|None = None, **kw):
+        self.label_key = label_key
+        super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         labels = inputs["labels"]
         embedding_data = inputs["embedding_dims"]
-        keys = embedding_data["keys"]
-        matrix = embedding_data["matrix"]
-        
+        keys, matrix = embedding_data["keys"], embedding_data["matrix"]
         label_arrays = []
-        
         for key, label in labels.items():
             if isinstance(label, NumericLabels):
                 # Get matching submatrix and extract label values
@@ -1330,14 +1341,12 @@ class GetLabelArraysOp(Op):
                 for label_name, ids in label.by_label().items():
                     _, id_indices = label.get_matching_matrix(keys, matrix)
                     if len(id_indices) > 0:
-                        binary_array = np.array([1.0 if label.ids[i] in ids else -1.0 
+                        binary_array = np.array([1.0 if label.ids[i] in ids else -1.0
                                                for i in id_indices])
                         label_arrays.append(binary_array)
-        
         if not label_arrays:
             # Return empty array with correct shape
             return np.empty((0, len(keys)))
-        
         return np.vstack(label_arrays)  # shape: (n_labels, n_samples)
 
 
@@ -1353,7 +1362,15 @@ class CompareStatsOp(Op):
     - n_comparisons: total number of comparisons made
     """
     name = "compare_stats"
-    input_types = {"many_array1d_a", "many_array1d_b"}
+    input_types = {
+        ('many_array1d_a', 'many_array1d_b'): {},
+        ("label_dimensions_a", "embedding_dimensions_b"): {
+            "consistency_fields": ["label_variant"]
+        },
+        ("label_distances_a", "embedding_distances_b"): {
+            "consistency_fields": ["label_variant", "distance_type"]
+        },
+    }
     output_types = {"stats_comparison"}
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
