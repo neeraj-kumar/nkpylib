@@ -1,6 +1,12 @@
 """Op-related code for ml evaluator.
 
 TODO:
+- continuation of runs?
+- better visualization of existing results
+- compare eval runs by id
+- find structurally similar outputs in different runs (i.e., same provenance/keys)
+- annotate existing runs with warnings
+- separate storage of warnings?
 - updating progress to disk
   - global stats (tasks executed and where, throughput, etc)
 - bayesian optimization
