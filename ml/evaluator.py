@@ -141,15 +141,11 @@ pprint = lambda x: _pprint(x, width=CONSOLE_WIDTH)
 FLOAT_TYPES = (float, np.float32, np.float64)
 NUMERIC_TYPES = FLOAT_TYPES + (int, np.int32, np.int64)
 
-# correlations are returns as a tuple of `(pearson, spearman)`
-# where each contains a list of (correlation, dim) tuples
-Correlations = tuple[list[float, int], list[tuple[float, int]]]
-
 # a distance tuple has (id1, id2, distance)
 DistTuple = tuple[str, str, float]
 
-# All distances is a tuple of (list of ids, complete distance matrix)
-AllDists = tuple[list[str], array2d]
+# All distances is a dict with various fields
+AllDists = dict[str, Any]
 
 # stats are for now just a dict of strings
 Stats = dict[str, Any]
@@ -270,26 +266,38 @@ class Labels(ABC):
         """
         raise NotImplementedError()
 
-    def get_all_distances(self, n_pts: int, perc_close: float = -1, **kw) -> AllDists:
+    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDists:
         """Returns all pairwise distances between `n_pts` points.
 
         We try to sample at least `perc_close` points that are "close" according to the label type's
         definition of closeness. < 0 means we don't care about closeness (default).
 
-        Returns a pair of `(list of ids, complete distance matrix)`. The distance matrix rows/cols
-        are in the same order as the list of ids.
-
         This is a naive implementation that ignores `perc_close` and just does random sampling.
         It also computes distances one-by-one using `get_distance()`. It passes all kw to
         `get_distance()`.
+
+        Returns a dict with the following fields:
+        - `sub_keys` is the list of overlapping keys
+        - `label_distances` is a 2d np array of distances between the overlapping keys
+          - Shape `(len(sub_keys), len(sub_keys))`
+        - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
+          - Shape `(len(sub_keys), matrix.shape[1])`
         """
         assert n_pts > 1, 'Must have at least 2 points to compute distances'
-        if n_pts > len(self.ids):
-            n_pts = len(self.ids)
-        ids = sorted(random.sample(self.ids, n_pts))
+        ids = [id for id in self.ids if id in keys]
+        if n_pts > len(ids):
+            n_pts = len(ids)
+        ids = sorted(random.sample(ids, n_pts))
+        id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
         logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
-        return ids, dists
+        assert len(sub_keys) == len(sub_matrix) == len(ids) == dists.shape[0] == dists.shape[1]
+        assert sub_matrix.shape[1] == matrix.shape[1]
+        return dict(
+            sub_keys=sub_keys,
+            label_distances=dists,
+            sub_matrix=sub_matrix,
+        )
 
     def compute_all_distances(self, ids: list[str], **kw) -> array2d:
         """Computes all distances in `ids` using `get_distance(id1, id2, **kw)`."""
@@ -304,7 +312,7 @@ class Labels(ABC):
         return dists
 
     @abstractmethod
-    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
+    def get_pair_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples.
 
         You can specify `perc_close` which is the minimum percentage of pairs that should be "close"
@@ -318,7 +326,7 @@ class Labels(ABC):
         """
         raise NotImplementedError()
 
-    def get_matching_matrix(self, keys: list[str], matrix: array2d) -> tuple[array1d, list[str], nparray2d]:
+    def get_matching_matrix(self, keys: list[str], matrix: array2d, ids: list[str]|None) -> tuple[array1d, list[str], nparray2d]:
         """Returns matching submatrix based on overlapping keys.
 
         This does a set intersection between our ids and the given `keys`, and returns a tuple of
@@ -329,17 +337,21 @@ class Labels(ABC):
         - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys, with same
           dimensionality as the input `matrix`.
 
+        If `ids` is given, it is used instead of `self.ids` to find the intersection.
+
         In other words, you can iterate through all 3 in parallel.
 
         Note that if ids repeat in `self.ids`, this will use the first matching index.
         """
-        assert len(keys) == len(matrix)
+        assert len(keys) == len(matrix), f'Keys {len(keys)} and matrix ({matrix.shape}) rows must match'
         # get row indices of our ids in keys and in self
         mat_indices = []
         id_indices = []
         assert len(keys) == len(set(keys)), 'Keys should be unique'
-        common = set(keys) & set(self.ids)
-        assert common, 'No matching ids found between {len(keys)} input keys and {self}'
+        if ids is None:
+            ids = list(self.ids)
+        common = set(keys) & set(ids)
+        assert common, 'No matching ids found between {len(keys)} input keys and {ids}'
         sub_keys = []
         for mat_idx, id in enumerate(keys):
             if id not in common:
@@ -374,24 +386,6 @@ class Labels(ABC):
           - Shape `(len(sub_keys), matrix.shape[1])`
         """
         raise NotImplementedError()
-
-    def get_correlations(self, sub_matrix: array2d, sub_labels: array1d, n_top: int=10) -> Correlations:
-        """Computes correlations between each dimension of `sub_matrix` and `sub_labels`.
-
-        Returns 2 lists of (correlation, dim) tuples, one using Pearson correlation and the other
-        using Spearman correlation.
-        """
-        def format_results(ret):
-            ret = [(corr, dim) for dim, corr in enumerate(ret) if not np.isnan(corr)]
-            ret = sorted(ret, key=lambda x: abs(x[0]), reverse=True)[:n_top]
-            return ret
-
-        funcs = [
-            lambda i: np.corrcoef(sub_matrix[:, i], sub_labels)[0, 1],
-            lambda i: stats.spearmanr(sub_matrix[:, i], sub_labels).statistic,
-        ]
-        ret = [format_results([func(i) for i in range(sub_matrix.shape[1])]) for func in funcs]
-        return tuple(ret)
 
     def _pairs_to_list(self, pairs: dict[frozenset[str], float]) -> list[DistTuple]:
         """Converts `pairs` dict to list of `(id1, id2, distance)` tuples."""
@@ -445,7 +439,6 @@ class NumericLabels(Labels):
         assert ret['sub_matrix'].shape[1] == matrix.shape[1]
         return ret
 
-
     def get_distance(self, idx1: int, idx2: int, norm_type: str='raw', **kw) -> float:
         """Returns distance between two id indices.
 
@@ -457,7 +450,7 @@ class NumericLabels(Labels):
         dist = abs(self.values[idx1] - self.values[idx2]) / self.norm_factors[norm_type]
         return dist
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1,
+    def get_pair_distances(self, n_pairs: int, perc_close: float = -1,
                       norm_type: str='raw', close_thresh=0.2, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples.
 
@@ -532,26 +525,35 @@ class MulticlassBase(Labels):
     def by_label(self) -> dict[Any, set[str]]:
         raise NotImplementedError()
 
-    def get_all_distances(self, n_pts: int, perc_close: float = -1, **kw) -> AllDists:
+    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDists:
         """Returns all pairwise distances between `n_pts` points.
 
         We try to sample at least `perc_close` points that are "close" according to the label type's
         definition of closeness. < 0 means we don't care about closeness (default).
 
-        Returns a pair of `(list of ids, complete distance matrix)`. The distance matrix rows/cols
-        are in the same order as the list of ids.
-
         This implementation samples points from the same label groups if `perc_close > 0` to try to
         get points which share at least one label in common, in rough proportion to the size of each
         label group.
+
+        Returns a dict with the following fields:
+        - `sub_keys` is the list of overlapping keys
+        - `label_distances` is a 2d np array of distances between the overlapping keys
+          - Shape `(len(sub_keys), len(sub_keys))`
+        - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
+          - Shape `(len(sub_keys), matrix.shape[1])`
         """
         assert n_pts > 1, 'Must have at least 2 points to compute distances'
-        if n_pts > len(self.ids):
-            n_pts = len(self.ids)
+        valid_ids = [id for id in self.ids if id in keys]
+        if n_pts > len(valid_ids):
+            n_pts = len(valid_ids)
         ids = set()
         n_close = int(n_pts * perc_close)
         if n_close > 0:
-            groups = {label: sorted(ids) for label, ids in self.by_label().items() if len(ids) >= 2}
+            groups = {}
+            for label, ids in self.by_label().items():
+                cur_ids = sorted(id for id in ids if id in valid_ids)
+                if len(cur_ids) >= 2:
+                    groups[label] = cur_ids
             labels = sorted(groups.keys())
             counts = [len(groups[label]) for label in labels]
             # we want to sample from each group in proportion to its size, but at least 2 from each
@@ -560,14 +562,20 @@ class MulticlassBase(Labels):
                 n = max(min(n, len(groups[label])), 2)
                 ids.update(random.sample(groups[label], n))
         if len(ids) < n_pts:
-            remaining_ids = set(self.ids) - ids
+            remaining_ids = set(valid_ids) - ids
             ids.update(random.sample(sorted(remaining_ids), n_pts - len(ids)))
+        # at this point we should have all our ids
         ids = sorted(ids)
+        id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
         logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
-        return ids, dists
+        return dict(
+            sub_keys=sub_keys,
+            label_distances=dists,
+            sub_matrix=sub_matrix,
+        )
 
-    def get_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
+    def get_pair_distances(self, n_pairs: int, perc_close: float = -1, **kw) -> list[DistTuple]:
         """Returns `n_pairs` of `(id1, id2, distance)` tuples in sorted order by distance.
 
         If perc_close >= 0, ensures that proportion of pairs are "close" according to
@@ -798,7 +806,7 @@ class EmbeddingsValidator:
         ret['qq'] = plt.gcf()
         return ret
 
-    def check_distances(self, n: int=200, sample_ids:bool=True) -> None:
+    def check_distances(self, n: int=200) -> None:
         """Does various tests based on distances.
 
         This uses our labels to generate sets of `n` items, and then compute all-pairs distances
@@ -809,44 +817,20 @@ class EmbeddingsValidator:
         fs_keys = set(self.fs.keys())
         for key, label in self.labels.items():
             kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
-            if sample_ids: # all pairs for a set of ids
-                ids, label_dists = label.get_all_distances(n, **kw)
-                common_indices = np.array([i for i, id in enumerate(ids) if id in fs_keys])
-                if len(common_indices) < 2:
-                    continue
-                ids = [ids[i] for i in common_indices]
-                label_dists = label_dists[np.ix_(common_indices, common_indices)]
-                print(f'\nFor {key} got {len(ids)} ids: {ids[:3]}')
-                # get embedding matrix to then compute all pairs distances
-                keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=False, scale_std=False)
-                dists = dict(
-                    dot_prod=1.0 - (emb @ emb.T),
-                    cos_sim=squareform(pdist(emb, 'cosine')),
-                    #euc_dist=squareform(pdist(emb, 'euclidean')),
-                )
-            else: # sample pairs
-                pairs = label.get_distances(n, **kw)
-                # filter by keys in our embeddings
-                pairs = [(id1, id2, dist) for id1, id2, dist in pairs if id1 in fs_keys and id2 in fs_keys]
-                if not pairs:
-                    continue
-                a_keys, b_keys, label_dists = zip(*pairs)
-                label_dists = np.asarray(label_dists)
-                print(f'\nFor {key} got {len(pairs)} pairs: {pairs[:3]}')
-                ids = sorted(set(a_keys) | set(b_keys))
-                # get A and B matrix of embeddings to then compute distances
-                keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=False, scale_std=False)
-                A = np.array([emb[keys.index(id)] for id in a_keys])
-                B = np.array([emb[keys.index(id)] for id in b_keys])
-                logger.debug(f'  {label_dists.shape}, {A.shape}, {B.shape}, {label_dists}, {A}, {B}')
-                # compute dot product, cosine similarity, euclidean distance (all small=similar)
-                dists = dict(
-                    dot_prod=1.0 - np.einsum('ij,ij->i', A, B),
-                    cos_sim=1.0 - np.einsum('ij,ij->i', A, B) / (np.linalg.norm(A, axis=1) * np.linalg.norm(B, axis=1)),
-                    #euc_dist=np.linalg.norm(A - B, axis=1),
-                )
-            if np.allclose(dists['dot_prod'], dists['cos_sim'], rtol=1e-2, atol=1e-2):
-                del dists['cos_sim']
+            ids, label_dists = label.get_all_distances(n, **kw)
+            common_indices = np.array([i for i, id in enumerate(ids) if id in fs_keys])
+            if len(common_indices) < 2:
+                continue
+            ids = [ids[i] for i in common_indices]
+            label_dists = label_dists[np.ix_(common_indices, common_indices)]
+            print(f'\nFor {key} got {len(ids)} ids: {ids[:3]}')
+            # get embedding matrix to then compute all pairs distances
+            keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=False, scale_std=False)
+            dists = dict(
+                dot_prod=1.0 - (emb @ emb.T),
+                cos_sim=squareform(pdist(emb, 'cosine')),
+                #euc_dist=squareform(pdist(emb, 'euclidean')),
+            )
             # now compare each one to label_dists
             if label_dists.ndim == 2:
                 # sample upper triangle without diagonal
@@ -871,8 +855,7 @@ class EmbeddingsValidator:
                     for name, plot in plots.items():
                         plt.figure(plot.number)
                         plt.show()
-            if sample_ids:
-                self.check_neighbors(ids, label_dists, dists, key=key)
+            self.check_neighbors(ids, label_dists, dists, key=key)
             #break
 
     def check_neighbors(self,
@@ -950,30 +933,6 @@ class EmbeddingsValidator:
                                  value=avg,
                                  score=3,
                                  warning=f'High neighbor {k}={avg:.3f} for {key} using {method}')
-
-    def test_distances(self) -> None:
-        """Quick test to see if distances are working"""
-        print(', '.join(self.labels))
-        label = self.labels['ml-genre']
-        kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
-        pairs = label.get_distances(20, **kw)
-        def print_pairs(pairs):
-            n_close = sum(1 for id1, id2, dist in pairs if dist <= kw['close_thresh'])
-            print(f'\n{len(pairs)} pairs for label {label.key} ({n_close} close within {kw["close_thresh"]}, {int(len(pairs)*kw["perc_close"])} requested):')
-            with db_session:
-                for id1, id2, dist in pairs:
-                    title1 = Tag.get(key='title', id=id1).value
-                    title2 = Tag.get(key='title', id=id2).value
-                    if isinstance(label, MultilabelLabels):
-                        val1 = ','.join(sorted(label.values[id1]))
-                        val2 = ','.join(sorted(label.values[id2]))
-                    else:
-                        val1 = label.values[label.ids.index(id1)]
-                        val2 = label.values[label.ids.index(id2)]
-                    #print(f'  {title1} ({id1}) - {title2} ({id2}): {dist:.3f}')
-                    print(f'  {title1} ({val1}) - {title2} ({val2}): {dist:.3f}')
-
-        print_pairs(pairs)
 
     def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> dict[str, array1d]:
         """Generates prediction tasks derived from a set of `ids` and a `Labels` instance.
@@ -1289,8 +1248,29 @@ class NormalizeOp(Op):
         )
         return (keys, emb)
 
+class LabelOp(Op):
+    """A label op is an abstract class that defines one variant per label_key"""
 
-class GetLabelArraysOp(Op):
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants of this op, one per label key."""
+        labels = inputs.get("labels", {})
+        assert labels, 'Must have some labels!'
+        ret = {}
+        for key in labels:
+            variant_name = f"label_key:{key}"
+            ret[variant_name] = {"label_key": key}
+            if len(ret) > 3: #FIXME temporary
+                break
+        logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
+        return ret
+
+    def __init__(self, label_key: str, **kw):
+        self.label_key = label_key
+        super().__init__(**kw)
+
+
+class GetLabelArraysOp(LabelOp):
     """Extract label arrays from labels, determining the intersection with embeddings.
 
     Each label key gets its own variant of this op, so we can process each one separately, and
@@ -1310,22 +1290,6 @@ class GetLabelArraysOp(Op):
     input_types = {"normalized_embeddings", "labels"}
     output_types = {"label_arrays_data"}
 
-    @classmethod
-    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
-        """Returns different variants of this op, one per label key."""
-        labels = inputs.get("labels", {})
-        assert labels, 'Must have some labels!'
-        ret = {}
-        for key in labels:
-            variant_name = f"label_key:{key}"
-            ret[variant_name] = {"label_key": key}
-        logger.info(f'Got {len(ret)} variants for getlabelarrays: {labels}, {ret}')
-        return ret
-
-    def __init__(self, label_key: str, **kw):
-        self.label_key = label_key
-        super().__init__(**kw)
-
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         keys, matrix = inputs["normalized_embeddings"]
         label = inputs["labels"][self.label_key]
@@ -1334,51 +1298,40 @@ class GetLabelArraysOp(Op):
         return ret
 
 
-class GetLabelDistancesOp(Op):
+class GetLabelDistancesOp(LabelOp):
     """Generate distance matrices from labels.
-    
+
     Each label key gets its own variant of this op, so we can process each one separately.
+
     Returns a dict with:
     - `label_key`: The variant name, corresponding to the label that these distances are from
-    - `ids`: The list of ids used in the distance matrix (rows/columns)
+    - `sub_keys` is the list of overlapping keys used in the distance matrix(rows/cols)
     - `label_distances`: The distance matrix between ids
+    - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
+      - Shape `(len(sub_keys), matrix.shape[1])`
     """
     name = "get_label_distances"
-    input_types = {"labels"}
+    input_types = {"labels", "normalized_embeddings"}
     output_types = {"label_distances"}
     run_mode = "process"
-
-    @classmethod
-    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
-        """Returns different variants of this op, one per label key."""
-        labels = inputs.get("labels", {})
-        assert labels, 'Must have some labels!'
-        ret = {}
-        for key in labels:
-            variant_name = f"label_key:{key}"
-            ret[variant_name] = {"label_key": key}
-        return ret
 
     def __init__(self, label_key: str, n_pts: int = 200, perc_close: float = 0.5, **kw):
         self.label_key = label_key
         self.n_pts = n_pts
         self.perc_close = perc_close
-        super().__init__(**kw)
+        super().__init__(label_key=label_key, **kw)
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         label = inputs["labels"][self.label_key]
-        
-        # Generate distance matrix
-        ids, distances = label.get_all_distances(
-            n_pts=self.n_pts, 
-            perc_close=self.perc_close
+        keys, matrix = inputs["normalized_embeddings"]
+        ret = label.get_all_distances(
+            n_pts=self.n_pts,
+            keys=keys,
+            matrix=matrix,
+            perc_close=self.perc_close,
         )
-        
-        return {
-            "label_key": self.label_key,
-            "ids": ids,
-            "label_distances": distances
-        }
+        ret['label_key'] = self.label_key
+        return ret
 
 
 class GetEmbeddingDimsOp(Op):
@@ -1387,7 +1340,6 @@ class GetEmbeddingDimsOp(Op):
     Uses the keys and matrix from label_arrays_data to ensure both arrays
     have the same samples in the same order.
     """
-    #FIXME currently broken
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
     output_types = {"embedding_dims"}
@@ -1414,14 +1366,14 @@ class GetEmbeddingDimsOp(Op):
             # Apply log transform, handling negative values
             dims = np.log1p(np.abs(dims))
         # "raw" needs no transformation
-        return dict(matrix=dims, transform=self.transform, label_key=label_data["label_key"])
+        return dict(dims_matrix=dims, transform=self.transform, label_key=label_data["label_key"])
 
 
 class GetEmbeddingDistancesOp(Op):
     """Generate distance matrices from embeddings using various distance metrics.
-    
-    Takes a list of ids and normalized embeddings, and computes distance matrices
-    using different metrics (cosine, dot product, etc.)
+
+    Takes a list of ids (from label_distances) and normalized embeddings, and computes distance
+    matrices using different metrics (cosine, dot product, etc.)
     """
     name = "get_embedding_distances"
     input_types = {"normalized_embeddings", "label_distances"}
@@ -1431,47 +1383,35 @@ class GetEmbeddingDistancesOp(Op):
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants for distance metrics."""
-        ret = {
-            "cosine": {"metric": "cosine"},
-            "dot_product": {"metric": "dot_product"},
-            "euclidean": {"metric": "euclidean"}
-        }
-        return ret
+        metrics = ['cosine', 'dot_product', 'euclidean']
+        metrics = ['cosine', 'dot_product'] #TODO 'euclidean' is too similar to cosine
+        return {metric: dict(metric=metric) for metric in metrics}
 
-    def __init__(self, metric: str = "cosine", **kw):
+    def __init__(self, metric, **kw):
         self.metric = metric
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         keys, matrix = inputs["normalized_embeddings"]
         label_data = inputs["label_distances"]
-        
+
         # Get the ids from label distances to ensure consistency
-        ids = label_data["ids"]
-        label_key = label_data["label_key"]
-        
-        # Filter embeddings to match the ids from label distances
-        id_indices = [keys.index(id) for id in ids if id in keys]
-        filtered_ids = [ids[i] for i in range(len(ids)) if ids[i] in keys]
-        filtered_matrix = matrix[id_indices]
-        
+        ret = dict(label_key=label_data["label_key"], metric=self.metric)
+        matrix = label_data["sub_matrix"]  # Already filtered to the right intersection
+        logger.info(f'Computing {self.metric} dists for label {label_data["label_key"]} with {matrix.shape} matrix')
+
         # Compute distance matrix based on metric
         if self.metric == "cosine":
-            distances = squareform(pdist(filtered_matrix, 'cosine'))
+            distances = squareform(pdist(matrix, 'cosine'))
         elif self.metric == "dot_product":
             # Dot product similarity (convert to distance by 1-sim)
-            distances = 1.0 - (filtered_matrix @ filtered_matrix.T)
+            distances = 1.0 - (matrix @ matrix.T)
         elif self.metric == "euclidean":
-            distances = squareform(pdist(filtered_matrix, 'euclidean'))
+            distances = squareform(pdist(matrix, 'euclidean'))
         else:
             raise ValueError(f"Unknown metric: {self.metric}")
-        
-        return {
-            "ids": filtered_ids,
-            "embedding_distances": distances,
-            "metric": self.metric,
-            "label_key": label_key  # Pass through for consistency checking
-        }
+        ret['embedding_distances'] = distances
+        return ret
 
 
 class CompareStatsOp(Op):
@@ -1504,12 +1444,16 @@ class CompareStatsOp(Op):
             arrays_a = inputs['many_array1d_a']
         elif 'label_arrays_data' in inputs:
             arrays_a = inputs['label_arrays_data']['label_arrays']
+        elif 'label_distances' in inputs:
+            arrays_a = inputs['label_distances']['label_distances']
         else:
             raise NotImplementedError(f'Cannot handle inputs {inputs.keys()} for array A')
         if 'many_array1d_b' in inputs:
             arrays_b = inputs['many_array1d_b']
         elif 'embedding_dims' in inputs:
-            arrays_b = inputs['embedding_dims']['matrix']
+            arrays_b = inputs['embedding_dims']['dims_matrix']
+        elif 'embedding_distances' in inputs:
+            arrays_b = inputs['embedding_distances']['embedding_distances']
         assert arrays_a.ndim == 2
         assert arrays_b.ndim == 2
         assert arrays_a.shape[1] == arrays_b.shape[1], f'Arrays must have same number of columns, got {arrays_a.shape} vs {arrays_b.shape}'
