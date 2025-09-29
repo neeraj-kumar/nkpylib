@@ -1334,6 +1334,53 @@ class GetLabelArraysOp(Op):
         return ret
 
 
+class GetLabelDistancesOp(Op):
+    """Generate distance matrices from labels.
+    
+    Each label key gets its own variant of this op, so we can process each one separately.
+    Returns a dict with:
+    - `label_key`: The variant name, corresponding to the label that these distances are from
+    - `ids`: The list of ids used in the distance matrix (rows/columns)
+    - `label_distances`: The distance matrix between ids
+    """
+    name = "get_label_distances"
+    input_types = {"labels"}
+    output_types = {"label_distances"}
+    run_mode = "process"
+
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants of this op, one per label key."""
+        labels = inputs.get("labels", {})
+        assert labels, 'Must have some labels!'
+        ret = {}
+        for key in labels:
+            variant_name = f"label_key:{key}"
+            ret[variant_name] = {"label_key": key}
+        return ret
+
+    def __init__(self, label_key: str, n_pts: int = 200, perc_close: float = 0.5, **kw):
+        self.label_key = label_key
+        self.n_pts = n_pts
+        self.perc_close = perc_close
+        super().__init__(**kw)
+
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        label = inputs["labels"][self.label_key]
+        
+        # Generate distance matrix
+        ids, distances = label.get_all_distances(
+            n_pts=self.n_pts, 
+            perc_close=self.perc_close
+        )
+        
+        return {
+            "label_key": self.label_key,
+            "ids": ids,
+            "label_distances": distances
+        }
+
+
 class GetEmbeddingDimsOp(Op):
     """Extract embedding dimensions from filtered label data for consistency.
 
@@ -1368,6 +1415,63 @@ class GetEmbeddingDimsOp(Op):
             dims = np.log1p(np.abs(dims))
         # "raw" needs no transformation
         return dict(matrix=dims, transform=self.transform, label_key=label_data["label_key"])
+
+
+class GetEmbeddingDistancesOp(Op):
+    """Generate distance matrices from embeddings using various distance metrics.
+    
+    Takes a list of ids and normalized embeddings, and computes distance matrices
+    using different metrics (cosine, dot product, etc.)
+    """
+    name = "get_embedding_distances"
+    input_types = {"normalized_embeddings", "label_distances"}
+    output_types = {"embedding_distances"}
+    run_mode = "process"
+
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants for distance metrics."""
+        ret = {
+            "cosine": {"metric": "cosine"},
+            "dot_product": {"metric": "dot_product"},
+            "euclidean": {"metric": "euclidean"}
+        }
+        return ret
+
+    def __init__(self, metric: str = "cosine", **kw):
+        self.metric = metric
+        super().__init__(**kw)
+
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        keys, matrix = inputs["normalized_embeddings"]
+        label_data = inputs["label_distances"]
+        
+        # Get the ids from label distances to ensure consistency
+        ids = label_data["ids"]
+        label_key = label_data["label_key"]
+        
+        # Filter embeddings to match the ids from label distances
+        id_indices = [keys.index(id) for id in ids if id in keys]
+        filtered_ids = [ids[i] for i in range(len(ids)) if ids[i] in keys]
+        filtered_matrix = matrix[id_indices]
+        
+        # Compute distance matrix based on metric
+        if self.metric == "cosine":
+            distances = squareform(pdist(filtered_matrix, 'cosine'))
+        elif self.metric == "dot_product":
+            # Dot product similarity (convert to distance by 1-sim)
+            distances = 1.0 - (filtered_matrix @ filtered_matrix.T)
+        elif self.metric == "euclidean":
+            distances = squareform(pdist(filtered_matrix, 'euclidean'))
+        else:
+            raise ValueError(f"Unknown metric: {self.metric}")
+        
+        return {
+            "ids": filtered_ids,
+            "embedding_distances": distances,
+            "metric": self.metric,
+            "label_key": label_key  # Pass through for consistency checking
+        }
 
 
 class CompareStatsOp(Op):
