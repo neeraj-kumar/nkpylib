@@ -806,58 +806,6 @@ class EmbeddingsValidator:
         ret['qq'] = plt.gcf()
         return ret
 
-    def check_distances(self, n: int=200) -> None:
-        """Does various tests based on distances.
-
-        This uses our labels to generate sets of `n` items, and then compute all-pairs distances
-        between them. We then compute all-pairs distances on our embeddings, and can the compare
-        these against the label distances. We can also compute neighbors from distances and run
-        neighbor-based tests.
-        """
-        fs_keys = set(self.fs.keys())
-        for key, label in self.labels.items():
-            kw = dict(close_thresh=.4, perc_close=0.5, norm_type='std')
-            ids, label_dists = label.get_all_distances(n, **kw)
-            common_indices = np.array([i for i, id in enumerate(ids) if id in fs_keys])
-            if len(common_indices) < 2:
-                continue
-            ids = [ids[i] for i in common_indices]
-            label_dists = label_dists[np.ix_(common_indices, common_indices)]
-            print(f'\nFor {key} got {len(ids)} ids: {ids[:3]}')
-            # get embedding matrix to then compute all pairs distances
-            keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=False, scale_std=False)
-            dists = dict(
-                dot_prod=1.0 - (emb @ emb.T),
-                cos_sim=squareform(pdist(emb, 'cosine')),
-                #euc_dist=squareform(pdist(emb, 'euclidean')),
-            )
-            # now compare each one to label_dists
-            if label_dists.ndim == 2:
-                # sample upper triangle without diagonal
-                iu = np.triu_indices(label_dists.shape[0], k=1)
-                label_dists = label_dists[iu]
-            for k, m in dists.items():
-                if m.ndim == 2:
-                    # sample identically as label_dists
-                    m = m[iu]
-                print(f'  {k}: {m.shape}: {m}')
-                label_stats, dist_stats, cmp_stats = self.compare_stats(label_dists, m)
-                for s in cmp_stats:
-                    if s not in 'pearson spearman tau kl_div'.split():
-                        continue
-                    if s in label_stats:
-                        print(f'    {s:>10}:\t{label_stats[s]: .3f}\t{dist_stats[s]: .3f}\t{cmp_stats[s]: .3f}')
-                    else:
-                        print(f'    {s:>10}:\t{cmp_stats[s]: .3f}')
-                if 0:
-                    plots = self.make_plots(label_dists, m, a_name=f'Label dists for {key}', b_name=f'{k} dists for {key}')
-                    # display each plot interactively
-                    for name, plot in plots.items():
-                        plt.figure(plot.number)
-                        plt.show()
-            self.check_neighbors(ids, label_dists, dists, key=key)
-            #break
-
     def check_neighbors(self,
                         ids: list[str],
                         label_dists: array1d,
@@ -1289,6 +1237,7 @@ class GetLabelArraysOp(LabelOp):
     name = "get_label_arrays"
     input_types = {"normalized_embeddings", "labels"}
     output_types = {"label_arrays_data"}
+    is_intermediate = True
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         keys, matrix = inputs["normalized_embeddings"]
@@ -1314,6 +1263,7 @@ class GetLabelDistancesOp(LabelOp):
     input_types = {"labels", "normalized_embeddings"}
     output_types = {"label_distances"}
     run_mode = "process"
+    is_intermediate = True
 
     def __init__(self, label_key: str, n_pts: int = 200, perc_close: float = 0.5, **kw):
         self.label_key = label_key
@@ -1343,6 +1293,7 @@ class GetEmbeddingDimsOp(Op):
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
     output_types = {"embedding_dims"}
+    is_intermediate = True
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1379,6 +1330,7 @@ class GetEmbeddingDistancesOp(Op):
     input_types = {"normalized_embeddings", "label_distances"}
     output_types = {"embedding_distances"}
     run_mode = "process"
+    is_intermediate = True
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1446,6 +1398,13 @@ class CompareStatsOp(Op):
             arrays_a = inputs['label_arrays_data']['label_arrays']
         elif 'label_distances' in inputs:
             arrays_a = inputs['label_distances']['label_distances']
+            #iu = np.triu_indices(label_dists.shape[0], k=1); label_dists=label_dists #TODO?
+            if 0:
+                plots = self.make_plots(label_dists, m, a_name=f'Label dists for {key}', b_name=f'{k} dists for {key}')
+                # display each plot interactively
+                for name, plot in plots.items():
+                    plt.figure(plot.number)
+                    plt.show()
         else:
             raise NotImplementedError(f'Cannot handle inputs {inputs.keys()} for array A')
         if 'many_array1d_b' in inputs:
