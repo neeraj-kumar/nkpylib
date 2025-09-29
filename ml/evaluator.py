@@ -1389,7 +1389,7 @@ class CompareStatsOp(Op):
             "consistency_fields": ["label_key"]
         },
         ("label_distances", "embedding_distances"): {
-            "consistency_fields": ["label_variant"]
+            "consistency_fields": ["label_key"]
         },
     }
     output_types = {"stats_comparison"}
