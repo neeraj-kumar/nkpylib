@@ -1398,15 +1398,23 @@ class GetNeighborsOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Determine which type of distance matrix we're using
         data = inputs['distances']
+        distances = data["distances"]  # Get the actual distance matrix
         keys = data["sub_keys"]
-        if "label_distances" in inputs:
+        
+        if "label_distances" in data:
             distance_type = "label"
             metric = None
-        elif "embedding_distances" in inputs:
+        elif "embedding_distances" in data:
             distance_type = "embedding"
             metric = data.get("metric")
         else:
-            raise ValueError(f"Expected label_distances or embedding_distances, got {inputs.keys()}")
+            # Determine type from the data structure
+            if "label_key" in data and "metric" in data:
+                distance_type = "embedding"
+                metric = data.get("metric")
+            else:
+                distance_type = "label"
+                metric = None
 
         # Ensure we don't request more neighbors than we have points
         k = min(self.k + 1, distances.shape[0])  # +1 because the point itself is included

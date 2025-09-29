@@ -324,7 +324,13 @@ class OpManager:
     def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
         """Adds tasks for all variants of the given `op_cls` with the given `inputs`."""
         # convert inputs to the actual output from the previous step, not Result objects
-        _inputs = {k: v.output if isinstance(v, Result) else v for k, v in inputs.items()}
+        _inputs = {}
+        for k, v in inputs.items():
+            if isinstance(v, list):
+                _inputs[k] = [item.output if isinstance(item, Result) else item for item in v]
+            else:
+                _inputs[k] = v.output if isinstance(v, Result) else v
+        
         variants = op_cls.get_variants(_inputs)
         if variants is None:
             variants = {'': {}}
@@ -599,7 +605,13 @@ class Op(ABC):
         logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
         try:
             # try to get the underlying output from the result objects
-            op_inputs = {k: v.output for k, v in inputs.items()}
+            op_inputs = {}
+            for k, v in inputs.items():
+                if isinstance(v, list):
+                    # Handle multiple inputs of the same type
+                    op_inputs[k] = [item.output for item in v]
+                else:
+                    op_inputs[k] = v.output
         except Exception:
             op_inputs = inputs
         self.key = self.get_key(op_inputs)
