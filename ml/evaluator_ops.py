@@ -375,21 +375,24 @@ class OpManager:
                 continue
             # Generate cartesian product of tasks for this contract and add variants
             for cur_results in product(*input_results):
-                #inputs = {t: r for t, r in zip(input_tuple, cur_results)}
-                # generate dict of inputs, aggregating multiple inputs of the same type into lists
+                # Count occurrences of each type in the input tuple to determine how to handle them
+                type_counts = Counter(input_tuple)
+                
+                # Generate dict of inputs, properly handling multiple inputs of the same type
                 inputs = {}
-                #TODO this is broken because one of the original outputs could have been a list
-                # -- we should generate counts of each type in input_tuple and use that to determine
-                # how to wrap into lists.
+                type_indices = defaultdict(int)
+                
                 for t, r in zip(input_tuple, cur_results):
-                    if t in inputs:
-                        if isinstance(inputs[t], list):
-                            inputs[t].append(r)
-                        else:
-                            inputs[t] = [inputs[t], r]
+                    if type_counts[t] > 1:
+                        # This type appears multiple times, so it should be a list
+                        if t not in inputs:
+                            inputs[t] = [None] * type_counts[t]
+                        inputs[t][type_indices[t]] = r
+                        type_indices[t] += 1
                     else:
+                        # This type appears only once
                         inputs[t] = r
-
+                
                 if self._satisfies_contract(inputs, contract):
                     self.add_all_variants(consumer, inputs)
 
@@ -399,8 +402,15 @@ class OpManager:
         for field in consistency_fields:
             values = set()
             for result in inputs.values():
-                if value := result.output.get(field):
-                    values.add(value)
+                if isinstance(result, list):
+                    # Handle list of results
+                    for r in result:
+                        if value := r.output.get(field):
+                            values.add(value)
+                else:
+                    # Handle single result
+                    if value := result.output.get(field):
+                        values.add(value)
             if len(values) > 1:  # Inconsistent values found
                 return False
         return True
