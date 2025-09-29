@@ -375,7 +375,21 @@ class OpManager:
                 continue
             # Generate cartesian product of tasks for this contract and add variants
             for cur_results in product(*input_results):
-                inputs = {t: r for t, r in zip(input_tuple, cur_results)}
+                #inputs = {t: r for t, r in zip(input_tuple, cur_results)}
+                # generate dict of inputs, aggregating multiple inputs of the same type into lists
+                inputs = {}
+                #TODO this is broken because one of the original outputs could have been a list
+                # -- we should generate counts of each type in input_tuple and use that to determine
+                # how to wrap into lists.
+                for t, r in zip(input_tuple, cur_results):
+                    if t in inputs:
+                        if isinstance(inputs[t], list):
+                            inputs[t].append(r)
+                        else:
+                            inputs[t] = [inputs[t], r]
+                    else:
+                        inputs[t] = r
+
                 if self._satisfies_contract(inputs, contract):
                     self.add_all_variants(consumer, inputs)
 
