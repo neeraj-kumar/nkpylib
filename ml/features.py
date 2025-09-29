@@ -90,10 +90,22 @@ __all__ = [
 class PrintableJSONEncoder(json.JSONEncoder):
     """A JSON encoder that takes every non-serializable object and converts it to a string."""
     def default(self, obj):
+        """A non-serializable type is converted to a string."""
         try:
             return super().default(obj)
         except TypeError:
             return str(obj)
+
+    def encode(self, obj):
+        """Dicts are normally serializable, but we have to make sure the keys are str"""
+        if isinstance(obj, dict):
+            obj = {str(k): v for k, v in obj.items()}
+            # do it recursively
+            for k, v in obj.items():
+                if isinstance(v, dict):
+                    obj[k] = self.encode(v)
+        return super().encode(obj)
+
 
 def make_jsonable(obj: Any) -> Any:
     """Convert an object to a JSON-serializable form.

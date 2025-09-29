@@ -74,9 +74,9 @@ class Result:
         return (f"<Result op={self.op.name if self.op else None} variant={self.variant} status={status} key={self.key}>")
 
     @property
-    def op(self) -> Op|None:
+    def op(self) -> Op:
         """The operation that produced this result (last in provenance chain)."""
-        return self.provenance[-1] if self.provenance else None
+        return self.provenance[-1]
 
     @property
     def start_ts(self) -> float:
@@ -113,7 +113,7 @@ class Result:
             "timestamps": self.timestamps,
             "input_types": sorted(self.op.input_types) if self.op else None,
             "output_types": sorted(self.op.output_types) if self.op else None,
-            "output_py_type": type(self.output).__name__ if self.output else None,
+            "output_py_type": type(self.output).__name__ if self.output is not None else None,
             "key": self.key,
             "output": None if self.op.is_intermediate else self.output,
         }
@@ -123,8 +123,8 @@ task_statuses = ("pending", "running", "completed", "failed")
 @dataclass
 class Task:
     """A task to execute an operation with specific inputs."""
+    op_cls: type[Op] # the op to run
     _status: str = "pending"
-    op_cls: type[Op]|None = None # the op to run
     inputs: dict[str, Result] = field(default_factory=dict) # type name -> Result object
     variant_name: str|None = None # if applicable
     variant_kwargs: dict[str, Any]|None = None # if applicable
@@ -134,7 +134,6 @@ class Task:
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
 
     def __post_init__(self) -> None:
-        assert self.op_cls is not None, "Task must have an op_cls"
         assert self._status in task_statuses, f"Invalid status {self._status}"
         self.timestamps[self._status] = time.time()
 
@@ -190,7 +189,7 @@ class TaskPool:
         cls_by_type = dict(thread=ThreadPoolExecutor, process=ProcessPoolExecutor)
         self.pool = cls_by_type[pool_type](max_workers=max_workers)
         self.max_workers = max_workers
-        self.futures = {}  # Future -> Task mapping
+        self.futures: dict[Future, Task] = {}  # Future -> Task mapping
 
     @property
     def n_working(self) -> int:
@@ -284,7 +283,7 @@ class OpManager:
                 input_types_to_register = frozen_input_types
             else:
                 # For contract format, collect all input types from all contracts
-                all_input_types = set()
+                all_input_types: set[str] = set()
                 for input_tuple in op_cls.input_types.keys():
                     all_input_types.update(input_tuple)
                 input_types_to_register = frozenset(all_input_types)
@@ -296,8 +295,8 @@ class OpManager:
         self.all_ops: list[Op] = []
         self._results: dict[str, Result] = {}  # key -> Result
         self._results_by_type: dict[str, list[str]] = defaultdict(list)  # output_type -> list of keys
-        self.tasks = []
-        self.done_tasks = []
+        self.tasks: list[Task] = []
+        self.done_tasks: list[Task] = []
         self.results_db = JsonLmdb.open(results_db_path, flag='c') if results_db_path else None
 
     def start(self, op_cls: type[Op], inputs: Any) -> None:
@@ -318,22 +317,24 @@ class OpManager:
 
     def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
         """Adds tasks for all variants of the given `op_cls` with the given `inputs`."""
-        variants = op_cls.get_variants(inputs)
+        # convert inputs to the actual output from the previous step, not Result objects
+        _inputs = {k: v.output if isinstance(v, Result) else v for k, v in inputs.items()}
+        variants = op_cls.get_variants(_inputs)
         if variants is None:
-            variants = {None: {}}
+            variants = {'': {}}
         for name, kwargs in variants.items():
             task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
             self.add_task(task)
 
     def create_tasks(self, result: Result|Exception) -> None:
         """Create new work tasks to do based on a new result."""
-        if isinstance(result, Exception):
+        if isinstance(result, Exception) or not result.is_success:
             return
         # Get consumers for all output types of this result
         consumers = set()
         for output_type in result.op.output_types:
             consumers.update(self.get_consumers(output_type))
-        logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
+        logger.debug(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
         for consumer in consumers:
             self._create_tasks_for_consumer(consumer, result)
 
@@ -372,7 +373,7 @@ class OpManager:
         for field in consistency_fields:
             values = set()
             for result in inputs.values():
-                if value := result.get(field):
+                if value := result.output.get(field):
                     values.add(value)
             if len(values) > 1:  # Inconsistent values found
                 return False
@@ -462,7 +463,6 @@ class OpManager:
         """Logs the given `result` to our database, as well as general logging updates."""
         if self.results_db is None:
             return
-        print(f'Logging result: {result}')
         if isinstance(result, Exception):
             return
         all_results = list(self._results.values())
@@ -483,7 +483,7 @@ class OpManager:
             # current update time
             'last_update': time.time(),
         }
-        print(f'Logged results: {to_update.keys()}')
+        logger.debug(f'Logged results: {to_update.keys()}')
         self.results_db.update(to_update)
         self.results_db.sync()
 
@@ -594,7 +594,7 @@ class Op(ABC):
             op_inputs = inputs
         self.key = self.get_key(op_inputs)
         logger.info(f'Executing op {self.name} ({self.variant}) -> {self.key}')
-        out, error = None, None
+        output, error = None, None
         try:
             output = self._execute(op_inputs)
         except Exception as e:
@@ -604,16 +604,17 @@ class Op(ABC):
             error = e
         return output, error
 
-    def get_input_contracts(self) -> dict[tuple[str, ...], dict[str, Any]]:
+    @classmethod
+    def get_input_contracts(cls) -> dict[tuple[str, ...], dict[str, Any]]:
         """Convert input_types to contract format for consistent processing."""
-        if isinstance(self.input_types, set):
+        if isinstance(cls.input_types, set):
             # Convert simple set to contract format
-            return {tuple(sorted(self.input_types)): {}}
-        elif isinstance(self.input_types, dict):
+            return {tuple(sorted(cls.input_types)): {}}
+        elif isinstance(cls.input_types, dict):
             # Already in contract format
-            return self.input_types
+            return cls.input_types
         else:
-            raise ValueError(f"Invalid input_types format: {type(self.input_types)}")
+            raise ValueError(f"Invalid input_types format: {type(cls.input_types)}")
 
     @abstractmethod
     def _execute(self, inputs: dict[str, Any]) -> Any:
@@ -642,6 +643,6 @@ class Op(ABC):
                 value_str = str(value)
             input_items.append(f"{key}:{value_str}")
         input_str = "|".join(input_items)
-        combined = f"{self.name}_{input_str}"
+        combined = f"{self.name}_{self.variant}_{input_str}"
         # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()

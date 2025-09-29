@@ -5,6 +5,8 @@ This is mostly in reference to a set of labels you provide, in the form of a tag
 
 TODO:
 
+- Collect all errors (particularly task failures) in one place
+- Restartability
 - Lots of ways of mapping embeddings to other embeddings, should be common procedure
   - PCA, K-PCA, ISOMAP, t-SNE, UMAP, LLE, Beta-VAE, etc
   - Also labeled methods like CCA and PLS
@@ -49,6 +51,7 @@ TODO:
   - Run unsupervised outlier detection algorithms (e.g., Isolation Forest, LOF) on the embedding space — helpful to spot anomalies or collapsed modes.
 - Maybe more generally for each Label, output best predictors/correlators/etc
 - Each op should define criteria for highlighting things and add them to a special obj in OM
+  - Remember to add back in top embedding dims with correlation
 - In the future, do ML doctor stuff
 - Feature selection
   - E.g. we have budget/revenue, but only as one or two dims
@@ -207,10 +210,12 @@ def compare_array1d_stats(a: array1d, b: array1d, *,
         kl_div=float(stats.entropy(a, b)),
     )
     # compute least squares linear fit to get rvalue
-    res = stats.linregress(a, b)
-    stats_cmp.update(dict(
-        linear_least_square_r2=float(res.rvalue)**2.0,
-    ))
+    try:
+        res = stats.linregress(a, b)
+        ret.update(linear_least_square_r2=float(res.rvalue)**2.0)
+    except Exception as e:
+        logger.exception(e)
+        ret.update(linear_least_square_r2=float('nan'))
     if stats_a is not None and stats_b is not None:
         ret.update({f'diff_{k}': stats_b[k] - stats_a[k] for k in stats_a})
     return ret
@@ -1303,7 +1308,7 @@ class GetLabelArraysOp(Op):
     """
     name = "get_label_arrays"
     input_types = {"normalized_embeddings", "labels"}
-    output_types = {"label_arrays_data", "many_array1d_a"}
+    output_types = {"label_arrays_data"}
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1314,6 +1319,7 @@ class GetLabelArraysOp(Op):
         for key in labels:
             variant_name = f"label_key:{key}"
             ret[variant_name] = {"label_key": key}
+        logger.info(f'Got {len(ret)} variants for getlabelarrays: {labels}, {ret}')
         return ret
 
     def __init__(self, label_key: str, **kw):
@@ -1337,15 +1343,14 @@ class GetEmbeddingDimsOp(Op):
     #FIXME currently broken
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
-    output_types = {"many_array1d_b"}
+    output_types = {"embedding_dims"}
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants for embedding dimension processing."""
         ret = {
             "raw": {"transform": "raw"},
-            "log": {"transform": "log"},
-            "abs": {"transform": "abs"},
+            #"log": {"transform": "log"},
         }
         return ret
 
@@ -1355,19 +1360,14 @@ class GetEmbeddingDimsOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         label_data = inputs["label_arrays_data"]
-        matrix = label_data["matrix"]  # Already filtered to the right intersection
-        
+        matrix = label_data["sub_matrix"]  # Already filtered to the right intersection
         dims = matrix.T  # Each row is one dimension across all samples
-        
         # Apply transformation based on variant
         if self.transform == "log":
             # Apply log transform, handling negative values
             dims = np.log1p(np.abs(dims))
-        elif self.transform == "abs":
-            dims = np.abs(dims)
         # "raw" needs no transformation
-        
-        return dims
+        return dict(matrix=dims, transform=self.transform, label_key=label_data["label_key"])
 
 
 class CompareStatsOp(Op):
@@ -1385,18 +1385,27 @@ class CompareStatsOp(Op):
     name = "compare_stats"
     input_types = {
         ('many_array1d_a', 'many_array1d_b'): {},
-        ("label_dimensions_a", "embedding_dimensions_b"): {
+        ("label_arrays_data", "embedding_dims"): {
             "consistency_fields": ["label_key"]
         },
-        ("label_distances_a", "embedding_distances_b"): {
-            "consistency_fields": ["label_variant", "distance_type"]
+        ("label_distances", "embedding_distances"): {
+            "consistency_fields": ["label_variant"]
         },
     }
     output_types = {"stats_comparison"}
+    run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        arrays_a = inputs["many_array1d_a"]  # 2D numpy array, each row is a 1D array
-        arrays_b = inputs["many_array1d_b"]  # 2D numpy array, each row is a 1D array
+        if 'many_array1d_a' in inputs:
+            arrays_a = inputs['many_array1d_a']
+        elif 'label_arrays_data' in inputs:
+            arrays_a = inputs['label_arrays_data']['label_arrays']
+        else:
+            raise NotImplementedError(f'Cannot handle inputs {inputs.keys()} for array A')
+        if 'many_array1d_b' in inputs:
+            arrays_b = inputs['many_array1d_b']
+        elif 'embedding_dims' in inputs:
+            arrays_b = inputs['embedding_dims']['matrix']
         assert arrays_a.ndim == 2
         assert arrays_b.ndim == 2
         assert arrays_a.shape[1] == arrays_b.shape[1], f'Arrays must have same number of columns, got {arrays_a.shape} vs {arrays_b.shape}'
@@ -1416,9 +1425,8 @@ class CompareStatsOp(Op):
 
 
 if __name__ == '__main__':
-    fmt_els = ['%(asctime)s', '%(process)d:%(thread)d', '%(levelname)s', '%(funcName)s', '%(message)s']
-    fmt_els = ['%(asctime)s', '%(levelname)s', '%(funcName)s', '%(message)s']
-    logging.basicConfig(format='\t'.join(fmt_els), level=logging.INFO)
+    fmt = '\t'.join(['%(asctime)s', '%(levelname)s', '%(process)d:%(thread)d', '%(module)s:%(lineno)d', '%(funcName)s'])+'\n%(message)s\n'
+    logging.basicConfig(format=fmt, level=logging.INFO)
     parser = ArgumentParser(description='Embeddings evaluator')
     parser.add_argument('paths', nargs='+', help='Paths to the embeddings lmdb file')
     parser.add_argument('-t', '--tag_path', help='Path to the tags sqlite db')
@@ -1429,3 +1437,6 @@ if __name__ == '__main__':
     else:
         om = OpManager.get()
         om.start(StartValidatorOp, vars(args))
+        for r in om._results.values():
+            pprint(r)
+            #pprint(r.output); print()
