@@ -363,7 +363,7 @@ class OpManager:
             input_results = []
             for input_type in input_tuple:
                 keys = self._results_by_type.get(input_type, [])
-                results = [self._results[key] for key in keys]
+                results = [self._results[key] for key in keys if self._results[key].is_success and key != new_result.key]
                 input_results.append(results)
             if not input_results or any(not results for results in input_results):
                 continue
@@ -387,6 +387,7 @@ class OpManager:
 
     def run_tasks(self) -> None:
         """Runs our task list using our thread and process pools."""
+        logger.info(f'Starting task run with {len(self.tasks)} initial tasks')
         t_pool, p_pool = self.thread_pool, self.proc_pool
         pools = dict(thread=t_pool, process=p_pool)
         matching_tasks = lambda *modes: [t for t in self.tasks if t.run_mode in modes and t.status == "pending"]
@@ -409,6 +410,8 @@ class OpManager:
                     self.finish_task(task)
             # avoid busy loop
             time.sleep(0.1)
+        assert not self.tasks, f'Leftover tasks: {self.tasks}'
+        logger.info('All {len(self.done_tasks)} tasks completed, statuses: {Counter(t.status for t in self.done_tasks)}')
 
     @staticmethod
     def register(op: Op) -> None:
@@ -457,6 +460,7 @@ class OpManager:
                         timestamps=task.timestamps)
         om = OpManager.get()
         # Store result by key
+        assert op.key not in om._results, f'Duplicate result key {op.key} for {op}, previous: {om._results[op.key]}'
         om._results[op.key] = result
         # Store key under all output types
         for output_type in op.output_types:

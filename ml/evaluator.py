@@ -1262,7 +1262,7 @@ class GetLabelDistancesOp(LabelOp):
     """
     name = "get_label_distances"
     input_types = {"labels", "normalized_embeddings"}
-    output_types = {"label_distances"}
+    output_types = {"label_distances", 'distances'}
     run_mode = "process"
     is_intermediate = True
 
@@ -1281,6 +1281,7 @@ class GetLabelDistancesOp(LabelOp):
             matrix=matrix,
             perc_close=self.perc_close,
         )
+        ret['distances'] = ret['label_distances']
         ret['label_key'] = self.label_key
         return ret
 
@@ -1329,7 +1330,7 @@ class GetEmbeddingDistancesOp(Op):
     """
     name = "get_embedding_distances"
     input_types = {"normalized_embeddings", "label_distances"}
-    output_types = {"embedding_distances"}
+    output_types = {"embedding_distances", 'distances'}
     run_mode = "process"
     is_intermediate = True
 
@@ -1363,15 +1364,15 @@ class GetEmbeddingDistancesOp(Op):
             distances = squareform(pdist(matrix, 'euclidean'))
         else:
             raise ValueError(f"Unknown metric: {self.metric}")
-        ret['embedding_distances'] = distances
+        ret['distances'] = ret['embedding_distances'] = distances
         return ret
 
 
 class GetNeighborsOp(Op):
     """Generate nearest neighbors from distance matrices.
-    
+
     Takes a distance matrix and computes the K nearest neighbors for each point.
-    
+
     Returns a dict with:
     - `distance_type`: The type of distance matrix used ('label' or 'embedding')
     - `label_key`: The label key this is for
@@ -1381,51 +1382,39 @@ class GetNeighborsOp(Op):
     - `keys`: The list of keys corresponding to the rows/columns of the distance matrix
     """
     name = "get_neighbors"
-    input_types = {
-        ("label_distances",): {},
-        ("embedding_distances",): {},
-    }
+    input_types = {'distances'}
     output_types = {"neighbors_data"}
     run_mode = "process"
     is_intermediate = True
-    
+
     def __init__(self, k: int = 20, **kw):
         """Initialize with number of neighbors to compute.
-        
+
         - `k`: Number of nearest neighbors to compute (default: 20)
         """
         self.k = k
         super().__init__(**kw)
-    
+
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Determine which type of distance matrix we're using
+        data = inputs['distances']
+        keys = data["sub_keys"]
         if "label_distances" in inputs:
-            data = inputs["label_distances"]
             distance_type = "label"
             metric = None
         elif "embedding_distances" in inputs:
-            data = inputs["embedding_distances"]
             distance_type = "embedding"
             metric = data.get("metric")
         else:
             raise ValueError(f"Expected label_distances or embedding_distances, got {inputs.keys()}")
-        
-        # Get the distance matrix and keys
-        if distance_type == "label":
-            distances = data["label_distances"]
-            keys = data["sub_keys"]
-        else:
-            distances = data["embedding_distances"]
-            keys = data["sub_keys"] if "sub_keys" in data else None
-        
+
         # Ensure we don't request more neighbors than we have points
         k = min(self.k + 1, distances.shape[0])  # +1 because the point itself is included
-        
+
         # Use sklearn's NearestNeighbors with precomputed distances
         nn_cls = NearestNeighbors(n_neighbors=k, metric='precomputed')
         nn_cls.fit(distances)
         neighbor_dists, neighbor_indices = nn_cls.kneighbors(distances)
-        
         return {
             "distance_type": distance_type,
             "label_key": data.get("label_key"),
@@ -1438,10 +1427,10 @@ class GetNeighborsOp(Op):
 
 class CompareNeighborsOp(Op):
     """Compare nearest neighbors from different distance metrics.
-    
+
     Takes two sets of neighbors (typically from label distances and embedding distances)
     and computes comparison metrics like recall@K, MRR@K, and Jaccard similarity.
-    
+
     Returns a dict with:
     - `label_key`: The label key this comparison is for
     - `embedding_metric`: The embedding distance metric used
@@ -1456,66 +1445,62 @@ class CompareNeighborsOp(Op):
     }
     output_types = {"neighbor_comparison"}
     run_mode = "process"
-    
+
     @classmethod
-    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+    def get_variants(cls, inputs: dict[str, Any], k_values: list[int]=[1, 5, 10, 20]) -> dict[str, Any]|None:
         """Returns different variants for K values to compare."""
-        return {
-            f"k:{k}": {"k": k} 
-            for k in [1, 5, 10, 20]
-        }
-    
-    def __init__(self, k: int = 20, detailed: bool = False, **kw):
+        return {f"k:{k}": {"k": k} for k in k_values}
+
+    def __init__(self, k: int, detailed: bool = True, **kw):
         """Initialize with K value to use for comparison.
-        
+
         - `k`: Number of neighbors to compare (default: 20)
         - `detailed`: Whether to include per-item metrics (default: False)
         """
         self.k = k
         self.detailed = detailed
         super().__init__(**kw)
-    
+
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Find which input is label neighbors and which is embedding neighbors
         neighbors_a, neighbors_b = list(inputs["neighbors_data"])
-        
-        if neighbors_a["distance_type"] == "label" and neighbors_b["distance_type"] == "embedding":
-            label_neighbors = neighbors_a
-            embedding_neighbors = neighbors_b
-        elif neighbors_b["distance_type"] == "label" and neighbors_a["distance_type"] == "embedding":
-            label_neighbors = neighbors_b
-            embedding_neighbors = neighbors_a
-        else:
-            raise ValueError(f"Need one label and one embedding neighbors, got {neighbors_a['distance_type']} and {neighbors_b['distance_type']}")
-        
+
+        if 0: #TODO actually i think we wanted to compare all distances against each other?
+            if neighbors_a["distance_type"] == "label" and neighbors_b["distance_type"] == "embedding":
+                label_neighbors = neighbors_a
+                embedding_neighbors = neighbors_b
+            elif neighbors_b["distance_type"] == "label" and neighbors_a["distance_type"] == "embedding":
+                label_neighbors = neighbors_b
+                embedding_neighbors = neighbors_a
+            else:
+                raise ValueError(f"Need one label and one embedding neighbors, got {neighbors_a['distance_type']} and {neighbors_b['distance_type']}")
+
         # Get the neighbor indices
         l_nn = label_neighbors["neighbors"]
         m_nn = embedding_neighbors["neighbors"]
-        
+        #TODO clamp values up to 0?
+
         # Compute metrics for different K values
         metrics = {}
         per_item_metrics = defaultdict(list) if self.detailed else None
-        
+
         # Use min of requested K and available neighbors
         max_k = min(self.k, min(l_nn.shape[1], m_nn.shape[1]) - 1)
         k_values = [min(k, max_k) for k in [1, 5, 10, 20] if k <= max_k]
-        
+
         for idx in range(l_nn.shape[0]):
             l_row = l_nn[idx]
             m_row = m_nn[idx]
-            
-            # Remove self-references (usually at index 0)
+            # Remove self-references (at index 0)
             if l_row[0] == idx:
                 l_row = l_row[1:]
             if m_row[0] == idx:
                 m_row = m_row[1:]
-            
             for k in k_values:
                 # Compute recall (how many of the label neighbors are in the embedding neighbors)
                 l_set = set(l_row[:k])
                 m_set = set(m_row[:k])
                 recall = len(l_set & m_set) / len(l_set) if l_set else 0.0
-                
                 # Compute MRR (Mean Reciprocal Rank)
                 mrr = 0.0
                 if recall > 0:
@@ -1523,33 +1508,26 @@ class CompareNeighborsOp(Op):
                         if nbr in l_set:
                             mrr = 1.0 / rank
                             break
-                
                 # Compute Jaccard similarity
                 jaccard = len(l_set & m_set) / len(l_set | m_set) if (l_set | m_set) else 0.0
-                
                 # Store per-item metrics if detailed
                 if self.detailed:
                     per_item_metrics[f"recall@{k}"].append(recall)
                     per_item_metrics[f"mrr@{k}"].append(mrr)
                     per_item_metrics[f"jaccard@{k}"].append(jaccard)
-                
                 # Update running averages
                 metrics.setdefault(f"recall@{k}", []).append(recall)
                 metrics.setdefault(f"mrr@{k}", []).append(mrr)
                 metrics.setdefault(f"jaccard@{k}", []).append(jaccard)
-        
         # Calculate averages
         avg_metrics = {k: sum(v) / len(v) if v else 0.0 for k, v in metrics.items()}
-        
-        result = {
-            "label_key": label_neighbors["label_key"],
-            "embedding_metric": embedding_neighbors["metric"],
-            "metrics": avg_metrics,
+        result = dict(
+            label_key=label_neighbors["label_key"],
+            embedding_metric=embedding_neighbors["metric"],
+            metrics=avg_metrics,
         }
-        
         if self.detailed:
             result["per_item_metrics"] = dict(per_item_metrics)
-        
         return result
 
 
