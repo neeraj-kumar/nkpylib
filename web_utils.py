@@ -265,16 +265,8 @@ class BaseSearcher(ABC):
         ret = self._search(q=q, parsed=parsed, **kw)
         t2 = time.time()
         times = dict(parse=t1-t0, search=t2-t1, total=t2-t0)
-        self.log(q=q,
-                 parsed=parsed,
-                 ret=ret,
-                 times=times,
-                 **kw)
-        return dict(q=q,
-                    parsed=parsed,
-                    ret=ret,
-                    times=times,
-                    msgs=self.req.msgs) # type: ignore
+        self.log(q=q, parsed=parsed, ret=ret, times=times, **kw)
+        return dict(q=q, parsed=parsed, ret=ret, times=times, msgs=self.req.msgs) # type: ignore
 
     def parse(self, q: str) -> object:
         """Parses a search query.
@@ -765,8 +757,11 @@ def simplify_html(html: str, idx: int|None=None) -> str:
             child = children[0]
             if child.text == node.text:
                 #print(f"  Simplifying node {node.name} with {len(node.text)} bytes: {node.text[:100]}...")
-                node.replace_with(child)
-                counts['simplified'] += 1
+                try:
+                    node.replace_with(child)
+                    counts['simplified'] += 1
+                except Exception: # sometimes it says "cannot replace with thing not in tree"
+                    pass
         for child in children:
             simplify_node(child)
 
