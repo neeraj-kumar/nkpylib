@@ -1468,7 +1468,6 @@ class CompareNeighborsOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Find which input is label neighbors and which is embedding neighbors
         neighbors_a, neighbors_b = list(inputs["neighbors_data"])
-        logger.info(f'In CompareNeighborsOp with {neighbors_a.keys()} and {neighbors_b.keys()}, k={self.k}')
 
         if 0: #TODO actually i think we wanted to compare all distances against each other?
             if neighbors_a["distance_type"] == "label" and neighbors_b["distance_type"] == "embedding":
@@ -1483,6 +1482,7 @@ class CompareNeighborsOp(Op):
         # Get the neighbor indices
         l_nn = neighbors_a["neighbors"]
         m_nn = neighbors_b["neighbors"]
+        logger.info(f'In CompareNeighborsOp with {neighbors_a.keys()} and {neighbors_b.keys()}, k={self.k}, shapes {l_nn.shape}, {m_nn.shape}')
         #TODO clamp values up to 0?
 
         # Compute metrics for different K values

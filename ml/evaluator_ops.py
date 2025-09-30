@@ -68,12 +68,12 @@ class Result:
     The operation that produced this result is accessible via the op property.
     """
     output: Any
+    op: Op  # The operation that produced this result
     provenance: list['Result']  # List of previous Result objects
     key: str
     variant: str|None = None
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
     error: Exception|None = None
-    op: Op = None  # The operation that produced this result
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Result):
@@ -82,7 +82,7 @@ class Result:
 
     def __repr__(self) -> str:
         status = "success" if self.is_success else f"error: {self.error}"
-        return (f"<Result op={self.op.name if self.op else None} variant={self.variant} status={status} key={self.key}>")
+        return (f"<R {self.op.name}:{self.variant} {self.key} [{status}]>")
 
     def __hash__(self) -> int:
         return hash(self.key+str(self.variant))
@@ -105,15 +105,17 @@ class Result:
     @property
     def provenance_str(self) -> str:
         """Human-readable provenance chain."""
-        return " -> ".join(r.op.name for r in self.provenance if r.op) + (f" -> {self.op.name}" if self.op else "")
+        return " -> ".join(r.op.name for r in self.provenance) + (f" -> {self.op.name}")
 
     @property
     def all_ops(self) -> list[Op]:
         """Returns all operations in the provenance chain, including this result's op."""
-        ops = [r.op for r in self.provenance if r.op]
-        if self.op:
-            ops.append(self.op)
-        return ops
+        return [r.op for r in self.provenance] + [self.op]
+
+    @property
+    def all_keys(self) -> list[str]:
+        """Returns all keys in the provenance chain, including this result's key."""
+        return [r.key for r in self.provenance] + [self.key]
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for logging/reporting.
@@ -121,18 +123,18 @@ class Result:
         Includes output only if the op is not intermediate.
         """
         return {
-            "op_name": self.op.name if self.op else None,
+            "op_name": self.op.name,
             "is_success": self.is_success,
             "error": self.error,
             "variant": self.variant,
             "provenance_str": self.provenance_str,
             "provenance": [r.key for r in self.provenance],
             "timestamps": self.timestamps,
-            "input_types": sorted(self.op.input_types) if self.op else None,
-            "output_types": sorted(self.op.output_types) if self.op else None,
+            "input_types": sorted(self.op.input_types),
+            "output_types": sorted(self.op.output_types),
             "output_py_type": type(self.output).__name__ if self.output is not None else None,
             "key": self.key,
-            "output": None if self.op and self.op.is_intermediate else self.output,
+            "output": None if self.op.is_intermediate else self.output,
         }
 
 task_statuses = ("pending", "running", "completed", "failed")
@@ -155,7 +157,7 @@ class Task:
         self.timestamps[self._status] = time.time()
 
     def __repr__(self) -> str:
-        return (f"<Task op={self.op_cls.__name__} variant={self.variant_name} status={self.status}>")
+        return (f"<T {self.name} [{self.status}]>")
 
     @property
     def name(self) -> str:
@@ -495,14 +497,15 @@ class OpManager:
     def add_result_from_task(task: Task) -> Result:
         """Add a result from a completed `task`.
 
-        This creates a `Result` object with full provenance and stores it in our results index.
-        It also logs the result to our database.
+        This creates a `Result` object with full provenance and stores it in our results index. It
+        also logs the result to our database.
+
         Returns the created `Result` object.
         """
         assert task.status in ('completed', 'failed'), f'Task {task} not done yet'
         op = task.op
         assert op is not None, f'Task {task} has no op'
-        
+
         # Collect all previous results from inputs
         provenance = []
         for input_type, input_value in task.inputs.items():
@@ -513,18 +516,18 @@ class OpManager:
                         provenance.append(item)
             elif isinstance(input_value, Result):
                 provenance.append(input_value)
-        
+
         # Create the result with the provenance chain of previous results
         result = Result(
             output=task.output,
+            op=op,
             provenance=provenance,
             key=op.key,
             variant=op.variant,
             error=task.error,
             timestamps=task.timestamps,
-            op=op  # Store the op directly
         )
-        
+
         om = OpManager.get()
         # Store result by key
         if op.key in om._results:
@@ -553,7 +556,7 @@ class OpManager:
             **{f'type:{output_type}': sorted(self._results_by_type[output_type])
                for output_type in result.op.output_types},
             # all keys of this op class
-            f'op_name:{result.op.name}': sorted({r.key for r in all_results if r.op and isinstance(r.op, result.op.__class__)}),
+            f'op_name:{result.op.name}': sorted({r.key for r in all_results if isinstance(r.op, result.op.__class__)}),
             # all keys with this status
             status_key: sorted({r.key for r in all_results if r.is_success == result.is_success}),
             # all keys sorted by various criteria
@@ -711,8 +714,8 @@ class Op(ABC):
         """
         raise NotImplementedError()
 
-    def get_key(self, inputs: dict[str, Result]) -> str:
-        """Generate key based on operation and inputs (mapping to Result objects).
+    def old_get_key(self, inputs: dict[str, Result]) -> str:
+        """Generate key based on operation and inputs and full provenance.
 
         This creates a hash of the operation name and input data (including provenance) to enable
         caching of results and avoiding duplicate work.
@@ -724,7 +727,6 @@ class Op(ABC):
             if isinstance(value, Result):
                 # use the provenance chain and key for Result objects
                 prov_str = "->".join(op.name for op in value.provenance)
-
             else:
                 # For complex objects, use their string representation
                 if hasattr(value, '__dict__'):
@@ -733,6 +735,23 @@ class Op(ABC):
                     value_str = str(value)
                 input_items.append(f"{key}:{value_str}")
         input_str = "|".join(input_items)
+        combined = f"{self.name}_{self.variant}_{input_str}"
+        # Hash to keep keys manageable
+        return hashlib.md5(combined.encode()).hexdigest()
+
+    def get_key(self, inputs: dict[str, Result]) -> str:
+        """Generate key based on operation and inputs (including full provenance)."""
+        def value_key(v: Any) -> str:
+            if isinstance(v, Result): # all keys in the provenance chain
+                return ','.join(sorted(v.all_keys))
+            elif isinstance(v, (list, tuple)): # Handle lists/tuples of things
+                return ','.join(sorted(value_key(item) for item in v))
+            elif hasattr(v, '__dict__'): # for dicts, use sorted items
+                return str(sorted(v.__dict__.items()))
+            else: # simple string representation
+                return str(v)
+
+        input_str = '|'.join(f"{key}:{value_key(value)}" for key, value in sorted(inputs.items()))
         combined = f"{self.name}_{self.variant}_{input_str}"
         # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()
