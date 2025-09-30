@@ -2,6 +2,10 @@
 
 TODO:
 - continuation of runs?
+- curses-style view of logs vs tasks vs other stuff?
+  - different panes? scrollable?
+  - separate op logs from management logs?
+  - maybe write stuff to disk and use e.g. multitail?
 - better visualization of existing results
 - compare eval runs by id
 - find structurally similar outputs in different runs (i.e., same provenance/keys)
@@ -79,6 +83,9 @@ class Result:
         status = "success" if self.is_success else f"error: {self.error}"
         return (f"<Result op={self.op.name if self.op else None} variant={self.variant} status={status} key={self.key}>")
 
+    def __hash__(self) -> int:
+        return hash(self.key+str(self.variant))
+
     @property
     def op(self) -> Op:
         """The operation that produced this result (last in provenance chain)."""
@@ -145,6 +152,13 @@ class Task:
 
     def __repr__(self) -> str:
         return (f"<Task op={self.op_cls.__name__} variant={self.variant_name} status={self.status}>")
+
+    @property
+    def name(self) -> str:
+        ret = self.op_cls.name
+        if self.variant_name:
+            ret += f':{self.variant_name}'
+        return ret
 
     # add a setter for status that also updates timestamps
     @property
@@ -319,7 +333,8 @@ class OpManager:
             if existing.same_type(task):
                 return
         self.tasks.append(task)
-        logger.info(f'Added task {task}')
+        counts = lambda field: Counter(getattr(t, field) for t in self.tasks).most_common()
+        logger.info(f'Added task {task}, {len(self.tasks)} tasks: {counts("status")}, {counts("name")}')
 
     def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
         """Adds tasks for all variants of the given `op_cls` with the given `inputs`."""
@@ -330,7 +345,6 @@ class OpManager:
                 _inputs[k] = [item.output if isinstance(item, Result) else item for item in v]
             else:
                 _inputs[k] = v.output if isinstance(v, Result) else v
-        
         variants = op_cls.get_variants(_inputs)
         if variants is None:
             variants = {'': {}}
@@ -340,13 +354,13 @@ class OpManager:
 
     def create_tasks(self, result: Result|Exception) -> None:
         """Create new work tasks to do based on a new result."""
-        if isinstance(result, Exception) or not result.is_success:
+        if isinstance(result, Exception) or result is None or not result.is_success:
             return
         # Get consumers for all output types of this result
         consumers = set()
         for output_type in result.op.output_types:
             consumers.update(self.get_consumers(output_type))
-        logger.debug(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
+        logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
         for consumer in consumers:
             self._create_tasks_for_consumer(consumer, result)
 
@@ -362,6 +376,7 @@ class OpManager:
         """
         contracts = consumer.get_input_contracts()
         for input_tuple, contract in contracts.items():
+            logger.debug(f'Checking contract {input_tuple}, {contract} for {consumer}')
             # Check if this contract can use the new result
             if not any(output_type in input_tuple for output_type in new_result.op.output_types):
                 continue
@@ -369,7 +384,7 @@ class OpManager:
             input_results = []
             for input_type in input_tuple:
                 keys = self._results_by_type.get(input_type, [])
-                results = [self._results[key] for key in keys if self._results[key].is_success and key != new_result.key]
+                results = [self._results[key] for key in keys if self._results[key].is_success]
                 input_results.append(results)
             if not input_results or any(not results for results in input_results):
                 continue
@@ -377,38 +392,44 @@ class OpManager:
             for cur_results in product(*input_results):
                 # Count occurrences of each type in the input tuple to determine how to handle them
                 type_counts = Counter(input_tuple)
-                
                 # Generate dict of inputs, properly handling multiple inputs of the same type
                 inputs = {}
                 type_indices = defaultdict(int)
-                
                 for t, r in zip(input_tuple, cur_results):
-                    if type_counts[t] > 1:
-                        # This type appears multiple times, so it should be a list
+                    if type_counts[t] > 1: # appears multiple times, so it should be a list
                         if t not in inputs:
                             inputs[t] = [None] * type_counts[t]
                         inputs[t][type_indices[t]] = r
                         type_indices[t] += 1
-                    else:
-                        # This type appears only once
+                    else: # appears only once
                         inputs[t] = r
-                
                 if self._satisfies_contract(inputs, contract):
                     self.add_all_variants(consumer, inputs)
 
     def _satisfies_contract(self, inputs: dict[str, Result], contract: dict[str, Any]) -> bool:
         """Check if `inputs` satisfy the `contract` requirements."""
         consistency_fields = contract.get("consistency_fields", [])
+        seen = set()
+        # first make sure we're not using the same result twice
+        for result in inputs.values():
+            if isinstance(result, list): # Handle list of results (for same input_type)
+                if len(set(result)) != len(result):
+                    logger.info(f'Got duplicate results: {result} for {inputs}')
+                    return False
+                seen.update(result)
+            else: # single result for input_type
+                if result in seen:
+                    return False
+                seen.add(result)
+        # now check for consistency fields
         for field in consistency_fields:
             values = set()
             for result in inputs.values():
-                if isinstance(result, list):
-                    # Handle list of results
+                if isinstance(result, list): # Handle list of results
                     for r in result:
                         if value := r.output.get(field):
                             values.add(value)
-                else:
-                    # Handle single result
+                else: # Handle single result
                     if value := result.output.get(field):
                         values.add(value)
             if len(values) > 1:  # Inconsistent values found
@@ -434,14 +455,14 @@ class OpManager:
                 self.tasks.remove(task)
                 task.run()
                 self.finish_task(task)
-            # check for completed tasks
+            # check for completed async tasks
             for pool in pools.values():
                 for task in pool.get_completed_tasks():
                     self.finish_task(task)
             # avoid busy loop
             time.sleep(0.1)
         assert not self.tasks, f'Leftover tasks: {self.tasks}'
-        logger.info('All {len(self.done_tasks)} tasks completed, statuses: {Counter(t.status for t in self.done_tasks)}')
+        logger.info(f'All {len(self.done_tasks)} tasks completed, statuses: {Counter(t.status for t in self.done_tasks)}')
 
     @staticmethod
     def register(op: Op) -> None:
@@ -490,7 +511,9 @@ class OpManager:
                         timestamps=task.timestamps)
         om = OpManager.get()
         # Store result by key
-        assert op.key not in om._results, f'Duplicate result key {op.key} for {op}, previous: {om._results[op.key]}'
+        if op.key in om._results:
+            logger.warning(f'Duplicate result key {op.key} for {op}, previous: {om._results[op.key]}')
+            return None
         om._results[op.key] = result
         # Store key under all output types
         for output_type in op.output_types:
@@ -627,6 +650,7 @@ class Op(ABC):
         is the exception if any occurred, else None.
         """
         logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
+        self.key = self.get_key(inputs)
         try:
             # try to get the underlying output from the result objects
             op_inputs = {}
@@ -638,7 +662,6 @@ class Op(ABC):
                     op_inputs[k] = v.output
         except Exception:
             op_inputs = inputs
-        self.key = self.get_key(op_inputs)
         logger.info(f'Executing op {self.name} ({self.variant}) -> {self.key}')
         output, error = None, None
         try:
@@ -672,22 +695,27 @@ class Op(ABC):
         """
         raise NotImplementedError()
 
-    def get_key(self, inputs: dict[str, Any]) -> str:
-        """Generate key based on operation and inputs.
+    def get_key(self, inputs: dict[str, Result]) -> str:
+        """Generate key based on operation and inputs (mapping to Result objects).
 
-        This creates a hash of the operation name and input data to enable
+        This creates a hash of the operation name and input data (including provenance) to enable
         caching of results and avoiding duplicate work.
         """
         # Create a deterministic string representation of inputs
         input_items = []
         for key in sorted(inputs.keys()):
             value = inputs[key]
-            # For complex objects, use their string representation
-            if hasattr(value, '__dict__'):
-                value_str = str(sorted(value.__dict__.items()))
+            if isinstance(value, Result):
+                # use the provenance chain and key for Result objects
+                prov_str = "->".join(op.name for op in value.provenance)
+
             else:
-                value_str = str(value)
-            input_items.append(f"{key}:{value_str}")
+                # For complex objects, use their string representation
+                if hasattr(value, '__dict__'):
+                    value_str = str(sorted(value.__dict__.items()))
+                else:
+                    value_str = str(value)
+                input_items.append(f"{key}:{value_str}")
         input_str = "|".join(input_items)
         combined = f"{self.name}_{self.variant}_{input_str}"
         # Hash to keep keys manageable

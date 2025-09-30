@@ -1086,10 +1086,7 @@ class ParseTagsOp(Op):
 
 class CheckDimensionsOp(Op):
     """Check that all embeddings have consistent dimensions."""
-
-    enabled = True
     run_mode = 'process'
-
     name = "check_dimensions"
     input_types = {"feature_set"}
     output_types = {"dimension_check_result"}
@@ -1197,6 +1194,7 @@ class NormalizeOp(Op):
         )
         return (keys, emb)
 
+
 class LabelOp(Op):
     """A label op is an abstract class that defines one variant per label_key"""
 
@@ -1235,6 +1233,8 @@ class GetLabelArraysOp(LabelOp):
     - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
       - Shape `(len(sub_keys), matrix.shape[1])`
     """
+    enabled = False
+
     name = "get_label_arrays"
     input_types = {"normalized_embeddings", "labels"}
     output_types = {"label_arrays_data"}
@@ -1292,6 +1292,8 @@ class GetEmbeddingDimsOp(Op):
     Uses the keys and matrix from label_arrays_data to ensure both arrays
     have the same samples in the same order.
     """
+    enabled = False
+
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
     output_types = {"embedding_dims"}
@@ -1350,7 +1352,7 @@ class GetEmbeddingDistancesOp(Op):
         label_data = inputs["label_distances"]
 
         # Get the ids from label distances to ensure consistency
-        ret = dict(label_key=label_data["label_key"], metric=self.metric)
+        ret = dict(label_key=label_data["label_key"], metric=self.metric, sub_keys=label_data["sub_keys"])
         matrix = label_data["sub_matrix"]  # Already filtered to the right intersection
         logger.info(f'Computing {self.metric} dists for label {label_data["label_key"]} with {matrix.shape} matrix')
 
@@ -1398,9 +1400,9 @@ class GetNeighborsOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Determine which type of distance matrix we're using
         data = inputs['distances']
+        logger.info(f'Computing neighbors, got data {data.keys()}, k={self.k}')
         distances = data["distances"]  # Get the actual distance matrix
         keys = data["sub_keys"]
-        
         if "label_distances" in data:
             distance_type = "label"
             metric = None
@@ -1408,13 +1410,7 @@ class GetNeighborsOp(Op):
             distance_type = "embedding"
             metric = data.get("metric")
         else:
-            # Determine type from the data structure
-            if "label_key" in data and "metric" in data:
-                distance_type = "embedding"
-                metric = data.get("metric")
-            else:
-                distance_type = "label"
-                metric = None
+            raise ValueError("Distance data must contain either 'label_distances' or 'embedding_distances'")
 
         # Ensure we don't request more neighbors than we have points
         k = min(self.k + 1, distances.shape[0])  # +1 because the point itself is included
@@ -1462,7 +1458,7 @@ class CompareNeighborsOp(Op):
     def __init__(self, k: int, detailed: bool = True, **kw):
         """Initialize with K value to use for comparison.
 
-        - `k`: Number of neighbors to compare (default: 20)
+        - `k`: Number of neighbors to compare
         - `detailed`: Whether to include per-item metrics (default: False)
         """
         self.k = k
@@ -1472,6 +1468,7 @@ class CompareNeighborsOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Find which input is label neighbors and which is embedding neighbors
         neighbors_a, neighbors_b = list(inputs["neighbors_data"])
+        logger.info(f'In CompareNeighborsOp with {neighbors_a.keys()} and {neighbors_b.keys()}, k={self.k}')
 
         if 0: #TODO actually i think we wanted to compare all distances against each other?
             if neighbors_a["distance_type"] == "label" and neighbors_b["distance_type"] == "embedding":
@@ -1484,8 +1481,8 @@ class CompareNeighborsOp(Op):
                 raise ValueError(f"Need one label and one embedding neighbors, got {neighbors_a['distance_type']} and {neighbors_b['distance_type']}")
 
         # Get the neighbor indices
-        l_nn = label_neighbors["neighbors"]
-        m_nn = embedding_neighbors["neighbors"]
+        l_nn = neighbors_a["neighbors"]
+        m_nn = neighbors_b["neighbors"]
         #TODO clamp values up to 0?
 
         # Compute metrics for different K values
@@ -1530,10 +1527,11 @@ class CompareNeighborsOp(Op):
         # Calculate averages
         avg_metrics = {k: sum(v) / len(v) if v else 0.0 for k, v in metrics.items()}
         result = dict(
-            label_key=label_neighbors["label_key"],
-            embedding_metric=embedding_neighbors["metric"],
+            label_key=neighbors_a["label_key"],
+            embedding_metric_a=neighbors_a.get('metric'),
+            embedding_metric_b=neighbors_b.get('metric'),
             metrics=avg_metrics,
-        }
+        )
         if self.detailed:
             result["per_item_metrics"] = dict(per_item_metrics)
         return result
@@ -1550,7 +1548,7 @@ class CompareStatsOp(Op):
     - comparisons: dict mapping (i,j) to comparison stats between row i of A and row j of B
     - n_comparisons: total number of comparisons made
     """
-    #FIXME currently broken
+    enabled = False
     name = "compare_stats"
     input_types = {
         ('many_array1d_a', 'many_array1d_b'): {},
