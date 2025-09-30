@@ -53,11 +53,9 @@ class PerfTracker:
         self.stats_data["start_time"] = time.time()
         self.stats_data["start_memory"] = self.process.memory_info().rss
         self.stats_data["peak_memory"] = self.stats_data["start_memory"]
-        
         # Analyze all input arguments
         for i, arg in enumerate(self.args):
             self._analyze_object(arg, f"arg{i}")
-        
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -84,8 +82,6 @@ class PerfTracker:
             if isinstance(obj, (list, tuple)) and obj and not isinstance(obj[0], (str, bytes, int, float, bool)):
                 for i, item in enumerate(obj):
                     self._analyze_object(item, f"{path}[{i}]")
-        # Add more types as needed
-        
         # Check memory after analyzing each object
         self._update_peak_memory()
 
@@ -106,13 +102,11 @@ class PerfTracker:
 
     @staticmethod
     def example():
-        matrix = np.random.rand(1000, 1000)
+        matrix = np.random.rand(1000, 300)
         list_data = [1, 2, 3, 4, 5]
         dict_data = {"key1": matrix, "key2": list_data}
-        
         with PerfTracker.track(matrix, list_data, dict_data) as tracker:
             # Simulate some computation
             time.sleep(0.5)
             result = np.dot(matrix, matrix)
-            
         print(tracker.stats())
