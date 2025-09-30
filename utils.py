@@ -764,16 +764,14 @@ def getmem(obj):
     INT_MEM = 4
     FLOAT_MEM = 4
     CHAR_MEM = 1
-    UNICODE_MEM = 4
     #log('Obj %s has type %s' % (repr(obj), type(obj)))
     if type(obj) == type(123): return INT_MEM
     elif type(obj) == type(1.23): return FLOAT_MEM
     elif isinstance(obj, str): return len(obj)*CHAR_MEM
-    elif isinstance(obj, unicode): return len(obj)*UNICODE_MEM
     elif isinstance(obj, list) or isinstance(obj, tuple):
         return sum((getmem(o) for o in obj))
     elif isinstance(obj, dict):
-        return sum((getmem(k)+getmem(v) for k, v in obj.iteritems()))
+        return sum((getmem(k)+getmem(v) for k, v in obj.items()))
     return 0
 
 def dictMemUsage(d):

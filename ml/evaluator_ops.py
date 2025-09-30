@@ -37,6 +37,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from nkpylib.utils import getmem
 from nkpylib.ml.features import make_jsonable
 from nkpylib.ml.feature_set import JsonLmdb
 
@@ -86,6 +87,11 @@ class Result:
 
     def __hash__(self) -> int:
         return hash(self.key+str(self.variant))
+
+    @property
+    def mem(self) -> int:
+        """Approximate memory usage of this result in bytes."""
+        return getmem(self.output) + sum(r.mem for r in self.provenance)
 
     @property
     def start_ts(self) -> float:
@@ -539,6 +545,8 @@ class OpManager:
             if op.key not in om._results_by_type.setdefault(output_type, []):
                 om._results_by_type[output_type].append(op.key)
         om.log_result(result)
+        mem = sum(r.mem for r in om._results.values())
+        logger.info(f'Logged result {result}, {len(om._results)} total, mem: {mem}B')
         return result
 
     def log_result(self, result: Result) -> None:
