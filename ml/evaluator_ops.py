@@ -61,18 +61,19 @@ class Result:
 
     Each result contains:
     - The actual output produced
-    - Full provenance chain (list of operations that led to this result)
+    - Full provenance chain (list of previous results that led to this result)
     - Key for deduplication
     - Timestamp and error information
 
-    The operation that produced this result is always the last item in the provenance chain.
+    The operation that produced this result is accessible via the op property.
     """
     output: Any
-    provenance: list[Op]
+    provenance: list['Result']  # List of previous Result objects
     key: str
     variant: str|None = None
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
     error: Exception|None = None
+    op: Op = None  # The operation that produced this result
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Result):
@@ -85,11 +86,6 @@ class Result:
 
     def __hash__(self) -> int:
         return hash(self.key+str(self.variant))
-
-    @property
-    def op(self) -> Op:
-        """The operation that produced this result (last in provenance chain)."""
-        return self.provenance[-1]
 
     @property
     def start_ts(self) -> float:
@@ -109,7 +105,15 @@ class Result:
     @property
     def provenance_str(self) -> str:
         """Human-readable provenance chain."""
-        return " -> ".join(op.name for op in self.provenance)
+        return " -> ".join(r.op.name for r in self.provenance if r.op) + (f" -> {self.op.name}" if self.op else "")
+
+    @property
+    def all_ops(self) -> list[Op]:
+        """Returns all operations in the provenance chain, including this result's op."""
+        ops = [r.op for r in self.provenance if r.op]
+        if self.op:
+            ops.append(self.op)
+        return ops
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for logging/reporting.
@@ -122,13 +126,13 @@ class Result:
             "error": self.error,
             "variant": self.variant,
             "provenance_str": self.provenance_str,
-            "provenance": [op.key for op in self.provenance],
+            "provenance": [r.key for r in self.provenance],
             "timestamps": self.timestamps,
             "input_types": sorted(self.op.input_types) if self.op else None,
             "output_types": sorted(self.op.output_types) if self.op else None,
             "output_py_type": type(self.output).__name__ if self.output is not None else None,
             "key": self.key,
-            "output": None if self.op.is_intermediate else self.output,
+            "output": None if self.op and self.op.is_intermediate else self.output,
         }
 
 task_statuses = ("pending", "running", "completed", "failed")
@@ -498,17 +502,29 @@ class OpManager:
         assert task.status in ('completed', 'failed'), f'Task {task} not done yet'
         op = task.op
         assert op is not None, f'Task {task} has no op'
+        
+        # Collect all previous results from inputs
         provenance = []
-        for input_type in op.input_types:
-            if input_type in task.inputs and hasattr(task.inputs[input_type], 'provenance'):
-                provenance.extend(task.inputs[input_type].provenance)
-        provenance.append(op)
-        result = Result(output=task.output,
-                        provenance=provenance,
-                        key=op.key,
-                        variant=op.variant,
-                        error=task.error,
-                        timestamps=task.timestamps)
+        for input_type, input_value in task.inputs.items():
+            if isinstance(input_value, list):
+                # Handle list of results
+                for item in input_value:
+                    if isinstance(item, Result):
+                        provenance.append(item)
+            elif isinstance(input_value, Result):
+                provenance.append(input_value)
+        
+        # Create the result with the provenance chain of previous results
+        result = Result(
+            output=task.output,
+            provenance=provenance,
+            key=op.key,
+            variant=op.variant,
+            error=task.error,
+            timestamps=task.timestamps,
+            op=op  # Store the op directly
+        )
+        
         om = OpManager.get()
         # Store result by key
         if op.key in om._results:
