@@ -1,6 +1,7 @@
 """Time-related utilities and constants"""
 
 import datetime
+import inspect
 import time
 
 from contextlib import contextmanager
@@ -61,6 +62,11 @@ class PerfTracker:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stats_data["end_time"] = time.time()
         self.stats_data["end_memory"] = self.process.memory_info().rss
+        
+        # Store this run's stats in the class variable
+        if self.block_id not in self._all_stats:
+            self._all_stats[self.block_id] = []
+        self._all_stats[self.block_id].append(self.stats())
 
     def _update_peak_memory(self):
         """Update peak memory usage"""
@@ -97,16 +103,32 @@ class PerfTracker:
         }
 
     @staticmethod
-    def track(*args):
-        return PerfTracker(*args)
+    def track(**kw):
+        return PerfTracker(**kw)
+    
+    @classmethod
+    def get_all_stats(cls, block_id=None):
+        """Get stats for all runs or for a specific block_id"""
+        if block_id:
+            return cls._all_stats.get(block_id, [])
+        return cls._all_stats
+    
+    @classmethod
+    def clear_stats(cls, block_id=None):
+        """Clear stats for all runs or for a specific block_id"""
+        if block_id:
+            if block_id in cls._all_stats:
+                del cls._all_stats[block_id]
+        else:
+            cls._all_stats.clear()
 
     @staticmethod
     def example():
         matrix = np.random.rand(1000, 300)
         list_data = [1, 2, 3, 4, 5]
         dict_data = {"key1": matrix, "key2": list_data}
-        with PerfTracker.track(matrix, list_data, dict_data) as tracker:
+        with PerfTracker.track(matrix=matrix, list_data=list_data, dict_data=dict_data) as tracker:
             # Simulate some computation
             time.sleep(0.5)
-            result = np.dot(matrix, matrix)
+            result = np.dot(matrix, matrix.T)
         print(tracker.stats())
