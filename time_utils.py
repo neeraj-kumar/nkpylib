@@ -10,6 +10,7 @@ from contextlib import contextmanager
 
 import numpy as np
 import psutil
+
 from scipy.optimize import curve_fit
 
 DAY_SECS = 24*3600
@@ -134,28 +135,25 @@ class PerfTracker:
                 del cls._all_stats[block_id]
         else:
             cls._all_stats.clear()
-            
+
     @classmethod
-    def determine_complexity(cls, sizes, times):
+    def determine_complexity(cls, sizes: list[int|float], times: list[int|float]) -> tuple[str, float, np.ndarray|None]:
         """Determine the likely complexity class based on fitting different models.
-        
+
         Args:
             sizes: List of input sizes
             times: List of corresponding execution times
-            
+
         Returns:
             A tuple of (complexity_class, score, params) where:
             - complexity_class is a string like "O(n)", "O(n²)", etc.
             - score is the mean squared error of the fit
             - params are the fitted parameters
         """
-        import numpy as np
-        from scipy.optimize import curve_fit
-        
         # Convert to numpy arrays
         sizes = np.array(sizes, dtype=float)
         times = np.array(times, dtype=float)
-        
+
         # Define models for different complexity classes
         models = {
             "O(1)": lambda x, a: a * np.ones_like(x),
@@ -166,15 +164,14 @@ class PerfTracker:
             "O(n³)": lambda x, a, b: a * x**3 + b,
             "O(2^n)": lambda x, a, b, c: a * np.power(b, x) + c
         }
-        
+
         best_model = None
         best_score = float('inf')
         best_params = None
-        
+
         for name, model_func in models.items():
             try:
-                # For O(1), we need special handling
-                if name == "O(1)":
+                if name == "O(1)": # For O(1), we need special handling
                     params, cov = curve_fit(model_func, sizes, times)
                     predictions = model_func(sizes, *params)
                 else:
@@ -190,10 +187,8 @@ class PerfTracker:
                         params, cov = curve_fit(model_func, sizes, times)
                         predictions = model_func(sizes, *params)
                         times_subset = times
-                
                 # Calculate mean squared error
                 score = np.mean((predictions - times_subset)**2)
-                
                 if score < best_score:
                     best_score = score
                     best_model = name
@@ -201,30 +196,28 @@ class PerfTracker:
             except Exception as e:
                 # Skip models that fail to fit
                 continue
-        
         return (best_model, best_score, best_params) if best_model else ("Unknown", float('inf'), None)
-    
+
     @classmethod
     def analyze_complexity(cls, block_id=None, metric="time_taken"):
         """Analyze the complexity of a code block based on multiple runs.
-        
+
         Args:
-            block_id: The specific block to analyze, or None for all blocks
-            metric: Which metric to analyze ("time_taken" or "memory_used")
-            
-        Returns:
-            A dictionary mapping block_ids to complexity analysis results
+        - block_id: The specific block to analyze, or None for all blocks
+        - metric: Which metric to analyze ("time_taken" or "memory_used")
+
+        Returns a dictionary mapping block_ids to complexity analysis results
         """
         results = {}
         blocks = [block_id] if block_id else cls._all_stats.keys()
-        
+
         for block in blocks:
             if block not in cls._all_stats or len(cls._all_stats[block]) < 3:
                 continue  # Need at least 3 data points for meaningful analysis
-                
+
             # Extract input sizes and metrics
             runs = cls._all_stats[block]
-            
+
             # Group by input size to handle multiple runs of the same size
             size_to_metrics = {}
             for run in runs:
@@ -235,24 +228,24 @@ class PerfTracker:
                         input_size = max(input_size, max(shape))
                 for length in run["sequence_lengths"].values():
                     input_size = max(input_size, length)
-                
+
                 if input_size not in size_to_metrics:
                     size_to_metrics[input_size] = []
                 size_to_metrics[input_size].append(run[metric])
-            
+
             # Average metrics for each size
             sizes = []
             metrics = []
             for size, values in sorted(size_to_metrics.items()):
                 sizes.append(size)
                 metrics.append(sum(values) / len(values))
-            
+
             if len(sizes) < 3:
                 continue  # Need at least 3 different sizes
-                
+
             # Determine complexity
             complexity, score, params = cls.determine_complexity(sizes, metrics)
-            
+
             results[block] = {
                 "complexity": complexity,
                 "score": score,
@@ -260,7 +253,7 @@ class PerfTracker:
                 "data_points": list(zip(sizes, metrics)),
                 "metric": metric
             }
-            
+
         return results
 
     @staticmethod
@@ -273,13 +266,13 @@ class PerfTracker:
             time.sleep(0.5)
             result = np.dot(matrix, matrix.T)
         print(tracker.stats())
-        
+
     @staticmethod
     def complexity_example():
         """Example showing how to use PerfTracker to analyze algorithm complexity"""
         # Clear previous stats
         PerfTracker.clear_stats()
-        
+
         # Run with different input sizes
         sizes = [100, 500, 1000, 2000, 5000]
         for size in sizes:
@@ -287,7 +280,7 @@ class PerfTracker:
             with PerfTracker.track(matrix=matrix) as tracker:
                 # O(n²) operation
                 result = np.dot(matrix, matrix.T)
-                
+
         # Analyze complexity
         complexity_results = PerfTracker.analyze_complexity()
         for block_id, result in complexity_results.items():

@@ -38,6 +38,7 @@ from typing import Any, Callable
 import numpy as np
 
 from nkpylib.utils import getmem
+from nkpylib.time_utils import PerfTracker
 from nkpylib.ml.features import make_jsonable
 from nkpylib.ml.feature_set import JsonLmdb
 
@@ -689,12 +690,14 @@ class Op(ABC):
                     op_inputs[k] = v.output
         except Exception:
             op_inputs = inputs
-        logger.info(f'Executing op {self.name} ({self.variant}) -> {self.key}')
+        logger.info(f'Executing {self} ({self.variant}) -> {self.key}')
         output, error = None, None
         try:
-            output = self._execute(op_inputs)
+            with PerfTracker.track(op_inputs=op_inputs) as tracker:
+                output = self._execute(op_inputs)
+            logger.info(f'Op {self} finished, perf: {tracker.stats()}')
         except Exception as e:
-            logger.error(f'Op {self.name} failed with {type(e)}: {e}')
+            logger.error(f'Op {self} failed with {type(e)}: {e}')
             # print stack trace
             logger.exception(e)
             error = e
