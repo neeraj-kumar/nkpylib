@@ -37,8 +37,11 @@ def parse_ts(ts: float|int|str) -> float:
 
 class PerfTracker:
     """A class to track performance metrics like time and memory usage of a code block"""
-    def __init__(self, *args):
-        self.args = args
+    # Static variable to store stats across multiple runs
+    _all_stats = {}
+    
+    def __init__(self, **kw):
+        self.kw = kw
         self.stats_data = {
             "start_time": None,
             "end_time": None,
@@ -46,17 +49,24 @@ class PerfTracker:
             "end_memory": None,
             "peak_memory": None,
             "matrix_shapes": {},
-            "sequence_lengths": {}
+            "sequence_lengths": {},
+            "input_sizes": {}
         }
         self.process = psutil.Process()
+        
+        # Get the calling frame to identify the code block
+        frame = inspect.currentframe().f_back
+        self.block_id = f"{frame.f_code.co_filename}:{frame.f_lineno}"
 
     def __enter__(self):
         self.stats_data["start_time"] = time.time()
         self.stats_data["start_memory"] = self.process.memory_info().rss
         self.stats_data["peak_memory"] = self.stats_data["start_memory"]
+        
         # Analyze all input arguments
-        for i, arg in enumerate(self.args):
-            self._analyze_object(arg, f"arg{i}")
+        for name, arg in self.kw.items():
+            self._analyze_object(arg, name)
+        
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
