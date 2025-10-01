@@ -1,5 +1,7 @@
 """Time-related utilities and constants"""
 
+from __future__ import annotations
+
 import datetime
 import inspect
 import time
@@ -39,7 +41,7 @@ class PerfTracker:
     """A class to track performance metrics like time and memory usage of a code block"""
     # Static variable to store stats across multiple runs
     _all_stats = {}
-    
+
     def __init__(self, **kw):
         self.kw = kw
         self.stats_data = {
@@ -53,7 +55,7 @@ class PerfTracker:
             "input_sizes": {}
         }
         self.process = psutil.Process()
-        
+
         # Get the calling frame to identify the code block
         frame = inspect.currentframe().f_back
         self.block_id = f"{frame.f_code.co_filename}:{frame.f_lineno}"
@@ -62,17 +64,17 @@ class PerfTracker:
         self.stats_data["start_time"] = time.time()
         self.stats_data["start_memory"] = self.process.memory_info().rss
         self.stats_data["peak_memory"] = self.stats_data["start_memory"]
-        
+
         # Analyze all input arguments
         for name, arg in self.kw.items():
             self._analyze_object(arg, name)
-        
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stats_data["end_time"] = time.time()
         self.stats_data["end_memory"] = self.process.memory_info().rss
-        
+
         # Store this run's stats in the class variable
         if self.block_id not in self._all_stats:
             self._all_stats[self.block_id] = []
@@ -115,14 +117,14 @@ class PerfTracker:
     @staticmethod
     def track(**kw):
         return PerfTracker(**kw)
-    
+
     @classmethod
     def get_all_stats(cls, block_id=None):
         """Get stats for all runs or for a specific block_id"""
         if block_id:
             return cls._all_stats.get(block_id, [])
         return cls._all_stats
-    
+
     @classmethod
     def clear_stats(cls, block_id=None):
         """Clear stats for all runs or for a specific block_id"""
