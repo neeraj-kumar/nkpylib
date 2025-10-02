@@ -1526,66 +1526,46 @@ class RunPredictionOp(Op):
             "true_values": np.array(all_true)
         }
 
-    def analyze_results(self, results: Any, inputs: dict[str, Any], threshold: float=0.7) -> dict[str, Any]:
-        """Analyzes `results` from executing this op with given `inputs`."""
-        pass
-
-
-class AggregatePredictionResultsOp(Op):
-    """Aggregate results from multiple prediction runs.
-
-    Collects results from all prediction runs and identifies notable results.
-
-    Returns a dict with:
-    - `results_by_label`: Dict mapping label keys to their results
-    - `top_results`: List of top-performing model/task combinations
-    - `warnings`: List of notable results (high scores)
-    """
-    #enabled = False
-    name = "aggregate_prediction_results"
-    input_types = {"prediction_results"}
-    output_types = {"prediction_summary"}
-
-    def __init__(self, threshold: float = 0.7, **kw):
-        """Initialize with threshold for notable results.
-
-        - `threshold`: Score threshold for highlighting results
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes prediction results and identifies notable outcomes.
+        
+        Checks if the prediction score exceeds a threshold (0.7 by default) and
+        generates appropriate warnings for high-performing models.
         """
-        self.threshold = threshold
-        super().__init__(**kw)
-
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        # Group results by label key
-        results_by_label = defaultdict(list)
-        all_results = []
-        prediction_results = inputs["prediction_results"]
-        label_key = prediction_results["label_key"]
-        results_by_label[label_key].append(prediction_results)
-        all_results.append(prediction_results)
-
-        # Sort results by score
-        all_results.sort(key=lambda x: x["score"], reverse=True)
-
-        # Identify notable results
-        warnings = []
-        for result in all_results:
-            if result["score"] > self.threshold:
-                warnings.append({
-                    "unit": "prediction",
-                    "key": result["label_key"],
-                    "task": result["task_name"],
-                    "method": result["model_name"],
-                    "value": result["score"],
-                    "n_classes": result["n_classes"],
-                    "score": 3,  # Importance score
-                    "warning": f"High prediction {result['score_type']} {result['score']:.3f} for {result['label_key']} using {result['model_name']}"
-                })
-
-        return {
-            "results_by_label": dict(results_by_label),
-            "top_results": all_results[:10],  # Top 10 results
-            "warnings": warnings
+        threshold = 0.7  # Score threshold for highlighting results
+        
+        # Extract key information from results
+        score = results.get("score", 0.0)
+        score_type = results.get("score_type", "")
+        label_key = results.get("label_key", "")
+        task_name = results.get("task_name", "")
+        model_name = results.get("model_name", "")
+        n_classes = results.get("n_classes")
+        
+        # Create analysis dict
+        analysis = {
+            "score": score,
+            "score_type": score_type,
+            "warnings": []
         }
+        
+        # Check if score exceeds threshold
+        if score > threshold:
+            warning = {
+                "unit": "prediction",
+                "key": label_key,
+                "task": task_name,
+                "method": model_name,
+                "value": score,
+                "n_classes": n_classes,
+                "score": 3,  # Importance score
+                "warning": f"High prediction {score_type} {score:.3f} for {label_key} using {model_name}"
+            }
+            analysis["warnings"].append(warning)
+            
+        return analysis
+
+
 
 
 class CompareNeighborsOp(Op):
