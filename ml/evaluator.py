@@ -829,6 +829,21 @@ class ParseTagsOp(Op):
                 labels[key] = cur
         return labels
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        ret = {}
+        labels = results
+        ret = {}
+        for name, label in labels.items():
+            ret[name] = dict(
+                tag_type=label.tag_type,
+                n_ids=len(label.ids),
+                n_unique_ids=len(set(label.ids)),
+                norm_type=getattr(label, 'norm_type', None),
+                n_unique_values=len(set(label.values)) if isinstance(label.values, list) else None,
+            }
+        return ret
+
 
 class LoadEmbeddingsOp(Op):
     """Load embeddings from paths into a FeatureSet."""
@@ -842,6 +857,16 @@ class LoadEmbeddingsOp(Op):
         paths = inputs['argparse']['paths']
         return FeatureSet(paths, **kwargs)
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        fs: FeatureSet = results
+        dims = Counter()
+        for key, emb in fs.items():
+            dims[len(emb)] += 1
+        return dict(
+            n_embeddings=len(fs),
+            dimension_counts=dict(dims),
+        )
 
 class CheckDimensionsOp(Op):
     """Check that all embeddings have consistent dimensions."""
@@ -855,19 +880,22 @@ class CheckDimensionsOp(Op):
         dims = Counter()
         for key, emb in fs.items():
             dims[len(emb)] += 1
-        is_consistent = len(dims) == 1
         return {
-            "is_consistent": is_consistent,
             "dimension_counts": dict(dims),
-            "error_message": None if is_consistent else f"Inconsistent embedding dimensions: {dims.most_common()}"
         }
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        dims = Counter(results['dimension_counts'])
+        return dict(
+            is_consistent=(len(dims) == 1),
+            error_message: None if is_consistent else f"Inconsistent embedding dimensions: {dims.most_common()}",
+        )
 
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
 
     #run_mode = 'process'
-
     name = "check_nans"
     input_types = {"feature_set"}
     output_types = {"nan_check_result"}
@@ -881,13 +909,19 @@ class CheckNaNsOp(Op):
             n_nans += key_nans
             if key_nans > 0:
                 nan_keys.append((key, int(key_nans)))
-        has_nans = n_nans > 0
         return {
-            "has_nans": has_nans,
             "total_nans": int(n_nans),
             "nan_keys": nan_keys,
-            "error_message": None if not has_nans else f"Found {n_nans} NaNs in embeddings"
         }
+
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        n_nans = results['total_nans']
+        return dict(
+            has_nans=n_nans > 0,
+            error_message=None if n_nans == 0 else f"Found {n_nans} NaNs in embeddings",
+        )
+
 
 
 class BasicChecksOp(Op):
@@ -907,11 +941,15 @@ class BasicChecksOp(Op):
         if nan_result["has_nans"]:
             errors.append(nan_result["error_message"])
         return {
-            "passed": len(errors) == 0,
             "errors": errors,
             "dimension_check": dim_result,
             "nan_check": nan_result
         }
+
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        errors = results.get('errors', [])
+        return dict(passed= (len(errors) == 0))
 
 
 class NormalizeOp(Op):
@@ -959,6 +997,15 @@ class NormalizeOp(Op):
         )
         op_logger.info(f'from {len(valid_keys)} got {len(keys)} embeddings {emb.shape}')
         return (keys, emb)
+
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        keys, emb = results
+        return dict(
+            variant=self.variant,
+            n_embeddings=len(keys),
+            embedding_shape=emb.shape,
+        )
 
 
 class LabelOp(Op):
@@ -1013,6 +1060,16 @@ class GetLabelArraysOp(LabelOp):
         ret['label_key'] = self.label_key
         return ret
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        return dict(
+            variant=self.variant,
+            label_key=results.get('label_key'),
+            n_sub_keys=len(results.get('sub_keys', [])),
+            n_label_names=len(results.get('label_names', [])),
+            label_array_shape=results.get('label_arrays', []).shape if 'label_arrays' in results else None,
+            sub_matrix_shape=results.get('sub_matrix', []).shape if 'sub_matrix' in results else None,
+        )
 
 class GetLabelDistancesOp(LabelOp):
     """Generate distance matrices from labels.
@@ -1050,6 +1107,15 @@ class GetLabelDistancesOp(LabelOp):
         ret['label_key'] = self.label_key
         return ret
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        return dict(
+            variant=self.variant,
+            label_key=results.get('label_key'),
+            n_sub_keys=len(results.get('sub_keys', [])),
+            label_distances_shape=results.get('label_distances', []).shape if 'label_distances' in results else None,
+            sub_matrix_shape=results.get('sub_matrix', []).shape if 'sub_matrix' in results else None,
+        )
 
 class GetEmbeddingDimsOp(Op):
     """Extract embedding dimensions from filtered label data for consistency.
@@ -1086,6 +1152,15 @@ class GetEmbeddingDimsOp(Op):
             dims = np.log1p(np.abs(dims))
         # "raw" needs no transformation
         return dict(dims_matrix=dims, transform=self.transform, label_key=label_data["label_key"])
+
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        return dict(
+            variant=self.variant,
+            label_key=results.get('label_key'),
+            dims_shape=results.get('dims_matrix', []).shape if 'dims_matrix' in results else None,
+            transform=results.get('transform'),
+        )
 
 
 class GetEmbeddingDistancesOp(Op):
@@ -1133,6 +1208,16 @@ class GetEmbeddingDistancesOp(Op):
             raise ValueError(f"Unknown metric: {self.metric}")
         ret['distances'] = ret['embedding_distances'] = distances
         return ret
+
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        return dict(
+            variant=self.variant,
+            label_key=results.get('label_key'),
+            metric=results.get('metric'),
+            n_sub_keys=len(results.get('sub_keys', [])),
+            distances_shape=results.get('distances', []).shape if 'distances' in results else None,
+        )
 
 
 class GetNeighborsOp(Op):
@@ -1196,6 +1281,18 @@ class GetNeighborsOp(Op):
             "keys": keys,
         }
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        return dict(
+            variant=self.variant,
+            distance_type=results.get('distance_type'),
+            label_key=results.get('label_key'),
+            metric=results.get('metric'),
+            n_keys=len(results.get('keys', [])),
+            neighbors_shape=results.get('neighbors', []).shape if 'neighbors' in results else None,
+            distances_shape=results.get('distances', []).shape if 'distances' in results else None,
+        )
+
 
 class GenPredictionTasksOp(LabelOp):
     """Generate prediction tasks from labels.
@@ -1235,20 +1332,15 @@ class GenPredictionTasksOp(LabelOp):
         valid_ids = [id for id in label.ids if id in keys]
         id_indices = [keys.index(id) for id in valid_ids]
         sub_matrix = matrix[id_indices]
-
         tasks: PTasks = {}
-
         if isinstance(label, NumericLabels):
             # For numeric labels, generate original, log, and exp transformations
             values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
             tasks['orig-num'] = (values, 'regression')
-
             # Log transformation (shift to positive)
             tasks['log'] = (np.log1p(values - np.min(values) + 1.0), 'regression')
-
             # Exp transformation
             tasks['exp'] = (np.expm1(values - np.min(values) + 1.0), 'regression')
-
         elif isinstance(label, MulticlassLabels):
             # For multiclass labels, generate original and binarized versions
             values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
@@ -1260,7 +1352,6 @@ class GenPredictionTasksOp(LabelOp):
                 bin_values = np.array([int(val == v) for val in values])
                 if np.sum(bin_values) >= self.min_pos:
                     tasks[f'binarized-{v}'] = (bin_values, 'classification')
-
         elif isinstance(label, MultilabelLabels):
             # For multilabel labels, generate binarized versions for each label
             counts = Counter()
@@ -1271,13 +1362,23 @@ class GenPredictionTasksOp(LabelOp):
                 bin_values = np.array([int(v in label.values.get(id, [])) for id in valid_ids])
                 if np.sum(bin_values) >= self.min_pos:
                     tasks[f'binarized-{v}'] = (bin_values, 'classification')
-
         return {
             "label_key": self.label_key,
             "tasks": tasks,
             "sub_keys": valid_ids,
             "sub_matrix": sub_matrix
         }
+
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        return dict(
+            variant=self.variant,
+            label_key=results.get('label_key'),
+            n_tasks=len(results.get('tasks', {})),
+            n_sub_keys=len(results.get('sub_keys', [])),
+            sub_matrix_shape=results.get('sub_matrix', []).shape if 'sub_matrix' in results else None,
+            task_counts={k: v[1] for k, v in results.get('tasks', {}).items()},
+        )
 
 
 class RunPredictionOp(Op):
@@ -1424,6 +1525,10 @@ class RunPredictionOp(Op):
             "predictions": np.array(all_preds),
             "true_values": np.array(all_true)
         }
+
+    def analyze_results(self, results: Any, inputs: dict[str, Any], threshold: float=0.7) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        pass
 
 
 class AggregatePredictionResultsOp(Op):
@@ -1656,7 +1761,8 @@ class CompareStatsOp(Op):
         return ret
 
 def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval'),
-                 stderr_loggers=('op', 'errors', 'eval')):
+                 stderr_loggers=('op', 'errors', 'eval'),
+                 file_mode='w'): #FIXME change this to 'a'
     """initializes all our logging
 
     Args:
@@ -1679,7 +1785,7 @@ def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval'),
         logger.setLevel(logging.INFO)
 
         # Always add a file handler
-        file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode="w")
+        file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode=file_mode)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
