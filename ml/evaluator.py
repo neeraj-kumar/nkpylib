@@ -1528,14 +1528,12 @@ class RunPredictionOp(Op):
             "true_values": np.array(all_true)
         }
 
-    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    def analyze_results(self, results: Any, inputs: dict[str, Any], threshold = 0.7) -> dict[str, Any]:
         """Analyzes prediction results and identifies notable outcomes.
-        
+
         Checks if the prediction score exceeds a threshold (0.7 by default) and
         generates appropriate warnings for high-performing models.
         """
-        threshold = 0.7  # Score threshold for highlighting results
-        
         # Extract key information from results
         score = results.get("score", 0.0)
         score_type = results.get("score_type", "")
@@ -1543,14 +1541,14 @@ class RunPredictionOp(Op):
         task_name = results.get("task_name", "")
         model_name = results.get("model_name", "")
         n_classes = results.get("n_classes")
-        
+
         # Create analysis dict
         analysis = {
             "score": score,
             "score_type": score_type,
             "warnings": []
         }
-        
+
         # Check if score exceeds threshold
         if score > threshold:
             warning = {
@@ -1564,10 +1562,7 @@ class RunPredictionOp(Op):
                 "warning": f"High prediction {score_type} {score:.3f} for {label_key} using {model_name}"
             }
             analysis["warnings"].append(warning)
-            
         return analysis
-
-
 
 
 class CompareNeighborsOp(Op):
