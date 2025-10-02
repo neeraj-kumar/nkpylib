@@ -119,7 +119,7 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator_ops import Op, OpManager
+from nkpylib.ml.evaluator_ops import Op, OpManager, error_logger, result_logger
 from nkpylib.ml.feature_set import (
     FeatureSet,
     JsonLmdb,
@@ -142,8 +142,7 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 # Create specialized loggers for different components
 logger = logging.getLogger(__name__)
-result_logger = logging.getLogger("evaluator.results")
-error_logger = logging.getLogger("evaluator.errors")
+op_logger = logging.getLogger("evaluator.op")
 eval_logger = logging.getLogger("evaluator.eval")
 
 # get console width from system
@@ -233,7 +232,7 @@ def compare_array1d_stats(a: array1d, b: array1d, *,
         res = stats.linregress(a, b)
         ret.update(linear_least_square_r2=float(res.rvalue)**2.0)
     except Exception as e:
-        logger.exception(e)
+        error_logger.exception(e)
         ret.update(linear_least_square_r2=float('nan'))
     if stats_a is not None and stats_b is not None:
         ret.update({f'diff_{k}': stats_b[k] - stats_a[k] for k in stats_a})
@@ -312,7 +311,7 @@ class Labels(ABC):
             n_pts = len(ids)
         ids = sorted(random.sample(ids, n_pts))
         id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
-        logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
+        op_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
         assert len(sub_keys) == len(sub_matrix) == len(ids) == dists.shape[0] == dists.shape[1]
         assert sub_matrix.shape[1] == matrix.shape[1]
@@ -349,7 +348,7 @@ class Labels(ABC):
         """
         raise NotImplementedError()
 
-    def get_matching_matrix(self, keys: list[str], matrix: array2d, ids: list[str]|None) -> tuple[array1d, list[str], nparray2d]:
+    def get_matching_matrix(self, keys: list[str], matrix: array2d, ids: list[str]|None=None) -> tuple[array1d, list[str], nparray2d]:
         """Returns matching submatrix based on overlapping keys.
 
         This does a set intersection between our ids and the given `keys`, and returns a tuple of
@@ -383,10 +382,10 @@ class Labels(ABC):
             mat_indices.append(mat_idx)
             id_indices.append(label_idx)
             sub_keys.append(id)
-        logger.debug(f'  Found {len(common)} matching ids in embeddings')
+        op_logger.debug(f'  Found {len(common)} matching ids in embeddings')
         id_indices = np.asarray(id_indices)
         sub_matrix = matrix[mat_indices, :]
-        logger.debug(f'Got sub matrix of shape {sub_matrix.shape}: {sub_matrix}')
+        op_logger.debug(f'Got sub matrix of shape {sub_matrix.shape}: {sub_matrix}')
         assert sub_matrix.shape == (len(id_indices), matrix.shape[1])
         assert len(id_indices) == len(sub_keys) == len(sub_matrix)
         return id_indices, sub_keys, sub_matrix
@@ -590,7 +589,7 @@ class MulticlassBase(Labels):
         # at this point we should have all our ids
         ids = sorted(ids)
         id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
-        logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
+        op_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
         return dict(
             sub_keys=sub_keys,
@@ -751,11 +750,11 @@ def parse_into_labels(tag_type: str,
     values = [v for id, v in ids_values]
     types = Counter(type(v) for v in values)
     most_t, n_most = types.most_common(1)[0]
-    logger.debug(f'For {(tag_type, key)} got {len(ids)} ids, types: {types.most_common()}')
+    op_logger.debug(f'For {(tag_type, key)} got {len(ids)} ids, types: {types.most_common()}')
     # if we have less than `impure_thresh` of other types, ignore them
     if len(types) > 1:
         impure = 1.0 - (n_most / len(ids))
-        logger.debug(f'  Most common (purity): {n_most}/{len(ids)} -> {impure}')
+        op_logger.debug(f'  Most common (purity): {n_most}/{len(ids)} -> {impure}')
         if impure < impure_thresh:
             new_ids_values = [(id, v) for id, v in ids_values if type(v) == most_t]
             return parse_into_labels(tag_type, key, new_ids_values, impure_thresh=impure_thresh)
@@ -766,7 +765,7 @@ def parse_into_labels(tag_type: str,
     if len(set(ids)) != len(ids): # we have duplicate ids
         # check for impurity level
         impure = 1.0 - (len(set(ids)) / len(ids))
-        logger.debug(f'  Multilabel impurity {impure}: {len(set(ids))}/{len(ids)}')
+        op_logger.debug(f'  Multilabel impurity {impure}: {len(set(ids))}/{len(ids)}')
         if impure < impure_thresh:
             seen_ids = set()
             new_ids_values = []
@@ -782,272 +781,10 @@ def parse_into_labels(tag_type: str,
         return NumericLabels(tag_type, key, ids_values)
     else: # categorical
         if len(set(values)) == len(values):
-            logger.debug(f'  All values unique, treating as id')
+            op_logger.debug(f'  All values unique, treating as id')
             return None
         return MulticlassLabels(tag_type, key, ids_values)
 
-
-
-class EmbeddingsValidator:
-    """A class to validate/evaluate embeddings in various ways, semi-automatically."""
-    def __init__(self, paths: list[str], tag_path: str, **kw):
-        self.paths = paths
-        self.fs = FeatureSet(paths, **kw)
-        self.labels = {}
-        self.parse_tags(tag_path)
-        self.msgs = []
-
-    def add_msg(self, **msg) -> None:
-        """Adds a message to our internal message list."""
-        logger.debug(f'Adding msg {msg}')
-        self.msgs.append(msg)
-
-    def init_fig(self):
-        plt.figure(figsize=(10, 10))
-        plt.grid(True)
-        plt.tight_layout()
-
-    def make_plots(self, a: array1d, b: array1d, a_name: str='a', b_name:str='b') -> dict[str, mpl.figure.Figure]:
-        """Makes various plots comparing 1D array `a` to `b`.
-
-        Returns a dict mapping plot type to figure.
-        """
-        ret = {}
-        if 0:
-            # make a scatter plot of a vs b
-            self.init_fig()
-            plt.scatter(a, b)
-            plt.xlabel(a_name)
-            plt.ylabel(b_name)
-            plt.title(f'Scatter plot of {a_name} vs {b_name}')
-            ret['scatter'] = plt.gcf()
-        # make a q-q plot to compare distributions
-        self.init_fig()
-        stats.probplot(a, dist="norm", plot=plt)
-        stats.probplot(b, dist="norm", plot=plt)
-        plt.title(f'Q-Q plot of {a_name} vs {b_name}')
-        ret['qq'] = plt.gcf()
-        return ret
-
-    def check_neighbors(self,
-                        ids: list[str],
-                        label_dists: array1d,
-                        dists: dict[str, array1d],
-                        key: str,
-                        n_neighbors:int = 20,
-                        **kw) -> None:
-        """Checks neighbors based on distances.
-
-        Given a set of `ids`, the pairwise `label_dists` between them, and a dict of distances
-        computed via different methods, we generate upto `n_neighbors` nearest neighbors for each
-        method and compare them to the label-based neighbors using various metrics.
-        """
-        n = len(ids)
-        id_indices = {id: i for i, id in enumerate(ids)}
-        def upper_tri_to_full(m):
-            """Convert upper triangle 1-d array back to full matrix"""
-            if m.ndim == 2 and m.shape[0] == m.shape[1]:
-                return m
-            full = np.zeros((n, n), dtype=label_dists.dtype)
-            iu = np.triu_indices(n, k=1)
-            full[iu] = m
-            full = full + full.T
-            return full
-
-        def upper_tri_to_neighbors(m):
-            m = upper_tri_to_full(m)
-            # clamp values up to 0
-            m = np.maximum(m, 0)
-            nn_cls = NearestNeighbors(n_neighbors=n_neighbors+1, metric='precomputed')
-            nn_cls.fit(m)
-            dists, nn = nn_cls.kneighbors(m)
-            #print(f'  Got {nn.shape} neighbors, {dists.shape} dists: {nn}, {dists}')
-            return dists, nn
-
-        l_dists, l_nn = upper_tri_to_neighbors(label_dists)
-        for method, m in dists.items():
-            m_dists, m_nn = upper_tri_to_neighbors(m)
-            print(f'  [{method}] Comparing neighbors for {key}:')
-            # compute recalls, mrr, jaccard
-            counts = defaultdict(list)
-            for idx, id in enumerate(ids):
-                l_row = l_nn[idx]
-                if l_row[0] == idx:
-                    l_row = l_row[1:]
-                m_row = m_nn[idx]
-                if m_row[0] == idx:
-                    m_row = m_row[1:]
-                for k in [1, 5, 10, 20]:
-                    recall = recall_score(l_row[:k], m_row[:k], average='micro', zero_division=0)
-                    counts[f'recall@{k}'].append(recall)
-                    if recall > 0:
-                        # compute mrr
-                        for rank, nbr in enumerate(m_row[:k], start=1):
-                            if nbr in l_row[:k]:
-                                counts[f'mrr@{k}'].append(1.0 / rank)
-                                break
-                    else:
-                        counts[f'mrr@{k}'].append(0.0)
-                    # compute jaccard
-                    set_l = set(l_row[:k])
-                    set_m = set(m_row[:k])
-                    jaccard = len(set_l & set_m) / len(set_l | set_m) if set_l | set_m else 0.0
-                    counts[f'jaccard@{k}'].append(jaccard)
-            for k, v in counts.items():
-                avg = sum(v) / len(v) if v else 0.0
-                print(f'    {k:>10}: {avg:.3f}')
-                if avg > 0.5:
-                    self.add_msg(unit='neighbors',
-                                 key=key,
-                                 method=method,
-                                 metric=k,
-                                 value=avg,
-                                 score=3,
-                                 warning=f'High neighbor {k}={avg:.3f} for {key} using {method}')
-
-    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> PTasks:
-        """Generates prediction tasks derived from a set of `ids` and a `Labels` instance.
-
-        For numeric labels, this takes the original values and also generates log- and
-        exp-transformed versions of them, and returns all 3 as separate tasks.
-
-        For multiclass labels, this takes the original values and also generates binarized versions
-        for each label class. We only generate upto `max_tasks` binarized tasks, choosing the ones
-        with the most positive examples (at least `min_pos`).
-
-        We return a dict mapping task name to a tuple of (array of values, task type).
-        """
-        ret: PTasks = {}
-        if isinstance(label, NumericLabels):
-            values = np.array([label.values[label.ids.index(id)] for id in ids])
-            ret['orig-num'] = (values, 'regression')
-            ret['log'] = (np.log1p(values - np.min(values) + 1.0), 'regression')
-            ret['exp'] = (np.expm1(values - np.min(values) + 1.0), 'regression')
-            #TODO other kinds of normalizations (e.g., currently the values are very large)
-            #     - also might want to e.g. std-normalize before applying log/exp?
-            #TODO also generate classification tasks
-        elif isinstance(label, MulticlassLabels):
-            values = np.array([label.values[label.ids.index(id)] for id in ids])
-            ret['orig-cls'] = (values, 'classification')
-            counts = Counter(values)
-            for v, _ in counts.most_common(max_tasks):
-                bin_values = np.array([int(val == v) for val in values])
-                if np.sum(bin_values) >= min_pos:
-                    ret[f'binarized-{v}'] = (bin_values, 'classification')
-        elif isinstance(label, MultilabelLabels):
-            # label.values maps from id to a list of labels
-            counts = Counter()
-            for id in ids:
-                counts.update(label.values.get(id, []))
-            for v, _ in counts.most_common(max_tasks):
-                bin_values = np.array([int(v in label.values.get(id, [])) for id in ids])
-                if np.sum(bin_values) >= min_pos:
-                    ret[f'binarized-{v}'] = (bin_values, 'classification')
-        return ret
-
-    def check_prediction(self, n_jobs=10) -> None:
-        """Does prediction tests on our labels.
-
-        For each label, we generate a number of prediction tasks. For numeric labels, these are
-        regression, and for categorical labels, these are classification tasks. We then run a number
-        of different prediction methods on each task, using cross-validation, and report the results.
-
-        For classification tasks, we report balanced accuracy, and for regression tasks, we report
-        R^2.
-        """
-        fs_keys = set(self.fs.keys())
-        pool = ProcessPoolExecutor(max_workers=n_jobs)
-        for key, label in self.labels.items():
-            print(f'\nRunning prediction tests on {key} of type {label.__class__.__name__} with {len(label.ids)} ids')
-            assert len(label.ids) == len(set(label.ids))
-            method_kw = {} #dict(n_jobs=n_jobs)
-            if isinstance(label, NumericLabels):
-                methods = dict(
-                    ridge=Ridge(alpha=1.0),
-                    #forest_reg=RandomForestRegressor(n_estimators=100, **method_kw),
-                    rbf_svr=SVR(kernel='rbf', C=1.0, epsilon=0.1),
-                    linear_svr=LinearSVR(C=1.0, epsilon=0.1, dual='auto'),
-                    neighbors_reg=KNeighborsRegressor(n_neighbors=10, **method_kw),
-                )
-            else:
-                methods = dict(
-                    #forest_cls=RandomForestClassifier(n_estimators=100, max_depth=5, **method_kw),
-                    rbf_svm=SVC(kernel='rbf', C=1.0, probability=True),
-                    linear_svm=LinearSVC(C=1.0, max_iter=200, dual='auto'),
-                    neighbors_cls=KNeighborsClassifier(n_neighbors=10, **method_kw),
-                )
-            # filter ids to those in our embeddings and get embeddings
-            ids = [id for id in label.ids if id in fs_keys]
-            keys, emb = self.fs.get_keys_embeddings(keys=ids, normed=False, scale_mean=True, scale_std=True)
-            if len(keys) < 10:
-                print(f'  Only {len(keys)} embeddings, skipping')
-                continue
-            assert keys == ids
-            # generate prediction tasks (different sets of labels) and run each one in our pool
-            tasks = self.gen_prediction_tasks(ids, label)
-            print(f'  Generated {len(tasks)} tasks for {key} x {len(methods)} methods = {len(tasks)*len(methods)}')
-            todo = []
-            for task_name, (values, task_type) in tasks.items():
-                for method_name, model in methods.items():
-                    y = []
-                    KF_cls = KFold if task_type == 'regression' else StratifiedKFold
-                    kf = KF_cls(n_splits=4, shuffle=True)
-                    futures = []
-                    for train, test in kf.split(emb, values):
-                        X_train, X_test = emb[train], emb[test]
-                        y_train, y_test = values[train], values[test]
-                        y.extend(y_test)
-                        #print(f'Submitting task {task_name} x {method_name} with {X_train.shape} train, {X_test.shape} test')
-                        futures.append(pool.submit(train_and_predict, model, X_train, y_train, X_test))
-                    todo.append((task_name, np.array(y), method_name, task_type, futures))
-            for task_name, y, method_name, task_type, futures in todo:
-                s = f'    {task_name} x {method_name} - '
-                preds = []
-                try:
-                    for f in futures:
-                            preds.extend(f.result())
-                except Exception as e:
-                    print(f'{s} FAILED!: {e}')
-                    continue
-                preds = np.array(preds)
-                if task_type == 'regression':
-                    score = r2_score(y, preds)
-                    score_type = 'R^2'
-                    print(f'{s} R^2: {score:.3f}')
-                    n_classes = None
-                else:  # task_type == 'classification'
-                    score = balanced_accuracy_score(y, preds)
-                    score_type = 'balanced_accuracy'
-                    n_classes = len(set(y))
-                    print(f'{s} Balanced Accuracy: {score:.3f} {n_classes} classes')
-                if score > 0.7:
-                    self.add_msg(unit='prediction',
-                                 key=key,
-                                 task=task_name,
-                                 method=method_name,
-                                 value=score,
-                                 n_classes=n_classes,
-                                 score=3,
-                                 warning=f'High prediction {score_type} {score:.3f} for {key} using {method_name}')
-
-    def run(self) -> None:
-        logger.info(f'Validating embeddings in {self.paths}, {len(self.fs)}')
-        #self.check_distances(n=200, sample_ids=True)
-        self.check_prediction()
-        return
-        # raw correlations
-        # norming hurts correlations
-        # scaling mean/std doesn't do anything, because correlation is scale-invariant
-        keys, emb = self.fs.get_keys_embeddings(normed=False, scale_mean=False, scale_std=False)
-        n_top = 10
-        if 0:
-            # pca correlations
-            pca = PCA(n_components=min(n_top, emb.shape[1]))
-            trans = pca.fit_transform(emb)
-            # if the first pca dimension explained variance is too high, add a message about it
-            if pca.explained_variance_ratio_[0] > 0.5:
-                self.add_msg(unit='pca', warning=f'PCA first dimension explains too much variance: {pca.explained_variance_ratio_[0]:.3f}', score=-2)
-            print(f'PCA with {pca.n_components_} comps, explained variance: {pca.explained_variance_ratio_}: {emb.shape} -> {trans.shape}')
 
 class StartValidatorOp(Op):
     """Starting point for running embeddings validation.
@@ -1083,7 +820,7 @@ class ParseTagsOp(Op):
                 key = (t.type, t.key)
                 v = specialize(t.value)
                 grouped[key].append((t.id, v))
-        logger.info(f'Loaded {len(grouped)} types of tags from {tag_path}')
+        op_logger.info(f'Loaded {len(grouped)} types of tags from {tag_path}')
         labels = {}
         for (tag_type, key), ids_values in grouped.items():
             if key == 'title':
@@ -1129,7 +866,6 @@ class CheckDimensionsOp(Op):
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
 
-    enabled = True
     #run_mode = 'process'
 
     name = "check_nans"
@@ -1221,7 +957,7 @@ class NormalizeOp(Op):
             scale_mean=self.scale_mean,
             scale_std=self.scale_std
         )
-        logger.info(f'from {len(valid_keys)} got {len(keys)} embeddings {emb.shape}')
+        op_logger.info(f'from {len(valid_keys)} got {len(keys)} embeddings {emb.shape}')
         return (keys, emb)
 
 
@@ -1239,7 +975,7 @@ class LabelOp(Op):
             ret[variant_name] = {"label_key": key}
             if len(ret) > 3: #FIXME temporary
                 break
-        logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
+        op_logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
         return ret
 
     def __init__(self, label_key: str, **kw):
@@ -1263,7 +999,7 @@ class GetLabelArraysOp(LabelOp):
     - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
       - Shape `(len(sub_keys), matrix.shape[1])`
     """
-    enabled = False
+    #enabled = False
 
     name = "get_label_arrays"
     input_types = {"normalized_embeddings", "labels"}
@@ -1321,7 +1057,7 @@ class GetEmbeddingDimsOp(Op):
     Uses the keys and matrix from label_arrays_data to ensure both arrays
     have the same samples in the same order.
     """
-    enabled = False
+    #enabled = False
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
     output_types = {"embedding_dims"}
@@ -1382,7 +1118,7 @@ class GetEmbeddingDistancesOp(Op):
         # Get the ids from label distances to ensure consistency
         ret = dict(label_key=label_data["label_key"], metric=self.metric, sub_keys=label_data["sub_keys"])
         matrix = label_data["sub_matrix"]  # Already filtered to the right intersection
-        logger.info(f'Computing {self.metric} dists for label {label_data["label_key"]} with {matrix.shape} matrix')
+        op_logger.info(f'Computing {self.metric} dists for label {label_data["label_key"]} with {matrix.shape} matrix')
 
         # Compute distance matrix based on metric
         if self.metric == "cosine":
@@ -1411,7 +1147,7 @@ class GetNeighborsOp(Op):
     - `distances`: A 2D array of distances to neighbors, shape (n_samples, K)
     - `keys`: The list of keys corresponding to the rows/columns of the distance matrix
     """
-    enabled = False
+    #enabled = False
     name = "get_neighbors"
     input_types = {'distances'}
     output_types = {"neighbors_data"}
@@ -1429,7 +1165,7 @@ class GetNeighborsOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Determine which type of distance matrix we're using
         data = inputs['distances']
-        logger.info(f'Computing neighbors, got data {data.keys()}, k={self.k}')
+        op_logger.info(f'Computing neighbors, got data {data.keys()}, k={self.k}')
         distances = data["distances"]  # Get the actual distance matrix
         keys = data["sub_keys"]
         if "label_distances" in data:
@@ -1696,7 +1432,7 @@ class AggregatePredictionResultsOp(Op):
     - `top_results`: List of top-performing model/task combinations
     - `warnings`: List of notable results (high scores)
     """
-    enabled = False
+    #enabled = False
     name = "aggregate_prediction_results"
     input_types = {"prediction_results"}
     output_types = {"prediction_summary"}
@@ -1713,7 +1449,7 @@ class AggregatePredictionResultsOp(Op):
         # Group results by label key
         results_by_label = defaultdict(list)
         all_results = []
-        logger.warning(f'Inputs: {inputs["prediction_results"]}')
+        op_logger.info(f'Inputs: {inputs["prediction_results"]}')
 
         for result in inputs["prediction_results"]:
             label_key = result["label_key"]
@@ -1757,7 +1493,7 @@ class CompareNeighborsOp(Op):
     - `metrics`: Dict of metrics computed (recall@K, MRR@K, jaccard@K for different K values)
     - `per_item_metrics`: Optional detailed metrics for each item
     """
-    enabled = False
+    #enabled = False
     name = "compare_neighbors"
     input_types = {
         ("neighbors_data", "neighbors_data"): {
@@ -1798,7 +1534,7 @@ class CompareNeighborsOp(Op):
         # Get the neighbor indices
         l_nn = neighbors_a["neighbors"]
         m_nn = neighbors_b["neighbors"]
-        logger.info(f'In CompareNeighborsOp with {neighbors_a.keys()} and {neighbors_b.keys()}, k={self.k}, shapes {l_nn.shape}, {m_nn.shape}')
+        op_logger.info(f'In CompareNeighborsOp with {neighbors_a.keys()} and {neighbors_b.keys()}, k={self.k}, shapes {l_nn.shape}, {m_nn.shape}')
         #TODO clamp values up to 0?
 
         # Compute metrics for different K values
@@ -1864,7 +1600,7 @@ class CompareStatsOp(Op):
     - comparisons: dict mapping (i,j) to comparison stats between row i of A and row j of B
     - n_comparisons: total number of comparisons made
     """
-    enabled = False
+    #enabled = False
     name = "compare_stats"
     input_types = {
         ('many_array1d_a', 'many_array1d_b'): {},
@@ -1917,59 +1653,36 @@ class CompareStatsOp(Op):
         ret['n_comparisons'] = len(ret['comparisons'])
         return ret
 
-
-if __name__ == '__main__':
+def init_logging(log_names=('tasks', 'perf', 'ops', 'results', 'errors', 'eval')):
+    """initializes all our logging"""
     fmt = '\t'.join(['%(asctime)s', '%(levelname)s', '%(name)s', '%(process)d:%(thread)d', '%(module)s:%(lineno)d', '%(funcName)s'])+'\n%(message)s\n'
     logging.basicConfig(format=fmt, level=logging.INFO)
-    
+
     # Configure specialized loggers
     log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
-    
+
     # Create file handlers for each logger type
-    handlers = {
-        "tasks": logging.FileHandler(f"{log_dir}/tasks.log", mode="w"),
-        "perf": logging.FileHandler(f"{log_dir}/perf.log", mode="w"),
-        "ops": logging.FileHandler(f"{log_dir}/ops.log", mode="w"),
-        "results": logging.FileHandler(f"{log_dir}/results.log", mode="w"),
-        "errors": logging.FileHandler(f"{log_dir}/errors.log", mode="w"),
-        "eval": logging.FileHandler(f"{log_dir}/eval.log", mode="w"),
-    }
-    
+    handlers = {name: logging.FileHandler(f"{log_dir}/{name}.log", mode="w") for name in log_names}
+
     # Set formatter for all handlers
     for handler in handlers.values():
         handler.setFormatter(logging.Formatter(fmt))
-    
+
     # Configure each logger
-    logging.getLogger("evaluator.tasks").setLevel(logging.INFO)
-    logging.getLogger("evaluator.tasks").addHandler(handlers["tasks"])
-    
-    logging.getLogger("evaluator.perf").setLevel(logging.INFO)
-    logging.getLogger("evaluator.perf").addHandler(handlers["perf"])
-    
-    logging.getLogger("evaluator.ops").setLevel(logging.INFO)
-    logging.getLogger("evaluator.ops").addHandler(handlers["ops"])
-    
-    logging.getLogger("evaluator.results").setLevel(logging.INFO)
-    logging.getLogger("evaluator.results").addHandler(handlers["results"])
-    
-    logging.getLogger("evaluator.errors").setLevel(logging.INFO)
-    logging.getLogger("evaluator.errors").addHandler(handlers["errors"])
-    
-    logging.getLogger("evaluator.eval").setLevel(logging.INFO)
-    logging.getLogger("evaluator.eval").addHandler(handlers["eval"])
-    
+    for name in log_names:
+        logging.getLogger(f"evaluator.{name}").setLevel(logging.INFO)
+        logging.getLogger(f"evaluator.{name}").addHandler(handlers[name])
+
+
+if __name__ == '__main__':
     # Parse arguments
     parser = ArgumentParser(description='Embeddings evaluator')
     parser.add_argument('paths', nargs='+', help='Paths to the embeddings lmdb file')
     parser.add_argument('-t', '--tag_path', help='Path to the tags sqlite db')
     args = parser.parse_args()
-    if 0:
-        ev = EmbeddingsValidator(args.paths, tag_path=args.tag_path)
-        ev.run()
-    else:
-        om = OpManager.get()
-        om.start(StartValidatorOp, vars(args))
-        for r in om._results.values():
-            result_logger.info(f"Result: {r.key} - {r.op.name}")
-            #pprint(r.output); print()
+    om = OpManager.get()
+    om.start(StartValidatorOp, vars(args))
+    for r in om._results.values():
+        result_logger.info(f"Result: {r.key} - {r.op.name}")
+        #pprint(r.output); print()
