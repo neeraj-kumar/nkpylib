@@ -1041,19 +1041,6 @@ class StartValidatorOp(Op):
         return inputs
 
 
-class LoadEmbeddingsOp(Op):
-    """Load embeddings from paths into a FeatureSet."""
-    name = 'load_embeddings'
-    input_types = {'argparse'}
-    output_types = {"feature_set"}
-    is_intermediate = True
-
-    #TODO return cartesian product of inputs as variants
-    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
-        paths = inputs['argparse']['paths']
-        return FeatureSet(paths, **kwargs)
-
-
 class ParseTagsOp(Op):
     """Parses our tags from the tag db"""
     name = 'parse_tags'
@@ -1084,9 +1071,22 @@ class ParseTagsOp(Op):
         return labels
 
 
+class LoadEmbeddingsOp(Op):
+    """Load embeddings from paths into a FeatureSet."""
+    name = 'load_embeddings'
+    input_types = {'argparse'}
+    output_types = {"feature_set"}
+    is_intermediate = True
+
+    #TODO return cartesian product of inputs as variants
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
+        paths = inputs['argparse']['paths']
+        return FeatureSet(paths, **kwargs)
+
+
 class CheckDimensionsOp(Op):
     """Check that all embeddings have consistent dimensions."""
-    run_mode = 'process'
+    #run_mode = 'process'
     name = "check_dimensions"
     input_types = {"feature_set"}
     output_types = {"dimension_check_result"}
@@ -1108,7 +1108,7 @@ class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
 
     enabled = True
-    run_mode = 'process'
+    #run_mode = 'process'
 
     name = "check_nans"
     input_types = {"feature_set"}
@@ -1138,7 +1138,7 @@ class BasicChecksOp(Op):
     name = "basic_checks"
     input_types = {"dimension_check_result", "nan_check_result"}
     output_types = {"basic_checks_report"}
-    run_mode = 'process'
+    #run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
@@ -1157,10 +1157,13 @@ class BasicChecksOp(Op):
 
 
 class NormalizeOp(Op):
-    """Normalize embeddings from a FeatureSet based on normalization parameters."""
+    """Normalize embeddings from a FeatureSet based on normalization parameters.
+
+    Note that this takes 'labels' as input so that we filter down to keys that have any labels,
+    """
 
     name = "normalize"
-    input_types = {"feature_set"}
+    input_types = {"feature_set", "labels"}
     output_types = {"normalized_embeddings"}
     is_intermediate = True
     run_mode = 'main'
@@ -1186,12 +1189,17 @@ class NormalizeOp(Op):
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
-        fs = inputs["feature_set"]
+        fs, labels = inputs["feature_set"], inputs['labels']
+        valid_keys = set()
+        for label in labels.values():
+            valid_keys.update(label.ids)
         keys, emb = fs.get_keys_embeddings(
+            keys=sorted(valid_keys),
             normed=self.normed,
             scale_mean=self.scale_mean,
             scale_std=self.scale_std
         )
+        logger.info(f'from {len(valid_keys)} got {len(keys)} embeddings {emb.shape}')
         return (keys, emb)
 
 
@@ -1560,7 +1568,7 @@ class CompareStatsOp(Op):
         },
     }
     output_types = {"stats_comparison"}
-    run_mode = 'process'
+    #run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         if 'many_array1d_a' in inputs:
