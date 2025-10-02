@@ -89,7 +89,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint
-from typing import Any, Sequence, Generic, TypeVar, Union
+from typing import Any, Dict, Literal, Sequence, Generic, Tuple, TypeVar, Union
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -156,6 +156,18 @@ AllDists = dict[str, Any]
 
 # stats are for now just a dict of strings
 Stats = dict[str, Any]
+
+# Define a literal type for task types
+TaskType = Literal['classification', 'regression']
+
+# Define a type for the task data (numpy array)
+TaskData = np.ndarray
+
+# Define the task tuple type
+Task = Tuple[TaskData, TaskType]
+
+# Define the tasks dictionary type
+Tasks = Dict[str, Task]
 
 def train_and_predict(model, X_train, y_train, X_test):
     """Simple train and predict function for use in multiprocessing."""
@@ -889,7 +901,7 @@ class EmbeddingsValidator:
                                  score=3,
                                  warning=f'High neighbor {k}={avg:.3f} for {key} using {method}')
 
-    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> dict[str, array1d]:
+    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> Tasks:
         """Generates prediction tasks derived from a set of `ids` and a `Labels` instance.
 
         For numeric labels, this takes the original values and also generates log- and
@@ -899,25 +911,25 @@ class EmbeddingsValidator:
         for each label class. We only generate upto `max_tasks` binarized tasks, choosing the ones
         with the most positive examples (at least `min_pos`).
 
-        We return a dict mapping task name to the array of values (training labels) for each id.
+        We return a dict mapping task name to a tuple of (array of values, task type).
         """
-        ret = {}
+        ret: Tasks = {}
         if isinstance(label, NumericLabels):
             values = np.array([label.values[label.ids.index(id)] for id in ids])
-            ret['orig-num'] = values
-            ret['log'] = np.log1p(values - np.min(values) + 1.0)
-            ret['exp'] = np.expm1(values - np.min(values) + 1.0)
+            ret['orig-num'] = (values, 'regression')
+            ret['log'] = (np.log1p(values - np.min(values) + 1.0), 'regression')
+            ret['exp'] = (np.expm1(values - np.min(values) + 1.0), 'regression')
             #TODO other kinds of normalizations (e.g., currently the values are very large)
             #     - also might want to e.g. std-normalize before applying log/exp?
             #TODO also generate classification tasks
         elif isinstance(label, MulticlassLabels):
             values = np.array([label.values[label.ids.index(id)] for id in ids])
-            ret['orig-cls'] = values
+            ret['orig-cls'] = (values, 'classification')
             counts = Counter(values)
             for v, _ in counts.most_common(max_tasks):
                 bin_values = np.array([int(val == v) for val in values])
                 if np.sum(bin_values) >= min_pos:
-                    ret[f'binarized-{v}'] = bin_values
+                    ret[f'binarized-{v}'] = (bin_values, 'classification')
         elif isinstance(label, MultilabelLabels):
             # label.values maps from id to a list of labels
             counts = Counter()
@@ -926,7 +938,7 @@ class EmbeddingsValidator:
             for v, _ in counts.most_common(max_tasks):
                 bin_values = np.array([int(v in label.values.get(id, [])) for id in ids])
                 if np.sum(bin_values) >= min_pos:
-                    ret[f'binarized-{v}'] = bin_values
+                    ret[f'binarized-{v}'] = (bin_values, 'classification')
         return ret
 
     def check_prediction(self, n_jobs=10) -> None:
@@ -971,10 +983,10 @@ class EmbeddingsValidator:
             tasks = self.gen_prediction_tasks(ids, label)
             print(f'  Generated {len(tasks)} tasks for {key} x {len(methods)} methods = {len(tasks)*len(methods)}')
             todo = []
-            for task_name, values in tasks.items():
+            for task_name, (values, task_type) in tasks.items():
                 for method_name, model in methods.items():
                     y = []
-                    KF_cls = KFold if isinstance(label, NumericLabels) else StratifiedKFold
+                    KF_cls = KFold if task_type == 'regression' else StratifiedKFold
                     kf = KF_cls(n_splits=4, shuffle=True)
                     futures = []
                     for train, test in kf.split(emb, values):
@@ -983,8 +995,8 @@ class EmbeddingsValidator:
                         y.extend(y_test)
                         #print(f'Submitting task {task_name} x {method_name} with {X_train.shape} train, {X_test.shape} test')
                         futures.append(pool.submit(train_and_predict, model, X_train, y_train, X_test))
-                    todo.append((task_name, np.array(y), method_name, futures))
-            for task_name, y, method_name, futures in todo:
+                    todo.append((task_name, np.array(y), method_name, task_type, futures))
+            for task_name, y, method_name, task_type, futures in todo:
                 s = f'    {task_name} x {method_name} - '
                 preds = []
                 try:
@@ -994,12 +1006,12 @@ class EmbeddingsValidator:
                     print(f'{s} FAILED!: {e}')
                     continue
                 preds = np.array(preds)
-                if isinstance(label, NumericLabels):
+                if task_type == 'regression':
                     score = r2_score(y, preds)
                     score_type = 'R^2'
                     print(f'{s} R^2: {score:.3f}')
                     n_classes = None
-                else:
+                else:  # task_type == 'classification'
                     score = balanced_accuracy_score(y, preds)
                     score_type = 'balanced_accuracy'
                     n_classes = len(set(y))
@@ -1445,15 +1457,14 @@ class GetNeighborsOp(Op):
 
 class GenPredictionTasksOp(LabelOp):
     """Generate prediction tasks from labels.
-
+    
     For numeric labels, generates original values and log/exp transformations.
     For multiclass labels, generates original values and binarized versions for each class.
     For multilabel labels, generates binarized versions for each label.
-
+    
     Returns a dict with:
     - `label_key`: The label key these tasks are for
-    - `tasks`: Dict mapping task name to label array
-    - `task_types`: Dict mapping task name to task type ('regression' or 'classification')
+    - `tasks`: Dict mapping task name to tuple of (label array, task type)
     - `sub_keys`: List of keys used in the tasks
     - `sub_matrix`: Submatrix of embeddings corresponding to the keys
     """
@@ -1483,36 +1494,30 @@ class GenPredictionTasksOp(LabelOp):
         id_indices = [keys.index(id) for id in valid_ids]
         sub_matrix = matrix[id_indices]
 
-        tasks = {}
-        task_types = {}
+        tasks: Dict[str, Tuple[np.ndarray, Literal['classification', 'regression']]] = {}
 
         if isinstance(label, NumericLabels):
             # For numeric labels, generate original, log, and exp transformations
             values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
-            tasks['orig-num'] = values
-            task_types['orig-num'] = 'regression'
+            tasks['orig-num'] = (values, 'regression')
 
             # Log transformation (shift to positive)
-            tasks['log'] = np.log1p(values - np.min(values) + 1.0)
-            task_types['log'] = 'regression'
+            tasks['log'] = (np.log1p(values - np.min(values) + 1.0), 'regression')
 
             # Exp transformation
-            tasks['exp'] = np.expm1(values - np.min(values) + 1.0)
-            task_types['exp'] = 'regression'
+            tasks['exp'] = (np.expm1(values - np.min(values) + 1.0), 'regression')
 
         elif isinstance(label, MulticlassLabels):
             # For multiclass labels, generate original and binarized versions
             values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
-            tasks['orig-cls'] = values
-            task_types['orig-cls'] = 'classification'
+            tasks['orig-cls'] = (values, 'classification')
 
             # Generate binary tasks for each class
             counts = Counter(values)
             for v, _ in counts.most_common(self.max_tasks):
                 bin_values = np.array([int(val == v) for val in values])
                 if np.sum(bin_values) >= self.min_pos:
-                    tasks[f'binarized-{v}'] = bin_values
-                    task_types[f'binarized-{v}'] = 'classification'
+                    tasks[f'binarized-{v}'] = (bin_values, 'classification')
 
         elif isinstance(label, MultilabelLabels):
             # For multilabel labels, generate binarized versions for each label
@@ -1523,13 +1528,11 @@ class GenPredictionTasksOp(LabelOp):
             for v, _ in counts.most_common(self.max_tasks):
                 bin_values = np.array([int(v in label.values.get(id, [])) for id in valid_ids])
                 if np.sum(bin_values) >= self.min_pos:
-                    tasks[f'binarized-{v}'] = bin_values
-                    task_types[f'binarized-{v}'] = 'classification'
+                    tasks[f'binarized-{v}'] = (bin_values, 'classification')
 
         return {
             "label_key": self.label_key,
             "tasks": tasks,
-            "task_types": task_types,
             "sub_keys": valid_ids,
             "sub_matrix": sub_matrix
         }
@@ -1560,12 +1563,10 @@ class RunPredictionOp(Op):
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants for model types and tasks."""
         tasks = inputs["prediction_tasks"]["tasks"]
-        task_types = inputs["prediction_tasks"]["task_types"]
-
+        
         variants = {}
-        for task_name in tasks:
-            task_type = task_types[task_name]
-
+        for task_name, (_, task_type) in tasks.items():
+            
             if task_type == 'regression':
                 models = {
                     "ridge": {"model_type": "ridge"},
@@ -1579,14 +1580,14 @@ class RunPredictionOp(Op):
                     "linear_svm": {"model_type": "linear_svm"},
                     "knn_cls": {"model_type": "knn_cls"}
                 }
-
+            
             for model_name, model_params in models.items():
                 variant_name = f"task:{task_name}_model:{model_name}"
                 variants[variant_name] = {
                     "task_name": task_name,
                     "model_type": model_params["model_type"]
                 }
-
+        
         return variants
 
     def __init__(self, task_name: str, model_type: str, n_splits: int = 4, **kw):
@@ -1624,15 +1625,13 @@ class RunPredictionOp(Op):
         task_data = inputs["prediction_tasks"]
         label_key = task_data["label_key"]
         tasks = task_data["tasks"]
-        task_types = task_data["task_types"]
-
+        
         if self.task_name not in tasks:
             raise ValueError(f"Task {self.task_name} not found in available tasks")
-
+        
         X = task_data["sub_matrix"]
-        y = tasks[self.task_name]
-        task_type = task_types[self.task_name]
-
+        y, task_type = tasks[self.task_name]
+        
         # Get appropriate model and cross-validation strategy
         model = self._get_model()
         is_regression = task_type == 'regression'
