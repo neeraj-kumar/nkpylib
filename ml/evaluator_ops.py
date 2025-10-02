@@ -202,7 +202,8 @@ class Task:
     @property
     def run_mode(self) -> str:
         """Returns where this task should run (main/thread/process)."""
-        return self.op_cls.run_mode
+        return 'main' #FIXME
+        #return self.op_cls.run_mode
 
     def run(self) -> Task:
         """Runs this task, returning self when done."""
@@ -220,9 +221,13 @@ class TaskPool:
     def __init__(self, pool_type: str, max_workers: int):
         """Initializes the pool (either 'thread' or 'process') with given number of workers."""
         cls_by_type = dict(thread=ThreadPoolExecutor, process=ProcessPoolExecutor)
+        self.pool_type = pool_type
         self.pool = cls_by_type[pool_type](max_workers=max_workers)
         self.max_workers = max_workers
         self.futures: dict[Future, Task] = {}  # Future -> Task mapping
+
+    def __repr__(self) -> str:
+        return f'<{self.pool_type.title()}Pool max_workers={self.max_workers} n_working={self.n_working} [{self.is_active}]>'
 
     @property
     def n_working(self) -> int:
@@ -243,7 +248,14 @@ class TaskPool:
         """Submit task if we have capacity, return Future or None."""
         if not self.has_capacity:
             return None
-        future = self.pool.submit(task.run)
+        try:
+            future = self.pool.submit(task.run)
+        except Exception as e:
+            task.status = 'failed'
+            task.error = e
+            logger.error(f'Error submitting task {task}: {e}')
+            logger.exception(e)
+            return None
         self.futures[future] = task
         return future
 
@@ -297,7 +309,7 @@ class OpManager:
     def __init__(self,
                  n_procs: int=4,
                  n_threads: int=4,
-                 results_db_path: str=f'logs/results_{int(time.time())}.lmdb'):
+                 results_db_path: str=f'results/results_{int(time.time())}.lmdb'):
         self.n_procs = n_procs
         self.n_threads = n_threads
         self.proc_pool = TaskPool('process', n_procs)
@@ -459,6 +471,7 @@ class OpManager:
         while self.tasks or t_pool.is_active or p_pool.is_active:
             # submit pool tasks if they have capacity
             for task in matching_tasks("thread", "process"):
+                logger.warning(f'Submitting task {task} with run mode {task.run_mode} to {pools[task.run_mode]}')
                 if pools[task.run_mode].submit_task_if_free(task):
                     self.tasks.remove(task)
             # if we still have pending tasks, run one in main thread
@@ -764,5 +777,6 @@ class Op(ABC):
 
         input_str = '|'.join(f"{key}:{value_key(value)}" for key, value in sorted(inputs.items()))
         combined = f"{self.name}_{self.variant}_{input_str}"
+        logger.info(f'{self} got key str: {combined}')
         # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()

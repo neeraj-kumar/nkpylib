@@ -1289,7 +1289,6 @@ class GetLabelDistancesOp(LabelOp):
     name = "get_label_distances"
     input_types = {"labels", "normalized_embeddings"}
     output_types = {"label_distances", 'distances'}
-    run_mode = "process"
     is_intermediate = True
 
     def __init__(self, label_key: str, n_pts: int = 200, perc_close: float = 0.5, **kw):
@@ -1319,7 +1318,6 @@ class GetEmbeddingDimsOp(Op):
     have the same samples in the same order.
     """
     enabled = False
-
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
     output_types = {"embedding_dims"}
@@ -1409,6 +1407,7 @@ class GetNeighborsOp(Op):
     - `distances`: A 2D array of distances to neighbors, shape (n_samples, K)
     - `keys`: The list of keys corresponding to the rows/columns of the distance matrix
     """
+    enabled = False
     name = "get_neighbors"
     input_types = {'distances'}
     output_types = {"neighbors_data"}
@@ -1623,11 +1622,9 @@ class RunPredictionOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         task_data = inputs["prediction_tasks"]
-        label_key = task_data["label_key"]
-        tasks = task_data["tasks"]
+        label_key, tasks = task_data["label_key"], task_data['tasks']
 
-        if self.task_name not in tasks:
-            raise ValueError(f"PTask {self.task_name} not found in available tasks")
+        assert self.task_name in tasks, f"PTask {self.task_name} not found in available tasks"
 
         X = task_data["sub_matrix"]
         y, task_type = tasks[self.task_name]
@@ -1695,6 +1692,7 @@ class AggregatePredictionResultsOp(Op):
     - `top_results`: List of top-performing model/task combinations
     - `warnings`: List of notable results (high scores)
     """
+    enabled = False
     name = "aggregate_prediction_results"
     input_types = {"prediction_results"}
     output_types = {"prediction_summary"}
@@ -1711,6 +1709,7 @@ class AggregatePredictionResultsOp(Op):
         # Group results by label key
         results_by_label = defaultdict(list)
         all_results = []
+        logger.warning(f'Inputs: {inputs["prediction_results"]}')
 
         for result in inputs["prediction_results"]:
             label_key = result["label_key"]
@@ -1754,6 +1753,7 @@ class CompareNeighborsOp(Op):
     - `metrics`: Dict of metrics computed (recall@K, MRR@K, jaccard@K for different K values)
     - `per_item_metrics`: Optional detailed metrics for each item
     """
+    enabled = False
     name = "compare_neighbors"
     input_types = {
         ("neighbors_data", "neighbors_data"): {
@@ -1761,7 +1761,6 @@ class CompareNeighborsOp(Op):
         }
     }
     output_types = {"neighbor_comparison"}
-    run_mode = "process"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any], k_values: list[int]=[1, 5, 10, 20]) -> dict[str, Any]|None:
