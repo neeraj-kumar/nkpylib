@@ -843,7 +843,7 @@ class ParseTagsOp(Op):
                 n_unique_ids=len(set(label.ids)),
                 norm_type=getattr(label, 'norm_type', None),
                 n_unique_values=len(set(label.values)) if isinstance(label.values, list) else None,
-            }
+            )
         return ret
 
 
@@ -891,7 +891,7 @@ class CheckDimensionsOp(Op):
         dims = Counter(results['dimension_counts'])
         return dict(
             is_consistent=(len(dims) == 1),
-            error_message: None if is_consistent else f"Inconsistent embedding dimensions: {dims.most_common()}",
+            error_message=None if is_consistent else f"Inconsistent embedding dimensions: {dims.most_common()}",
         )
 
 class CheckNaNsOp(Op):
@@ -1600,44 +1600,6 @@ class CompareNeighborsOp(Op):
         self.k = k
         self.detailed = detailed
         super().__init__(**kw)
-        
-    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
-        """Analyzes neighbor comparison results and identifies notable patterns.
-        
-        Checks for high recall, MRR, or Jaccard similarity values and generates
-        appropriate warnings for significant neighbor agreement between distance metrics.
-        """
-        threshold = 0.5  # Threshold for highlighting high similarity metrics
-        
-        # Extract key metrics
-        metrics = results.get("metrics", {})
-        label_key = results.get("label_key", "")
-        embedding_metric_a = results.get("embedding_metric_a", "")
-        embedding_metric_b = results.get("embedding_metric_b", "")
-        
-        # Create analysis dict
-        analysis = {
-            "k_value": self.k,
-            "metrics_summary": metrics,
-            "warnings": []
-        }
-        
-        # Check for high similarity metrics
-        for metric_name, value in metrics.items():
-            if value > threshold:
-                metric_type, k = metric_name.split('@')
-                warning = {
-                    "unit": "neighbors",
-                    "key": label_key,
-                    "metric": metric_name,
-                    "metrics": [embedding_metric_a, embedding_metric_b],
-                    "value": value,
-                    "score": 2,  # Importance score
-                    "warning": f"High neighbor {metric_type} ({value:.3f}) at k={k} between {embedding_metric_a or 'label'} and {embedding_metric_b or 'label'} for {label_key}"
-                }
-                analysis["warnings"].append(warning)
-        
-        return analysis
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Find which input is label neighbors and which is embedding neighbors
@@ -1710,6 +1672,44 @@ class CompareNeighborsOp(Op):
             result["per_item_metrics"] = dict(per_item_metrics)
         return result
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes neighbor comparison results and identifies notable patterns.
+
+        Checks for high recall, MRR, or Jaccard similarity values and generates
+        appropriate warnings for significant neighbor agreement between distance metrics.
+        """
+        threshold = 0.5  # Threshold for highlighting high similarity metrics
+
+        # Extract key metrics
+        metrics = results.get("metrics", {})
+        label_key = results.get("label_key", "")
+        embedding_metric_a = results.get("embedding_metric_a", "")
+        embedding_metric_b = results.get("embedding_metric_b", "")
+
+        # Create analysis dict
+        analysis = {
+            "k_value": self.k,
+            "metrics_summary": metrics,
+            "warnings": []
+        }
+
+        # Check for high similarity metrics
+        for metric_name, value in metrics.items():
+            if value > threshold:
+                metric_type, k = metric_name.split('@')
+                warning = {
+                    "unit": "neighbors",
+                    "key": label_key,
+                    "metric": metric_name,
+                    "metrics": [embedding_metric_a, embedding_metric_b],
+                    "value": value,
+                    "score": 2,  # Importance score
+                    "warning": f"High neighbor {metric_type} ({value:.3f}) at k={k} between {embedding_metric_a or 'label'} and {embedding_metric_b or 'label'} for {label_key}"
+                }
+                analysis["warnings"].append(warning)
+
+        return analysis
+
 
 class CompareStatsOp(Op):
     """Compare various statistics between cartesian product of rows from two 2D arrays.
@@ -1774,6 +1774,7 @@ class CompareStatsOp(Op):
                 )
         ret['n_comparisons'] = len(ret['comparisons'])
         return ret
+
 
 def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval'),
                  stderr_loggers=('op', 'errors', 'eval'),
