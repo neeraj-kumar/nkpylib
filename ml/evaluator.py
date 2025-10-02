@@ -89,7 +89,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint
-from typing import Any, Dict, Literal, Sequence, Generic, Tuple, TypeVar, Union
+from typing import Any, Literal, Sequence, Generic, TypeVar, Union
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -119,20 +119,23 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator_ops import (
-    Op, OpManager, GenPredictionTasksOp, RunPredictionOp, AggregatePredictionResultsOp
-)
+from nkpylib.ml.evaluator_ops import Op, OpManager
 from nkpylib.ml.feature_set import (
-    array1d,
-    array2d,
-    nparray1d,
-    nparray2d,
     FeatureSet,
     JsonLmdb,
     LmdbUpdater,
     MetadataLmdb,
     NumpyLmdb,
 )
+from nkpylib.ml.types import (
+    NUMERIC_TYPES,
+    FLOAT_TYPES,
+    array1d,
+    array2d,
+    nparray1d,
+    nparray2d,
+    )
+
 from nkpylib.ml.tag_db import Tag, get_all_tags, init_tag_db
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
@@ -145,9 +148,6 @@ CONSOLE_WIDTH = os.get_terminal_size().columns
 # pprint should use full width
 pprint = lambda x: _pprint(x, width=CONSOLE_WIDTH)
 
-FLOAT_TYPES = (float, np.float32, np.float64)
-NUMERIC_TYPES = FLOAT_TYPES + (int, np.int32, np.int64)
-
 # a distance tuple has (id1, id2, distance)
 DistTuple = tuple[str, str, float]
 
@@ -158,16 +158,16 @@ AllDists = dict[str, Any]
 Stats = dict[str, Any]
 
 # Define a literal type for task types
-TaskType = Literal['classification', 'regression']
+PTaskType = Literal['classification', 'regression']
 
 # Define a type for the task data (numpy array)
-TaskData = np.ndarray
+PTaskData = np.ndarray
 
 # Define the task tuple type
-Task = Tuple[TaskData, TaskType]
+PTask = tuple[PTaskData, PTaskType]
 
 # Define the tasks dictionary type
-Tasks = Dict[str, Task]
+PTasks = dict[str, PTask]
 
 def train_and_predict(model, X_train, y_train, X_test):
     """Simple train and predict function for use in multiprocessing."""
@@ -901,7 +901,7 @@ class EmbeddingsValidator:
                                  score=3,
                                  warning=f'High neighbor {k}={avg:.3f} for {key} using {method}')
 
-    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> Tasks:
+    def gen_prediction_tasks(self, ids: list[str], label: Labels, min_pos:int=10, max_tasks:int=10) -> PTasks:
         """Generates prediction tasks derived from a set of `ids` and a `Labels` instance.
 
         For numeric labels, this takes the original values and also generates log- and
@@ -913,7 +913,7 @@ class EmbeddingsValidator:
 
         We return a dict mapping task name to a tuple of (array of values, task type).
         """
-        ret: Tasks = {}
+        ret: PTasks = {}
         if isinstance(label, NumericLabels):
             values = np.array([label.values[label.ids.index(id)] for id in ids])
             ret['orig-num'] = (values, 'regression')
@@ -1457,11 +1457,11 @@ class GetNeighborsOp(Op):
 
 class GenPredictionTasksOp(LabelOp):
     """Generate prediction tasks from labels.
-    
+
     For numeric labels, generates original values and log/exp transformations.
     For multiclass labels, generates original values and binarized versions for each class.
     For multilabel labels, generates binarized versions for each label.
-    
+
     Returns a dict with:
     - `label_key`: The label key these tasks are for
     - `tasks`: Dict mapping task name to tuple of (label array, task type)
@@ -1494,7 +1494,7 @@ class GenPredictionTasksOp(LabelOp):
         id_indices = [keys.index(id) for id in valid_ids]
         sub_matrix = matrix[id_indices]
 
-        tasks: Dict[str, Tuple[np.ndarray, Literal['classification', 'regression']]] = {}
+        tasks: PTasks = {}
 
         if isinstance(label, NumericLabels):
             # For numeric labels, generate original, log, and exp transformations
@@ -1563,10 +1563,9 @@ class RunPredictionOp(Op):
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants for model types and tasks."""
         tasks = inputs["prediction_tasks"]["tasks"]
-        
+
         variants = {}
         for task_name, (_, task_type) in tasks.items():
-            
             if task_type == 'regression':
                 models = {
                     "ridge": {"model_type": "ridge"},
@@ -1580,14 +1579,14 @@ class RunPredictionOp(Op):
                     "linear_svm": {"model_type": "linear_svm"},
                     "knn_cls": {"model_type": "knn_cls"}
                 }
-            
+
             for model_name, model_params in models.items():
                 variant_name = f"task:{task_name}_model:{model_name}"
                 variants[variant_name] = {
                     "task_name": task_name,
                     "model_type": model_params["model_type"]
                 }
-        
+
         return variants
 
     def __init__(self, task_name: str, model_type: str, n_splits: int = 4, **kw):
@@ -1625,13 +1624,13 @@ class RunPredictionOp(Op):
         task_data = inputs["prediction_tasks"]
         label_key = task_data["label_key"]
         tasks = task_data["tasks"]
-        
+
         if self.task_name not in tasks:
-            raise ValueError(f"Task {self.task_name} not found in available tasks")
-        
+            raise ValueError(f"PTask {self.task_name} not found in available tasks")
+
         X = task_data["sub_matrix"]
         y, task_type = tasks[self.task_name]
-        
+
         # Get appropriate model and cross-validation strategy
         model = self._get_model()
         is_regression = task_type == 'regression'
