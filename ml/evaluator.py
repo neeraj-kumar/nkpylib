@@ -119,7 +119,9 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator_ops import Op, OpManager, error_logger, result_logger
+from nkpylib.ml.evaluator_ops import (
+    Op, OpManager, GenPredictionTasksOp, RunPredictionOp
+)
 from nkpylib.ml.feature_set import (
     FeatureSet,
     JsonLmdb,
