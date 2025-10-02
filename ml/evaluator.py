@@ -108,14 +108,20 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # typ
 from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
 from sklearn.metrics import recall_score, r2_score, balanced_accuracy_score, accuracy_score # type: ignore
 from sklearn.model_selection import cross_val_score, train_test_split, KFold, StratifiedKFold # type: ignore
-from sklearn.metrics import recall_score # type: ignore
+from sklearn.metrics import recall_score, r2_score, balanced_accuracy_score, accuracy_score # type: ignore
 from sklearn.neighbors import NearestNeighbors, KNeighborsClassifier, KNeighborsRegressor # type: ignore
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # type: ignore
+from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
+from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
+from sklearn.model_selection import cross_val_score, train_test_split, KFold, StratifiedKFold # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
 from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator_ops import Op, OpManager
+from nkpylib.ml.evaluator_ops import (
+    Op, OpManager, GenPredictionTasksOp, RunPredictionOp, AggregatePredictionResultsOp
+)
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
@@ -1434,6 +1440,306 @@ class GetNeighborsOp(Op):
             "neighbors": neighbor_indices,
             "distances": neighbor_dists,
             "keys": keys,
+        }
+
+
+class GenPredictionTasksOp(LabelOp):
+    """Generate prediction tasks from labels.
+    
+    For numeric labels, generates original values and log/exp transformations.
+    For multiclass labels, generates original values and binarized versions for each class.
+    For multilabel labels, generates binarized versions for each label.
+    
+    Returns a dict with:
+    - `label_key`: The label key these tasks are for
+    - `tasks`: Dict mapping task name to label array
+    - `task_types`: Dict mapping task name to task type ('regression' or 'classification')
+    - `sub_keys`: List of keys used in the tasks
+    - `sub_matrix`: Submatrix of embeddings corresponding to the keys
+    """
+    name = "gen_prediction_tasks"
+    input_types = {"labels", "normalized_embeddings"}
+    output_types = {"prediction_tasks"}
+    run_mode = "process"
+    is_intermediate = True
+    
+    def __init__(self, label_key: str, min_pos: int = 10, max_tasks: int = 10, **kw):
+        """Initialize with parameters for task generation.
+        
+        - `label_key`: The label key to generate tasks for
+        - `min_pos`: Minimum number of positive examples for classification tasks
+        - `max_tasks`: Maximum number of tasks to generate
+        """
+        self.min_pos = min_pos
+        self.max_tasks = max_tasks
+        super().__init__(label_key=label_key, **kw)
+    
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        label = inputs["labels"][self.label_key]
+        keys, matrix = inputs["normalized_embeddings"]
+        
+        # Get intersection of keys with label ids
+        valid_ids = [id for id in label.ids if id in keys]
+        id_indices = [keys.index(id) for id in valid_ids]
+        sub_matrix = matrix[id_indices]
+        
+        tasks = {}
+        task_types = {}
+        
+        if isinstance(label, NumericLabels):
+            # For numeric labels, generate original, log, and exp transformations
+            values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
+            tasks['orig-num'] = values
+            task_types['orig-num'] = 'regression'
+            
+            # Log transformation (shift to positive)
+            tasks['log'] = np.log1p(values - np.min(values) + 1.0)
+            task_types['log'] = 'regression'
+            
+            # Exp transformation
+            tasks['exp'] = np.expm1(values - np.min(values) + 1.0)
+            task_types['exp'] = 'regression'
+            
+        elif isinstance(label, MulticlassLabels):
+            # For multiclass labels, generate original and binarized versions
+            values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
+            tasks['orig-cls'] = values
+            task_types['orig-cls'] = 'classification'
+            
+            # Generate binary tasks for each class
+            counts = Counter(values)
+            for v, _ in counts.most_common(self.max_tasks):
+                bin_values = np.array([int(val == v) for val in values])
+                if np.sum(bin_values) >= self.min_pos:
+                    tasks[f'binarized-{v}'] = bin_values
+                    task_types[f'binarized-{v}'] = 'classification'
+                    
+        elif isinstance(label, MultilabelLabels):
+            # For multilabel labels, generate binarized versions for each label
+            counts = Counter()
+            for id in valid_ids:
+                counts.update(label.values.get(id, []))
+                
+            for v, _ in counts.most_common(self.max_tasks):
+                bin_values = np.array([int(v in label.values.get(id, [])) for id in valid_ids])
+                if np.sum(bin_values) >= self.min_pos:
+                    tasks[f'binarized-{v}'] = bin_values
+                    task_types[f'binarized-{v}'] = 'classification'
+        
+        return {
+            "label_key": self.label_key,
+            "tasks": tasks,
+            "task_types": task_types,
+            "sub_keys": valid_ids,
+            "sub_matrix": sub_matrix
+        }
+
+
+class RunPredictionOp(Op):
+    """Run prediction models on tasks generated by GenPredictionTasksOp.
+    
+    Runs different models based on task type (regression or classification).
+    Uses cross-validation to evaluate model performance.
+    
+    Returns a dict with:
+    - `label_key`: The label key these predictions are for
+    - `task_name`: The specific task name
+    - `model_name`: The model used
+    - `score`: The evaluation score (R² for regression, balanced accuracy for classification)
+    - `score_type`: The type of score ('r2' or 'balanced_accuracy')
+    - `n_classes`: Number of classes (for classification tasks)
+    - `predictions`: Cross-validated predictions
+    - `true_values`: True values
+    """
+    name = "run_prediction"
+    input_types = {"prediction_tasks"}
+    output_types = {"prediction_results"}
+    run_mode = "process"
+    
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants for model types and tasks."""
+        tasks = inputs["prediction_tasks"]["tasks"]
+        task_types = inputs["prediction_tasks"]["task_types"]
+        
+        variants = {}
+        for task_name in tasks:
+            task_type = task_types[task_name]
+            
+            if task_type == 'regression':
+                models = {
+                    "ridge": {"model_type": "ridge"},
+                    "rbf_svr": {"model_type": "rbf_svr"},
+                    "linear_svr": {"model_type": "linear_svr"},
+                    "knn_reg": {"model_type": "knn_reg"}
+                }
+            else:  # classification
+                models = {
+                    "rbf_svm": {"model_type": "rbf_svm"},
+                    "linear_svm": {"model_type": "linear_svm"},
+                    "knn_cls": {"model_type": "knn_cls"}
+                }
+            
+            for model_name, model_params in models.items():
+                variant_name = f"task:{task_name}_model:{model_name}"
+                variants[variant_name] = {
+                    "task_name": task_name,
+                    "model_type": model_params["model_type"]
+                }
+        
+        return variants
+    
+    def __init__(self, task_name: str, model_type: str, n_splits: int = 4, **kw):
+        """Initialize with task and model parameters.
+        
+        - `task_name`: The specific task to run
+        - `model_type`: The model type to use
+        - `n_splits`: Number of cross-validation splits
+        """
+        self.task_name = task_name
+        self.model_type = model_type
+        self.n_splits = n_splits
+        super().__init__(**kw)
+    
+    def _get_model(self):
+        """Get the appropriate model based on model_type."""
+        if self.model_type == "ridge":
+            return Ridge(alpha=1.0)
+        elif self.model_type == "rbf_svr":
+            return SVR(kernel='rbf', C=1.0, epsilon=0.1)
+        elif self.model_type == "linear_svr":
+            return LinearSVR(C=1.0, epsilon=0.1, dual='auto')
+        elif self.model_type == "knn_reg":
+            return KNeighborsRegressor(n_neighbors=10)
+        elif self.model_type == "rbf_svm":
+            return SVC(kernel='rbf', C=1.0, probability=True)
+        elif self.model_type == "linear_svm":
+            return LinearSVC(C=1.0, max_iter=200, dual='auto')
+        elif self.model_type == "knn_cls":
+            return KNeighborsClassifier(n_neighbors=10)
+        else:
+            raise ValueError(f"Unknown model type: {self.model_type}")
+    
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        task_data = inputs["prediction_tasks"]
+        label_key = task_data["label_key"]
+        tasks = task_data["tasks"]
+        task_types = task_data["task_types"]
+        
+        if self.task_name not in tasks:
+            raise ValueError(f"Task {self.task_name} not found in available tasks")
+        
+        X = task_data["sub_matrix"]
+        y = tasks[self.task_name]
+        task_type = task_types[self.task_name]
+        
+        # Get appropriate model and cross-validation strategy
+        model = self._get_model()
+        is_regression = task_type == 'regression'
+        cv_cls = KFold if is_regression else StratifiedKFold
+        cv = cv_cls(n_splits=self.n_splits, shuffle=True, random_state=42)
+        
+        # Run cross-validation
+        all_preds = []
+        all_true = []
+        
+        for train_idx, test_idx in cv.split(X, y):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
+            
+            # Train model
+            model.fit(X_train, y_train)
+            
+            # Get predictions
+            try:
+                preds = model.predict(X_test)
+            except:
+                # Some models like LinearSVC don't have predict_proba
+                if hasattr(model, "decision_function"):
+                    decisions = model.decision_function(X_test)
+                    preds = (decisions > 0).astype(int)
+                else:
+                    raise
+            
+            all_preds.extend(preds)
+            all_true.extend(y_test)
+        
+        # Calculate score
+        if is_regression:
+            score = r2_score(all_true, all_preds)
+            score_type = 'r2'
+            n_classes = None
+        else:
+            score = balanced_accuracy_score(all_true, all_preds)
+            score_type = 'balanced_accuracy'
+            n_classes = len(np.unique(y))
+        
+        return {
+            "label_key": label_key,
+            "task_name": self.task_name,
+            "model_name": self.model_type,
+            "score": float(score),
+            "score_type": score_type,
+            "n_classes": n_classes,
+            "predictions": np.array(all_preds),
+            "true_values": np.array(all_true)
+        }
+
+
+class AggregatePredictionResultsOp(Op):
+    """Aggregate results from multiple prediction runs.
+    
+    Collects results from all prediction runs and identifies notable results.
+    
+    Returns a dict with:
+    - `results_by_label`: Dict mapping label keys to their results
+    - `top_results`: List of top-performing model/task combinations
+    - `warnings`: List of notable results (high scores)
+    """
+    name = "aggregate_prediction_results"
+    input_types = {"prediction_results"}
+    output_types = {"prediction_summary"}
+    
+    def __init__(self, threshold: float = 0.7, **kw):
+        """Initialize with threshold for notable results.
+        
+        - `threshold`: Score threshold for highlighting results
+        """
+        self.threshold = threshold
+        super().__init__(**kw)
+    
+    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        # Group results by label key
+        results_by_label = defaultdict(list)
+        all_results = []
+        
+        for result in inputs["prediction_results"]:
+            label_key = result["label_key"]
+            results_by_label[label_key].append(result)
+            all_results.append(result)
+        
+        # Sort results by score
+        all_results.sort(key=lambda x: x["score"], reverse=True)
+        
+        # Identify notable results
+        warnings = []
+        for result in all_results:
+            if result["score"] > self.threshold:
+                warnings.append({
+                    "unit": "prediction",
+                    "key": result["label_key"],
+                    "task": result["task_name"],
+                    "method": result["model_name"],
+                    "value": result["score"],
+                    "n_classes": result["n_classes"],
+                    "score": 3,  # Importance score
+                    "warning": f"High prediction {result['score_type']} {result['score']:.3f} for {result['label_key']} using {result['model_name']}"
+                })
+        
+        return {
+            "results_by_label": dict(results_by_label),
+            "top_results": all_results[:10],  # Top 10 results
+            "warnings": warnings
         }
 
 
