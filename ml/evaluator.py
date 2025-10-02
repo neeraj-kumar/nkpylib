@@ -140,7 +140,11 @@ from nkpylib.ml.tag_db import Tag, get_all_tags, init_tag_db
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
+# Create specialized loggers for different components
 logger = logging.getLogger(__name__)
+result_logger = logging.getLogger("evaluator.results")
+error_logger = logging.getLogger("evaluator.errors")
+eval_logger = logging.getLogger("evaluator.eval")
 
 # get console width from system
 CONSOLE_WIDTH = os.get_terminal_size().columns
@@ -1915,8 +1919,47 @@ class CompareStatsOp(Op):
 
 
 if __name__ == '__main__':
-    fmt = '\t'.join(['%(asctime)s', '%(levelname)s', '%(process)d:%(thread)d', '%(module)s:%(lineno)d', '%(funcName)s'])+'\n%(message)s\n'
+    fmt = '\t'.join(['%(asctime)s', '%(levelname)s', '%(name)s', '%(process)d:%(thread)d', '%(module)s:%(lineno)d', '%(funcName)s'])+'\n%(message)s\n'
     logging.basicConfig(format=fmt, level=logging.INFO)
+    
+    # Configure specialized loggers
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Create file handlers for each logger type
+    handlers = {
+        "tasks": logging.FileHandler(f"{log_dir}/tasks.log", mode="w"),
+        "perf": logging.FileHandler(f"{log_dir}/perf.log", mode="w"),
+        "ops": logging.FileHandler(f"{log_dir}/ops.log", mode="w"),
+        "results": logging.FileHandler(f"{log_dir}/results.log", mode="w"),
+        "errors": logging.FileHandler(f"{log_dir}/errors.log", mode="w"),
+        "eval": logging.FileHandler(f"{log_dir}/eval.log", mode="w"),
+    }
+    
+    # Set formatter for all handlers
+    for handler in handlers.values():
+        handler.setFormatter(logging.Formatter(fmt))
+    
+    # Configure each logger
+    logging.getLogger("evaluator.tasks").setLevel(logging.INFO)
+    logging.getLogger("evaluator.tasks").addHandler(handlers["tasks"])
+    
+    logging.getLogger("evaluator.perf").setLevel(logging.INFO)
+    logging.getLogger("evaluator.perf").addHandler(handlers["perf"])
+    
+    logging.getLogger("evaluator.ops").setLevel(logging.INFO)
+    logging.getLogger("evaluator.ops").addHandler(handlers["ops"])
+    
+    logging.getLogger("evaluator.results").setLevel(logging.INFO)
+    logging.getLogger("evaluator.results").addHandler(handlers["results"])
+    
+    logging.getLogger("evaluator.errors").setLevel(logging.INFO)
+    logging.getLogger("evaluator.errors").addHandler(handlers["errors"])
+    
+    logging.getLogger("evaluator.eval").setLevel(logging.INFO)
+    logging.getLogger("evaluator.eval").addHandler(handlers["eval"])
+    
+    # Parse arguments
     parser = ArgumentParser(description='Embeddings evaluator')
     parser.add_argument('paths', nargs='+', help='Paths to the embeddings lmdb file')
     parser.add_argument('-t', '--tag_path', help='Path to the tags sqlite db')
@@ -1928,5 +1971,5 @@ if __name__ == '__main__':
         om = OpManager.get()
         om.start(StartValidatorOp, vars(args))
         for r in om._results.values():
-            pprint(r)
+            result_logger.info(f"Result: {r.key} - {r.op.name}")
             #pprint(r.output); print()

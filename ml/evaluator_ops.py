@@ -42,7 +42,11 @@ from nkpylib.time_utils import PerfTracker
 from nkpylib.ml.features import make_jsonable
 from nkpylib.ml.feature_set import JsonLmdb
 
+# Create specialized loggers for different components
 logger = logging.getLogger(__name__)
+task_logger = logging.getLogger("evaluator.tasks")
+perf_logger = logging.getLogger("evaluator.perf")
+op_logger = logging.getLogger("evaluator.ops")
 
 # Global manager instance that all Ops will register with
 _global_op_manager: 'OpManager'|None = None
@@ -359,7 +363,7 @@ class OpManager:
                 return
         self.tasks.append(task)
         counts = lambda field: Counter(getattr(t, field) for t in self.tasks).most_common()
-        logger.info(f'Added task {task}, {len(self.tasks)} tasks: {counts("status")}, {counts("name")}')
+        task_logger.info(f'Added task {task}, {len(self.tasks)} tasks: {counts("status")}, {counts("name")}')
 
     def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
         """Adds tasks for all variants of the given `op_cls` with the given `inputs`."""
@@ -385,7 +389,7 @@ class OpManager:
         consumers = set()
         for output_type in result.op.output_types:
             consumers.update(self.get_consumers(output_type))
-        logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
+        task_logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
         for consumer in consumers:
             self._create_tasks_for_consumer(consumer, result)
 
@@ -401,7 +405,7 @@ class OpManager:
         """
         contracts = consumer.get_input_contracts()
         for input_tuple, contract in contracts.items():
-            logger.debug(f'Checking contract {input_tuple}, {contract} for {consumer}')
+            task_logger.debug(f'Checking contract {input_tuple}, {contract} for {consumer}')
             # Check if this contract can use the new result
             if not any(output_type in input_tuple for output_type in new_result.op.output_types):
                 continue
@@ -439,7 +443,7 @@ class OpManager:
         for result in inputs.values():
             if isinstance(result, list): # Handle list of results (for same input_type)
                 if len(set(result)) != len(result):
-                    logger.info(f'Got duplicate results: {result} for {inputs}')
+                    task_logger.info(f'Got duplicate results: {result} for {inputs}')
                     return False
                 seen.update(result)
             else: # single result for input_type
@@ -463,7 +467,7 @@ class OpManager:
 
     def run_tasks(self) -> None:
         """Runs our task list using our thread and process pools."""
-        logger.info(f'Starting task run with {len(self.tasks)} initial tasks')
+        task_logger.info(f'Starting task run with {len(self.tasks)} initial tasks')
         t_pool, p_pool = self.thread_pool, self.proc_pool
         pools = dict(thread=t_pool, process=p_pool)
         matching_tasks = lambda *modes: [t for t in self.tasks if t.run_mode in modes and t.status == "pending"]
@@ -471,7 +475,7 @@ class OpManager:
         while self.tasks or t_pool.is_active or p_pool.is_active:
             # submit pool tasks if they have capacity
             for task in matching_tasks("thread", "process"):
-                logger.warning(f'Submitting task {task} with run mode {task.run_mode} to {pools[task.run_mode]}')
+                task_logger.info(f'Submitting task {task} with run mode {task.run_mode} to {pools[task.run_mode]}')
                 if pools[task.run_mode].submit_task_if_free(task):
                     self.tasks.remove(task)
             # if we still have pending tasks, run one in main thread
@@ -488,7 +492,7 @@ class OpManager:
             # avoid busy loop
             time.sleep(0.1)
         assert not self.tasks, f'Leftover tasks: {self.tasks}'
-        logger.info(f'All {len(self.done_tasks)} tasks completed, statuses: {Counter(t.status for t in self.done_tasks)}')
+        task_logger.info(f'All {len(self.done_tasks)} tasks completed, statuses: {Counter(t.status for t in self.done_tasks)}')
 
     @staticmethod
     def register(op: Op) -> None:
@@ -560,7 +564,7 @@ class OpManager:
                 om._results_by_type[output_type].append(op.key)
         om.log_result(result)
         mem = sum(r.mem for r in om._results.values())
-        logger.info(f'Logged result {result}, {len(om._results)} total, mem: {mem}B')
+        perf_logger.info(f'Logged result {result}, {len(om._results)} total, mem: {mem}B')
         return result
 
     def log_result(self, result: Result) -> None:
@@ -587,7 +591,7 @@ class OpManager:
             # current update time
             'last_update': time.time(),
         }
-        logger.debug(f'Logged results: {to_update.keys()}')
+        perf_logger.debug(f'Logged results: {to_update.keys()}')
         self.results_db.update(to_update)
         self.results_db.sync()
 
@@ -690,7 +694,7 @@ class Op(ABC):
         Returns `(output, error)` where the output is of types `self.output_types` and the error
         is the exception if any occurred, else None.
         """
-        logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
+        op_logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
         self.key = self.get_key(inputs)
         try:
             # try to get the underlying output from the result objects
@@ -703,16 +707,16 @@ class Op(ABC):
                     op_inputs[k] = v.output
         except Exception:
             op_inputs = inputs
-        logger.info(f'Executing {self} ({self.variant}) -> {self.key}')
+        op_logger.info(f'Executing {self} ({self.variant}) -> {self.key}')
         output, error = None, None
         try:
             with PerfTracker.track(op_inputs=op_inputs) as tracker:
                 output = self._execute(op_inputs)
-            logger.info(f'Op {self} finished, perf: {tracker.stats()}')
+            perf_logger.info(f'Op {self} finished, perf: {tracker.stats()}')
         except Exception as e:
-            logger.error(f'Op {self} failed with {type(e)}: {e}')
+            op_logger.error(f'Op {self} failed with {type(e)}: {e}')
             # print stack trace
-            logger.exception(e)
+            op_logger.exception(e)
             error = e
         return output, error
 
@@ -777,6 +781,6 @@ class Op(ABC):
 
         input_str = '|'.join(f"{key}:{value_key(value)}" for key, value in sorted(inputs.items()))
         combined = f"{self.name}_{self.variant}_{input_str}"
-        logger.info(f'{self} got key str: {combined}')
+        op_logger.debug(f'{self} got key str: {combined}')
         # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()
