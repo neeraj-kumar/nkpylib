@@ -1603,22 +1603,23 @@ class RunPredictionOp(Op):
 
     def _get_model(self):
         """Get the appropriate model based on model_type."""
-        if self.model_type == "ridge":
-            return Ridge(alpha=1.0)
-        elif self.model_type == "rbf_svr":
-            return SVR(kernel='rbf', C=1.0, epsilon=0.1)
-        elif self.model_type == "linear_svr":
-            return LinearSVR(C=1.0, epsilon=0.1, dual='auto')
-        elif self.model_type == "knn_reg":
-            return KNeighborsRegressor(n_neighbors=10)
-        elif self.model_type == "rbf_svm":
-            return SVC(kernel='rbf', C=1.0, probability=True)
-        elif self.model_type == "linear_svm":
-            return LinearSVC(C=1.0, max_iter=200, dual='auto')
-        elif self.model_type == "knn_cls":
-            return KNeighborsClassifier(n_neighbors=10)
-        else:
-            raise ValueError(f"Unknown model type: {self.model_type}")
+        match self.model_type:
+            case "ridge":
+                return Ridge(alpha=1.0)
+            case "rbf_svr":
+                return SVR(kernel='rbf', C=1.0, epsilon=0.1)
+            case "linear_svr":
+                return LinearSVR(C=1.0, epsilon=0.1, dual='auto')
+            case "knn_reg":
+                return KNeighborsRegressor(n_neighbors=10)
+            case "rbf_svm":
+                return SVC(kernel='rbf', C=1.0, probability=True)
+            case "linear_svm":
+                return LinearSVC(C=1.0, max_iter=200, dual='auto')
+            case "knn_cls":
+                return KNeighborsClassifier(n_neighbors=10)
+            case _:
+                raise ValueError(f"Unknown model type: {self.model_type}")
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         task_data = inputs["prediction_tasks"]
