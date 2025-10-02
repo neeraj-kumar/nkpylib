@@ -88,7 +88,7 @@ from collections.abc import Mapping
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os.path import abspath, dirname, exists, join
-from pprint import pprint as _pprint
+from pprint import pprint as _pprint, pformat
 from typing import Any, Literal, Sequence, Generic, TypeVar, Union
 
 import matplotlib as mpl
@@ -1105,7 +1105,8 @@ class GetEmbeddingDistancesOp(Op):
         """Returns different variants for distance metrics."""
         metrics = ['cosine', 'dot_product', 'euclidean']
         metrics = ['cosine', 'dot_product'] #TODO 'euclidean' is too similar to cosine
-        return {metric: dict(metric=metric) for metric in metrics}
+        label_key = inputs['label_distances']['label_key']
+        return {f'label:{label_key}_metric:{metric}': dict(metric=metric) for metric in metrics}
 
     def __init__(self, metric, **kw):
         self.metric = metric
@@ -1151,7 +1152,7 @@ class GetNeighborsOp(Op):
     name = "get_neighbors"
     input_types = {'distances'}
     output_types = {"neighbors_data"}
-    run_mode = "process"
+    #run_mode = "process"
     is_intermediate = True
 
     def __init__(self, k: int = 20, **kw):
@@ -1167,6 +1168,8 @@ class GetNeighborsOp(Op):
         data = inputs['distances']
         op_logger.info(f'Computing neighbors, got data {data.keys()}, k={self.k}')
         distances = data["distances"]  # Get the actual distance matrix
+        # clamp distances to be positive
+        distances = np.maximum(distances, 0.0)
         keys = data["sub_keys"]
         if "label_distances" in data:
             distance_type = "label"
@@ -1210,7 +1213,7 @@ class GenPredictionTasksOp(LabelOp):
     name = "gen_prediction_tasks"
     input_types = {"labels", "normalized_embeddings"}
     output_types = {"prediction_tasks"}
-    run_mode = "process"
+    #run_mode = "process"
     is_intermediate = True
 
     def __init__(self, label_key: str, min_pos: int = 10, max_tasks: int = 10, **kw):
@@ -1302,6 +1305,7 @@ class RunPredictionOp(Op):
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants for model types and tasks."""
         tasks = inputs["prediction_tasks"]["tasks"]
+        label_key = inputs["prediction_tasks"]["label_key"]
 
         variants = {}
         for task_name, (_, task_type) in tasks.items():
@@ -1320,7 +1324,7 @@ class RunPredictionOp(Op):
                 }
 
             for model_name, model_params in models.items():
-                variant_name = f"task:{task_name}_model:{model_name}"
+                variant_name = f"label:{label_key}_task:{task_name}_model:{model_name}"
                 variants[variant_name] = {
                     "task_name": task_name,
                     "model_type": model_params["model_type"]
@@ -1449,12 +1453,10 @@ class AggregatePredictionResultsOp(Op):
         # Group results by label key
         results_by_label = defaultdict(list)
         all_results = []
-        op_logger.info(f'Inputs: {inputs["prediction_results"]}')
-
-        for result in inputs["prediction_results"]:
-            label_key = result["label_key"]
-            results_by_label[label_key].append(result)
-            all_results.append(result)
+        prediction_results = inputs["prediction_results"]
+        label_key = prediction_results["label_key"]
+        results_by_label[label_key].append(prediction_results)
+        all_results.append(prediction_results)
 
         # Sort results by score
         all_results.sort(key=lambda x: x["score"], reverse=True)
@@ -1653,16 +1655,16 @@ class CompareStatsOp(Op):
         ret['n_comparisons'] = len(ret['comparisons'])
         return ret
 
-def init_logging(log_names=('tasks', 'perf', 'ops', 'results', 'errors', 'eval'), 
-                 stderr_loggers=('ops', 'results', 'errors', 'eval')):
+def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval'),
+                 stderr_loggers=('op', 'errors', 'eval')):
     """initializes all our logging
-    
+
     Args:
         log_names: Names of all loggers to initialize
         stderr_loggers: Names of loggers that should also write to stderr
     """
     fmt = '\t'.join(['%(asctime)s', '%(levelname)s', '%(name)s', '%(process)d:%(thread)d', '%(module)s:%(lineno)d', '%(funcName)s'])+'\n%(message)s\n'
-    logging.basicConfig(format=fmt, level=logging.INFO)
+    #logging.basicConfig(format=fmt, level=logging.INFO)
 
     # Configure specialized loggers
     log_dir = "logs"
@@ -1670,17 +1672,17 @@ def init_logging(log_names=('tasks', 'perf', 'ops', 'results', 'errors', 'eval')
 
     # Create formatter
     formatter = logging.Formatter(fmt)
-    
+
     # Configure each logger
     for name in log_names:
         logger = logging.getLogger(f"evaluator.{name}")
         logger.setLevel(logging.INFO)
-        
+
         # Always add a file handler
         file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode="w")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-        
+
         # Add stderr handler for specified loggers
         if name in stderr_loggers:
             stderr_handler = logging.StreamHandler(sys.stderr)
@@ -1689,10 +1691,7 @@ def init_logging(log_names=('tasks', 'perf', 'ops', 'results', 'errors', 'eval')
 
 
 if __name__ == '__main__':
-    # Initialize logging
     init_logging()
-    
-    # Parse arguments
     parser = ArgumentParser(description='Embeddings evaluator')
     parser.add_argument('paths', nargs='+', help='Paths to the embeddings lmdb file')
     parser.add_argument('-t', '--tag_path', help='Path to the tags sqlite db')
@@ -1701,4 +1700,4 @@ if __name__ == '__main__':
     om.start(StartValidatorOp, vars(args))
     for r in om._results.values():
         result_logger.info(f"Result: {r.key} - {r.op.name}")
-        #pprint(r.output); print()
+        #result_logger.info(pformat(make_jsonable(result.to_dict())))

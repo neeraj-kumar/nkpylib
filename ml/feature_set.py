@@ -34,14 +34,9 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from nkpylib.ml.client import chunked, embed_image, embed_text
+from nkpylib.ml.types import nparray1d, nparray2d, array1d, array2d
 from nkpylib.utils import specialize
 from nkpylib.thread_utils import CollectionUpdater
-
-nparray1d = np.ndarray
-nparray2d = np.ndarray
-
-array1d = nparray1d | Sequence[float]
-array2d = nparray2d | Sequence[Sequence[float]]
 
 logger = logging.getLogger(__name__)
 
@@ -454,7 +449,8 @@ class FeatureSet(Mapping, Generic[KeyT]):
             keys = list(_keys)
             embs = np.vstack(_embs)
         else:
-            embs = np.vstack([self[k] for k in keys if k in self])
+            keys = [k for k in keys if k in self]
+            embs = np.vstack([self[k] for k in keys])
         scaler: StandardScaler|None = None
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]

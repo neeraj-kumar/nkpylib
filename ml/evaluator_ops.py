@@ -32,7 +32,7 @@ from collections import defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, Future, as_completed
 from dataclasses import dataclass, field
 from itertools import product
-from pprint import pprint
+from pprint import pprint, pformat
 from typing import Any, Callable
 
 import numpy as np
@@ -46,7 +46,8 @@ from nkpylib.ml.feature_set import JsonLmdb
 logger = logging.getLogger(__name__)
 task_logger = logging.getLogger("evaluator.tasks")
 perf_logger = logging.getLogger("evaluator.perf")
-op_logger = logging.getLogger("evaluator.ops")
+result_logger = logging.getLogger("evaluator.results")
+error_logger = logging.getLogger("evaluator.errors")
 
 # Global manager instance that all Ops will register with
 _global_op_manager: 'OpManager'|None = None
@@ -206,17 +207,17 @@ class Task:
     @property
     def run_mode(self) -> str:
         """Returns where this task should run (main/thread/process)."""
-        return 'main' #FIXME
-        #return self.op_cls.run_mode
+        #return 'main' #FIXME
+        return self.op_cls.run_mode
 
     def run(self) -> Task:
         """Runs this task, returning self when done."""
-        logger.info(f'Starting {self}')
+        task_logger.info(f'Starting {self}')
         self.status = "running"
         self.op = self.op_cls(variant=self.variant_name, **(self.variant_kwargs or {}))
         self.output, self.error = self.op.execute(self.inputs)
         self.status = 'failed' if self.error else 'completed'
-        logger.info(f'Finished {self}')
+        task_logger.info(f'Finished {self}')
         return self
 
 
@@ -257,8 +258,8 @@ class TaskPool:
         except Exception as e:
             task.status = 'failed'
             task.error = e
-            logger.error(f'Error submitting task {task}: {e}')
-            logger.exception(e)
+            error_logger.error(f'Error submitting task {task}: {e}')
+            error_logger.exception(e)
             return None
         self.futures[future] = task
         return future
@@ -324,6 +325,7 @@ class OpManager:
         for op_cls in find_subclasses(Op):
             if op_cls.enabled is False:
                 continue
+            task_logger.info(f'Registering op class {op_cls}, run_mode {op_cls.run_mode}')
             # Convert to frozensets for safe internal operations
             frozen_output_types = frozenset(op_cls.output_types)
             # Handle input_types - could be set or dict (contracts)
@@ -551,11 +553,12 @@ class OpManager:
             error=task.error,
             timestamps=task.timestamps,
         )
-
+        result_logger.info(f'From {task} -> {result}: {result.provenance_str}')
+        result_logger.info(pformat(make_jsonable(result.to_dict())))
         om = OpManager.get()
         # Store result by key
         if op.key in om._results:
-            logger.warning(f'Duplicate result key {op.key} for {op}, previous: {om._results[op.key]}')
+            error_logger.warning(f'Duplicate result key {op.key} for {op}, previous: {om._results[op.key]}')
             return None
         om._results[op.key] = result
         # Store key under all output types
@@ -694,7 +697,7 @@ class Op(ABC):
         Returns `(output, error)` where the output is of types `self.output_types` and the error
         is the exception if any occurred, else None.
         """
-        op_logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
+        task_logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
         self.key = self.get_key(inputs)
         try:
             # try to get the underlying output from the result objects
@@ -707,16 +710,16 @@ class Op(ABC):
                     op_inputs[k] = v.output
         except Exception:
             op_inputs = inputs
-        op_logger.info(f'Executing {self} ({self.variant}) -> {self.key}')
+        task_logger.info(f'Executing {self} ({self.variant}) -> {self.key}')
         output, error = None, None
         try:
             with PerfTracker.track(op_inputs=op_inputs) as tracker:
                 output = self._execute(op_inputs)
             perf_logger.info(f'Op {self} finished, perf: {tracker.stats()}')
         except Exception as e:
-            op_logger.error(f'Op {self} failed with {type(e)}: {e}')
+            error_logger.error(f'Op {self} failed with {type(e)}: {e}')
             # print stack trace
-            op_logger.exception(e)
+            error_logger.exception(e)
             error = e
         return output, error
 
@@ -769,18 +772,21 @@ class Op(ABC):
 
     def get_key(self, inputs: dict[str, Result]) -> str:
         """Generate key based on operation and inputs (including full provenance)."""
+        dict_v = lambda d: '&'.join(sorted(f'{k}={value_key(v)}' for k, v in sorted((str(k1), v1) for k1, v1 in d.items())))
         def value_key(v: Any) -> str:
             if isinstance(v, Result): # all keys in the provenance chain
-                return ','.join(sorted(v.all_keys))
+                return ','.join(sorted(v.all_keys))+':'+value_key(v.op)+':'+value_key(v.output)
             elif isinstance(v, (list, tuple)): # Handle lists/tuples of things
                 return ','.join(sorted(value_key(item) for item in v))
-            elif hasattr(v, '__dict__'): # for dicts, use sorted items
-                return str(sorted(v.__dict__.items()))
+            elif isinstance(v, Op): # for objects, use sorted items
+                return dict_v(v.__dict__)
+            elif isinstance(v, dict): # for dicts, use sorted items
+                return dict_v(v)
             else: # simple string representation
                 return str(v)
 
-        input_str = '|'.join(f"{key}:{value_key(value)}" for key, value in sorted(inputs.items()))
+        input_str = dict_v(inputs)
         combined = f"{self.name}_{self.variant}_{input_str}"
-        op_logger.debug(f'{self} got key str: {combined}')
+        task_logger.info(f'{self} got key str: {combined}')
         # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()
