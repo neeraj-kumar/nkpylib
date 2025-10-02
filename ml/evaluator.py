@@ -1775,6 +1775,86 @@ class CompareStatsOp(Op):
         ret['n_comparisons'] = len(ret['comparisons'])
         return ret
 
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes statistical comparison results and identifies notable patterns.
+
+        Checks for high correlations, significant differences, and other statistical patterns
+        between the compared arrays.
+        """
+        comparisons = results.get('comparisons', {})
+        if not comparisons:
+            return dict(warnings=[])
+
+        # Extract correlation values and other metrics
+        correlations = []
+        r2_values = []
+        kl_divs = []
+        warnings = []
+
+        for (i, j), comp_stats in comparisons.items():
+            pearson = comp_stats.get('pearson', 0.0)
+            r2 = comp_stats.get('linear_least_square_r2', 0.0)
+            kl_div = comp_stats.get('kl_div', float('inf'))
+            
+            correlations.append(abs(pearson))
+            r2_values.append(r2)
+            if not np.isinf(kl_div) and not np.isnan(kl_div):
+                kl_divs.append(kl_div)
+
+        # Check for high correlations (threshold: 0.7)
+        high_corr_threshold = 0.7
+        high_correlations = [c for c in correlations if c > high_corr_threshold]
+        
+        if high_correlations:
+            max_corr = max(high_correlations)
+            warning = dict(
+                unit="stats_comparison",
+                key="correlation",
+                value=max_corr,
+                count=len(high_correlations),
+                total_comparisons=len(comparisons),
+                score=3,  # High importance
+                warning=f"High correlation found: {max_corr:.3f} ({len(high_correlations)}/{len(comparisons)} comparisons > {high_corr_threshold})"
+            )
+            warnings.append(warning)
+
+        # Check for high R² values (threshold: 0.6)
+        high_r2_threshold = 0.6
+        high_r2_values = [r for r in r2_values if r > high_r2_threshold]
+        
+        if high_r2_values:
+            max_r2 = max(high_r2_values)
+            warning = dict(
+                unit="stats_comparison",
+                key="r2",
+                value=max_r2,
+                count=len(high_r2_values),
+                total_comparisons=len(comparisons),
+                score=2,  # Medium importance
+                warning=f"High R² found: {max_r2:.3f} ({len(high_r2_values)}/{len(comparisons)} comparisons > {high_r2_threshold})"
+            )
+            warnings.append(warning)
+
+        # Summary statistics
+        analysis = dict(
+            n_comparisons=len(comparisons),
+            correlation_stats=dict(
+                mean=np.mean(correlations) if correlations else 0.0,
+                max=max(correlations) if correlations else 0.0,
+                min=min(correlations) if correlations else 0.0,
+                std=np.std(correlations) if correlations else 0.0
+            ),
+            r2_stats=dict(
+                mean=np.mean(r2_values) if r2_values else 0.0,
+                max=max(r2_values) if r2_values else 0.0,
+                min=min(r2_values) if r2_values else 0.0,
+                std=np.std(r2_values) if r2_values else 0.0
+            ),
+            warnings=warnings
+        )
+
+        return analysis
+
 
 def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval'),
                  stderr_loggers=('op', 'errors', 'eval'),
