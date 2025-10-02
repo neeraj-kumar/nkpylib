@@ -1653,8 +1653,14 @@ class CompareStatsOp(Op):
         ret['n_comparisons'] = len(ret['comparisons'])
         return ret
 
-def init_logging(log_names=('tasks', 'perf', 'ops', 'results', 'errors', 'eval')):
-    """initializes all our logging"""
+def init_logging(log_names=('tasks', 'perf', 'ops', 'results', 'errors', 'eval'), 
+                 stderr_loggers=('ops', 'results', 'errors', 'eval')):
+    """initializes all our logging
+    
+    Args:
+        log_names: Names of all loggers to initialize
+        stderr_loggers: Names of loggers that should also write to stderr
+    """
     fmt = '\t'.join(['%(asctime)s', '%(levelname)s', '%(name)s', '%(process)d:%(thread)d', '%(module)s:%(lineno)d', '%(funcName)s'])+'\n%(message)s\n'
     logging.basicConfig(format=fmt, level=logging.INFO)
 
@@ -1662,20 +1668,30 @@ def init_logging(log_names=('tasks', 'perf', 'ops', 'results', 'errors', 'eval')
     log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
 
-    # Create file handlers for each logger type
-    handlers = {name: logging.FileHandler(f"{log_dir}/{name}.log", mode="w") for name in log_names}
-
-    # Set formatter for all handlers
-    for handler in handlers.values():
-        handler.setFormatter(logging.Formatter(fmt))
-
+    # Create formatter
+    formatter = logging.Formatter(fmt)
+    
     # Configure each logger
     for name in log_names:
-        logging.getLogger(f"evaluator.{name}").setLevel(logging.INFO)
-        logging.getLogger(f"evaluator.{name}").addHandler(handlers[name])
+        logger = logging.getLogger(f"evaluator.{name}")
+        logger.setLevel(logging.INFO)
+        
+        # Always add a file handler
+        file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode="w")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
+        # Add stderr handler for specified loggers
+        if name in stderr_loggers:
+            stderr_handler = logging.StreamHandler(sys.stderr)
+            stderr_handler.setFormatter(formatter)
+            logger.addHandler(stderr_handler)
 
 
 if __name__ == '__main__':
+    # Initialize logging
+    init_logging()
+    
     # Parse arguments
     parser = ArgumentParser(description='Embeddings evaluator')
     parser.add_argument('paths', nargs='+', help='Paths to the embeddings lmdb file')
