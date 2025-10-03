@@ -133,9 +133,14 @@ from nkpylib.ml.ml_types import (
     FLOAT_TYPES,
     array1d,
     array2d,
-    nparray1d,
-    nparray2d,
     )
+
+from numpy.typing import NDArray
+import numpy as np
+
+# More specific array types
+nparray1d = NDArray[np.floating]  # 1D array of floating point numbers  
+nparray2d = NDArray[np.floating]  # 2D array of floating point numbers
 
 from nkpylib.ml.tag_db import Tag, get_all_tags, init_tag_db
 

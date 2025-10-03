@@ -7,7 +7,14 @@ from typing import Any, Union
 
 import numpy as np
 
-from nkpylib.ml.ml_types import NUMERIC_TYPES, FLOAT_TYPES, array1d, array2d, nparray1d, nparray2d, NumericT
+from nkpylib.ml.ml_types import NUMERIC_TYPES, FLOAT_TYPES, array1d, array2d, NumericT
+
+from numpy.typing import NDArray
+import numpy as np
+
+# More specific array types
+nparray1d = NDArray[np.floating]  # 1D array of floating point numbers
+nparray2d = NDArray[np.floating]  # 2D array of floating point numbers
 
 logger = logging.getLogger(__name__)
 labels_logger = logging.getLogger('evaluator.labels')
