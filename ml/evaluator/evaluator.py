@@ -179,6 +179,113 @@ PTask = tuple[PTaskData, PTaskType]
 # Define the tasks dictionary type
 PTasks = dict[str, PTask]
 
+@dataclass
+class DimensionCheckResult:
+    """Result from CheckDimensionsOp."""
+    dimension_counts: dict[int, int]
+    is_consistent: bool
+
+@dataclass
+class NaNCheckResult:
+    """Result from CheckNaNsOp."""
+    total_nans: int
+    nan_keys: list[tuple[str, int]]
+    has_nans: bool
+
+@dataclass
+class BasicChecksReport:
+    """Result from BasicChecksOp."""
+    errors: list[str]
+    dimension_check: DimensionCheckResult
+    nan_check: NaNCheckResult
+
+@dataclass
+class NormalizedEmbeddings:
+    """Result from NormalizeOp."""
+    keys: list[str]
+    embeddings: nparray2d
+
+@dataclass
+class LabelArraysData:
+    """Result from GetLabelArraysOp."""
+    label_key: str
+    sub_keys: list[str]
+    label_names: list[str]
+    label_arrays: nparray2d
+    sub_matrix: nparray2d
+
+@dataclass
+class LabelDistancesData:
+    """Result from GetLabelDistancesOp."""
+    label_key: str
+    sub_keys: list[str]
+    label_distances: nparray2d
+    sub_matrix: nparray2d
+
+@dataclass
+class EmbeddingDimsData:
+    """Result from GetEmbeddingDimsOp."""
+    dims_matrix: nparray2d
+    transform: str
+    label_key: str
+
+@dataclass
+class EmbeddingDistancesData:
+    """Result from GetEmbeddingDistancesOp."""
+    label_key: str
+    metric: str
+    sub_keys: list[str]
+    embedding_distances: nparray2d
+
+@dataclass
+class NeighborsData:
+    """Result from GetNeighborsOp."""
+    distance_type: str
+    label_key: str
+    metric: str | None
+    neighbors: nparray2d
+    distances: nparray2d
+    keys: list[str]
+
+@dataclass
+class PredictionTasksData:
+    """Result from GenPredictionTasksOp."""
+    label_key: str
+    tasks: PTasks
+    sub_keys: list[str]
+    sub_matrix: nparray2d
+
+@dataclass
+class PredictionResult:
+    """Result from RunPredictionOp."""
+    label_key: str
+    task_name: str
+    model_name: str
+    score: float
+    score_type: str
+    n_classes: int | None
+    predictions: nparray1d
+    true_values: nparray1d
+
+@dataclass
+class NeighborComparison:
+    """Result from CompareNeighborsOp."""
+    label_key: str
+    embedding_metric_a: str | None
+    embedding_metric_b: str | None
+    metrics: dict[str, float]
+    per_item_metrics: dict[str, list[float]] | None = None
+
+@dataclass
+class StatsComparison:
+    """Result from CompareStatsOp."""
+    stats_a: list[Stats]
+    stats_b: list[Stats]
+    shape_a: tuple[int, int]
+    shape_b: tuple[int, int]
+    comparisons: dict[tuple[int, int], Stats]
+    n_comparisons: int
+
 def train_and_predict(model, X_train, y_train, X_test):
     """Simple train and predict function for use in multiprocessing."""
     model.fit(X_train, y_train)
@@ -366,7 +473,7 @@ class CheckDimensionsOp(Op):
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
-        dims = Counter(results['dimension_counts'])
+        dims = Counter(results.dimension_counts)
         return dict(
             is_consistent=(len(dims) == 1),
             error_message=f"Inconsistent embedding dimensions: {dims.most_common()}" if len(dims) > 1 else None,
@@ -389,7 +496,7 @@ class CheckNaNsOp(Op):
             n_nans += key_nans
             if key_nans > 0:
                 nan_keys.append((key, int(key_nans)))
-        return dict(
+        return NaNCheckResult(
             total_nans=int(n_nans),
             nan_keys=nan_keys,
             has_nans=n_nans > 0,
@@ -397,7 +504,7 @@ class CheckNaNsOp(Op):
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
-        n_nans = results['total_nans']
+        n_nans = results.total_nans
         return dict(
             has_nans=n_nans > 0,
             error_message=None if n_nans == 0 else f"Found {n_nans} NaNs in embeddings",
@@ -417,19 +524,19 @@ class BasicChecksOp(Op):
         dim_result = inputs["dimension_check_result"]
         nan_result = inputs["nan_check_result"]
         errors = []
-        if not dim_result["is_consistent"]:
-            errors.append(dim_result["error_message"])
-        if nan_result["has_nans"]:
-            errors.append(nan_result["error_message"])
-        return {
-            "errors": errors,
-            "dimension_check": dim_result,
-            "nan_check": nan_result
-        }
+        if not dim_result.is_consistent:
+            errors.append(f"Inconsistent embedding dimensions: {dim_result.dimension_counts}")
+        if nan_result.has_nans:
+            errors.append(f"Found {nan_result.total_nans} NaNs in embeddings")
+        return BasicChecksReport(
+            errors=errors,
+            dimension_check=dim_result,
+            nan_check=nan_result
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
-        errors = results.get('errors', [])
+        errors = results.errors
         return dict(passed= (len(errors) == 0))
 
 
@@ -477,15 +584,14 @@ class NormalizeOp(Op):
             scale_std=self.scale_std
         )
         op_logger.info(f'from {len(valid_keys)} got {len(keys)} embeddings {emb.shape}')
-        return (keys, emb)
+        return NormalizedEmbeddings(keys=keys, embeddings=emb)
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
-        keys, emb = results
         return dict(
             variant=self.variant,
-            n_embeddings=len(keys),
-            embedding_shape=emb.shape,
+            n_embeddings=len(results.keys),
+            embedding_shape=results.embeddings.shape,
         )
 
 
@@ -534,10 +640,11 @@ class GetLabelArraysOp(LabelOp):
     is_intermediate = True
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        keys, matrix = inputs["normalized_embeddings"]
+        norm_emb = inputs["normalized_embeddings"]
+        keys, matrix = norm_emb.keys, norm_emb.embeddings
         label = inputs["labels"][self.label_key]
         result = label.get_label_arrays(keys, matrix)
-        return dict(
+        return LabelArraysData(
             label_key=self.label_key,
             sub_keys=result.sub_keys,
             label_names=result.label_names,
@@ -582,19 +689,19 @@ class GetLabelDistancesOp(LabelOp):
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         label = inputs["labels"][self.label_key]
-        keys, matrix = inputs["normalized_embeddings"]
+        norm_emb = inputs["normalized_embeddings"]
+        keys, matrix = norm_emb.keys, norm_emb.embeddings
         result = label.get_all_distances(
             n_pts=self.n_pts,
             keys=keys,
             matrix=matrix,
             perc_close=self.perc_close,
         )
-        return dict(
+        return LabelDistancesData(
             label_key=self.label_key,
             sub_keys=result.sub_keys,
             label_distances=result.label_distances,
             sub_matrix=result.sub_matrix,
-            distances=result.label_distances,
         )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -634,14 +741,18 @@ class GetEmbeddingDimsOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         label_data = inputs["label_arrays_data"]
-        matrix = label_data["sub_matrix"]  # Already filtered to the right intersection
+        matrix = label_data.sub_matrix  # Already filtered to the right intersection
         dims = matrix.T  # Each row is one dimension across all samples
         # Apply transformation based on variant
         if self.transform == "log":
             # Apply log transform, handling negative values
             dims = np.log1p(np.abs(dims))
         # "raw" needs no transformation
-        return dict(dims_matrix=dims, transform=self.transform, label_key=label_data["label_key"])
+        return EmbeddingDimsData(
+            dims_matrix=dims, 
+            transform=self.transform, 
+            label_key=label_data.label_key
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
@@ -678,13 +789,12 @@ class GetEmbeddingDistancesOp(Op):
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        keys, matrix = inputs["normalized_embeddings"]
+        norm_emb = inputs["normalized_embeddings"]
         label_data = inputs["label_distances"]
 
         # Get the ids from label distances to ensure consistency
-        ret = dict(label_key=label_data["label_key"], metric=self.metric, sub_keys=label_data["sub_keys"])
-        matrix = label_data["sub_matrix"]  # Already filtered to the right intersection
-        op_logger.info(f'Computing {self.metric} dists for label {label_data["label_key"]} with {matrix.shape} matrix')
+        matrix = label_data.sub_matrix  # Already filtered to the right intersection
+        op_logger.info(f'Computing {self.metric} dists for label {label_data.label_key} with {matrix.shape} matrix')
 
         # Compute distance matrix based on metric
         if self.metric == "cosine":
@@ -696,8 +806,13 @@ class GetEmbeddingDistancesOp(Op):
             distances = squareform(pdist(matrix, 'euclidean'))
         else:
             raise ValueError(f"Unknown metric: {self.metric}")
-        ret['distances'] = ret['embedding_distances'] = distances
-        return ret
+        
+        return EmbeddingDistancesData(
+            label_key=label_data.label_key,
+            metric=self.metric,
+            sub_keys=label_data.sub_keys,
+            embedding_distances=distances
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
@@ -740,19 +855,25 @@ class GetNeighborsOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         # Determine which type of distance matrix we're using
         data = inputs['distances']
-        op_logger.info(f'Computing neighbors, got data {data.keys()}, k={self.k}')
-        distances = data["distances"]  # Get the actual distance matrix
-        # clamp distances to be positive
-        distances = np.maximum(distances, 0.0)
-        keys = data["sub_keys"]
-        if "label_distances" in data:
+        op_logger.info(f'Computing neighbors, got data type {type(data)}, k={self.k}')
+        
+        if isinstance(data, LabelDistancesData):
+            distances = data.label_distances
+            keys = data.sub_keys
             distance_type = "label"
             metric = None
-        elif "embedding_distances" in data:
+            label_key = data.label_key
+        elif isinstance(data, EmbeddingDistancesData):
+            distances = data.embedding_distances
+            keys = data.sub_keys
             distance_type = "embedding"
-            metric = data.get("metric")
+            metric = data.metric
+            label_key = data.label_key
         else:
-            raise ValueError("Distance data must contain either 'label_distances' or 'embedding_distances'")
+            raise ValueError(f"Distance data must be LabelDistancesData or EmbeddingDistancesData, got {type(data)}")
+
+        # clamp distances to be positive
+        distances = np.maximum(distances, 0.0)
 
         # Ensure we don't request more neighbors than we have points
         k = min(self.k + 1, distances.shape[0])  # +1 because the point itself is included
@@ -761,14 +882,15 @@ class GetNeighborsOp(Op):
         nn_cls = NearestNeighbors(n_neighbors=k, metric='precomputed')
         nn_cls.fit(distances)
         neighbor_dists, neighbor_indices = nn_cls.kneighbors(distances)
-        return {
-            "distance_type": distance_type,
-            "label_key": data.get("label_key"),
-            "metric": metric,
-            "neighbors": neighbor_indices,
-            "distances": neighbor_dists,
-            "keys": keys,
-        }
+        
+        return NeighborsData(
+            distance_type=distance_type,
+            label_key=label_key,
+            metric=metric,
+            neighbors=neighbor_indices,
+            distances=neighbor_dists,
+            keys=keys,
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
@@ -815,7 +937,8 @@ class GenPredictionTasksOp(LabelOp):
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         label = inputs["labels"][self.label_key]
-        keys, matrix = inputs["normalized_embeddings"]
+        norm_emb = inputs["normalized_embeddings"]
+        keys, matrix = norm_emb.keys, norm_emb.embeddings
 
         # Get intersection of keys with label ids
         valid_ids = [id for id in label.ids if id in keys]
@@ -851,12 +974,13 @@ class GenPredictionTasksOp(LabelOp):
                 bin_values = np.array([int(v in label.values.get(id, [])) for id in valid_ids])
                 if np.sum(bin_values) >= self.min_pos:
                     tasks[f'binarized-{v}'] = (bin_values, 'classification')
-        return {
-            "label_key": self.label_key,
-            "tasks": tasks,
-            "sub_keys": valid_ids,
-            "sub_matrix": sub_matrix
-        }
+        
+        return PredictionTasksData(
+            label_key=self.label_key,
+            tasks=tasks,
+            sub_keys=valid_ids,
+            sub_matrix=sub_matrix
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
@@ -956,11 +1080,11 @@ class RunPredictionOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         task_data = inputs["prediction_tasks"]
-        label_key, tasks = task_data["label_key"], task_data['tasks']
+        label_key, tasks = task_data.label_key, task_data.tasks
 
         assert self.task_name in tasks, f"PTask {self.task_name} not found in available tasks"
 
-        X = task_data["sub_matrix"]
+        X = task_data.sub_matrix
         y, task_type = tasks[self.task_name]
 
         # Get appropriate model and cross-validation strategy
@@ -1004,16 +1128,16 @@ class RunPredictionOp(Op):
             score_type = 'balanced_accuracy'
             n_classes = len(np.unique(y))
 
-        return {
-            "label_key": label_key,
-            "task_name": self.task_name,
-            "model_name": self.model_type,
-            "score": float(score),
-            "score_type": score_type,
-            "n_classes": n_classes,
-            "predictions": np.array(all_preds),
-            "true_values": np.array(all_true)
-        }
+        return PredictionResult(
+            label_key=label_key,
+            task_name=self.task_name,
+            model_name=self.model_type,
+            score=float(score),
+            score_type=score_type,
+            n_classes=n_classes,
+            predictions=np.array(all_preds),
+            true_values=np.array(all_true)
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any], threshold = 0.7) -> dict[str, Any]:
         """Analyzes prediction results and identifies notable outcomes.
@@ -1094,19 +1218,19 @@ class CompareNeighborsOp(Op):
         neighbors_a, neighbors_b = list(inputs["neighbors_data"])
 
         if 0: #TODO actually i think we wanted to compare all distances against each other?
-            if neighbors_a["distance_type"] == "label" and neighbors_b["distance_type"] == "embedding":
+            if neighbors_a.distance_type == "label" and neighbors_b.distance_type == "embedding":
                 label_neighbors = neighbors_a
                 embedding_neighbors = neighbors_b
-            elif neighbors_b["distance_type"] == "label" and neighbors_a["distance_type"] == "embedding":
+            elif neighbors_b.distance_type == "label" and neighbors_a.distance_type == "embedding":
                 label_neighbors = neighbors_b
                 embedding_neighbors = neighbors_a
             else:
-                raise ValueError(f"Need one label and one embedding neighbors, got {neighbors_a['distance_type']} and {neighbors_b['distance_type']}")
+                raise ValueError(f"Need one label and one embedding neighbors, got {neighbors_a.distance_type} and {neighbors_b.distance_type}")
 
         # Get the neighbor indices
-        l_nn = neighbors_a["neighbors"]
-        m_nn = neighbors_b["neighbors"]
-        op_logger.info(f'In CompareNeighborsOp with {neighbors_a.keys()} and {neighbors_b.keys()}, k={self.k}, shapes {l_nn.shape}, {m_nn.shape}')
+        l_nn = neighbors_a.neighbors
+        m_nn = neighbors_b.neighbors
+        op_logger.info(f'In CompareNeighborsOp with {type(neighbors_a)} and {type(neighbors_b)}, k={self.k}, shapes {l_nn.shape}, {m_nn.shape}')
         #TODO clamp values up to 0?
 
         # Compute metrics for different K values
@@ -1150,15 +1274,14 @@ class CompareNeighborsOp(Op):
                 metrics.setdefault(f"jaccard@{k}", []).append(jaccard)
         # Calculate averages
         avg_metrics = {k: sum(v) / len(v) if v else 0.0 for k, v in metrics.items()}
-        result = dict(
-            label_key=neighbors_a["label_key"],
-            embedding_metric_a=neighbors_a.get('metric'),
-            embedding_metric_b=neighbors_b.get('metric'),
+        
+        return NeighborComparison(
+            label_key=neighbors_a.label_key,
+            embedding_metric_a=neighbors_a.metric,
+            embedding_metric_b=neighbors_b.metric,
             metrics=avg_metrics,
+            per_item_metrics=dict(per_item_metrics) if per_item_metrics else None
         )
-        if per_item_metrics:
-            result["per_item_metrics"] = dict(per_item_metrics)
-        return result
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes neighbor comparison results and identifies notable patterns.
@@ -1228,34 +1351,41 @@ class CompareStatsOp(Op):
         if 'many_array1d_a' in inputs:
             arrays_a = inputs['many_array1d_a']
         elif 'label_arrays_data' in inputs:
-            arrays_a = inputs['label_arrays_data']['label_arrays']
+            arrays_a = inputs['label_arrays_data'].label_arrays
         elif 'label_distances' in inputs:
-            arrays_a = inputs['label_distances']['label_distances']
+            arrays_a = inputs['label_distances'].label_distances
             #iu = np.triu_indices(label_dists.shape[0], k=1); label_dists=label_dists #TODO?
         else:
             raise NotImplementedError(f'Cannot handle inputs {inputs.keys()} for array A')
         if 'many_array1d_b' in inputs:
             arrays_b = inputs['many_array1d_b']
         elif 'embedding_dims' in inputs:
-            arrays_b = inputs['embedding_dims']['dims_matrix']
+            arrays_b = inputs['embedding_dims'].dims_matrix
         elif 'embedding_distances' in inputs:
-            arrays_b = inputs['embedding_distances']['embedding_distances']
+            arrays_b = inputs['embedding_distances'].embedding_distances
         assert arrays_a.ndim == 2
         assert arrays_b.ndim == 2
         assert arrays_a.shape[1] == arrays_b.shape[1], f'Arrays must have same number of columns, got {arrays_a.shape} vs {arrays_b.shape}'
-        ret = dict(stats_a=get_array1d_stats(arrays_a),
-                   stats_b=get_array1d_stats(arrays_b),
-                   shape_a=arrays_a.shape,
-                   shape_b=arrays_b.shape,
-                   comparisons={})
+        
+        stats_a = get_array1d_stats(arrays_a)
+        stats_b = get_array1d_stats(arrays_b)
+        comparisons = {}
+        
         # compare cartesian product of rows
         for i, a in enumerate(arrays_a):
             for j, b in enumerate(arrays_b):
-                ret['comparisons'][(i,j)] = compare_array1d_stats(
-                    a, b, stats_a=ret['stats_a'][i], stats_b=ret['stats_b'][j]
+                comparisons[(i,j)] = compare_array1d_stats(
+                    a, b, stats_a=stats_a[i], stats_b=stats_b[j]
                 )
-        ret['n_comparisons'] = len(ret['comparisons'])
-        return ret
+        
+        return StatsComparison(
+            stats_a=stats_a,
+            stats_b=stats_b,
+            shape_a=arrays_a.shape,
+            shape_b=arrays_b.shape,
+            comparisons=comparisons,
+            n_comparisons=len(comparisons)
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes statistical comparison results and identifies notable patterns.
