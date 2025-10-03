@@ -466,7 +466,7 @@ class CheckDimensionsOp(Op):
         dims: Counter[int] = Counter()
         for key, emb in fs.items():
             dims[len(emb)] += 1
-        return dict(
+        return DimensionCheckResult(
             dimension_counts=dict(dims),
             is_consistent=(len(dims) == 1),
         )
