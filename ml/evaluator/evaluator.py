@@ -86,6 +86,7 @@ from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from itertools import product
 from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint, pformat
