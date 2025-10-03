@@ -3,6 +3,7 @@ import random
 
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from typing import Any, Union
 
 import numpy as np
@@ -22,6 +23,21 @@ labels_logger = logging.getLogger('evaluator.labels')
 # Type aliases used in this module
 DistTuple = tuple[str, str, float]
 AllDists = dict[str, Any]
+
+@dataclass
+class AllDistancesResult:
+    """Result from get_all_distances method."""
+    sub_keys: list[str]
+    label_distances: nparray2d
+    sub_matrix: nparray2d
+
+@dataclass
+class LabelArraysResult:
+    """Result from get_label_arrays method."""
+    sub_keys: list[str]
+    label_names: list[str]
+    label_arrays: nparray2d
+    sub_matrix: nparray2d
 
 class Labels(ABC):
     """A base class for different types of labels that we get from tags.
@@ -49,7 +65,7 @@ class Labels(ABC):
         """
         raise NotImplementedError()
 
-    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDists:
+    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDistancesResult:
         """Returns all pairwise distances between `n_pts` points.
 
         We try to sample at least `perc_close` points that are "close" according to the label type's
@@ -59,7 +75,7 @@ class Labels(ABC):
         It also computes distances one-by-one using `_get_distance()`. It passes all kw to
         `_get_distance()`.
 
-        Returns a dict with the following fields:
+        Returns an `AllDistancesResult` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_distances` is a 2d np array of distances between the overlapping keys
           - Shape `(len(sub_keys), len(sub_keys))`
@@ -76,7 +92,7 @@ class Labels(ABC):
         dists = self.compute_all_distances(ids, **kw)
         assert len(sub_keys) == len(sub_matrix) == len(ids) == dists.shape[0] == dists.shape[1]
         assert sub_matrix.shape[1] == matrix.shape[1]
-        return dict(
+        return AllDistancesResult(
             sub_keys=sub_keys,
             label_distances=dists,
             sub_matrix=sub_matrix,
@@ -152,7 +168,7 @@ class Labels(ABC):
         return id_indices_, sub_keys, sub_matrix
 
     @abstractmethod
-    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> dict[str, Any]:
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArraysResult:
         """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
         This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
@@ -160,7 +176,7 @@ class Labels(ABC):
         different transformations of our underlying data, but in any case they are given unique
         names.
 
-        It returns a dict with the fillowing keys:
+        It returns a `LabelArraysResult` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
@@ -197,7 +213,7 @@ class NumericLabels(Labels):
         )
         super().__init__(tag_type, key, ids=ids, values=values)
 
-    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> dict[str, Any]:
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArraysResult:
         """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
         This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
@@ -205,7 +221,7 @@ class NumericLabels(Labels):
         different transformations of our underlying data, but in any case they are given unique
         names.
 
-        It returns a dict with the fillowing keys:
+        It returns a `LabelArraysResult` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
@@ -213,14 +229,19 @@ class NumericLabels(Labels):
         - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
           - Shape `(len(sub_keys), matrix.shape[1])`
         """
-        ret = dict(label_names=['value'])
-        id_indices, ret['sub_keys'], ret['sub_matrix'] = self._get_matching_matrix(keys, matrix)
+        label_names = ['value']
+        id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix)
         # convert the values into a 2d array with one row
-        ret['label_arrays'] = self.values[id_indices].reshape((1, -1))
-        assert len(ret['label_arrays']) == len(ret['label_names'])
-        assert len(ret['label_arrays'][0]) == len(ret['sub_keys']) == len(ret['sub_matrix'])
-        assert ret['sub_matrix'].shape[1] == matrix.shape[1]
-        return ret
+        label_arrays = self.values[id_indices].reshape((1, -1))
+        assert len(label_arrays) == len(label_names)
+        assert len(label_arrays[0]) == len(sub_keys) == len(sub_matrix)
+        assert sub_matrix.shape[1] == matrix.shape[1]
+        return LabelArraysResult(
+            sub_keys=sub_keys,
+            label_names=label_names,
+            label_arrays=label_arrays,
+            sub_matrix=sub_matrix,
+        )
 
     def _get_distance(self, idx1: int, idx2: int, norm_type: str='raw', **kw) -> float:
         """Returns distance between two id indices.
@@ -308,7 +329,7 @@ class MulticlassBase(Labels):
     def by_label(self) -> dict[Any, set[str]]:
         raise NotImplementedError()
 
-    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDists:
+    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDistancesResult:
         """Returns all pairwise distances between `n_pts` points.
 
         We try to sample at least `perc_close` points that are "close" according to the label type's
@@ -318,7 +339,7 @@ class MulticlassBase(Labels):
         get points which share at least one label in common, in rough proportion to the size of each
         label group.
 
-        Returns a dict with the following fields:
+        Returns an `AllDistancesResult` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_distances` is a 2d np array of distances between the overlapping keys
           - Shape `(len(sub_keys), len(sub_keys))`
@@ -352,7 +373,7 @@ class MulticlassBase(Labels):
         id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix, ids=ids)
         labels_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
-        return dict(
+        return AllDistancesResult(
             sub_keys=sub_keys,
             label_distances=dists,
             sub_matrix=sub_matrix,
@@ -401,7 +422,7 @@ class MulticlassBase(Labels):
             add_pairs(poss, n_remaining)
         return self._pairs_to_list(pairs)
 
-    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> dict[str, Any]:
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArraysResult:
         """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
         This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
@@ -409,7 +430,7 @@ class MulticlassBase(Labels):
         different transformations of our underlying data, but in any case they are given unique
         names.
 
-        It returns a dict with the fillowing keys:
+        It returns a `LabelArraysResult` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
@@ -417,19 +438,24 @@ class MulticlassBase(Labels):
         - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
           - Shape `(len(sub_keys), matrix.shape[1])`
         """
-        ret = dict(label_names=[])
-        id_indices, ret['sub_keys'], ret['sub_matrix'] = self._get_matching_matrix(keys, matrix)
+        label_names = []
+        id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix)
         # For each specific label value, create +1/-1 array
         label_arrays = []
         for label_name, ids in self.by_label().items():
             binary_array = np.array([1.0 if self.ids[i] in ids else -1.0 for i in id_indices])
-            ret['label_names'].append(label_name)
+            label_names.append(label_name)
             label_arrays.append(binary_array)
-        ret['label_arrays'] = np.array(label_arrays)
-        assert len(ret['label_arrays']) == len(ret['label_names'])
-        assert len(ret['label_arrays'][0]) == len(ret['sub_keys']) == len(ret['sub_matrix'])
-        assert ret['sub_matrix'].shape[1] == matrix.shape[1]
-        return ret
+        label_arrays_np = np.array(label_arrays)
+        assert len(label_arrays_np) == len(label_names)
+        assert len(label_arrays_np[0]) == len(sub_keys) == len(sub_matrix)
+        assert sub_matrix.shape[1] == matrix.shape[1]
+        return LabelArraysResult(
+            sub_keys=sub_keys,
+            label_names=label_names,
+            label_arrays=label_arrays_np,
+            sub_matrix=sub_matrix,
+        )
 
 
 class MulticlassLabels(MulticlassBase):

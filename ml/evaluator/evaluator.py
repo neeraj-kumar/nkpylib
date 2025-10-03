@@ -536,9 +536,14 @@ class GetLabelArraysOp(LabelOp):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         keys, matrix = inputs["normalized_embeddings"]
         label = inputs["labels"][self.label_key]
-        ret = label.get_label_arrays(keys, matrix)
-        ret['label_key'] = self.label_key
-        return ret
+        result = label.get_label_arrays(keys, matrix)
+        return dict(
+            label_key=self.label_key,
+            sub_keys=result.sub_keys,
+            label_names=result.label_names,
+            label_arrays=result.label_arrays,
+            sub_matrix=result.sub_matrix,
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
@@ -578,15 +583,19 @@ class GetLabelDistancesOp(LabelOp):
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         label = inputs["labels"][self.label_key]
         keys, matrix = inputs["normalized_embeddings"]
-        ret = label.get_all_distances(
+        result = label.get_all_distances(
             n_pts=self.n_pts,
             keys=keys,
             matrix=matrix,
             perc_close=self.perc_close,
         )
-        ret['distances'] = ret['label_distances']
-        ret['label_key'] = self.label_key
-        return ret
+        return dict(
+            label_key=self.label_key,
+            sub_keys=result.sub_keys,
+            label_distances=result.label_distances,
+            sub_matrix=result.sub_matrix,
+            distances=result.label_distances,
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
