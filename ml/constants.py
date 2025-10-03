@@ -62,6 +62,9 @@ DEFAULT_MODELS = dict(
     # qwen3 embeddings (large and small)
     qwen_emb='Qwen/Qwen3-Embedding-8B',
     qwen_emb_small='Qwen/Qwen3-Embedding-0.6B',
+    # groq fastest
+    groq='openai/gpt-oss-20b',
+
 )
 
 LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']

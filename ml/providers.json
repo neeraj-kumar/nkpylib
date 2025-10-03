@@ -1,495 +1,241 @@
 {
+  "groq": {
+    "api_key_var": "GROQ_API_KEY",
+    "base_url": "https://api.groq.com/openai/v1",
+    "models": {
+      "groq/compound": {
+        "id": "groq/compound",
+        "object": "model",
+        "created": 1756949530,
+        "owned_by": "Groq",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 8192
+      },
+      "groq/compound-mini": {
+        "id": "groq/compound-mini",
+        "object": "model",
+        "created": 1756949707,
+        "owned_by": "Groq",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 8192
+      },
+      "whisper-large-v3": {
+        "id": "whisper-large-v3",
+        "object": "model",
+        "created": 1693721698,
+        "owned_by": "OpenAI",
+        "active": true,
+        "context_window": 448,
+        "public_apps": null,
+        "max_completion_tokens": 448
+      },
+      "openai/gpt-oss-20b": {
+        "id": "openai/gpt-oss-20b",
+        "object": "model",
+        "created": 1754407957,
+        "owned_by": "OpenAI",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 65536
+      },
+      "meta-llama/llama-guard-4-12b": {
+        "id": "meta-llama/llama-guard-4-12b",
+        "object": "model",
+        "created": 1746743847,
+        "owned_by": "Meta",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 1024
+      },
+      "llama-3.1-8b-instant": {
+        "id": "llama-3.1-8b-instant",
+        "object": "model",
+        "created": 1693721698,
+        "owned_by": "Meta",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 131072
+      },
+      "gemma2-9b-it": {
+        "id": "gemma2-9b-it",
+        "object": "model",
+        "created": 1693721698,
+        "owned_by": "Google",
+        "active": true,
+        "context_window": 8192,
+        "public_apps": null,
+        "max_completion_tokens": 8192
+      },
+      "meta-llama/llama-4-scout-17b-16e-instruct": {
+        "id": "meta-llama/llama-4-scout-17b-16e-instruct",
+        "object": "model",
+        "created": 1743874824,
+        "owned_by": "Meta",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 8192
+      },
+      "moonshotai/kimi-k2-instruct-0905": {
+        "id": "moonshotai/kimi-k2-instruct-0905",
+        "object": "model",
+        "created": 1757046093,
+        "owned_by": "Moonshot AI",
+        "active": true,
+        "context_window": 262144,
+        "public_apps": null,
+        "max_completion_tokens": 16384
+      },
+      "qwen/qwen3-32b": {
+        "id": "qwen/qwen3-32b",
+        "object": "model",
+        "created": 1748396646,
+        "owned_by": "Alibaba Cloud",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 40960
+      },
+      "deepseek-r1-distill-llama-70b": {
+        "id": "deepseek-r1-distill-llama-70b",
+        "object": "model",
+        "created": 1737924940,
+        "owned_by": "DeepSeek / Meta",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 131072
+      },
+      "meta-llama/llama-4-maverick-17b-128e-instruct": {
+        "id": "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "object": "model",
+        "created": 1743877158,
+        "owned_by": "Meta",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 8192
+      },
+      "whisper-large-v3-turbo": {
+        "id": "whisper-large-v3-turbo",
+        "object": "model",
+        "created": 1728413088,
+        "owned_by": "OpenAI",
+        "active": true,
+        "context_window": 448,
+        "public_apps": null,
+        "max_completion_tokens": 448
+      },
+      "playai-tts": {
+        "id": "playai-tts",
+        "object": "model",
+        "created": 1740682771,
+        "owned_by": "PlayAI",
+        "active": true,
+        "context_window": 8192,
+        "public_apps": null,
+        "max_completion_tokens": 8192
+      },
+      "meta-llama/llama-prompt-guard-2-86m": {
+        "id": "meta-llama/llama-prompt-guard-2-86m",
+        "object": "model",
+        "created": 1748632165,
+        "owned_by": "Meta",
+        "active": true,
+        "context_window": 512,
+        "public_apps": null,
+        "max_completion_tokens": 512
+      },
+      "playai-tts-arabic": {
+        "id": "playai-tts-arabic",
+        "object": "model",
+        "created": 1740682783,
+        "owned_by": "PlayAI",
+        "active": true,
+        "context_window": 8192,
+        "public_apps": null,
+        "max_completion_tokens": 8192
+      },
+      "openai/gpt-oss-120b": {
+        "id": "openai/gpt-oss-120b",
+        "object": "model",
+        "created": 1754408224,
+        "owned_by": "OpenAI",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 65536
+      },
+      "moonshotai/kimi-k2-instruct": {
+        "id": "moonshotai/kimi-k2-instruct",
+        "object": "model",
+        "created": 1752435491,
+        "owned_by": "Moonshot AI",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 16384
+      },
+      "meta-llama/llama-prompt-guard-2-22m": {
+        "id": "meta-llama/llama-prompt-guard-2-22m",
+        "object": "model",
+        "created": 1748632101,
+        "owned_by": "Meta",
+        "active": true,
+        "context_window": 512,
+        "public_apps": null,
+        "max_completion_tokens": 512
+      },
+      "llama-3.3-70b-versatile": {
+        "id": "llama-3.3-70b-versatile",
+        "object": "model",
+        "created": 1733447754,
+        "owned_by": "Meta",
+        "active": true,
+        "context_window": 131072,
+        "public_apps": null,
+        "max_completion_tokens": 32768
+      },
+      "allam-2-7b": {
+        "id": "allam-2-7b",
+        "object": "model",
+        "created": 1737672203,
+        "owned_by": "SDAIA",
+        "active": true,
+        "context_window": 4096,
+        "public_apps": null,
+        "max_completion_tokens": 4096
+      }
+    }
+  },
   "deepinfra": {
     "api_key_var": "DEEPINFRA_API_TOKEN",
     "base_url": "https://api.deepinfra.com/v1/openai",
     "models": {
-      "Qwen/Qwen3-Embedding-8B": {
-        "id": "Qwen/Qwen3-Embedding-8B",
+      "mistralai/Mixtral-8x7B-Instruct-v0.1": {
+        "id": "mistralai/Mixtral-8x7B-Instruct-v0.1",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Qwen/Qwen3-Embedding-8B",
-        "parent": null
-      },
-      "Qwen/Qwen3-Embedding-4B": {
-        "id": "Qwen/Qwen3-Embedding-4B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen3-Embedding-4B",
-        "parent": null
-      },
-      "Qwen/Qwen3-Embedding-0.6B": {
-        "id": "Qwen/Qwen3-Embedding-0.6B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen3-Embedding-0.6B",
-        "parent": null
-      },
-      "Gryphe/MythoMax-L2-13b-turbo": {
-        "id": "Gryphe/MythoMax-L2-13b-turbo",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Gryphe/MythoMax-L2-13b-turbo",
-        "parent": null
-      },
-      "google/gemma-2-9b-it": {
-        "id": "google/gemma-2-9b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-2-9b-it",
-        "parent": null
-      },
-      "microsoft/phi-4-reasoning-plus": {
-        "id": "microsoft/phi-4-reasoning-plus",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/phi-4-reasoning-plus",
-        "parent": null
-      },
-      "Qwen/Qwen2.5-7B-Instruct": {
-        "id": "Qwen/Qwen2.5-7B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2.5-7B-Instruct",
-        "parent": null
-      },
-      "google/gemini-2.0-flash-001": {
-        "id": "google/gemini-2.0-flash-001",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemini-2.0-flash-001",
-        "parent": null
-      },
-      "deepseek-ai/DeepSeek-R1-Distill-Llama-70B": {
-        "id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
-        "parent": null
-      },
-      "google/gemma-3-12b-it": {
-        "id": "google/gemma-3-12b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-3-12b-it",
-        "parent": null
-      },
-      "Phind/Phind-CodeLlama-34B-v2": {
-        "id": "Phind/Phind-CodeLlama-34B-v2",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Phind/Phind-CodeLlama-34B-v2",
-        "parent": null
-      },
-      "google/codegemma-7b-it": {
-        "id": "google/codegemma-7b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/codegemma-7b-it",
-        "parent": null
-      },
-      "Sao10K/L3.3-70B-Euryale-v2.3": {
-        "id": "Sao10K/L3.3-70B-Euryale-v2.3",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Sao10K/L3.3-70B-Euryale-v2.3",
-        "parent": null
-      },
-      "Qwen/Qwen3-235B-A22B": {
-        "id": "Qwen/Qwen3-235B-A22B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen3-235B-A22B",
-        "parent": null
-      },
-      "cognitivecomputations/dolphin-2.6-mixtral-8x7b": {
-        "id": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
-        "parent": null
-      },
-      "Qwen/QwQ-32B": {
-        "id": "Qwen/QwQ-32B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/QwQ-32B",
-        "parent": null
-      },
-      "bigcode/starcoder2-15b-instruct-v0.1": {
-        "id": "bigcode/starcoder2-15b-instruct-v0.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "bigcode/starcoder2-15b-instruct-v0.1",
-        "parent": null
-      },
-      "anthropic/claude-3-7-sonnet-latest": {
-        "id": "anthropic/claude-3-7-sonnet-latest",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "anthropic/claude-3-7-sonnet-latest",
-        "parent": null
-      },
-      "deepseek-ai/DeepSeek-V3": {
-        "id": "deepseek-ai/DeepSeek-V3",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-V3",
-        "parent": null
-      },
-      "microsoft/Phi-3-medium-4k-instruct": {
-        "id": "microsoft/Phi-3-medium-4k-instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/Phi-3-medium-4k-instruct",
-        "parent": null
-      },
-      "Qwen/QwQ-32B-Preview": {
-        "id": "Qwen/QwQ-32B-Preview",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/QwQ-32B-Preview",
-        "parent": null
-      },
-      "mistralai/Mistral-Small-24B-Instruct-2501": {
-        "id": "mistralai/Mistral-Small-24B-Instruct-2501",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-Small-24B-Instruct-2501",
-        "parent": null
-      },
-      "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
-        "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        "parent": null
-      },
-      "openbmb/MiniCPM-Llama3-V-2_5": {
-        "id": "openbmb/MiniCPM-Llama3-V-2_5",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "openbmb/MiniCPM-Llama3-V-2_5",
-        "parent": null
-      },
-      "NousResearch/Hermes-3-Llama-3.1-405B": {
-        "id": "NousResearch/Hermes-3-Llama-3.1-405B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "NousResearch/Hermes-3-Llama-3.1-405B",
-        "parent": null
-      },
-      "meta-llama/Llama-4-Scout-17B-16E-Instruct": {
-        "id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-        "parent": null
-      },
-      "Qwen/Qwen2.5-Coder-7B": {
-        "id": "Qwen/Qwen2.5-Coder-7B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2.5-Coder-7B",
-        "parent": null
-      },
-      "google/gemini-2.5-flash": {
-        "id": "google/gemini-2.5-flash",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemini-2.5-flash",
-        "parent": null
-      },
-      "google/gemma-2-27b-it": {
-        "id": "google/gemma-2-27b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-2-27b-it",
-        "parent": null
-      },
-      "Sao10K/L3-70B-Euryale-v2.1": {
-        "id": "Sao10K/L3-70B-Euryale-v2.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Sao10K/L3-70B-Euryale-v2.1",
-        "parent": null
-      },
-      "Qwen/Qwen2.5-72B-Instruct": {
-        "id": "Qwen/Qwen2.5-72B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2.5-72B-Instruct",
-        "parent": null
-      },
-      "nvidia/Llama-3.1-Nemotron-70B-Instruct": {
-        "id": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
-        "parent": null
-      },
-      "meta-llama/Llama-3.3-70B-Instruct": {
-        "id": "meta-llama/Llama-3.3-70B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.3-70B-Instruct",
-        "parent": null
-      },
-      "Sao10K/L3-8B-Lunaris-v1-Turbo": {
-        "id": "Sao10K/L3-8B-Lunaris-v1-Turbo",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Sao10K/L3-8B-Lunaris-v1-Turbo",
-        "parent": null
-      },
-      "nvidia/Nemotron-4-340B-Instruct": {
-        "id": "nvidia/Nemotron-4-340B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "nvidia/Nemotron-4-340B-Instruct",
-        "parent": null
-      },
-      "microsoft/Phi-4-multimodal-instruct": {
-        "id": "microsoft/Phi-4-multimodal-instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/Phi-4-multimodal-instruct",
-        "parent": null
-      },
-      "meta-llama/Llama-Guard-3-8B": {
-        "id": "meta-llama/Llama-Guard-3-8B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-Guard-3-8B",
-        "parent": null
-      },
-      "lizpreciatior/lzlv_70b_fp16_hf": {
-        "id": "lizpreciatior/lzlv_70b_fp16_hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "lizpreciatior/lzlv_70b_fp16_hf",
-        "parent": null
-      },
-      "Qwen/Qwen2-72B-Instruct": {
-        "id": "Qwen/Qwen2-72B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2-72B-Instruct",
-        "parent": null
-      },
-      "mistralai/Mixtral-8x22B-Instruct-v0.1": {
-        "id": "mistralai/Mixtral-8x22B-Instruct-v0.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mixtral-8x22B-Instruct-v0.1",
-        "parent": null
-      },
-      "NovaSky-AI/Sky-T1-32B-Preview": {
-        "id": "NovaSky-AI/Sky-T1-32B-Preview",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "NovaSky-AI/Sky-T1-32B-Preview",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3.1-70B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3.1-70B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-70B-Instruct",
-        "parent": null
-      },
-      "meta-llama/Llama-2-13b-chat-hf": {
-        "id": "meta-llama/Llama-2-13b-chat-hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-2-13b-chat-hf",
-        "parent": null
-      },
-      "Austism/chronos-hermes-13b-v2": {
-        "id": "Austism/chronos-hermes-13b-v2",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Austism/chronos-hermes-13b-v2",
-        "parent": null
-      },
-      "Gryphe/MythoMax-L2-13b": {
-        "id": "Gryphe/MythoMax-L2-13b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Gryphe/MythoMax-L2-13b",
-        "parent": null
-      },
-      "Sao10K/L3-8B-Lunaris-v1": {
-        "id": "Sao10K/L3-8B-Lunaris-v1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Sao10K/L3-8B-Lunaris-v1",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3-8B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3-8B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3-8B-Instruct",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {
-        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-        "parent": null
-      },
-      "Qwen/Qwen3-30B-A3B": {
-        "id": "Qwen/Qwen3-30B-A3B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen3-30B-A3B",
-        "parent": null
-      },
-      "meta-llama/Llama-2-70b-chat-hf": {
-        "id": "meta-llama/Llama-2-70b-chat-hf",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-2-70b-chat-hf",
-        "parent": null
-      },
-      "google/gemma-1.1-7b-it": {
-        "id": "google/gemma-1.1-7b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-1.1-7b-it",
-        "parent": null
-      },
-      "meta-llama/Llama-3.2-3B-Instruct": {
-        "id": "meta-llama/Llama-3.2-3B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-3B-Instruct",
-        "parent": null
-      },
-      "microsoft/phi-4": {
-        "id": "microsoft/phi-4",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/phi-4",
-        "parent": null
-      },
-      "mistralai/Mistral-7B-Instruct-v0.1": {
-        "id": "mistralai/Mistral-7B-Instruct-v0.1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-7B-Instruct-v0.1",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3.1-405B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3.1-405B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-405B-Instruct",
-        "parent": null
-      },
-      "meta-llama/Llama-3.2-90B-Vision-Instruct": {
-        "id": "meta-llama/Llama-3.2-90B-Vision-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-90B-Vision-Instruct",
-        "parent": null
-      },
-      "deepseek-ai/DeepSeek-V3-0324": {
-        "id": "deepseek-ai/DeepSeek-V3-0324",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-V3-0324",
-        "parent": null
-      },
-      "cognitivecomputations/dolphin-2.9.1-llama-3-70b": {
-        "id": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
-        "parent": null
-      },
-      "mistralai/Mistral-Nemo-Instruct-2407": {
-        "id": "mistralai/Mistral-Nemo-Instruct-2407",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-Nemo-Instruct-2407",
-        "parent": null
-      },
-      "microsoft/WizardLM-2-8x22B": {
-        "id": "microsoft/WizardLM-2-8x22B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "microsoft/WizardLM-2-8x22B",
-        "parent": null
-      },
-      "Qwen/Qwen2.5-Coder-32B-Instruct": {
-        "id": "Qwen/Qwen2.5-Coder-32B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2.5-Coder-32B-Instruct",
-        "parent": null
+        "root": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        "parent": null,
+        "metadata": {
+          "description": "Mixtral is mixture of expert large language model (LLM) from Mistral AI. This is state of the art machine learning model using a mixture 8 of experts (MoE) 7b models. During inference 2 expers are selected. This architecture allows large models to be fast and cheap at inference. The Mixtral-8x7B outperforms Llama 2 70B on most benchmarks.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.54,
+            "output_tokens": 0.54
+          },
+          "tags": []
+        }
       },
       "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B": {
         "id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
@@ -497,135 +243,37 @@
         "created": 0,
         "owned_by": "deepinfra",
         "root": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
-        "parent": null
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek R1 Distill Qwen 32B is a distilled large language model based on Qwen 2.5 32B, using outputs from DeepSeek R1. It outperforms OpenAI's o1-mini across various benchmarks, achieving new state-of-the-art results for dense models.  Other benchmark results include:  AIME 2024: 72.6 | MATH-500: 94.3 | CodeForces Rating: 1691.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.27,
+            "output_tokens": 0.27
+          },
+          "tags": []
+        }
       },
-      "Qwen/Qwen3-32B": {
-        "id": "Qwen/Qwen3-32B",
+      "openai/gpt-oss-20b": {
+        "id": "openai/gpt-oss-20b",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Qwen/Qwen3-32B",
-        "parent": null
-      },
-      "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
-        "id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3.1-8B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "parent": null
-      },
-      "Qwen/Qwen2-7B-Instruct": {
-        "id": "Qwen/Qwen2-7B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "Qwen/Qwen2-7B-Instruct",
-        "parent": null
-      },
-      "deepseek-ai/DeepSeek-R1": {
-        "id": "deepseek-ai/DeepSeek-R1",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-R1",
-        "parent": null
-      },
-      "meta-llama/Llama-3.2-1B-Instruct": {
-        "id": "meta-llama/Llama-3.2-1B-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-1B-Instruct",
-        "parent": null
-      },
-      "mistralai/Mistral-7B-Instruct-v0.2": {
-        "id": "mistralai/Mistral-7B-Instruct-v0.2",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-7B-Instruct-v0.2",
-        "parent": null
-      },
-      "mistralai/Mistral-7B-Instruct-v0.3": {
-        "id": "mistralai/Mistral-7B-Instruct-v0.3",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "mistralai/Mistral-7B-Instruct-v0.3",
-        "parent": null
-      },
-      "deepinfra/airoboros-70b": {
-        "id": "deepinfra/airoboros-70b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepinfra/airoboros-70b",
-        "parent": null
-      },
-      "google/gemma-3-4b-it": {
-        "id": "google/gemma-3-4b-it",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemma-3-4b-it",
-        "parent": null
-      },
-      "google/gemini-2.5-pro": {
-        "id": "google/gemini-2.5-pro",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemini-2.5-pro",
-        "parent": null
-      },
-      "meta-llama/Llama-3.2-11B-Vision-Instruct": {
-        "id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-        "parent": null
-      },
-      "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": {
-        "id": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-        "parent": null
-      },
-      "google/gemini-1.5-flash-8b": {
-        "id": "google/gemini-1.5-flash-8b",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "google/gemini-1.5-flash-8b",
-        "parent": null
-      },
-      "openchat/openchat_3.5": {
-        "id": "openchat/openchat_3.5",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "openchat/openchat_3.5",
-        "parent": null
-      },
-      "deepseek-ai/DeepSeek-Prover-V2-671B": {
-        "id": "deepseek-ai/DeepSeek-Prover-V2-671B",
-        "object": "model",
-        "created": 0,
-        "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-Prover-V2-671B",
-        "parent": null
+        "root": "openai/gpt-oss-20b",
+        "parent": null,
+        "metadata": {
+          "description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for lower-latency inference. The model is trained in OpenAI\u2019s Harmony response format and supports reasoning level configuration, fine-tuning, and agentic capabilities including function calling, tool use, and structured outputs.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.030000000000000002,
+            "output_tokens": 0.14
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
       },
       "mattshumer/Reflection-Llama-3.1-70B": {
         "id": "mattshumer/Reflection-Llama-3.1-70B",
@@ -633,47 +281,184 @@
         "created": 0,
         "owned_by": "deepinfra",
         "root": "mattshumer/Reflection-Llama-3.1-70B",
-        "parent": null
+        "parent": null,
+        "metadata": {
+          "description": "Reflection Llama-3.1 70B is trained with a new technique called Reflection-Tuning that teaches a LLM to detect mistakes in its reasoning and correct course.  The model was trained on synthetic data.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.35,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
       },
-      "google/gemini-1.5-flash": {
-        "id": "google/gemini-1.5-flash",
+      "Bria/erase_foreground": {
+        "id": "Bria/erase_foreground",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "google/gemini-1.5-flash",
-        "parent": null
+        "root": "Bria/erase_foreground",
+        "parent": null,
+        "metadata": null
       },
-      "meta-llama/Llama-Guard-4-12B": {
-        "id": "meta-llama/Llama-Guard-4-12B",
+      "moonshotai/Kimi-K2-Instruct-0905": {
+        "id": "moonshotai/Kimi-K2-Instruct-0905",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "meta-llama/Llama-Guard-4-12B",
-        "parent": null
+        "root": "moonshotai/Kimi-K2-Instruct-0905",
+        "parent": null,
+        "metadata": {
+          "description": "Kimi K2 0905 is the September update of Kimi K2 0711. It is a large-scale Mixture-of-Experts (MoE) language model developed by Moonshot AI, featuring 1 trillion total parameters with 32 billion active per forward pass. It supports long-context inference up to 256k tokens, extended from the previous 128k.  This update improves agentic coding with higher accuracy and better generalization across scaffolds, and enhances frontend coding with more aesthetic and functional outputs for web, 3D, and related tasks. Kimi K2 is optimized for agentic capabilities, including advanced tool use, reasoning, and code synthesis. It excels across coding (LiveCodeBench, SWE-bench), reasoning (ZebraLogic, GPQA), and tool-use (Tau2, AceBench) benchmarks. The model is trained with a novel stack incorporating the MuonClip optimizer for stable large-scale MoE training.",
+          "context_length": 262144,
+          "max_tokens": 262144,
+          "pricing": {
+            "input_tokens": 0.5,
+            "output_tokens": 2.0,
+            "cache_read_tokens": 0.4
+          },
+          "tags": [
+            "prompt_cache"
+          ]
+        }
       },
-      "google/gemma-3-27b-it": {
-        "id": "google/gemma-3-27b-it",
+      "nvidia/Llama-3.1-Nemotron-70B-Instruct": {
+        "id": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "google/gemma-3-27b-it",
-        "parent": null
+        "root": "nvidia/Llama-3.1-Nemotron-70B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Llama-3.1-Nemotron-70B-Instruct is a large language model customized by NVIDIA to improve the helpfulness of LLM generated responses to user queries. This model reaches Arena Hard of 85.0, AlpacaEval 2 LC of 57.6 and GPT-4-Turbo MT-Bench of 8.98, which are known to be predictive of LMSys Chatbot Arena Elo.  As of 16th Oct 2024, this model is #1 on all three automatic alignment benchmarks (verified tab for AlpacaEval 2 LC), edging out strong frontier models such as GPT-4o and Claude 3.5 Sonnet.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.6,
+            "output_tokens": 0.6
+          },
+          "tags": []
+        }
       },
-      "KoboldAI/LLaMA2-13B-Tiefighter": {
-        "id": "KoboldAI/LLaMA2-13B-Tiefighter",
+      "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
+        "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "KoboldAI/LLaMA2-13B-Tiefighter",
-        "parent": null
+        "root": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "Llama 3.3-70B Turbo is a highly optimized version of the Llama 3.3-70B model, utilizing FP8 quantization to deliver significantly faster inference speeds with a minor trade-off in accuracy. The model is designed to be helpful, safe, and flexible, with a focus on responsible deployment and mitigating potential risks such as bias, toxicity, and misinformation. It achieves state-of-the-art performance on various benchmarks, including conversational tasks, language translation, and text generation.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.13,
+            "output_tokens": 0.38999999999999996
+          },
+          "tags": []
+        }
       },
-      "Qwen/Qwen3-14B": {
-        "id": "Qwen/Qwen3-14B",
+      "Qwen/Qwen3-Embedding-4B": {
+        "id": "Qwen/Qwen3-Embedding-4B",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Qwen/Qwen3-14B",
-        "parent": null
+        "root": "Qwen/Qwen3-Embedding-4B",
+        "parent": null,
+        "metadata": null
+      },
+      "deepseek-ai/DeepSeek-R1-0528-Turbo": {
+        "id": "deepseek-ai/DeepSeek-R1-0528-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1-0528-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "The DeepSeek R1 0528 turbo model is a state of the art reasoning model that can generate very quick responses",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 1.0,
+            "output_tokens": 2.9999999999999996
+          },
+          "tags": []
+        }
+      },
+      "black-forest-labs/FLUX-1-dev": {
+        "id": "black-forest-labs/FLUX-1-dev",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "black-forest-labs/FLUX-1-dev",
+        "parent": null,
+        "metadata": null
+      },
+      "sentence-transformers/clip-ViT-B-32-multilingual-v1": {
+        "id": "sentence-transformers/clip-ViT-B-32-multilingual-v1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "sentence-transformers/clip-ViT-B-32-multilingual-v1",
+        "parent": null,
+        "metadata": null
+      },
+      "Qwen/Qwen3-Coder-480B-A35B-Instruct": {
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3-Coder-480B-A35B-Instruct is the Qwen3's most agentic code model, featuring Significant Performance on Agentic Coding, Agentic Browser-Use and other foundational coding tasks, achieving results comparable to Claude Sonnet.",
+          "context_length": 262144,
+          "max_tokens": 262144,
+          "pricing": {
+            "input_tokens": 0.4,
+            "output_tokens": 1.6
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-4-Scout-17B-16E-Instruct": {
+        "id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The Llama 4 collection of models are natively multimodal AI models that enable text and multimodal experiences. These models leverage a mixture-of-experts architecture to offer industry-leading performance in text and image understanding. Llama 4 Scout, a 17 billion parameter model with 16 experts",
+          "context_length": 327680,
+          "max_tokens": 327680,
+          "pricing": {
+            "input_tokens": 0.08,
+            "output_tokens": 0.3
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "deepseek-ai/DeepSeek-V3-0324-Turbo": {
+        "id": "deepseek-ai/DeepSeek-V3-0324-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-V3-0324-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 1.0,
+            "output_tokens": 2.9999999999999996
+          },
+          "tags": []
+        }
       },
       "openchat/openchat-3.6-8b": {
         "id": "openchat/openchat-3.6-8b",
@@ -681,47 +466,352 @@
         "created": 0,
         "owned_by": "deepinfra",
         "root": "openchat/openchat-3.6-8b",
-        "parent": null
+        "parent": null,
+        "metadata": {
+          "description": "Openchat 3.6 is a LLama-3-8b fine tune that outperforms it on multiple benchmarks.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.05499999999999999,
+            "output_tokens": 0.05499999999999999
+          },
+          "tags": []
+        }
       },
-      "Qwen/QVQ-72B-Preview": {
-        "id": "Qwen/QVQ-72B-Preview",
+      "openai/gpt-oss-120b": {
+        "id": "openai/gpt-oss-120b",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Qwen/QVQ-72B-Preview",
-        "parent": null
+        "root": "openai/gpt-oss-120b",
+        "parent": null,
+        "metadata": {
+          "description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. The model supports configurable reasoning depth, full chain-of-thought access, and native tool use, including function calling, browsing, and structured output generation.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.05,
+            "output_tokens": 0.27
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
       },
-      "deepseek-ai/DeepSeek-R1-Turbo": {
-        "id": "deepseek-ai/DeepSeek-R1-Turbo",
+      "CompVis/stable-diffusion-v1-4": {
+        "id": "CompVis/stable-diffusion-v1-4",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "deepseek-ai/DeepSeek-R1-Turbo",
-        "parent": null
+        "root": "CompVis/stable-diffusion-v1-4",
+        "parent": null,
+        "metadata": null
       },
-      "meta-llama/Meta-Llama-3-70B-Instruct": {
-        "id": "meta-llama/Meta-Llama-3-70B-Instruct",
+      "Qwen/QwQ-32B-Preview": {
+        "id": "Qwen/QwQ-32B-Preview",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "meta-llama/Meta-Llama-3-70B-Instruct",
-        "parent": null
+        "root": "Qwen/QwQ-32B-Preview",
+        "parent": null,
+        "metadata": {
+          "description": "QwQ is an experimental research model developed by the Qwen Team, designed to advance AI reasoning capabilities. This model embodies the spirit of philosophical inquiry, approaching problems with genuine wonder and doubt. QwQ demonstrates impressive analytical abilities, achieving scores of 65.2% on GPQA, 50.0% on AIME, 90.6% on MATH-500, and 50.0% on LiveCodeBench. With its contemplative approach and exceptional performance on complex problems.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.12000000000000001,
+            "output_tokens": 0.18
+          },
+          "tags": []
+        }
       },
-      "mistralai/Mixtral-8x7B-Instruct-v0.1": {
-        "id": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      "Qwen/Qwen3-235B-A22B-Thinking-2507": {
+        "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-        "parent": null
+        "root": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3-235B-A22B-Thinking-2507 is the Qwen3's new model with scaling the thinking capability of Qwen3-235B-A22B, improving both the quality and depth of reasoning. ",
+          "context_length": 262144,
+          "max_tokens": 262144,
+          "pricing": {
+            "input_tokens": 0.3,
+            "output_tokens": 2.9000000000000004
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
       },
-      "Sao10K/L3.1-70B-Euryale-v2.2": {
-        "id": "Sao10K/L3.1-70B-Euryale-v2.2",
+      "zai-org/GLM-4.6": {
+        "id": "zai-org/GLM-4.6",
         "object": "model",
         "created": 0,
         "owned_by": "deepinfra",
-        "root": "Sao10K/L3.1-70B-Euryale-v2.2",
-        "parent": null
+        "root": "zai-org/GLM-4.6",
+        "parent": null,
+        "metadata": {
+          "description": "Compared with GLM-4.5, GLM-4.6 brings several key improvements:  Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex agentic tasks. Superior coding performance: The model achieves higher scores on code benchmarks and demonstrates better real-world performance in applications such as Claude Code\u3001Cline\u3001Roo Code and Kilo Code, including improvements in generating visually polished front-end pages. Advanced reasoning: GLM-4.6 shows a clear improvement in reasoning performance and supports tool use during inference, leading to stronger overall capability. More capable agents: GLM-4.6 exhibits stronger performance in tool using and search-based agents, and integrates more effectively within agent frameworks. Refined writing: Better aligns with human preferences in style and readability, and performs more naturally in role-playing scenarios.",
+          "context_length": 202752,
+          "max_tokens": 202752,
+          "pricing": {
+            "input_tokens": 0.6,
+            "output_tokens": 1.9
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-32B": {
+        "id": "Qwen/Qwen3-32B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-32B",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models. Built upon extensive training, Qwen3 delivers groundbreaking advancements in reasoning, instruction-following, agent capabilities, and multilingual support",
+          "context_length": 40960,
+          "max_tokens": 40960,
+          "pricing": {
+            "input_tokens": 0.1,
+            "output_tokens": 0.28
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "nvidia/Llama-3.3-Nemotron-Super-49B-v1.5": {
+        "id": "nvidia/Llama-3.3-Nemotron-Super-49B-v1.5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "nvidia/Llama-3.3-Nemotron-Super-49B-v1.5",
+        "parent": null,
+        "metadata": {
+          "description": "Llama-3.3-Nemotron-Super-49B-v1.5 is a large language model (LLM) optimized for advanced reasoning, conversational interactions, retrieval-augmented generation (RAG), and tool-calling tasks. Derived from Meta's Llama-3.3-70B-Instruct, it employs a Neural Architecture Search (NAS) approach, significantly enhancing efficiency and reducing memory requirements. ",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.1,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "google/gemini-2.0-flash-001": {
+        "id": "google/gemini-2.0-flash-001",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-2.0-flash-001",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 1000000,
+          "max_tokens": 1000000,
+          "pricing": {
+            "input_tokens": 0.1,
+            "output_tokens": 0.4
+          },
+          "tags": [
+            "vision",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "openchat/openchat_3.5": {
+        "id": "openchat/openchat_3.5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "openchat/openchat_3.5",
+        "parent": null,
+        "metadata": {
+          "description": "OpenChat is a library of open-source language models that have been fine-tuned with C-RLFT, a strategy inspired by offline reinforcement learning. These models can learn from mixed-quality data without preference labels and have achieved exceptional performance comparable to ChatGPT. The developers of OpenChat are dedicated to creating a high-performance, commercially viable, open-source large language model and are continuously making progress towards this goal.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.05499999999999999,
+            "output_tokens": 0.05499999999999999
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo": {
+        "id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "The Llama 4 collection of models are natively multimodal AI models that enable text and multimodal experiences. These models leverage a mixture-of-experts architecture to offer industry-leading performance in text and image understanding. Llama 4 Maverick, a 17 billion parameter model with 128 experts",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.5,
+            "output_tokens": 0.5
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen2.5-Coder-32B-Instruct": {
+        "id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen2.5-Coder is the latest series of Code-Specific Qwen large language models (formerly known as CodeQwen). It has significant improvements in code generation, code reasoning and code fixing. A more comprehensive foundation for real-world applications such as Code Agents. Not only enhancing coding capabilities but also maintaining its strengths in mathematics and general competencies.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.060000000000000005,
+            "output_tokens": 0.15
+          },
+          "tags": []
+        }
+      },
+      "Bria/expand": {
+        "id": "Bria/expand",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/expand",
+        "parent": null,
+        "metadata": null
+      },
+      "Sao10K/L3-70B-Euryale-v2.1": {
+        "id": "Sao10K/L3-70B-Euryale-v2.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3-70B-Euryale-v2.1",
+        "parent": null,
+        "metadata": {
+          "description": "Euryale 70B v2.1 is a model focused on creative roleplay from Sao10k",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.7,
+            "output_tokens": 0.8
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Meta-Llama-3.1-70B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Meta developed and released the Meta Llama 3.1 family of large language models (LLMs), a collection of pretrained and instruction tuned generative text models in 8B, 70B and 405B sizes",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.4,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "mistralai/Devstral-Small-2507": {
+        "id": "mistralai/Devstral-Small-2507",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Devstral-Small-2507",
+        "parent": null,
+        "metadata": {
+          "description": "Devstral is an agentic LLM for software engineering tasks, making it a great choice for software engineering agents.",
+          "context_length": 128000,
+          "max_tokens": 128000,
+          "pricing": {
+            "input_tokens": 0.07,
+            "output_tokens": 0.28
+          },
+          "tags": []
+        }
+      },
+      "microsoft/Phi-3-medium-4k-instruct": {
+        "id": "microsoft/Phi-3-medium-4k-instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/Phi-3-medium-4k-instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The Phi-3-Medium-4K-Instruct is a powerful and lightweight language model with 14 billion parameters, trained on high-quality data to excel in instruction following and safety measures. It demonstrates exceptional performance across benchmarks, including common sense, language understanding, and logical reasoning, outperforming models of similar size.",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.14,
+            "output_tokens": 0.14
+          },
+          "tags": []
+        }
+      },
+      "sentence-transformers/paraphrase-MiniLM-L6-v2": {
+        "id": "sentence-transformers/paraphrase-MiniLM-L6-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "sentence-transformers/paraphrase-MiniLM-L6-v2",
+        "parent": null,
+        "metadata": null
+      },
+      "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": {
+        "id": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "Meta developed and released the Meta Llama 3.1 family of large language models (LLMs), a collection of pretrained and instruction tuned generative text models in 8B, 70B and 405B sizes",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.4,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-Next-80B-A3B-Instruct": {
+        "id": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Over the past few months, we have observed increasingly clear trends toward scaling both total parameters and context lengths in the pursuit of more powerful and agentic artificial intelligence (AI). We are excited to share our latest advancements in addressing these demands, centered on improving scaling efficiency through innovative model architecture. We call this next-generation foundation models Qwen3-Next.",
+          "context_length": 262144,
+          "max_tokens": 262144,
+          "pricing": {
+            "input_tokens": 0.14,
+            "output_tokens": 1.1
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "Bria/remove_background": {
+        "id": "Bria/remove_background",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/remove_background",
+        "parent": null,
+        "metadata": null
       },
       "microsoft/WizardLM-2-7B": {
         "id": "microsoft/WizardLM-2-7B",
@@ -729,7 +819,2143 @@
         "created": 0,
         "owned_by": "deepinfra",
         "root": "microsoft/WizardLM-2-7B",
-        "parent": null
+        "parent": null,
+        "metadata": {
+          "description": "WizardLM-2 7B is the smaller variant of Microsoft AI's latest Wizard model. It is the fastest and achieves comparable performance with existing 10x larger open-source leading models",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.05499999999999999,
+            "output_tokens": 0.05499999999999999
+          },
+          "tags": []
+        }
+      },
+      "stabilityai/stable-diffusion-2-1": {
+        "id": "stabilityai/stable-diffusion-2-1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "stabilityai/stable-diffusion-2-1",
+        "parent": null,
+        "metadata": null
+      },
+      "Phind/Phind-CodeLlama-34B-v2": {
+        "id": "Phind/Phind-CodeLlama-34B-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Phind/Phind-CodeLlama-34B-v2",
+        "parent": null,
+        "metadata": {
+          "description": "Phind-CodeLlama-34B-v2 is an open-source language model that has been fine-tuned on 1.5B tokens of high-quality programming-related data and achieved a pass@1 rate of 73.8% on HumanEval. It is multi-lingual and proficient in Python, C/C++, TypeScript, Java, and more. It has been trained on a proprietary dataset of instruction-answer pairs instead of code completion examples.  The model is instruction-tuned on the Alpaca/Vicuna format to be steerable and easy-to-use. It accepts the Alpaca/Vicuna instruction format and can generate one completion for each prompt.",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.6,
+            "output_tokens": 0.6
+          },
+          "tags": []
+        }
+      },
+      "intfloat/e5-base-v2": {
+        "id": "intfloat/e5-base-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "intfloat/e5-base-v2",
+        "parent": null,
+        "metadata": null
+      },
+      "cognitivecomputations/dolphin-2.9.1-llama-3-70b": {
+        "id": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "cognitivecomputations/dolphin-2.9.1-llama-3-70b",
+        "parent": null,
+        "metadata": {
+          "description": "Dolphin 2.9.1, a fine-tuned Llama-3-70b model. The new model, trained on filtered data, is more compliant but uncensored. It demonstrates improvements in instruction, conversation, coding, and function calling abilities.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.35,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "deepseek-ai/DeepSeek-V3.2-Exp": {
+        "id": "deepseek-ai/DeepSeek-V3.2-Exp",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-V3.2-Exp",
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek-V3.2-Exp is an intermediate step toward the next-generation architecture of the DeepSeek models by introducing DeepSeek Sparse Attention\u2014a sparse attention mechanism designed to explore and validate optimizations for training and inference efficiency in long-context scenarios.",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.27,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-Guard-4-12B": {
+        "id": "meta-llama/Llama-Guard-4-12B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-Guard-4-12B",
+        "parent": null,
+        "metadata": {
+          "description": "Llama Guard 4 is a natively multimodal safety classifier with 12 billion parameters trained jointly on text and multiple images. Llama Guard 4 is a dense architecture pruned from the Llama 4 Scout pre-trained model and fine-tuned for content safety classification. Similar to previous versions, it can be used to classify content in both LLM inputs (prompt classification) and in LLM responses (response classification). It itself acts as an LLM: it generates text in its output that indicates whether a given prompt or response is safe or unsafe, and if unsafe, it also lists the content categories violated.",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.18,
+            "output_tokens": 0.18
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "XpucT/Deliberate": {
+        "id": "XpucT/Deliberate",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "XpucT/Deliberate",
+        "parent": null,
+        "metadata": null
+      },
+      "meta-llama/Meta-Llama-3.1-8B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Meta developed and released the Meta Llama 3.1 family of large language models (LLMs), a collection of pretrained and instruction tuned generative text models in 8B, 70B and 405B sizes",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.030000000000000002,
+            "output_tokens": 0.05
+          },
+          "tags": []
+        }
+      },
+      "google/gemini-1.5-flash": {
+        "id": "google/gemini-1.5-flash",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-1.5-flash",
+        "parent": null,
+        "metadata": {
+          "description": "Gemini 1.5 Flash is Google's foundation model that performs well at a variety of multimodal tasks such as visual understanding, classification, summarization, and creating content from image, audio and video. It's adept at processing visual and text inputs such as photographs, documents, infographics, and screenshots.  Gemini 1.5 Flash is designed for high-volume, high-frequency tasks where cost and latency matter. ",
+          "context_length": 1000000,
+          "max_tokens": 1000000,
+          "pricing": {
+            "input_tokens": 0.075,
+            "output_tokens": 0.3
+          },
+          "tags": [
+            "vision",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "microsoft/phi-4": {
+        "id": "microsoft/phi-4",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/phi-4",
+        "parent": null,
+        "metadata": {
+          "description": "Phi-4 is a model built upon a blend of synthetic datasets, data from filtered public domain websites, and acquired academic books and Q&A datasets. The goal of this approach was to ensure that small capable models were trained with data focused on high quality and advanced reasoning.",
+          "context_length": 16384,
+          "max_tokens": 16384,
+          "pricing": {
+            "input_tokens": 0.07,
+            "output_tokens": 0.14
+          },
+          "tags": []
+        }
+      },
+      "openbmb/MiniCPM-Llama3-V-2_5": {
+        "id": "openbmb/MiniCPM-Llama3-V-2_5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "openbmb/MiniCPM-Llama3-V-2_5",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.33999999999999997,
+            "output_tokens": 0.33999999999999997
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "deepseek-ai/DeepSeek-V3.1": {
+        "id": "deepseek-ai/DeepSeek-V3.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-V3.1",
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek-V3.1 is post-trained on the top of DeepSeek-V3.1-Base, which is built upon the original V3 base checkpoint through a two-phase long context extension approach, following the methodology outlined in the original DeepSeek-V3 report. We have expanded our dataset by collecting additional long documents and substantially extending both training phases. The 32K extension phase has been increased 10-fold to 630B tokens, while the 128K extension phase has been extended by 3.3x to 209B tokens. Additionally, DeepSeek-V3.1 is trained using the UE8M0 FP8 scale data format to ensure compatibility with microscaling data formats.",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.27,
+            "output_tokens": 1.0,
+            "cache_read_tokens": 0.21600000000000003
+          },
+          "tags": [
+            "prompt_cache",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "nvidia/Nemotron-4-340B-Instruct": {
+        "id": "nvidia/Nemotron-4-340B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "nvidia/Nemotron-4-340B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Nemotron-4-340B-Instruct is a chat model intended for use for the English language, designed for Synthetic Data Generation",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 4.2,
+            "output_tokens": 4.2
+          },
+          "tags": []
+        }
+      },
+      "deepseek-ai/DeepSeek-R1-0528": {
+        "id": "deepseek-ai/DeepSeek-R1-0528",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1-0528",
+        "parent": null,
+        "metadata": {
+          "description": "The DeepSeek R1 model has undergone a minor version upgrade, with the current version being DeepSeek-R1-0528.",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.5,
+            "output_tokens": 2.15,
+            "cache_read_tokens": 0.4
+          },
+          "tags": [
+            "prompt_cache"
+          ]
+        }
+      },
+      "deepseek-ai/Janus-Pro-7B": {
+        "id": "deepseek-ai/Janus-Pro-7B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/Janus-Pro-7B",
+        "parent": null,
+        "metadata": null
+      },
+      "google/gemma-2-27b-it": {
+        "id": "google/gemma-2-27b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-2-27b-it",
+        "parent": null,
+        "metadata": {
+          "description": "Gemma is a family of lightweight, state-of-the-art open models from Google. Gemma-2-27B delivers the best performance for its size class, and even offers competitive alternatives to models more than twice its size. ",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.27,
+            "output_tokens": 0.27
+          },
+          "tags": []
+        }
+      },
+      "mistralai/Mixtral-8x22B-Instruct-v0.1": {
+        "id": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+        "parent": null,
+        "metadata": {
+          "description": "This is the instruction fine-tuned version of Mixtral-8x22B - the latest and largest mixture of experts large language model (LLM) from Mistral AI. This state of the art machine learning model uses a mixture 8 of experts (MoE) 22b models. During inference 2 experts are selected. This architecture allows large models to be fast and cheap at inference.",
+          "context_length": 65536,
+          "max_tokens": 65536,
+          "pricing": {
+            "input_tokens": 0.6499999999999999,
+            "output_tokens": 0.6499999999999999
+          },
+          "tags": []
+        }
+      },
+      "mistralai/Mistral-7B-Instruct-v0.3": {
+        "id": "mistralai/Mistral-7B-Instruct-v0.3",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-7B-Instruct-v0.3",
+        "parent": null,
+        "metadata": {
+          "description": "Mistral-7B-Instruct-v0.3 is an instruction-tuned model, next iteration of of Mistral 7B that has larger vocabulary, newer tokenizer and supports function calling.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.028,
+            "output_tokens": 0.054
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-Embedding-8B": {
+        "id": "Qwen/Qwen3-Embedding-8B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Embedding-8B",
+        "parent": null,
+        "metadata": null
+      },
+      "KoboldAI/LLaMA2-13B-Tiefighter": {
+        "id": "KoboldAI/LLaMA2-13B-Tiefighter",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "KoboldAI/LLaMA2-13B-Tiefighter",
+        "parent": null,
+        "metadata": {
+          "description": "LLaMA2-13B-Tiefighter is a highly creative and versatile language model, fine-tuned for storytelling, adventure, and conversational dialogue. It combines the strengths of multiple models and datasets, including retro-rodeo and choose-your-own-adventure, to generate engaging and imaginative content. With its ability to improvise and adapt to different styles and formats, Tiefighter is perfect for writers, creators, and anyone looking to spark their imagination.",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.1,
+            "output_tokens": 0.1
+          },
+          "tags": []
+        }
+      },
+      "allenai/olmOCR-7B-0825": {
+        "id": "allenai/olmOCR-7B-0825",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "allenai/olmOCR-7B-0825",
+        "parent": null,
+        "metadata": {
+          "description": "olmOCR is a specialized AI tool that converts PDF documents into clean, structured text while preserving important formatting and layout information. What makes olmOCR particularly valuable for developers is its ability to handle challenging PDFs that traditional OCR tools struggle with\u2014including complex layouts, poor-quality scans, handwritten text, and documents with mixed content types. Built on a fine-tuned 7B vision-language model, olmOCR provides enterprise-grade PDF processing at a fraction of the cost of proprietary solutions.",
+          "context_length": 16384,
+          "max_tokens": 16384,
+          "pricing": {
+            "input_tokens": 0.27,
+            "output_tokens": 1.4999999999999998
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "deepseek-ai/Janus-Pro-1B": {
+        "id": "deepseek-ai/Janus-Pro-1B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/Janus-Pro-1B",
+        "parent": null,
+        "metadata": null
+      },
+      "meta-llama/Meta-Llama-3-70B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3-70B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3-70B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Model Details Meta developed and released the Meta Llama 3 family of large language models (LLMs), a collection of pretrained and instruction tuned generative text models in 8 and 70B sizes.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.3,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "black-forest-labs/FLUX-1.1-pro": {
+        "id": "black-forest-labs/FLUX-1.1-pro",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "black-forest-labs/FLUX-1.1-pro",
+        "parent": null,
+        "metadata": null
+      },
+      "google/gemma-2-9b-it": {
+        "id": "google/gemma-2-9b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-2-9b-it",
+        "parent": null,
+        "metadata": {
+          "description": "Gemma is a family of lightweight, state-of-the-art open models from Google. The 9B Gemma 2 model delivers class-leading performance, outperforming Llama 3 8B and other open models in its size category.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.030000000000000002,
+            "output_tokens": 0.060000000000000005
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
+        "id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "parent": null,
+        "metadata": {
+          "description": "The Llama 4 collection of models are natively multimodal AI models that enable text and multimodal experiences. These models leverage a mixture-of-experts architecture to offer industry-leading performance in text and image understanding. Llama 4 Maverick, a 17 billion parameter model with 128 experts",
+          "context_length": 1048576,
+          "max_tokens": 1048576,
+          "pricing": {
+            "input_tokens": 0.15,
+            "output_tokens": 0.6
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "Qwen/Qwen2.5-VL-32B-Instruct": {
+        "id": "Qwen/Qwen2.5-VL-32B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-VL-32B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 128000,
+          "max_tokens": 128000,
+          "pricing": {
+            "input_tokens": 0.2,
+            "output_tokens": 0.6
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "deepseek-ai/DeepSeek-R1-Distill-Llama-70B": {
+        "id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek-R1-Distill-Llama-70B is a highly efficient language model that leverages knowledge distillation to achieve state-of-the-art performance. This model distills the reasoning patterns of larger models into a smaller, more agile architecture, resulting in exceptional results on benchmarks like AIME 2024, MATH-500, and LiveCodeBench. With 70 billion parameters, DeepSeek-R1-Distill-Llama-70B offers a unique balance of accuracy and efficiency, making it an ideal choice for a wide range of natural language processing tasks. ",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.2,
+            "output_tokens": 0.6
+          },
+          "tags": []
+        }
+      },
+      "mistralai/Mistral-Small-3.2-24B-Instruct-2506": {
+        "id": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+        "parent": null,
+        "metadata": {
+          "description": "Mistral-Small-3.2-24B-Instruct is a drop-in upgrade over the 3.1 release, with markedly better instruction following, roughly half the infinite-generation errors, and a more robust function-calling interface\u2014while otherwise matching or slightly improving on all previous text and vision benchmarks.",
+          "context_length": 128000,
+          "max_tokens": 128000,
+          "pricing": {
+            "input_tokens": 0.075,
+            "output_tokens": 0.2
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "black-forest-labs/FLUX.1-Kontext-dev": {
+        "id": "black-forest-labs/FLUX.1-Kontext-dev",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "black-forest-labs/FLUX.1-Kontext-dev",
+        "parent": null,
+        "metadata": null
+      },
+      "deepseek-ai/DeepSeek-V3-0324": {
+        "id": "deepseek-ai/DeepSeek-V3-0324",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-V3-0324",
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek-V3-0324, a strong Mixture-of-Experts (MoE) language model with 671B total parameters with 37B activated for each token, an improved iteration over DeepSeek-V3.",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.25,
+            "output_tokens": 0.8799999999999999
+          },
+          "tags": []
+        }
+      },
+      "stabilityai/sd3.5": {
+        "id": "stabilityai/sd3.5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "stabilityai/sd3.5",
+        "parent": null,
+        "metadata": null
+      },
+      "allenai/olmOCR-7B-0725-FP8": {
+        "id": "allenai/olmOCR-7B-0725-FP8",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "allenai/olmOCR-7B-0725-FP8",
+        "parent": null,
+        "metadata": {
+          "description": "olmOCR is a specialized AI tool that converts PDF documents into clean, structured text while preserving important formatting and layout information. What makes olmOCR particularly valuable for developers is its ability to handle challenging PDFs that traditional OCR tools struggle with\u2014including complex layouts, poor-quality scans, handwritten text, and documents with mixed content types. Built on a fine-tuned 7B vision-language model, olmOCR provides enterprise-grade PDF processing at a fraction of the cost of proprietary solutions.",
+          "context_length": 16384,
+          "max_tokens": 16384,
+          "pricing": {
+            "input_tokens": 0.27,
+            "output_tokens": 1.4999999999999998
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "black-forest-labs/FLUX-pro": {
+        "id": "black-forest-labs/FLUX-pro",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "black-forest-labs/FLUX-pro",
+        "parent": null,
+        "metadata": null
+      },
+      "deepseek-ai/DeepSeek-R1-Turbo": {
+        "id": "deepseek-ai/DeepSeek-R1-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "We introduce DeepSeek-R1, which incorporates cold-start data before RL. DeepSeek-R1 achieves performance comparable to OpenAI-o1 across math, code, and reasoning tasks. ",
+          "context_length": 40960,
+          "max_tokens": 40960,
+          "pricing": {
+            "input_tokens": 1.0,
+            "output_tokens": 2.9999999999999996
+          },
+          "tags": []
+        }
+      },
+      "google/gemma-3-12b-it": {
+        "id": "google/gemma-3-12b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-3-12b-it",
+        "parent": null,
+        "metadata": {
+          "description": "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities, including structured outputs and function calling. Gemma 3-12B is Google's latest open source model, successor to Gemma 2",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.04,
+            "output_tokens": 0.13
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "Sao10K/L3.1-70B-Euryale-v2.2": {
+        "id": "Sao10K/L3.1-70B-Euryale-v2.2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3.1-70B-Euryale-v2.2",
+        "parent": null,
+        "metadata": {
+          "description": "Euryale 3.1 - 70B v2.2 is a model focused on creative roleplay from Sao10k",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.6499999999999999,
+            "output_tokens": 0.7499999999999999
+          },
+          "tags": []
+        }
+      },
+      "sentence-transformers/multi-qa-mpnet-base-dot-v1": {
+        "id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+        "parent": null,
+        "metadata": null
+      },
+      "Bria/enhance": {
+        "id": "Bria/enhance",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/enhance",
+        "parent": null,
+        "metadata": null
+      },
+      "Qwen/Qwen2.5-7B-Instruct": {
+        "id": "Qwen/Qwen2.5-7B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-7B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The 7 billion parameter Qwen2.5 excels in language understanding, multilingual capabilities, coding, mathematics, and reasoning",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.04,
+            "output_tokens": 0.1
+          },
+          "tags": []
+        }
+      },
+      "Austism/chronos-hermes-13b-v2": {
+        "id": "Austism/chronos-hermes-13b-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Austism/chronos-hermes-13b-v2",
+        "parent": null,
+        "metadata": {
+          "description": "This offers the imaginative writing style of chronos while still retaining coherency and being capable. Outputs are long and utilize exceptional prose. Supports a maxium context length of 4096. The model follows the Alpaca prompt format.",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.13,
+            "output_tokens": 0.13
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-2-70b-chat-hf": {
+        "id": "meta-llama/Llama-2-70b-chat-hf",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-2-70b-chat-hf",
+        "parent": null,
+        "metadata": {
+          "description": "LLaMa 2 is a collections of LLMs trained by Meta. This is the 70B chat optimized version. This endpoint has per token pricing.",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.64,
+            "output_tokens": 0.8
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-Guard-3-8B": {
+        "id": "meta-llama/Llama-Guard-3-8B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-Guard-3-8B",
+        "parent": null,
+        "metadata": {
+          "description": "Llama Guard 3 is a Llama-3.1-8B pretrained model, fine-tuned for content safety classification. Similar to previous versions, it can be used to classify content in both LLM inputs (prompt classification) and in LLM responses (response classification). It acts as an LLM \u2013 it generates text in its output that indicates whether a given prompt or response is safe or unsafe, and if unsafe, it also lists the content categories violated.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.05499999999999999,
+            "output_tokens": 0.05499999999999999
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-30B-A3B": {
+        "id": "Qwen/Qwen3-30B-A3B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-30B-A3B",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models. Built upon extensive training, Qwen3 delivers groundbreaking advancements in reasoning, instruction-following, agent capabilities, and multilingual support",
+          "context_length": 40960,
+          "max_tokens": 40960,
+          "pricing": {
+            "input_tokens": 0.08,
+            "output_tokens": 0.29
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "meta-llama/Llama-3.2-3B-Instruct": {
+        "id": "meta-llama/Llama-3.2-3B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-3B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The Meta Llama 3.2 collection of multilingual large language models (LLMs) is a collection of pretrained and instruction-tuned generative models in 1B and 3B sizes (text in/text out)",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.02,
+            "output_tokens": 0.02
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-Embedding-0.6B": {
+        "id": "Qwen/Qwen3-Embedding-0.6B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Embedding-0.6B",
+        "parent": null,
+        "metadata": null
+      },
+      "Bria/Bria-3.2": {
+        "id": "Bria/Bria-3.2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/Bria-3.2",
+        "parent": null,
+        "metadata": null
+      },
+      "NousResearch/Hermes-3-Llama-3.1-70B": {
+        "id": "NousResearch/Hermes-3-Llama-3.1-70B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "NousResearch/Hermes-3-Llama-3.1-70B",
+        "parent": null,
+        "metadata": {
+          "description": "Hermes 3 is a generalist language model with many improvements over Hermes 2, including advanced agentic capabilities, much better roleplaying, reasoning, multi-turn conversation, long context coherence, and improvements across the board.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.3,
+            "output_tokens": 0.3
+          },
+          "tags": []
+        }
+      },
+      "intfloat/multilingual-e5-large": {
+        "id": "intfloat/multilingual-e5-large",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "intfloat/multilingual-e5-large",
+        "parent": null,
+        "metadata": null
+      },
+      "zai-org/GLM-4.5-Air": {
+        "id": "zai-org/GLM-4.5-Air",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "zai-org/GLM-4.5-Air",
+        "parent": null,
+        "metadata": {
+          "description": "The GLM-4.5 series models are foundation models designed for intelligent agents. GLM-4.5 has 355 billion total parameters with 32 billion active parameters, while GLM-4.5-Air adopts a more compact design with 106 billion total parameters and 12 billion active parameters. GLM-4.5 models unify reasoning, coding, and intelligent agent capabilities to meet the complex demands of intelligent agent applications.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.2,
+            "output_tokens": 1.1
+          },
+          "tags": []
+        }
+      },
+      "nvidia/NVIDIA-Nemotron-Nano-9B-v2": {
+        "id": "nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+        "parent": null,
+        "metadata": {
+          "description": "NVIDIA-Nemotron-Nano-9B-v2 is a large language model (LLM) trained from scratch by NVIDIA, and designed as a unified model for both reasoning and non-reasoning tasks. It responds to user queries and tasks by first generating a reasoning trace and then concluding with a final response.  The model's reasoning capabilities can be controlled via a system prompt. If the user prefers the model to provide its final answer without intermediate reasoning traces, it can be configured to do so.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.04,
+            "output_tokens": 0.16
+          },
+          "tags": []
+        }
+      },
+      "Bria/erase": {
+        "id": "Bria/erase",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/erase",
+        "parent": null,
+        "metadata": null
+      },
+      "runwayml/stable-diffusion-v1-5": {
+        "id": "runwayml/stable-diffusion-v1-5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "runwayml/stable-diffusion-v1-5",
+        "parent": null,
+        "metadata": null
+      },
+      "mistralai/Mistral-Small-3.1-24B-Instruct-2503": {
+        "id": "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
+        "parent": null,
+        "metadata": {
+          "description": "Mistral Small 3.1 (2503) adds state-of-the-art vision understanding and extends context capabilities up to 128K tokens while maintaining top-tier text performance. Its 24 billion parameters and instruction fine-tuning deliver fast, local deployment for both text and vision tasks.",
+          "context_length": 128000,
+          "max_tokens": 128000,
+          "pricing": {
+            "input_tokens": 0.05,
+            "output_tokens": 0.1
+          },
+          "tags": []
+        }
+      },
+      "mistralai/Mistral-7B-Instruct-v0.2": {
+        "id": "mistralai/Mistral-7B-Instruct-v0.2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-7B-Instruct-v0.2",
+        "parent": null,
+        "metadata": {
+          "description": "The Mistral-7B-Instruct-v0.2 Large Language Model (LLM) is a instruct fine-tuned version of the Mistral-7B-v0.2 generative text model using a variety of publicly available conversation datasets.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.05499999999999999,
+            "output_tokens": 0.05499999999999999
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Meta-Llama-3-8B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Meta developed and released the Meta Llama 3 family of large language models (LLMs), a collection of pretrained and instruction tuned generative text models in 8 and 70B sizes.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.030000000000000002,
+            "output_tokens": 0.060000000000000005
+          },
+          "tags": []
+        }
+      },
+      "BAAI/bge-large-en-v1.5": {
+        "id": "BAAI/bge-large-en-v1.5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "BAAI/bge-large-en-v1.5",
+        "parent": null,
+        "metadata": null
+      },
+      "Bria/gen_fill": {
+        "id": "Bria/gen_fill",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/gen_fill",
+        "parent": null,
+        "metadata": null
+      },
+      "meta-llama/Llama-2-13b-chat-hf": {
+        "id": "meta-llama/Llama-2-13b-chat-hf",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-2-13b-chat-hf",
+        "parent": null,
+        "metadata": {
+          "description": "Llama 2 is a collection of pretrained and fine-tuned generative text models ranging in scale from 7 billion to 70 billion parameters. This is the repository for the 7B fine-tuned model, optimized for dialogue use cases and converted for the Hugging Face Transformers format. ",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.13,
+            "output_tokens": 0.13
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-3.3-70B-Instruct": {
+        "id": "meta-llama/Llama-3.3-70B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.3-70B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Llama 3.3-70B is a multilingual LLM trained on a massive dataset of 15 trillion tokens, fine-tuned for instruction-following and conversational dialogue. The model is designed to be helpful, safe, and flexible, with a focus on responsible deployment and mitigating potential risks such as bias, toxicity, and misinformation. It achieves state-of-the-art performance on various benchmarks, including conversational tasks, language translation, and text generation.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.22999999999999998,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "Qwen/QwQ-32B": {
+        "id": "Qwen/QwQ-32B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/QwQ-32B",
+        "parent": null,
+        "metadata": {
+          "description": "QwQ is the reasoning model of the Qwen series. Compared with conventional instruction-tuned models, QwQ, which is capable of thinking and reasoning, can achieve significantly enhanced performance in downstream tasks, especially hard problems. QwQ-32B is the medium-sized reasoning model, which is capable of achieving competitive performance against state-of-the-art reasoning models, e.g., DeepSeek-R1, o1-mini.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.15,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "zai-org/GLM-4.5": {
+        "id": "zai-org/GLM-4.5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "zai-org/GLM-4.5",
+        "parent": null,
+        "metadata": {
+          "description": "The GLM-4.5 series models are foundation models designed for intelligent agents. GLM-4.5 has 355 billion total parameters with 32 billion active parameters, while GLM-4.5-Air adopts a more compact design with 106 billion total parameters and 12 billion active parameters. GLM-4.5 models unify reasoning, coding, and intelligent agent capabilities to meet the complex demands of intelligent agent applications.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.38,
+            "output_tokens": 1.6
+          },
+          "tags": []
+        }
+      },
+      "Gryphe/MythoMax-L2-13b-turbo": {
+        "id": "Gryphe/MythoMax-L2-13b-turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Gryphe/MythoMax-L2-13b-turbo",
+        "parent": null,
+        "metadata": {
+          "description": "Faster version of Gryphe/MythoMax-L2-13b running on multiple H100 cards in fp8 precision. Up to 160 tps. ",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.13,
+            "output_tokens": 0.13
+          },
+          "tags": []
+        }
+      },
+      "google/gemma-1.1-7b-it": {
+        "id": "google/gemma-1.1-7b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-1.1-7b-it",
+        "parent": null,
+        "metadata": {
+          "description": "Gemma is an open-source model designed by Google. This is Gemma 1.1 7B (IT), an update over the original instruction-tuned Gemma release. Gemma 1.1 was trained using a novel RLHF method, leading to substantial gains on quality, coding capabilities, factuality, instruction following and multi-turn conversation quality.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.07,
+            "output_tokens": 0.07
+          },
+          "tags": []
+        }
+      },
+      "NovaSky-AI/Sky-T1-32B-Preview": {
+        "id": "NovaSky-AI/Sky-T1-32B-Preview",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "NovaSky-AI/Sky-T1-32B-Preview",
+        "parent": null,
+        "metadata": {
+          "description": "This is a 32B reasoning model trained from Qwen2.5-32B-Instruct with 17K data. The performance is on par with o1-preview model on both math and coding.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.12000000000000001,
+            "output_tokens": 0.18
+          },
+          "tags": []
+        }
+      },
+      "openai/gpt-oss-120b-Turbo": {
+        "id": "openai/gpt-oss-120b-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "openai/gpt-oss-120b-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.15,
+            "output_tokens": 0.6
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "microsoft/phi-4-reasoning-plus": {
+        "id": "microsoft/phi-4-reasoning-plus",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/phi-4-reasoning-plus",
+        "parent": null,
+        "metadata": {
+          "description": "Phi-4-reasoning-plus is a state-of-the-art open-weight reasoning model finetuned from Phi-4 using supervised fine-tuning on a dataset of chain-of-thought traces and reinforcement learning. The supervised fine-tuning dataset includes a blend of synthetic prompts and high-quality filtered data from public domain websites, focused on math, science, and coding skills as well as alignment data for safety and Responsible AI. The goal of this approach was to ensure that small capable models were trained with data focused on high quality and advanced reasoning. Phi-4-reasoning-plus has been trained additionally with Reinforcement Learning, hence, it has higher accuracy but generates on average 50% more tokens, thus having higher latency.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.07,
+            "output_tokens": 0.35
+          },
+          "tags": []
+        }
+      },
+      "anthropic/claude-3-7-sonnet-latest": {
+        "id": "anthropic/claude-3-7-sonnet-latest",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "anthropic/claude-3-7-sonnet-latest",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 200000,
+          "max_tokens": 200000,
+          "pricing": {
+            "input_tokens": 3.3000000000000003,
+            "output_tokens": 16.5,
+            "cache_read_tokens": 0.33000000000000007
+          },
+          "tags": [
+            "vision",
+            "prompt_cache",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "ByteDance/Seedream-4": {
+        "id": "ByteDance/Seedream-4",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "ByteDance/Seedream-4",
+        "parent": null,
+        "metadata": null
+      },
+      "deepseek-ai/DeepSeek-V3": {
+        "id": "deepseek-ai/DeepSeek-V3",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-V3",
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek-V3, a strong Mixture-of-Experts (MoE) language model with 671B total parameters with 37B activated for each token. To achieve efficient inference and cost-effective training, DeepSeek-V3 adopts Multi-head Latent Attention (MLA) and DeepSeekMoE architectures, which were thoroughly validated in DeepSeek-V2. ",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.38,
+            "output_tokens": 0.8899999999999999
+          },
+          "tags": []
+        }
+      },
+      "microsoft/Phi-4-multimodal-instruct": {
+        "id": "microsoft/Phi-4-multimodal-instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/Phi-4-multimodal-instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Phi-4-multimodal-instruct is a lightweight open multimodal foundation model that leverages the language, vision, and speech research and datasets used for Phi-3.5 and 4.0 models. The model processes text, image, and audio inputs, generating text outputs, and comes with 128K token context length. The model underwent an enhancement process, incorporating both supervised fine-tuning, direct preference optimization and RLHF (Reinforcement Learning from Human Feedback) to support precise instruction adherence and safety measures. The languages that each modal supports are the following: - Text: Arabic, Chinese, Czech, Danish, Dutch, English, Finnish, French, German, Hebrew, Hungarian, Italian, Japanese, Korean, Norwegian, Polish, Portuguese, Russian, Spanish, Swedish, Thai, Turkish, Ukrainian - Vision: English - Audio: English, Chinese, German, French, Italian, Japanese, Spanish, Portuguese",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.05,
+            "output_tokens": 0.1
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "moonshotai/Kimi-K2-Instruct": {
+        "id": "moonshotai/Kimi-K2-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "moonshotai/Kimi-K2-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Kimi K2 is a large-scale Mixture-of-Experts (MoE) language model developed by Moonshot AI, featuring 1 trillion total parameters with 32 billion active per forward pass. It is optimized for agentic capabilities, including advanced tool use, reasoning, and code synthesis. Kimi K2 excels across a broad range of benchmarks, particularly in coding (LiveCodeBench, SWE-bench), reasoning (ZebraLogic, GPQA), and tool-use (Tau2, AceBench) tasks.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.5,
+            "output_tokens": 2.0
+          },
+          "tags": []
+        }
+      },
+      "thenlper/gte-large": {
+        "id": "thenlper/gte-large",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "thenlper/gte-large",
+        "parent": null,
+        "metadata": null
+      },
+      "cognitivecomputations/dolphin-2.6-mixtral-8x7b": {
+        "id": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "cognitivecomputations/dolphin-2.6-mixtral-8x7b",
+        "parent": null,
+        "metadata": {
+          "description": "The Dolphin 2.6 Mixtral 8x7b model is a finetuned version of the Mixtral-8x7b model, trained on a variety of data including coding data, for 3 days on 4 A100 GPUs. It is uncensored and requires trust_remote_code. The model is very obedient and good at coding, but not DPO tuned. The dataset has been filtered for alignment and bias. The model is compliant with user requests and can be used for various purposes such as generating code or engaging in general chat.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.24000000000000002,
+            "output_tokens": 0.24000000000000002
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-3.2-11B-Vision-Instruct": {
+        "id": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Llama 3.2 11B Vision is a multimodal model with 11 billion parameters, designed to handle tasks combining visual and textual data. It excels in tasks such as image captioning and visual question answering, bridging the gap between language generation and visual reasoning. Pre-trained on a massive dataset of image-text pairs, it performs well in complex, high-accuracy image analysis.  Its ability to integrate visual understanding with language processing makes it an ideal solution for industries requiring comprehensive visual-linguistic AI applications, such as content creation, AI-driven customer service, and research.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.048999999999999995,
+            "output_tokens": 0.048999999999999995
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "deepseek-ai/DeepSeek-Prover-V2-671B": {
+        "id": "deepseek-ai/DeepSeek-Prover-V2-671B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-Prover-V2-671B",
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek-Prover-V2, an open-source large language model designed for formal theorem proving in Lean 4, with initialization data collected through a recursive theorem proving pipeline powered by DeepSeek-V3. The cold-start training procedure begins by prompting DeepSeek-V3 to decompose complex problems into a series of subgoals. The proofs of resolved subgoals are synthesized into a chain-of-thought process, combined with DeepSeek-V3's step-by-step reasoning, to create an initial cold start for reinforcement learning. ",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.5,
+            "output_tokens": 2.18
+          },
+          "tags": []
+        }
+      },
+      "Bria/replace_background": {
+        "id": "Bria/replace_background",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/replace_background",
+        "parent": null,
+        "metadata": null
+      },
+      "mistralai/Mistral-7B-Instruct-v0.1": {
+        "id": "mistralai/Mistral-7B-Instruct-v0.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-7B-Instruct-v0.1",
+        "parent": null,
+        "metadata": {
+          "description": "The Mistral-7B-Instruct-v0.1 Large Language Model (LLM) is a instruct fine-tuned version of the Mistral-7B-v0.1 generative text model using a variety of publicly available conversation datasets.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.05499999999999999,
+            "output_tokens": 0.05499999999999999
+          },
+          "tags": []
+        }
+      },
+      "run-diffusion/Juggernaut-Lightning-Flux": {
+        "id": "run-diffusion/Juggernaut-Lightning-Flux",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "run-diffusion/Juggernaut-Lightning-Flux",
+        "parent": null,
+        "metadata": null
+      },
+      "anthropic/claude-4-sonnet": {
+        "id": "anthropic/claude-4-sonnet",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "anthropic/claude-4-sonnet",
+        "parent": null,
+        "metadata": {
+          "description": "Anthropic's mid-size model with superior intelligence for high-volume uses in coding, in-depth research, agents, & more.",
+          "context_length": 200000,
+          "max_tokens": 200000,
+          "pricing": {
+            "input_tokens": 3.3000000000000003,
+            "output_tokens": 16.5
+          },
+          "tags": [
+            "vision",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "black-forest-labs/FLUX-1-schnell": {
+        "id": "black-forest-labs/FLUX-1-schnell",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "black-forest-labs/FLUX-1-schnell",
+        "parent": null,
+        "metadata": null
+      },
+      "mistralai/Mistral-Nemo-Instruct-2407": {
+        "id": "mistralai/Mistral-Nemo-Instruct-2407",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-Nemo-Instruct-2407",
+        "parent": null,
+        "metadata": {
+          "description": "12B model trained jointly by Mistral AI and NVIDIA, it significantly outperforms existing models smaller or similar in size.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.02,
+            "output_tokens": 0.04
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo": {
+        "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3-Coder-480B-A35B-Instruct is the Qwen3's most agentic code model, featuring Significant Performance on Agentic Coding, Agentic Browser-Use and other foundational coding tasks, achieving results comparable to Claude Sonnet.",
+          "context_length": 262144,
+          "max_tokens": 262144,
+          "pricing": {
+            "input_tokens": 0.29,
+            "output_tokens": 1.2
+          },
+          "tags": []
+        }
+      },
+      "bigcode/starcoder2-15b-instruct-v0.1": {
+        "id": "bigcode/starcoder2-15b-instruct-v0.1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "bigcode/starcoder2-15b-instruct-v0.1",
+        "parent": null,
+        "metadata": {
+          "description": "We introduce StarCoder2-15B-Instruct-v0.1, the very first entirely self-aligned code Large Language Model (LLM) trained with a fully permissive and transparent pipeline. Our open-source pipeline uses StarCoder2-15B to generate thousands of instruction-response pairs, which are then used to fine-tune StarCoder-15B itself without any human annotations or distilled data from huge and proprietary LLMs.",
+          "context_length": 16384,
+          "max_tokens": 16384,
+          "pricing": {
+            "input_tokens": 0.15,
+            "output_tokens": 0.15
+          },
+          "tags": []
+        }
+      },
+      "sentence-transformers/clip-ViT-B-32": {
+        "id": "sentence-transformers/clip-ViT-B-32",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "sentence-transformers/clip-ViT-B-32",
+        "parent": null,
+        "metadata": null
+      },
+      "Qwen/Qwen2-7B-Instruct": {
+        "id": "Qwen/Qwen2-7B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2-7B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The 7 billion parameter Qwen2 excels in language understanding, multilingual capabilities, coding, mathematics, and reasoning.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.05499999999999999,
+            "output_tokens": 0.05499999999999999
+          },
+          "tags": []
+        }
+      },
+      "Bria/Bria-3.2-vector": {
+        "id": "Bria/Bria-3.2-vector",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/Bria-3.2-vector",
+        "parent": null,
+        "metadata": null
+      },
+      "black-forest-labs/FLUX-1-Redux-dev": {
+        "id": "black-forest-labs/FLUX-1-Redux-dev",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "black-forest-labs/FLUX-1-Redux-dev",
+        "parent": null,
+        "metadata": null
+      },
+      "google/codegemma-7b-it": {
+        "id": "google/codegemma-7b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/codegemma-7b-it",
+        "parent": null,
+        "metadata": {
+          "description": "CodeGemma is a collection of lightweight open code models built on top of Gemma. CodeGemma models are text-to-text and text-to-code decoder-only models and are available as a 7 billion pretrained variant that specializes in code completion and code generation tasks, a 7 billion parameter instruction-tuned variant for code chat and instruction following and a 2 billion parameter pretrained variant for fast code completion.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.07,
+            "output_tokens": 0.07
+          },
+          "tags": []
+        }
+      },
+      "BAAI/bge-base-en-v1.5": {
+        "id": "BAAI/bge-base-en-v1.5",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "BAAI/bge-base-en-v1.5",
+        "parent": null,
+        "metadata": null
+      },
+      "Qwen/Qwen2.5-72B-Instruct": {
+        "id": "Qwen/Qwen2.5-72B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-72B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen2.5 is a model pretrained on a large-scale dataset of up to 18 trillion tokens, offering significant improvements in knowledge, coding, mathematics, and instruction following compared to its predecessor Qwen2. The model also features enhanced capabilities in generating long texts, understanding structured data, and generating structured outputs, while supporting multilingual capabilities for over 29 languages.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.12000000000000001,
+            "output_tokens": 0.38999999999999996
+          },
+          "tags": []
+        }
+      },
+      "intfloat/multilingual-e5-large-instruct": {
+        "id": "intfloat/multilingual-e5-large-instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "intfloat/multilingual-e5-large-instruct",
+        "parent": null,
+        "metadata": null
+      },
+      "NousResearch/Hermes-3-Llama-3.1-405B": {
+        "id": "NousResearch/Hermes-3-Llama-3.1-405B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "NousResearch/Hermes-3-Llama-3.1-405B",
+        "parent": null,
+        "metadata": {
+          "description": "Hermes 3 is a cutting-edge language model that offers advanced capabilities in roleplaying, reasoning, and conversation. It's a fine-tuned version of the Llama-3.1 405B foundation model, designed to align with user needs and provide powerful control. Key features include reliable function calling, structured output, generalist assistant capabilities, and improved code generation. Hermes 3 is competitive with Llama-3.1 Instruct models, with its own strengths and weaknesses.",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 1.0,
+            "output_tokens": 1.0
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Llama-3.2-1B-Instruct": {
+        "id": "meta-llama/Llama-3.2-1B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-1B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The Meta Llama 3.2 collection of multilingual large language models (LLMs) is a collection of pretrained and instruction-tuned generative models in 1B and 3B sizes (text in/text out).",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.005,
+            "output_tokens": 0.01
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen-Image-Edit": {
+        "id": "Qwen/Qwen-Image-Edit",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen-Image-Edit",
+        "parent": null,
+        "metadata": null
+      },
+      "google/gemini-2.5-flash": {
+        "id": "google/gemini-2.5-flash",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-2.5-flash",
+        "parent": null,
+        "metadata": {
+          "description": "Gemini 2.5 Flash is Google's latest thinking model, designed to tackle increasingly complex problems. It's capable of reasoning through their thoughts before responding, resulting in enhanced performance and improved accuracy.  Gemini 2.5 Flash: best for balancing reasoning and speed.",
+          "context_length": 1000000,
+          "max_tokens": 1000000,
+          "pricing": {
+            "input_tokens": 0.3,
+            "output_tokens": 2.5
+          },
+          "tags": [
+            "vision",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "mistralai/Devstral-Small-2505": {
+        "id": "mistralai/Devstral-Small-2505",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Devstral-Small-2505",
+        "parent": null,
+        "metadata": {
+          "description": "Devstral is an agentic LLM for software engineering tasks. Devstral excels at using tools to explore codebases, editing multiple files and power software engineering agents. ",
+          "context_length": 128000,
+          "max_tokens": 128000,
+          "pricing": {
+            "input_tokens": 0.060000000000000005,
+            "output_tokens": 0.12000000000000001
+          },
+          "tags": []
+        }
+      },
+      "google/embeddinggemma-300m": {
+        "id": "google/embeddinggemma-300m",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/embeddinggemma-300m",
+        "parent": null,
+        "metadata": null
+      },
+      "google/gemma-3-4b-it": {
+        "id": "google/gemma-3-4b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-3-4b-it",
+        "parent": null,
+        "metadata": {
+          "description": "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities, including structured outputs and function calling. Gemma 3-12B is Google's latest open source model, successor to Gemma 2",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.04,
+            "output_tokens": 0.08
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "run-diffusion/Juggernaut-Flux": {
+        "id": "run-diffusion/Juggernaut-Flux",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "run-diffusion/Juggernaut-Flux",
+        "parent": null,
+        "metadata": null
+      },
+      "Qwen/Qwen3-235B-A22B": {
+        "id": "Qwen/Qwen3-235B-A22B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-235B-A22B",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models. Built upon extensive training, Qwen3 delivers groundbreaking advancements in reasoning, instruction-following, agent capabilities, and multilingual support",
+          "context_length": 40960,
+          "max_tokens": 40960,
+          "pricing": {
+            "input_tokens": 0.18,
+            "output_tokens": 0.54
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {
+        "id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "Meta developed and released the Meta Llama 3.1 family of large language models (LLMs), a collection of pretrained and instruction tuned generative text models in 8B, 70B and 405B sizes",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.02,
+            "output_tokens": 0.030000000000000002
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-Next-80B-A3B-Thinking": {
+        "id": "Qwen/Qwen3-Next-80B-A3B-Thinking",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-Next-80B-A3B-Thinking",
+        "parent": null,
+        "metadata": {
+          "description": "Over the past few months, we have observed increasingly clear trends toward scaling both total parameters and context lengths in the pursuit of more powerful and agentic artificial intelligence (AI). We are excited to share our latest advancements in addressing these demands, centered on improving scaling efficiency through innovative model architecture. We call this next-generation foundation models Qwen3-Next.",
+          "context_length": 262144,
+          "max_tokens": 262144,
+          "pricing": {
+            "input_tokens": 0.14,
+            "output_tokens": 1.2
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "Qwen/QVQ-72B-Preview": {
+        "id": "Qwen/QVQ-72B-Preview",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/QVQ-72B-Preview",
+        "parent": null,
+        "metadata": {
+          "description": "QVQ-72B-Preview is an experimental research model developed by the Qwen team, focusing on enhancing visual reasoning capabilities. QVQ-72B-Preview has achieved remarkable performance on various benchmarks. It scored a remarkable 70.3% on the Multimodal Massive Multi-task Understanding (MMMU) benchmark",
+          "context_length": 32000,
+          "max_tokens": 32000,
+          "pricing": {
+            "input_tokens": 0.25,
+            "output_tokens": 0.5
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "meta-llama/Llama-3.2-90B-Vision-Instruct": {
+        "id": "meta-llama/Llama-3.2-90B-Vision-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Llama-3.2-90B-Vision-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The Llama 90B Vision model is a top-tier, 90-billion-parameter multimodal model designed for the most challenging visual reasoning and language tasks. It offers unparalleled accuracy in image captioning, visual question answering, and advanced image-text comprehension. Pre-trained on vast multimodal datasets and fine-tuned with human feedback, the Llama 90B Vision is engineered to handle the most demanding image-based AI tasks.  This model is perfect for industries requiring cutting-edge multimodal AI capabilities, particularly those dealing with complex, real-time visual and textual analysis.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.35,
+            "output_tokens": 0.4
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "sentence-transformers/all-MiniLM-L6-v2": {
+        "id": "sentence-transformers/all-MiniLM-L6-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "sentence-transformers/all-MiniLM-L6-v2",
+        "parent": null,
+        "metadata": null
+      },
+      "BAAI/bge-en-icl": {
+        "id": "BAAI/bge-en-icl",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "BAAI/bge-en-icl",
+        "parent": null,
+        "metadata": null
+      },
+      "mistralai/Mistral-Small-24B-Instruct-2501": {
+        "id": "mistralai/Mistral-Small-24B-Instruct-2501",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "mistralai/Mistral-Small-24B-Instruct-2501",
+        "parent": null,
+        "metadata": {
+          "description": "Mistral Small 3 is a 24B-parameter language model optimized for low-latency performance across common AI tasks. Released under the Apache 2.0 license, it features both pre-trained and instruction-tuned versions designed for efficient local deployment.  The model achieves 81% accuracy on the MMLU benchmark and performs competitively with larger models like Llama 3.3 70B and Qwen 32B, while operating at three times the speed on equivalent hardware.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.05,
+            "output_tokens": 0.08
+          },
+          "tags": []
+        }
+      },
+      "BAAI/bge-m3-multi": {
+        "id": "BAAI/bge-m3-multi",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "BAAI/bge-m3-multi",
+        "parent": null,
+        "metadata": null
+      },
+      "anthropic/claude-4-opus": {
+        "id": "anthropic/claude-4-opus",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "anthropic/claude-4-opus",
+        "parent": null,
+        "metadata": {
+          "description": "Anthropic\u2019s most powerful model yet and the state-of-the-art coding model. It delivers sustained performance on long-running tasks that require focused effort and thousands of steps, significantly expanding what AI agents can solve. Claude Opus 4 is ideal for powering frontier agent products and features.",
+          "context_length": 200000,
+          "max_tokens": 200000,
+          "pricing": {
+            "input_tokens": 16.5,
+            "output_tokens": 82.5
+          },
+          "tags": [
+            "vision",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "Sao10K/L3.3-70B-Euryale-v2.3": {
+        "id": "Sao10K/L3.3-70B-Euryale-v2.3",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3.3-70B-Euryale-v2.3",
+        "parent": null,
+        "metadata": {
+          "description": "L3.3-70B-Euryale-v2.3 is a model focused on creative roleplay from Sao10k",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.6499999999999999,
+            "output_tokens": 0.7499999999999999
+          },
+          "tags": []
+        }
+      },
+      "BAAI/bge-m3": {
+        "id": "BAAI/bge-m3",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "BAAI/bge-m3",
+        "parent": null,
+        "metadata": null
+      },
+      "Sao10K/L3-8B-Lunaris-v1": {
+        "id": "Sao10K/L3-8B-Lunaris-v1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3-8B-Lunaris-v1",
+        "parent": null,
+        "metadata": {
+          "description": "A generalist / roleplaying model merge based on Llama 3. Sao10K has carefully selected the values based on extensive personal experimentation and has fine-tuned them to create a customized recipe.",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.030000000000000002,
+            "output_tokens": 0.060000000000000005
+          },
+          "tags": []
+        }
+      },
+      "deepseek-ai/DeepSeek-R1": {
+        "id": "deepseek-ai/DeepSeek-R1",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-R1",
+        "parent": null,
+        "metadata": {
+          "description": "We introduce DeepSeek-R1, which incorporates cold-start data before RL. DeepSeek-R1 achieves performance comparable to OpenAI-o1 across math, code, and reasoning tasks. ",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.7,
+            "output_tokens": 2.4
+          },
+          "tags": []
+        }
+      },
+      "stabilityai/sd3.5-medium": {
+        "id": "stabilityai/sd3.5-medium",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "stabilityai/sd3.5-medium",
+        "parent": null,
+        "metadata": null
+      },
+      "intfloat/e5-large-v2": {
+        "id": "intfloat/e5-large-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "intfloat/e5-large-v2",
+        "parent": null,
+        "metadata": null
+      },
+      "Sao10K/L3-8B-Lunaris-v1-Turbo": {
+        "id": "Sao10K/L3-8B-Lunaris-v1-Turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Sao10K/L3-8B-Lunaris-v1-Turbo",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 8192,
+          "max_tokens": 8192,
+          "pricing": {
+            "input_tokens": 0.04,
+            "output_tokens": 0.05
+          },
+          "tags": []
+        }
+      },
+      "thenlper/gte-base": {
+        "id": "thenlper/gte-base",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "thenlper/gte-base",
+        "parent": null,
+        "metadata": null
+      },
+      "Gryphe/MythoMax-L2-13b": {
+        "id": "Gryphe/MythoMax-L2-13b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Gryphe/MythoMax-L2-13b",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.05,
+            "output_tokens": 0.09
+          },
+          "tags": []
+        }
+      },
+      "deepseek-ai/DeepSeek-V3.1-Terminus": {
+        "id": "deepseek-ai/DeepSeek-V3.1-Terminus",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepseek-ai/DeepSeek-V3.1-Terminus",
+        "parent": null,
+        "metadata": {
+          "description": "DeepSeek-V3.1 Terminus is an update to DeepSeek V3.1 that maintains the model's original capabilities while addressing issues reported by users, including language consistency and agent capabilities, further optimizing the model's performance in coding and search agents. It is a large hybrid reasoning model (671B parameters, 37B active) that supports both thinking and non-thinking modes. It extends the DeepSeek-V3 base with a two-phase long-context training process. Users can control the reasoning behaviour with the reasoning enabled boolean. Learn more in our docs  The model improves tool use, code generation, and reasoning efficiency, achieving performance comparable to DeepSeek-R1 on difficult benchmarks while responding more quickly. It supports structured tool calling, code agents, and search agents, making it suitable for research, coding, and agentic workflows.",
+          "context_length": 163840,
+          "max_tokens": 163840,
+          "pricing": {
+            "input_tokens": 0.27,
+            "output_tokens": 1.0,
+            "cache_read_tokens": 0.21600000000000003
+          },
+          "tags": [
+            "prompt_cache",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "microsoft/WizardLM-2-8x22B": {
+        "id": "microsoft/WizardLM-2-8x22B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "microsoft/WizardLM-2-8x22B",
+        "parent": null,
+        "metadata": {
+          "description": "WizardLM-2 8x22B is Microsoft AI's most advanced Wizard model. It demonstrates highly competitive performance compared to those leading proprietary models.",
+          "context_length": 65536,
+          "max_tokens": 65536,
+          "pricing": {
+            "input_tokens": 0.48000000000000004,
+            "output_tokens": 0.48000000000000004
+          },
+          "tags": []
+        }
+      },
+      "meta-llama/Meta-Llama-3.1-405B-Instruct": {
+        "id": "meta-llama/Meta-Llama-3.1-405B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "meta-llama/Meta-Llama-3.1-405B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "Meta developed and released the Meta Llama 3.1 family of large language models (LLMs), a collection of pretrained and instruction tuned generative text models in 8B, 70B and 405B sizes",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.8,
+            "output_tokens": 0.8
+          },
+          "tags": []
+        }
+      },
+      "shibing624/text2vec-base-chinese": {
+        "id": "shibing624/text2vec-base-chinese",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "shibing624/text2vec-base-chinese",
+        "parent": null,
+        "metadata": null
+      },
+      "google/gemma-3-27b-it": {
+        "id": "google/gemma-3-27b-it",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemma-3-27b-it",
+        "parent": null,
+        "metadata": {
+          "description": "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities, including structured outputs and function calling. Gemma 3 27B is Google's latest open source model, successor to Gemma 2",
+          "context_length": 131072,
+          "max_tokens": 131072,
+          "pricing": {
+            "input_tokens": 0.09,
+            "output_tokens": 0.16
+          },
+          "tags": [
+            "vision"
+          ]
+        }
+      },
+      "lizpreciatior/lzlv_70b_fp16_hf": {
+        "id": "lizpreciatior/lzlv_70b_fp16_hf",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "lizpreciatior/lzlv_70b_fp16_hf",
+        "parent": null,
+        "metadata": {
+          "description": "A Mythomax/MLewd_13B-style merge of selected 70B models  A multi-model merge of several  LLaMA2 70B finetunes for roleplaying and creative work. The goal was to create a model that combines creativity with intelligence for an enhanced experience.",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.35,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "Qwen/Qwen3-235B-A22B-Instruct-2507": {
+        "id": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3-235B-A22B-Instruct-2507 is the updated version of the Qwen3-235B-A22B non-thinking mode, featuring Significant improvements in general capabilities, including instruction following, logical reasoning, text comprehension, mathematics, science, coding and tool usage.  ",
+          "context_length": 262144,
+          "max_tokens": 262144,
+          "pricing": {
+            "input_tokens": 0.09,
+            "output_tokens": 0.6
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "Qwen/Qwen3-14B": {
+        "id": "Qwen/Qwen3-14B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen3-14B",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts (MoE) models. Built upon extensive training, Qwen3 delivers groundbreaking advancements in reasoning, instruction-following, agent capabilities, and multilingual support. ",
+          "context_length": 40960,
+          "max_tokens": 40960,
+          "pricing": {
+            "input_tokens": 0.060000000000000005,
+            "output_tokens": 0.24000000000000002
+          },
+          "tags": [
+            "reasoning_effort"
+          ]
+        }
+      },
+      "google/gemini-1.5-flash-8b": {
+        "id": "google/gemini-1.5-flash-8b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-1.5-flash-8b",
+        "parent": null,
+        "metadata": {
+          "description": "",
+          "context_length": 1000000,
+          "max_tokens": 1000000,
+          "pricing": {
+            "input_tokens": 0.0375,
+            "output_tokens": 0.15
+          },
+          "tags": [
+            "vision",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "sentence-transformers/all-mpnet-base-v2": {
+        "id": "sentence-transformers/all-mpnet-base-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "sentence-transformers/all-mpnet-base-v2",
+        "parent": null,
+        "metadata": null
+      },
+      "Qwen/Qwen2-72B-Instruct": {
+        "id": "Qwen/Qwen2-72B-Instruct",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2-72B-Instruct",
+        "parent": null,
+        "metadata": {
+          "description": "The 72 billion parameter Qwen2 excels in language understanding, multilingual capabilities, coding, mathematics, and reasoning.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.35,
+            "output_tokens": 0.4
+          },
+          "tags": []
+        }
+      },
+      "google/gemini-2.5-pro": {
+        "id": "google/gemini-2.5-pro",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "google/gemini-2.5-pro",
+        "parent": null,
+        "metadata": {
+          "description": "Gemini 2.5 Pro is Google's the most advanced thinking model, designed to tackle increasingly complex problems. Gemini 2.5 Pro leads common benchmarks by meaningful margins and showcases strong reasoning and code capabilities.  Gemini 2.5 models are thinking models, capable of reasoning through their thoughts before responding, resulting in enhanced performance and improved accuracy.  The Gemini 2.5 Pro model is now available on DeepInfra.",
+          "context_length": 1000000,
+          "max_tokens": 1000000,
+          "pricing": {
+            "input_tokens": 1.25,
+            "output_tokens": 10.0
+          },
+          "tags": [
+            "vision",
+            "reasoning_effort"
+          ]
+        }
+      },
+      "Qwen/Qwen2.5-Coder-7B": {
+        "id": "Qwen/Qwen2.5-Coder-7B",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Qwen/Qwen2.5-Coder-7B",
+        "parent": null,
+        "metadata": {
+          "description": "Qwen2.5-Coder-7B is a powerful code-specific large language model with 7.61 billion parameters. It's designed for code generation, reasoning, and fixing tasks. The model covers 92 programming languages and has been trained on 5.5 trillion tokens of data, including source code, text-code grounding, and synthetic data.",
+          "context_length": 32768,
+          "max_tokens": 32768,
+          "pricing": {
+            "input_tokens": 0.025,
+            "output_tokens": 0.05
+          },
+          "tags": []
+        }
+      },
+      "Bria/blur_background": {
+        "id": "Bria/blur_background",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "Bria/blur_background",
+        "parent": null,
+        "metadata": null
+      },
+      "stabilityai/sdxl-turbo": {
+        "id": "stabilityai/sdxl-turbo",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "stabilityai/sdxl-turbo",
+        "parent": null,
+        "metadata": null
+      },
+      "sentence-transformers/all-MiniLM-L12-v2": {
+        "id": "sentence-transformers/all-MiniLM-L12-v2",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "sentence-transformers/all-MiniLM-L12-v2",
+        "parent": null,
+        "metadata": null
+      },
+      "deepinfra/airoboros-70b": {
+        "id": "deepinfra/airoboros-70b",
+        "object": "model",
+        "created": 0,
+        "owned_by": "deepinfra",
+        "root": "deepinfra/airoboros-70b",
+        "parent": null,
+        "metadata": {
+          "description": "Latest version of the Airoboros model fine-tunned version of llama-2-70b using the Airoboros dataset. This model is currently running jondurbin/airoboros-l2-70b-2.2.1 ",
+          "context_length": 4096,
+          "max_tokens": 4096,
+          "pricing": {
+            "input_tokens": 0.7,
+            "output_tokens": 0.9
+          },
+          "tags": []
+        }
       }
     }
   },
@@ -945,27 +3171,6 @@
     "api_key_var": "FIREWORKS_API_TOKEN",
     "base_url": "https://api.fireworks.ai/inference/v1",
     "models": {
-      "accounts/fireworks/models/qwq-32b": {
-        "id": "accounts/fireworks/models/qwq-32b",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1741204251,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/instacart/models/srl-finetune-0417-debug": {
-        "id": "accounts/instacart/models/srl-finetune-0417-debug",
-        "object": "model",
-        "owned_by": "instacart",
-        "created": 1744916473,
-        "kind": "HF_PEFT_ADDON",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false
-      },
       "accounts/fireworks/models/flux-1-dev-fp8": {
         "id": "accounts/fireworks/models/flux-1-dev-fp8",
         "object": "model",
@@ -976,165 +3181,31 @@
         "supports_image_input": false,
         "supports_tools": false
       },
-      "accounts/fireworks/models/llama4-maverick-instruct-basic": {
-        "id": "accounts/fireworks/models/llama4-maverick-instruct-basic",
+      "accounts/fireworks/models/flux-kontext-max": {
+        "id": "accounts/fireworks/models/flux-kontext-max",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1743878495,
-        "kind": "HF_BASE_MODEL",
+        "created": 1750714611,
+        "kind": "FLUMINA_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": true,
-        "supports_tools": true,
-        "context_length": 1048576
+        "supports_tools": false
       },
-      "accounts/fireworks/models/qwen3-30b-a3b": {
-        "id": "accounts/fireworks/models/qwen3-30b-a3b",
+      "accounts/fireworks/models/flux-kontext-pro": {
+        "id": "accounts/fireworks/models/flux-kontext-pro",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1745878133,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 40000
-      },
-      "accounts/fireworks/models/llama4-scout-instruct-basic": {
-        "id": "accounts/fireworks/models/llama4-scout-instruct-basic",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1743878279,
-        "kind": "HF_BASE_MODEL",
+        "created": 1750488264,
+        "kind": "FLUMINA_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": true,
-        "supports_tools": true,
-        "context_length": 1048576
+        "supports_tools": false
       },
-      "accounts/fireworks/models/firesearch-ocr-v6": {
-        "id": "accounts/fireworks/models/firesearch-ocr-v6",
+      "accounts/sentientfoundation-serverless/models/dobby-mini-unhinged-plus-llama-3-1-8b": {
+        "id": "accounts/sentientfoundation-serverless/models/dobby-mini-unhinged-plus-llama-3-1-8b",
         "object": "model",
-        "owned_by": "fireworks",
-        "created": 1733897492,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": true,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/fireworks/models/deepseek-v3": {
-        "id": "accounts/fireworks/models/deepseek-v3",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1735576668,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": true,
-        "context_length": 131072
-      },
-      "accounts/fireworks/models/llama-v3p1-8b-instruct": {
-        "id": "accounts/fireworks/models/llama-v3p1-8b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1721692808,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/fireworks/models/llama-v3p1-70b-instruct": {
-        "id": "accounts/fireworks/models/llama-v3p1-70b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1721287357,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": true,
-        "context_length": 131072
-      },
-      "accounts/fireworks/models/deepseek-v3-0324": {
-        "id": "accounts/fireworks/models/deepseek-v3-0324",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1742827220,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": true,
-        "context_length": 163840
-      },
-      "accounts/fireworks/models/qwen3-235b-a22b": {
-        "id": "accounts/fireworks/models/qwen3-235b-a22b",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1745885249,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": true,
-        "context_length": 128000
-      },
-      "accounts/fireworks/models/deepseek-r1-basic": {
-        "id": "accounts/fireworks/models/deepseek-r1-basic",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1742306746,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 163840
-      },
-      "accounts/fireworks/models/llama-v3p3-70b-instruct": {
-        "id": "accounts/fireworks/models/llama-v3p3-70b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1733442103,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 131072
-      },
-      "accounts/fireworks/models/deepseek-r1": {
-        "id": "accounts/fireworks/models/deepseek-r1",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1737397673,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 163840
-      },
-      "accounts/fireworks/models/qwen2p5-vl-32b-instruct": {
-        "id": "accounts/fireworks/models/qwen2p5-vl-32b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1743392739,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": true,
-        "supports_tools": false,
-        "context_length": 128000
-      },
-      "accounts/fireworks/models/qwen2-vl-72b-instruct": {
-        "id": "accounts/fireworks/models/qwen2-vl-72b-instruct",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1733169345,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": true,
-        "supports_tools": false,
-        "context_length": 32768
-      },
-      "accounts/fireworks/models/llama-guard-3-8b": {
-        "id": "accounts/fireworks/models/llama-guard-3-8b",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1730840627,
+        "owned_by": "sentientfoundation-serverless",
+        "created": 1748467427,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
@@ -1152,6 +3223,214 @@
         "supports_tools": false,
         "context_length": 131072
       },
+      "accounts/fireworks/models/gpt-oss-120b": {
+        "id": "accounts/fireworks/models/gpt-oss-120b",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1754345600,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/qwen3-30b-a3b-thinking-2507": {
+        "id": "accounts/fireworks/models/qwen3-30b-a3b-thinking-2507",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1753916446,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false
+      },
+      "accounts/fireworks/models/qwen3-235b-a22b-instruct-2507": {
+        "id": "accounts/fireworks/models/qwen3-235b-a22b-instruct-2507",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1753124424,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 262144
+      },
+      "accounts/fireworks/models/qwen3-235b-a22b-thinking-2507": {
+        "id": "accounts/fireworks/models/qwen3-235b-a22b-thinking-2507",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1753455434,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 262144
+      },
+      "accounts/fireworks/models/qwen3-embedding-8b": {
+        "id": "accounts/fireworks/models/qwen3-embedding-8b",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1755707090,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 40960
+      },
+      "accounts/fireworks/models/deepseek-v3-0324": {
+        "id": "accounts/fireworks/models/deepseek-v3-0324",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1742827220,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 163840
+      },
+      "accounts/fireworks/models/deepseek-v3p1-terminus": {
+        "id": "accounts/fireworks/models/deepseek-v3p1-terminus",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1758586241,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 163840
+      },
+      "accounts/fireworks/models/kimi-k2-instruct": {
+        "id": "accounts/fireworks/models/kimi-k2-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1752259096,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/gpt-oss-20b": {
+        "id": "accounts/fireworks/models/gpt-oss-20b",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1754345466,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/llama4-maverick-instruct-basic": {
+        "id": "accounts/fireworks/models/llama4-maverick-instruct-basic",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1743878495,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": true,
+        "supports_tools": true,
+        "context_length": 1048576
+      },
+      "accounts/fireworks/models/kimi-k2-instruct-0905": {
+        "id": "accounts/fireworks/models/kimi-k2-instruct-0905",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1757018994,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 262144
+      },
+      "accounts/fireworks/models/deepseek-v3": {
+        "id": "accounts/fireworks/models/deepseek-v3",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1735576668,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/llama-v3p3-70b-instruct": {
+        "id": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1733442103,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/qwen3-235b-a22b": {
+        "id": "accounts/fireworks/models/qwen3-235b-a22b",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1745885249,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/glm-4p5-air": {
+        "id": "accounts/fireworks/models/glm-4p5-air",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1754089426,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/deepseek-r1": {
+        "id": "accounts/fireworks/models/deepseek-r1",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1737397673,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 163840
+      },
+      "accounts/fireworks/models/llama-v3p1-8b-instruct": {
+        "id": "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1721692808,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/deepseek-r1-basic": {
+        "id": "accounts/fireworks/models/deepseek-r1-basic",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1742306746,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 163840
+      },
+      "accounts/fireworks/models/deepseek-v3p1": {
+        "id": "accounts/fireworks/models/deepseek-v3p1",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1755758988,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 163840
+      },
       "accounts/fireworks/models/flux-1-schnell-fp8": {
         "id": "accounts/fireworks/models/flux-1-schnell-fp8",
         "object": "model",
@@ -1159,27 +3438,6 @@
         "created": 1729535376,
         "kind": "FLUMINA_BASE_MODEL",
         "supports_chat": false,
-        "supports_image_input": false,
-        "supports_tools": false
-      },
-      "accounts/perplexity/models/r1-1776": {
-        "id": "accounts/perplexity/models/r1-1776",
-        "object": "model",
-        "owned_by": "perplexity",
-        "created": 1739982998,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
-        "supports_image_input": false,
-        "supports_tools": false,
-        "context_length": 163840
-      },
-      "accounts/fireworks/models/llama-v3p1-405b-instruct-long": {
-        "id": "accounts/fireworks/models/llama-v3p1-405b-instruct-long",
-        "object": "model",
-        "owned_by": "fireworks",
-        "created": 1723679065,
-        "kind": "HF_BASE_MODEL",
-        "supports_chat": true,
         "supports_image_input": false,
         "supports_tools": false
       },
@@ -1194,6 +3452,50 @@
         "supports_tools": true,
         "context_length": 131072
       },
+      "accounts/fireworks/models/llama4-scout-instruct-basic": {
+        "id": "accounts/fireworks/models/llama4-scout-instruct-basic",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1743878279,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": true,
+        "supports_tools": true,
+        "context_length": 1048576
+      },
+      "accounts/fireworks/models/qwen3-30b-a3b": {
+        "id": "accounts/fireworks/models/qwen3-30b-a3b",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1745878133,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/llama-v3p1-70b-instruct": {
+        "id": "accounts/fireworks/models/llama-v3p1-70b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1721287357,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
+      },
+      "accounts/fireworks/models/deepseek-r1-0528": {
+        "id": "accounts/fireworks/models/deepseek-r1-0528",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1748456377,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 163840
+      },
       "accounts/fireworks/models/mixtral-8x22b-instruct": {
         "id": "accounts/fireworks/models/mixtral-8x22b-instruct",
         "object": "model",
@@ -1205,16 +3507,70 @@
         "supports_tools": true,
         "context_length": 65536
       },
-      "accounts/fireworks/models/qwen2p5-72b-instruct": {
-        "id": "accounts/fireworks/models/qwen2p5-72b-instruct",
+      "accounts/fireworks/models/qwen3-30b-a3b-instruct-2507": {
+        "id": "accounts/fireworks/models/qwen3-30b-a3b-instruct-2507",
         "object": "model",
         "owned_by": "fireworks",
-        "created": 1727827284,
+        "created": 1753808388,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 262144
+      },
+      "accounts/fireworks/models/qwen2p5-vl-32b-instruct": {
+        "id": "accounts/fireworks/models/qwen2p5-vl-32b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1743392739,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": true,
+        "supports_tools": false,
+        "context_length": 128000
+      },
+      "accounts/fireworks/models/qwen3-coder-30b-a3b-instruct": {
+        "id": "accounts/fireworks/models/qwen3-coder-30b-a3b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1754063588,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false,
+        "context_length": 262144
+      },
+      "accounts/tvergho-87e44d/models/debatecards-70b-ft-3epoch-dpo-v2": {
+        "id": "accounts/tvergho-87e44d/models/debatecards-70b-ft-3epoch-dpo-v2",
+        "object": "model",
+        "owned_by": "tvergho-87e44d",
+        "created": 1743381121,
+        "kind": "HF_PEFT_ADDON",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": false
+      },
+      "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct": {
+        "id": "accounts/fireworks/models/qwen3-coder-480b-a35b-instruct",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1753211090,
         "kind": "HF_BASE_MODEL",
         "supports_chat": true,
         "supports_image_input": false,
         "supports_tools": true,
-        "context_length": 32768
+        "context_length": 262144
+      },
+      "accounts/fireworks/models/glm-4p5": {
+        "id": "accounts/fireworks/models/glm-4p5",
+        "object": "model",
+        "owned_by": "fireworks",
+        "created": 1753809636,
+        "kind": "HF_BASE_MODEL",
+        "supports_chat": true,
+        "supports_image_input": false,
+        "supports_tools": true,
+        "context_length": 131072
       }
     }
   },
@@ -1222,22 +3578,76 @@
     "api_key_var": "OPENAI_API_KEY",
     "base_url": "https://api.openai.com/v1",
     "models": {
-      "gpt-4o-realtime-preview-2024-12-17": {
-        "id": "gpt-4o-realtime-preview-2024-12-17",
+      "gpt-4-0613": {
+        "id": "gpt-4-0613",
         "object": "model",
-        "created": 1733945430,
+        "created": 1686588896,
+        "owned_by": "openai"
+      },
+      "gpt-4": {
+        "id": "gpt-4",
+        "object": "model",
+        "created": 1687882411,
+        "owned_by": "openai"
+      },
+      "gpt-3.5-turbo": {
+        "id": "gpt-3.5-turbo",
+        "object": "model",
+        "created": 1677610602,
+        "owned_by": "openai"
+      },
+      "gpt-5-codex": {
+        "id": "gpt-5-codex",
+        "object": "model",
+        "created": 1757527818,
         "owned_by": "system"
       },
-      "gpt-4o-audio-preview-2024-12-17": {
-        "id": "gpt-4o-audio-preview-2024-12-17",
+      "gpt-audio-2025-08-28": {
+        "id": "gpt-audio-2025-08-28",
         "object": "model",
-        "created": 1734034239,
+        "created": 1756256146,
         "owned_by": "system"
       },
-      "gpt-4-1106-preview": {
-        "id": "gpt-4-1106-preview",
+      "gpt-realtime": {
+        "id": "gpt-realtime",
         "object": "model",
-        "created": 1698957206,
+        "created": 1756271701,
+        "owned_by": "system"
+      },
+      "gpt-realtime-2025-08-28": {
+        "id": "gpt-realtime-2025-08-28",
+        "object": "model",
+        "created": 1756271773,
+        "owned_by": "system"
+      },
+      "gpt-audio": {
+        "id": "gpt-audio",
+        "object": "model",
+        "created": 1756339249,
+        "owned_by": "system"
+      },
+      "davinci-002": {
+        "id": "davinci-002",
+        "object": "model",
+        "created": 1692634301,
+        "owned_by": "system"
+      },
+      "babbage-002": {
+        "id": "babbage-002",
+        "object": "model",
+        "created": 1692634615,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo-instruct": {
+        "id": "gpt-3.5-turbo-instruct",
+        "object": "model",
+        "created": 1692901427,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo-instruct-0914": {
+        "id": "gpt-3.5-turbo-instruct-0914",
+        "object": "model",
+        "created": 1694122472,
         "owned_by": "system"
       },
       "dall-e-3": {
@@ -1252,118 +3662,10 @@
         "created": 1698798177,
         "owned_by": "system"
       },
-      "gpt-4o-audio-preview-2024-10-01": {
-        "id": "gpt-4o-audio-preview-2024-10-01",
+      "gpt-4-1106-preview": {
+        "id": "gpt-4-1106-preview",
         "object": "model",
-        "created": 1727389042,
-        "owned_by": "system"
-      },
-      "gpt-4-turbo-preview": {
-        "id": "gpt-4-turbo-preview",
-        "object": "model",
-        "created": 1706037777,
-        "owned_by": "system"
-      },
-      "text-embedding-3-small": {
-        "id": "text-embedding-3-small",
-        "object": "model",
-        "created": 1705948997,
-        "owned_by": "system"
-      },
-      "babbage-002": {
-        "id": "babbage-002",
-        "object": "model",
-        "created": 1692634615,
-        "owned_by": "system"
-      },
-      "gpt-4": {
-        "id": "gpt-4",
-        "object": "model",
-        "created": 1687882411,
-        "owned_by": "openai"
-      },
-      "text-embedding-ada-002": {
-        "id": "text-embedding-ada-002",
-        "object": "model",
-        "created": 1671217299,
-        "owned_by": "openai-internal"
-      },
-      "chatgpt-4o-latest": {
-        "id": "chatgpt-4o-latest",
-        "object": "model",
-        "created": 1723515131,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-audio-preview": {
-        "id": "gpt-4o-mini-audio-preview",
-        "object": "model",
-        "created": 1734387424,
-        "owned_by": "system"
-      },
-      "gpt-4o-audio-preview": {
-        "id": "gpt-4o-audio-preview",
-        "object": "model",
-        "created": 1727460443,
-        "owned_by": "system"
-      },
-      "o1-preview-2024-09-12": {
-        "id": "o1-preview-2024-09-12",
-        "object": "model",
-        "created": 1725648865,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-realtime-preview": {
-        "id": "gpt-4o-mini-realtime-preview",
-        "object": "model",
-        "created": 1734387380,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-realtime-preview-2024-12-17": {
-        "id": "gpt-4o-mini-realtime-preview-2024-12-17",
-        "object": "model",
-        "created": 1734112601,
-        "owned_by": "system"
-      },
-      "gpt-4.1-nano": {
-        "id": "gpt-4.1-nano",
-        "object": "model",
-        "created": 1744321707,
-        "owned_by": "system"
-      },
-      "gpt-3.5-turbo-instruct-0914": {
-        "id": "gpt-3.5-turbo-instruct-0914",
-        "object": "model",
-        "created": 1694122472,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-search-preview": {
-        "id": "gpt-4o-mini-search-preview",
-        "object": "model",
-        "created": 1741391161,
-        "owned_by": "system"
-      },
-      "gpt-4.1-nano-2025-04-14": {
-        "id": "gpt-4.1-nano-2025-04-14",
-        "object": "model",
-        "created": 1744321025,
-        "owned_by": "system"
-      },
-      "gpt-3.5-turbo-16k": {
-        "id": "gpt-3.5-turbo-16k",
-        "object": "model",
-        "created": 1683758102,
-        "owned_by": "openai-internal"
-      },
-      "gpt-4o-realtime-preview": {
-        "id": "gpt-4o-realtime-preview",
-        "object": "model",
-        "created": 1727659998,
-        "owned_by": "system"
-      },
-      "davinci-002": {
-        "id": "davinci-002",
-        "object": "model",
-        "created": 1692634301,
+        "created": 1698957206,
         "owned_by": "system"
       },
       "gpt-3.5-turbo-1106": {
@@ -1372,160 +3674,16 @@
         "created": 1698959748,
         "owned_by": "system"
       },
-      "gpt-4o-search-preview": {
-        "id": "gpt-4o-search-preview",
-        "object": "model",
-        "created": 1741388720,
-        "owned_by": "system"
-      },
-      "gpt-3.5-turbo-instruct": {
-        "id": "gpt-3.5-turbo-instruct",
-        "object": "model",
-        "created": 1692901427,
-        "owned_by": "system"
-      },
-      "gpt-3.5-turbo": {
-        "id": "gpt-3.5-turbo",
-        "object": "model",
-        "created": 1677610602,
-        "owned_by": "openai"
-      },
-      "o3-mini-2025-01-31": {
-        "id": "o3-mini-2025-01-31",
-        "object": "model",
-        "created": 1738010200,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-search-preview-2025-03-11": {
-        "id": "gpt-4o-mini-search-preview-2025-03-11",
-        "object": "model",
-        "created": 1741390858,
-        "owned_by": "system"
-      },
-      "gpt-4-0125-preview": {
-        "id": "gpt-4-0125-preview",
-        "object": "model",
-        "created": 1706037612,
-        "owned_by": "system"
-      },
-      "gpt-4o-2024-11-20": {
-        "id": "gpt-4o-2024-11-20",
-        "object": "model",
-        "created": 1739331543,
-        "owned_by": "system"
-      },
-      "gpt-4o-2024-05-13": {
-        "id": "gpt-4o-2024-05-13",
-        "object": "model",
-        "created": 1715368132,
-        "owned_by": "system"
-      },
-      "text-embedding-3-large": {
-        "id": "text-embedding-3-large",
-        "object": "model",
-        "created": 1705953180,
-        "owned_by": "system"
-      },
-      "o1-2024-12-17": {
-        "id": "o1-2024-12-17",
-        "object": "model",
-        "created": 1734326976,
-        "owned_by": "system"
-      },
-      "o1": {
-        "id": "o1",
-        "object": "model",
-        "created": 1734375816,
-        "owned_by": "system"
-      },
-      "o1-preview": {
-        "id": "o1-preview",
-        "object": "model",
-        "created": 1725648897,
-        "owned_by": "system"
-      },
-      "gpt-4-0613": {
-        "id": "gpt-4-0613",
-        "object": "model",
-        "created": 1686588896,
-        "owned_by": "openai"
-      },
-      "o1-mini": {
-        "id": "o1-mini",
-        "object": "model",
-        "created": 1725649008,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-tts": {
-        "id": "gpt-4o-mini-tts",
-        "object": "model",
-        "created": 1742403959,
-        "owned_by": "system"
-      },
-      "o1-pro": {
-        "id": "o1-pro",
-        "object": "model",
-        "created": 1742251791,
-        "owned_by": "system"
-      },
-      "gpt-4o-transcribe": {
-        "id": "gpt-4o-transcribe",
-        "object": "model",
-        "created": 1742068463,
-        "owned_by": "system"
-      },
-      "gpt-4.5-preview": {
-        "id": "gpt-4.5-preview",
-        "object": "model",
-        "created": 1740623059,
-        "owned_by": "system"
-      },
-      "o1-pro-2025-03-19": {
-        "id": "o1-pro-2025-03-19",
-        "object": "model",
-        "created": 1742251504,
-        "owned_by": "system"
-      },
-      "gpt-4.5-preview-2025-02-27": {
-        "id": "gpt-4.5-preview-2025-02-27",
-        "object": "model",
-        "created": 1740623304,
-        "owned_by": "system"
-      },
-      "gpt-4o-search-preview-2025-03-11": {
-        "id": "gpt-4o-search-preview-2025-03-11",
-        "object": "model",
-        "created": 1741388170,
-        "owned_by": "system"
-      },
-      "omni-moderation-2024-09-26": {
-        "id": "omni-moderation-2024-09-26",
-        "object": "model",
-        "created": 1732734466,
-        "owned_by": "system"
-      },
-      "gpt-image-1": {
-        "id": "gpt-image-1",
-        "object": "model",
-        "created": 1745517030,
-        "owned_by": "system"
-      },
-      "o1-mini-2024-09-12": {
-        "id": "o1-mini-2024-09-12",
-        "object": "model",
-        "created": 1725648979,
-        "owned_by": "system"
-      },
       "tts-1-hd": {
         "id": "tts-1-hd",
         "object": "model",
         "created": 1699046015,
         "owned_by": "system"
       },
-      "gpt-4o": {
-        "id": "gpt-4o",
+      "tts-1-1106": {
+        "id": "tts-1-1106",
         "object": "model",
-        "created": 1715367049,
+        "created": 1699053241,
         "owned_by": "system"
       },
       "tts-1-hd-1106": {
@@ -1534,34 +3692,28 @@
         "created": 1699053533,
         "owned_by": "system"
       },
-      "gpt-4o-2024-08-06": {
-        "id": "gpt-4o-2024-08-06",
+      "text-embedding-3-small": {
+        "id": "text-embedding-3-small",
         "object": "model",
-        "created": 1722814719,
+        "created": 1705948997,
         "owned_by": "system"
       },
-      "gpt-4o-mini-2024-07-18": {
-        "id": "gpt-4o-mini-2024-07-18",
+      "text-embedding-3-large": {
+        "id": "text-embedding-3-large",
         "object": "model",
-        "created": 1721172717,
+        "created": 1705953180,
         "owned_by": "system"
       },
-      "gpt-4.1-mini": {
-        "id": "gpt-4.1-mini",
+      "gpt-4-0125-preview": {
+        "id": "gpt-4-0125-preview",
         "object": "model",
-        "created": 1744318173,
+        "created": 1706037612,
         "owned_by": "system"
       },
-      "gpt-4o-mini": {
-        "id": "gpt-4o-mini",
+      "gpt-4-turbo-preview": {
+        "id": "gpt-4-turbo-preview",
         "object": "model",
-        "created": 1721172741,
-        "owned_by": "system"
-      },
-      "gpt-4o-mini-audio-preview-2024-12-17": {
-        "id": "gpt-4o-mini-audio-preview-2024-12-17",
-        "object": "model",
-        "created": 1734115920,
+        "created": 1706037777,
         "owned_by": "system"
       },
       "gpt-3.5-turbo-0125": {
@@ -1576,22 +3728,58 @@
         "created": 1712361441,
         "owned_by": "system"
       },
-      "tts-1": {
-        "id": "tts-1",
-        "object": "model",
-        "created": 1681940951,
-        "owned_by": "openai-internal"
-      },
       "gpt-4-turbo-2024-04-09": {
         "id": "gpt-4-turbo-2024-04-09",
         "object": "model",
         "created": 1712601677,
         "owned_by": "system"
       },
-      "tts-1-1106": {
-        "id": "tts-1-1106",
+      "gpt-4o": {
+        "id": "gpt-4o",
         "object": "model",
-        "created": 1699053241,
+        "created": 1715367049,
+        "owned_by": "system"
+      },
+      "gpt-4o-2024-05-13": {
+        "id": "gpt-4o-2024-05-13",
+        "object": "model",
+        "created": 1715368132,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-2024-07-18": {
+        "id": "gpt-4o-mini-2024-07-18",
+        "object": "model",
+        "created": 1721172717,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini": {
+        "id": "gpt-4o-mini",
+        "object": "model",
+        "created": 1721172741,
+        "owned_by": "system"
+      },
+      "gpt-4o-2024-08-06": {
+        "id": "gpt-4o-2024-08-06",
+        "object": "model",
+        "created": 1722814719,
+        "owned_by": "system"
+      },
+      "chatgpt-4o-latest": {
+        "id": "chatgpt-4o-latest",
+        "object": "model",
+        "created": 1723515131,
+        "owned_by": "system"
+      },
+      "o1-mini-2024-09-12": {
+        "id": "o1-mini-2024-09-12",
+        "object": "model",
+        "created": 1725648979,
+        "owned_by": "system"
+      },
+      "o1-mini": {
+        "id": "o1-mini",
+        "object": "model",
+        "created": 1725649008,
         "owned_by": "system"
       },
       "gpt-4o-realtime-preview-2024-10-01": {
@@ -1600,52 +3788,22 @@
         "created": 1727131766,
         "owned_by": "system"
       },
-      "gpt-4o-mini-transcribe": {
-        "id": "gpt-4o-mini-transcribe",
+      "gpt-4o-audio-preview-2024-10-01": {
+        "id": "gpt-4o-audio-preview-2024-10-01",
         "object": "model",
-        "created": 1742068596,
+        "created": 1727389042,
         "owned_by": "system"
       },
-      "computer-use-preview-2025-03-11": {
-        "id": "computer-use-preview-2025-03-11",
+      "gpt-4o-audio-preview": {
+        "id": "gpt-4o-audio-preview",
         "object": "model",
-        "created": 1741377021,
+        "created": 1727460443,
         "owned_by": "system"
       },
-      "gpt-4.1-mini-2025-04-14": {
-        "id": "gpt-4.1-mini-2025-04-14",
+      "gpt-4o-realtime-preview": {
+        "id": "gpt-4o-realtime-preview",
         "object": "model",
-        "created": 1744317547,
-        "owned_by": "system"
-      },
-      "o3-mini": {
-        "id": "o3-mini",
-        "object": "model",
-        "created": 1737146383,
-        "owned_by": "system"
-      },
-      "computer-use-preview": {
-        "id": "computer-use-preview",
-        "object": "model",
-        "created": 1734655677,
-        "owned_by": "system"
-      },
-      "gpt-4.1": {
-        "id": "gpt-4.1",
-        "object": "model",
-        "created": 1744316542,
-        "owned_by": "system"
-      },
-      "whisper-1": {
-        "id": "whisper-1",
-        "object": "model",
-        "created": 1677532384,
-        "owned_by": "openai-internal"
-      },
-      "gpt-4.1-2025-04-14": {
-        "id": "gpt-4.1-2025-04-14",
-        "object": "model",
-        "created": 1744315746,
+        "created": 1727659998,
         "owned_by": "system"
       },
       "omni-moderation-latest": {
@@ -1654,10 +3812,160 @@
         "created": 1731689265,
         "owned_by": "system"
       },
+      "omni-moderation-2024-09-26": {
+        "id": "omni-moderation-2024-09-26",
+        "object": "model",
+        "created": 1732734466,
+        "owned_by": "system"
+      },
+      "gpt-4o-realtime-preview-2024-12-17": {
+        "id": "gpt-4o-realtime-preview-2024-12-17",
+        "object": "model",
+        "created": 1733945430,
+        "owned_by": "system"
+      },
+      "gpt-4o-audio-preview-2024-12-17": {
+        "id": "gpt-4o-audio-preview-2024-12-17",
+        "object": "model",
+        "created": 1734034239,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-realtime-preview-2024-12-17": {
+        "id": "gpt-4o-mini-realtime-preview-2024-12-17",
+        "object": "model",
+        "created": 1734112601,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-audio-preview-2024-12-17": {
+        "id": "gpt-4o-mini-audio-preview-2024-12-17",
+        "object": "model",
+        "created": 1734115920,
+        "owned_by": "system"
+      },
+      "o1-2024-12-17": {
+        "id": "o1-2024-12-17",
+        "object": "model",
+        "created": 1734326976,
+        "owned_by": "system"
+      },
+      "o1": {
+        "id": "o1",
+        "object": "model",
+        "created": 1734375816,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-realtime-preview": {
+        "id": "gpt-4o-mini-realtime-preview",
+        "object": "model",
+        "created": 1734387380,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-audio-preview": {
+        "id": "gpt-4o-mini-audio-preview",
+        "object": "model",
+        "created": 1734387424,
+        "owned_by": "system"
+      },
+      "computer-use-preview": {
+        "id": "computer-use-preview",
+        "object": "model",
+        "created": 1734655677,
+        "owned_by": "system"
+      },
+      "o3-mini": {
+        "id": "o3-mini",
+        "object": "model",
+        "created": 1737146383,
+        "owned_by": "system"
+      },
+      "o3-mini-2025-01-31": {
+        "id": "o3-mini-2025-01-31",
+        "object": "model",
+        "created": 1738010200,
+        "owned_by": "system"
+      },
+      "gpt-4o-2024-11-20": {
+        "id": "gpt-4o-2024-11-20",
+        "object": "model",
+        "created": 1739331543,
+        "owned_by": "system"
+      },
+      "computer-use-preview-2025-03-11": {
+        "id": "computer-use-preview-2025-03-11",
+        "object": "model",
+        "created": 1741377021,
+        "owned_by": "system"
+      },
+      "gpt-4o-search-preview-2025-03-11": {
+        "id": "gpt-4o-search-preview-2025-03-11",
+        "object": "model",
+        "created": 1741388170,
+        "owned_by": "system"
+      },
+      "gpt-4o-search-preview": {
+        "id": "gpt-4o-search-preview",
+        "object": "model",
+        "created": 1741388720,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-search-preview-2025-03-11": {
+        "id": "gpt-4o-mini-search-preview-2025-03-11",
+        "object": "model",
+        "created": 1741390858,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-search-preview": {
+        "id": "gpt-4o-mini-search-preview",
+        "object": "model",
+        "created": 1741391161,
+        "owned_by": "system"
+      },
+      "gpt-4o-transcribe": {
+        "id": "gpt-4o-transcribe",
+        "object": "model",
+        "created": 1742068463,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-transcribe": {
+        "id": "gpt-4o-mini-transcribe",
+        "object": "model",
+        "created": 1742068596,
+        "owned_by": "system"
+      },
+      "o1-pro-2025-03-19": {
+        "id": "o1-pro-2025-03-19",
+        "object": "model",
+        "created": 1742251504,
+        "owned_by": "system"
+      },
+      "o1-pro": {
+        "id": "o1-pro",
+        "object": "model",
+        "created": 1742251791,
+        "owned_by": "system"
+      },
+      "gpt-4o-mini-tts": {
+        "id": "gpt-4o-mini-tts",
+        "object": "model",
+        "created": 1742403959,
+        "owned_by": "system"
+      },
+      "o3-2025-04-16": {
+        "id": "o3-2025-04-16",
+        "object": "model",
+        "created": 1744133301,
+        "owned_by": "system"
+      },
       "o4-mini-2025-04-16": {
         "id": "o4-mini-2025-04-16",
         "object": "model",
         "created": 1744133506,
+        "owned_by": "system"
+      },
+      "o3": {
+        "id": "o3",
+        "object": "model",
+        "created": 1744225308,
         "owned_by": "system"
       },
       "o4-mini": {
@@ -1665,6 +3973,144 @@
         "object": "model",
         "created": 1744225351,
         "owned_by": "system"
+      },
+      "gpt-4.1-2025-04-14": {
+        "id": "gpt-4.1-2025-04-14",
+        "object": "model",
+        "created": 1744315746,
+        "owned_by": "system"
+      },
+      "gpt-4.1": {
+        "id": "gpt-4.1",
+        "object": "model",
+        "created": 1744316542,
+        "owned_by": "system"
+      },
+      "gpt-4.1-mini-2025-04-14": {
+        "id": "gpt-4.1-mini-2025-04-14",
+        "object": "model",
+        "created": 1744317547,
+        "owned_by": "system"
+      },
+      "gpt-4.1-mini": {
+        "id": "gpt-4.1-mini",
+        "object": "model",
+        "created": 1744318173,
+        "owned_by": "system"
+      },
+      "gpt-4.1-nano-2025-04-14": {
+        "id": "gpt-4.1-nano-2025-04-14",
+        "object": "model",
+        "created": 1744321025,
+        "owned_by": "system"
+      },
+      "gpt-4.1-nano": {
+        "id": "gpt-4.1-nano",
+        "object": "model",
+        "created": 1744321707,
+        "owned_by": "system"
+      },
+      "gpt-image-1": {
+        "id": "gpt-image-1",
+        "object": "model",
+        "created": 1745517030,
+        "owned_by": "system"
+      },
+      "codex-mini-latest": {
+        "id": "codex-mini-latest",
+        "object": "model",
+        "created": 1746673257,
+        "owned_by": "system"
+      },
+      "gpt-4o-realtime-preview-2025-06-03": {
+        "id": "gpt-4o-realtime-preview-2025-06-03",
+        "object": "model",
+        "created": 1748907838,
+        "owned_by": "system"
+      },
+      "gpt-4o-audio-preview-2025-06-03": {
+        "id": "gpt-4o-audio-preview-2025-06-03",
+        "object": "model",
+        "created": 1748908498,
+        "owned_by": "system"
+      },
+      "o4-mini-deep-research": {
+        "id": "o4-mini-deep-research",
+        "object": "model",
+        "created": 1749685485,
+        "owned_by": "system"
+      },
+      "o4-mini-deep-research-2025-06-26": {
+        "id": "o4-mini-deep-research-2025-06-26",
+        "object": "model",
+        "created": 1750866121,
+        "owned_by": "system"
+      },
+      "gpt-5-chat-latest": {
+        "id": "gpt-5-chat-latest",
+        "object": "model",
+        "created": 1754073306,
+        "owned_by": "system"
+      },
+      "gpt-5-2025-08-07": {
+        "id": "gpt-5-2025-08-07",
+        "object": "model",
+        "created": 1754075360,
+        "owned_by": "system"
+      },
+      "gpt-5": {
+        "id": "gpt-5",
+        "object": "model",
+        "created": 1754425777,
+        "owned_by": "system"
+      },
+      "gpt-5-mini-2025-08-07": {
+        "id": "gpt-5-mini-2025-08-07",
+        "object": "model",
+        "created": 1754425867,
+        "owned_by": "system"
+      },
+      "gpt-5-mini": {
+        "id": "gpt-5-mini",
+        "object": "model",
+        "created": 1754425928,
+        "owned_by": "system"
+      },
+      "gpt-5-nano-2025-08-07": {
+        "id": "gpt-5-nano-2025-08-07",
+        "object": "model",
+        "created": 1754426303,
+        "owned_by": "system"
+      },
+      "gpt-5-nano": {
+        "id": "gpt-5-nano",
+        "object": "model",
+        "created": 1754426384,
+        "owned_by": "system"
+      },
+      "gpt-3.5-turbo-16k": {
+        "id": "gpt-3.5-turbo-16k",
+        "object": "model",
+        "created": 1683758102,
+        "owned_by": "openai-internal"
+      },
+      "tts-1": {
+        "id": "tts-1",
+        "object": "model",
+        "created": 1681940951,
+        "owned_by": "openai-internal"
+      },
+      "whisper-1": {
+        "id": "whisper-1",
+        "object": "model",
+        "created": 1677532384,
+        "owned_by": "openai-internal"
+      },
+      "text-embedding-ada-002": {
+        "id": "text-embedding-ada-002",
+        "object": "model",
+        "created": 1671217299,
+        "owned_by": "openai-internal"
       }
     }
   }

@@ -51,9 +51,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SEARCH_LOG_FILE = 'search-logs.jsonl'
 
-DEFAULT_LLM_MODEL = 'llama4'
+DEFAULT_LLM_MODEL = 'groq'
 
-MAX_TOKENS = 1000000
+#MAX_TOKENS = 1000000
+MAX_TOKENS = 65536
 
 REQUEST_TIMES: dict[str, float] = {}
 
