@@ -31,7 +31,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, Future, 
 from dataclasses import dataclass, field
 from itertools import product
 from pprint import pprint, pformat
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
 import numpy as np
 
@@ -47,6 +47,9 @@ perf_logger = logging.getLogger("evaluator.perf")
 result_logger = logging.getLogger("evaluator.results")
 error_logger = logging.getLogger("evaluator.errors")
 
+
+# Type alias for Op results - can be a dict or any dataclass
+OpResult = Union[dict[str, Any], Any]
 
 # Global manager instance that all Ops will register with
 _global_op_manager: 'OpManager'|None = None
@@ -750,12 +753,12 @@ class Op(ABC):
             raise ValueError(f"Invalid input_types format: {type(cls.input_types)}")
 
     @abstractmethod
-    def _execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         """Execute the operation with given inputs.
 
         - inputs: dict mapping type names to actual data
 
-        Returns the output of types `self.output_types`.
+        Returns the output of types `self.output_types`. Can be a dict[str, Any] or any dataclass.
         """
         raise NotImplementedError()
 

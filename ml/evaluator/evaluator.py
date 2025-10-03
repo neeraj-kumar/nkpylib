@@ -120,7 +120,7 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator.evaluator_ops import Op, OpManager, result_logger
+from nkpylib.ml.evaluator.evaluator_ops import Op, OpManager, OpResult, result_logger
 from nkpylib.ml.evaluator.labels import parse_into_labels, Labels, MulticlassLabels, MultilabelLabels, NumericLabels
 from nkpylib.ml.feature_set import (
     FeatureSet,
@@ -388,7 +388,7 @@ class StartValidatorOp(Op):
     output_types = {"argparse"}
     is_intermediate = True
 
-    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> OpResult:
         return inputs
 
 
@@ -399,7 +399,7 @@ class ParseTagsOp(Op):
     output_types = {'labels'}
     is_intermediate = True
 
-    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> OpResult:
         tag_path = inputs['argparse'].get('tag_path')
         if not tag_path:
             raise ValueError('No tag_path provided')
@@ -444,7 +444,7 @@ class LoadEmbeddingsOp(Op):
     is_intermediate = True
 
     #TODO return cartesian product of inputs as variants
-    def _execute(self, inputs: dict[str, Any], **kwargs) -> Any:
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> OpResult:
         paths = inputs['argparse']['paths']
         return FeatureSet(paths, **kwargs)
 
@@ -462,7 +462,7 @@ class CheckDimensionsOp(Op):
     input_types = {"feature_set"}
     output_types = {"dimension_check_result"}
 
-    def _execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         fs = inputs["feature_set"]
         dims: Counter[int] = Counter()
         for key, emb in fs.items():
@@ -488,7 +488,7 @@ class CheckNaNsOp(Op):
     input_types = {"feature_set"}
     output_types = {"nan_check_result"}
 
-    def _execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         fs = inputs["feature_set"]
         n_nans = 0
         nan_keys = []
@@ -521,7 +521,7 @@ class BasicChecksOp(Op):
     output_types = {"basic_checks_report"}
     run_mode = 'process'
 
-    def _execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         dim_result = inputs["dimension_check_result"]
         nan_result = inputs["nan_check_result"]
         errors = []
@@ -573,7 +573,7 @@ class NormalizeOp(Op):
         self.scale_std = scale_std
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> Any:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         fs, labels = inputs["feature_set"], inputs['labels']
         valid_keys = set()
         for label in labels.values():
@@ -640,7 +640,7 @@ class GetLabelArraysOp(LabelOp):
     output_types = {"label_arrays_data"}
     is_intermediate = True
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         norm_emb = inputs["normalized_embeddings"]
         keys, matrix = norm_emb.keys, norm_emb.embeddings
         label = inputs["labels"][self.label_key]
@@ -688,7 +688,7 @@ class GetLabelDistancesOp(LabelOp):
         self.perc_close = perc_close
         super().__init__(label_key=label_key, **kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         label = inputs["labels"][self.label_key]
         norm_emb = inputs["normalized_embeddings"]
         keys, matrix = norm_emb.keys, norm_emb.embeddings
@@ -740,7 +740,7 @@ class GetEmbeddingDimsOp(Op):
         self.transform = transform
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         label_data = inputs["label_arrays_data"]
         matrix = label_data.sub_matrix  # Already filtered to the right intersection
         dims = matrix.T  # Each row is one dimension across all samples
@@ -789,7 +789,7 @@ class GetEmbeddingDistancesOp(Op):
         self.metric = metric
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         norm_emb = inputs["normalized_embeddings"]
         label_data = inputs["label_distances"]
 
@@ -853,7 +853,7 @@ class GetNeighborsOp(Op):
         self.k = k
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         # Determine which type of distance matrix we're using
         data = inputs['distances']
         op_logger.info(f'Computing neighbors, got data type {type(data)}, k={self.k}')
@@ -936,7 +936,7 @@ class GenPredictionTasksOp(LabelOp):
         self.max_tasks = max_tasks
         super().__init__(label_key=label_key, **kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         label = inputs["labels"][self.label_key]
         norm_emb = inputs["normalized_embeddings"]
         keys, matrix = norm_emb.keys, norm_emb.embeddings
@@ -1079,7 +1079,7 @@ class RunPredictionOp(Op):
             case _:
                 raise ValueError(f"Unknown model type: {self.model_type}")
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         task_data = inputs["prediction_tasks"]
         label_key, tasks = task_data.label_key, task_data.tasks
 
@@ -1214,7 +1214,7 @@ class CompareNeighborsOp(Op):
         self.detailed = detailed
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         # Find which input is label neighbors and which is embedding neighbors
         neighbors_a, neighbors_b = list(inputs["neighbors_data"])
 
@@ -1348,7 +1348,7 @@ class CompareStatsOp(Op):
     output_types = {"stats_comparison"}
     run_mode = 'process'
 
-    def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
         if 'many_array1d_a' in inputs:
             arrays_a = inputs['many_array1d_a']
         elif 'label_arrays_data' in inputs:
