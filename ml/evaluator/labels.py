@@ -1,3 +1,4 @@
+import logging
 import random
 
 from abc import ABC, abstractmethod
@@ -6,7 +7,10 @@ from typing import Any, Union
 
 import numpy as np
 
-from nkpylib.ml.ml_types import NUMERIC_TYPES, FLOAT_TYPES, array1d, array2d, nparray2d
+from nkpylib.ml.ml_types import NUMERIC_TYPES, FLOAT_TYPES, array1d, array2d, nparray1d, nparray2d, NumericT
+
+logger = logging.getLogger(__name__)
+labels_logger = logging.getLogger('evaluator.labels')
 
 # Type aliases used in this module
 DistTuple = tuple[str, str, float]
@@ -61,7 +65,7 @@ class Labels(ABC):
             n_pts = len(ids)
         ids = sorted(random.sample(ids, n_pts))
         id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
-        # op_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
+        labels_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
         assert len(sub_keys) == len(sub_matrix) == len(ids) == dists.shape[0] == dists.shape[1]
         assert sub_matrix.shape[1] == matrix.shape[1]
@@ -71,7 +75,7 @@ class Labels(ABC):
             sub_matrix=sub_matrix,
         )
 
-    def compute_all_distances(self, ids: list[str], **kw) -> array2d:
+    def compute_all_distances(self, ids: list[str], **kw) -> nparray2d:
         """Computes all distances in `ids` using `get_distance(id1, id2, **kw)`."""
         n_pts = len(ids)
         dists = np.zeros((n_pts, n_pts), dtype=np.float32)
@@ -98,7 +102,7 @@ class Labels(ABC):
         """
         raise NotImplementedError()
 
-    def get_matching_matrix(self, keys: list[str], matrix: array2d, ids: list[str]|None=None) -> tuple[array1d, list[str], nparray2d]:
+    def get_matching_matrix(self, keys: list[str], matrix: nparray2d, ids: list[str]|None=None) -> tuple[nparray1d, list[str], nparray2d]:
         """Returns matching submatrix based on overlapping keys.
 
         This does a set intersection between our ids and the given `keys`, and returns a tuple of
@@ -132,13 +136,13 @@ class Labels(ABC):
             mat_indices.append(mat_idx)
             id_indices.append(label_idx)
             sub_keys.append(id)
-        # op_logger.debug(f'  Found {len(common)} matching ids in embeddings')
-        id_indices = np.asarray(id_indices)
+        labels_logger.debug(f'  Found {len(common)} matching ids in embeddings')
+        id_indices_ = np.asarray(id_indices)
         sub_matrix = matrix[mat_indices, :]
-        # op_logger.debug(f'Got sub matrix of shape {sub_matrix.shape}: {sub_matrix}')
-        assert sub_matrix.shape == (len(id_indices), matrix.shape[1])
-        assert len(id_indices) == len(sub_keys) == len(sub_matrix)
-        return id_indices, sub_keys, sub_matrix
+        labels_logger.debug(f'Got sub matrix of shape {sub_matrix.shape}: {sub_matrix}')
+        assert sub_matrix.shape == (len(id_indices_), matrix.shape[1])
+        assert len(id_indices_) == len(sub_keys) == len(sub_matrix)
+        return id_indices_, sub_keys, sub_matrix
 
     @abstractmethod
     def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> dict[str, Any]:
@@ -174,7 +178,7 @@ class NumericLabels(Labels):
 
     This stores ids as a list and values as a numpy array, where values[i] is the value for ids[i].
     """
-    def __init__(self, tag_type: str, key: str, ids_values: list[tuple[str, Union[NUMERIC_TYPES]]]):
+    def __init__(self, tag_type: str, key: str, ids_values: list[tuple[str, NumericT]]):
         ids = [id for id, v in ids_values]
         assert len(ids) == len(set(ids)), 'Ids should be unique'
         values = np.array([v for id, v in ids_values], dtype=np.float32)
@@ -339,7 +343,7 @@ class MulticlassBase(Labels):
         # at this point we should have all our ids
         ids = sorted(ids)
         id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
-        # op_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
+        labels_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
         return dict(
             sub_keys=sub_keys,
@@ -500,11 +504,11 @@ def parse_into_labels(tag_type: str,
     values = [v for id, v in ids_values]
     types = Counter(type(v) for v in values)
     most_t, n_most = types.most_common(1)[0]
-    # op_logger.debug(f'For {(tag_type, key)} got {len(ids)} ids, types: {types.most_common()}')
+    labels_logger.debug(f'For {(tag_type, key)} got {len(ids)} ids, types: {types.most_common()}')
     # if we have less than `impure_thresh` of other types, ignore them
     if len(types) > 1:
         impure = 1.0 - (n_most / len(ids))
-        # op_logger.debug(f'  Most common (purity): {n_most}/{len(ids)} -> {impure}')
+        labels_logger.debug(f'  Most common (purity): {n_most}/{len(ids)} -> {impure}')
         if impure < impure_thresh:
             new_ids_values = [(id, v) for id, v in ids_values if type(v) == most_t]
             return parse_into_labels(tag_type, key, new_ids_values, impure_thresh=impure_thresh)
@@ -515,7 +519,7 @@ def parse_into_labels(tag_type: str,
     if len(set(ids)) != len(ids): # we have duplicate ids
         # check for impurity level
         impure = 1.0 - (len(set(ids)) / len(ids))
-        # op_logger.debug(f'  Multilabel impurity {impure}: {len(set(ids))}/{len(ids)}')
+        labels_logger.debug(f'  Multilabel impurity {impure}: {len(set(ids))}/{len(ids)}')
         if impure < impure_thresh:
             seen_ids = set()
             new_ids_values = []
@@ -531,7 +535,7 @@ def parse_into_labels(tag_type: str,
         return NumericLabels(tag_type, key, ids_values)
     else: # categorical
         if len(set(values)) == len(values):
-            # op_logger.debug(f'  All values unique, treating as id')
+            labels_logger.debug(f'  All values unique, treating as id')
             return None
         return MulticlassLabels(tag_type, key, ids_values)
 
