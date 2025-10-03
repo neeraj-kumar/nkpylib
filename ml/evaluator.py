@@ -126,7 +126,7 @@ from nkpylib.ml.feature_set import (
     MetadataLmdb,
     NumpyLmdb,
 )
-from nkpylib.ml.types import (
+from nkpylib.ml.ml_types import (
     NUMERIC_TYPES,
     FLOAT_TYPES,
     array1d,

@@ -34,7 +34,7 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from nkpylib.ml.client import chunked, embed_image, embed_text
-from nkpylib.ml.types import nparray1d, nparray2d, array1d, array2d
+from nkpylib.ml.ml_types import nparray1d, nparray2d, array1d, array2d
 from nkpylib.utils import specialize
 from nkpylib.thread_utils import CollectionUpdater
 
