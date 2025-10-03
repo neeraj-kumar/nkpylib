@@ -258,12 +258,13 @@ class MementoDB:
         """Converts a key to an entry id in the library."""
         return self[key]["id"]
 
-    def update(self, entry_id: str, **kw) -> None:
+    def update(self, entry_id: str, **kw) -> dict[str, Any]:
         """Updates an entry with given fields and values."""
         resp = update_entry(self.library_id, entry_id, library_info=self.info, **kw)
-        print(resp)
+        #print(resp)
         # update our local version
         self.entries[entry_id]['fields'].update(**kw)
+        return resp
 
     def create(self, **kw) -> Entry:
         """Creates an entry with given fields and values, returning the new entry."""
