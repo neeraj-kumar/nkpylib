@@ -1,6 +1,6 @@
 import random
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
 from typing import Any, Union
 
@@ -268,7 +268,7 @@ class NumericLabels(Labels):
                     id1, id2 = i, j
                     dist = abs(self.values[self.ids.index(id1)] - self.values[self.ids.index(id2)])
                 spair = frozenset((id1, id2))
-                pairs[spair] = dist / norm_factor
+                pairs[spair] = dist / self.norm_factors[norm_type]
 
         if perc_close >= 0:
             n_close = int(n_pairs * perc_close)
