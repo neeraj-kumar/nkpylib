@@ -22,6 +22,7 @@ The search conditions form a tree structure that can be walked and filtered.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sys
@@ -205,8 +206,15 @@ class SearchImpl(ABC):
         self.timing_times[label] += elapsed_time
         self.timing_counts[label] += 1
 
-    @abstractmethod
     def search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+        """Search for results matching the given `cond`.
+
+        Returns a list of `SearchResult` objects.
+        """
+        return asyncio.run(self.async_search(cond, n_results=n_results, **kw))
+
+    @abstractmethod
+    async def async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
         """Search for results matching the given `cond`.
 
         Returns a list of `SearchResult` objects.

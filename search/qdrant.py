@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from typing import Sequence
@@ -106,7 +107,7 @@ class QdrantSearch(SearchImpl):
         else:
             raise TypeError("Unsupported condition type")
 
-    def search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+    async def async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
         """Does a search with given search conditions `cond`.
 
         Qdrant can do batch searches with arbitrary combinations of query embeddings and conditions.
@@ -132,7 +133,7 @@ class QdrantSearch(SearchImpl):
                 return (c.field, c.value)
 
         vecs = [v for v in cond.walk(get_vec) if v is not None]
-        results = self._search(query_embeddings=vecs, filters=filters, n_results=n_results, **kw)
+        results = await self._search(query_embeddings=vecs, filters=filters, n_results=n_results, **kw)
         ret_by_id = {}
         for res in results:
             for r in res:
@@ -144,7 +145,7 @@ class QdrantSearch(SearchImpl):
         ret = sorted(ret_by_id.values(), key=lambda x: x.score, reverse=True)
         return ret
 
-    def _search(self,
+    async def _search(self,
                 query_embeddings: Sequence[Array1D]|Sequence[tuple[str, Array1D]],
                 filters: models.Filter|Sequence[models.Filter]|None = None,
                 n_results: int=10,
@@ -163,6 +164,7 @@ class QdrantSearch(SearchImpl):
             # if we have a tuple, we expect (field_name, embedding)
             using = [field for field, _ in query_embeddings]
             query_embeddings = [emb for _, emb in query_embeddings]
+        await asyncio.sleep(0) # yield to event loop
         reqs = [models.QueryRequest(
                     query=emb, # type: ignore
                     filter=filter_,

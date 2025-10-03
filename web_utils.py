@@ -370,6 +370,7 @@ class LLMSearcher(BaseSearcher):
 
     def search(self, q: str, req: RequestHandler, **kw: Any) -> dict[str, object]:
         """Small wrapper to set `req` on our underlying searchers."""
+        self.req = req
         self.full_searcher.req = req
         self.simple_searcher.req = req
         return super().search(q=q, req=req, **kw)
@@ -401,13 +402,15 @@ class LLMSearcher(BaseSearcher):
         fails, falls back to the `simple_searcher`.
         """
         assert self.req is not None
+        t0 = time.time()
         kwargs = self.gen_prompt_kw(q)
         prompt = self.prompt_fmt.format(**kwargs)
         logger.debug(f'From q {q} got kwargs {kwargs}, and prompt: {prompt}')
         resp = call_llm.single(prompt, model=self.model_name, max_tokens=MAX_TOKENS).strip()
         lst = load_llm_json(resp)
         logger.info(f'LLM response: {lst}')
-        self.add_msg(f'Translated "{q}" to "{lst}" using {self.model_name}')
+        t1 = time.time()
+        self.add_msg(f'Translated "{q}" to "{lst}" using {self.model_name} in {t1-t0:.2f}s')
         self.log(llm_translations={q: lst})
         try:
             parsed = []
@@ -445,16 +448,28 @@ class LLMSearcher(BaseSearcher):
         Note that because we're generating multiple queries, we run many searches in parallel using
         our thread pool.
         """
+        self.full_searcher.req = self.req
+        self.simple_searcher.req = self.req
         assert self.req is not None
         func = self.req.searcher_used._search # type: ignore[attr-defined]
-        #return func(q=q, parsed=parsed, **kw) # type: ignore
-        futures = [self.pool.submit(func, q=q, parsed=p, **kw) for p in parsed] # type: ignore[attr-defined]
-        # wait for all the futures to finish
+        if 0: # pool: not suitable for async
+            #return func(q=q, parsed=parsed, **kw) # type: ignore
+            tasks = [self.pool.submit(func, q=q, parsed=p, **kw) for p in parsed] # type: ignore[attr-defined]
+            # wait for all the futures to finish
+            async def check_result(fut):
+                while not fut.done():
+                    await asyncio.sleep(0.1)
+                return fut.result()
+
+        else: # async with exception handling
+            tasks = [asyncio.create_task(func(q=q, parsed=p, **kw)) for p in parsed]
+            async def check_result(task):
+                return await task
+
         results = []
-        for future in futures:
-            asyncio.sleep(0)
+        for task in tasks:
             try:
-                result = future.result()
+                result = await check_result(task)
                 results.append(result)
             except Exception as e:
                 logger.error(f'*** Error running search: {e}')

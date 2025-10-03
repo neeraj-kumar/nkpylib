@@ -10,6 +10,7 @@ explicitly).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from multiprocessing import get_context
@@ -47,7 +48,7 @@ class ObjSearch(SearchImpl):
             return str(item.get(self.id_field, ''))
         return str(self.items.index(item))
 
-    def search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+    async def async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
         """Searches our list of `items` with given `cond`.
 
         Args:
@@ -55,28 +56,30 @@ class ObjSearch(SearchImpl):
             n_results: Maximum number of results to return
         """
         func = self._search_sequential if self.n_processes <= 1 else self._search_parallel
-        ret = func(cond, n_results)
+        ret = await func(cond, n_results)
         #TODO rank the results
         return ret[:n_results]  # Limit to n_results
 
-    def _search_sequential(self, cond: SearchCond, n_results: int) -> list[SearchResult]:
+    async def _search_sequential(self, cond: SearchCond, n_results: int) -> list[SearchResult]:
         """Sequential search implementation"""
         results = []
         for idx, item in enumerate(self.items):
+            await asyncio.sleep(0)
             if self._matches_condition(item, cond):
                 results.append(SearchResult(id=self.get_id(item), score=1.0, metadata=item))
         return results
 
-    def _search_chunk(self, chunk_data: dict) -> list[SearchResult]:
+    async def _search_chunk(self, chunk_data: dict) -> list[SearchResult]:
         """Search a chunk of items - called by each worker process"""
         start, end = chunk_data['range']
         results = []
         for item in self.items[start:end]:
+            await asyncio.sleep(0)
             if self._matches_condition(item, chunk_data['cond']):
                 results.append(SearchResult(id=self.get_id(item), score=1.0, metadata=item))
         return results
 
-    def _search_parallel(self, cond: SearchCond, n_results: int) -> list[SearchResult]:
+    async def _search_parallel(self, cond: SearchCond, n_results: int) -> list[SearchResult]:
         """Parallel search using process pool with fork"""
         # Split items into chunks
         chunk_size = len(self.items) // self.n_processes
@@ -95,6 +98,7 @@ class ObjSearch(SearchImpl):
         ctx = get_context('fork')
         with ctx.Pool(processes=self.n_processes) as pool:
             chunk_results = pool.map(self._search_chunk, chunks)
+            await asyncio.sleep(0)
 
         # Combine results
         all_results = []
