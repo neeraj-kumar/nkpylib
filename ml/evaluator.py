@@ -5,7 +5,6 @@ This is mostly in reference to a set of labels you provide, in the form of a tag
 
 TODO:
 
-- Collect all errors (particularly task failures) in one place
 - Restartability
 - Lots of ways of mapping embeddings to other embeddings, should be common procedure
   - PCA, K-PCA, ISOMAP, t-SNE, UMAP, LLE, Beta-VAE, etc
@@ -119,9 +118,7 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator_ops import (
-    Op, OpManager, GenPredictionTasksOp, RunPredictionOp
-)
+from nkpylib.ml.evaluator_ops import Op, OpManager, result_logger
 from nkpylib.ml.feature_set import (
     FeatureSet,
     JsonLmdb,
@@ -882,22 +879,23 @@ class CheckDimensionsOp(Op):
         dims = Counter()
         for key, emb in fs.items():
             dims[len(emb)] += 1
-        return {
-            "dimension_counts": dict(dims),
-        }
+        return dict(
+            dimension_counts=dict(dims),
+            is_consistent=(len(dims) == 1),
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
         dims = Counter(results['dimension_counts'])
         return dict(
             is_consistent=(len(dims) == 1),
-            error_message=None if is_consistent else f"Inconsistent embedding dimensions: {dims.most_common()}",
+            error_message=f"Inconsistent embedding dimensions: {dims.most_common()}" if len(dims) > 1 else None,
         )
 
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
 
-    #run_mode = 'process'
+    run_mode = 'process'
     name = "check_nans"
     input_types = {"feature_set"}
     output_types = {"nan_check_result"}
@@ -911,10 +909,11 @@ class CheckNaNsOp(Op):
             n_nans += key_nans
             if key_nans > 0:
                 nan_keys.append((key, int(key_nans)))
-        return {
-            "total_nans": int(n_nans),
-            "nan_keys": nan_keys,
-        }
+        return dict(
+            total_nans=int(n_nans),
+            nan_keys=nan_keys,
+            has_nans=n_nans > 0,
+        )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
@@ -932,7 +931,7 @@ class BasicChecksOp(Op):
     name = "basic_checks"
     input_types = {"dimension_check_result", "nan_check_result"}
     output_types = {"basic_checks_report"}
-    #run_mode = 'process'
+    run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> Any:
         dim_result = inputs["dimension_check_result"]
@@ -1048,7 +1047,6 @@ class GetLabelArraysOp(LabelOp):
     - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
       - Shape `(len(sub_keys), matrix.shape[1])`
     """
-    #enabled = False
 
     name = "get_label_arrays"
     input_types = {"normalized_embeddings", "labels"}
@@ -1089,6 +1087,7 @@ class GetLabelDistancesOp(LabelOp):
     input_types = {"labels", "normalized_embeddings"}
     output_types = {"label_distances", 'distances'}
     is_intermediate = True
+    run_mode = "process"
 
     def __init__(self, label_key: str, n_pts: int = 200, perc_close: float = 0.5, **kw):
         self.label_key = label_key
@@ -1125,11 +1124,11 @@ class GetEmbeddingDimsOp(Op):
     Uses the keys and matrix from label_arrays_data to ensure both arrays
     have the same samples in the same order.
     """
-    #enabled = False
     name = "get_embedding_dims"
     input_types = {"label_arrays_data"}
     output_types = {"embedding_dims"}
     is_intermediate = True
+    run_mode = "process"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1235,7 +1234,6 @@ class GetNeighborsOp(Op):
     - `distances`: A 2D array of distances to neighbors, shape (n_samples, K)
     - `keys`: The list of keys corresponding to the rows/columns of the distance matrix
     """
-    #enabled = False
     name = "get_neighbors"
     input_types = {'distances'}
     output_types = {"neighbors_data"}
@@ -1312,7 +1310,7 @@ class GenPredictionTasksOp(LabelOp):
     name = "gen_prediction_tasks"
     input_types = {"labels", "normalized_embeddings"}
     output_types = {"prediction_tasks"}
-    #run_mode = "process"
+    run_mode = "process"
     is_intermediate = True
 
     def __init__(self, label_key: str, min_pos: int = 10, max_tasks: int = 10, **kw):
@@ -1402,7 +1400,7 @@ class RunPredictionOp(Op):
     name = "run_prediction"
     input_types = {"prediction_tasks"}
     output_types = {"prediction_results"}
-    run_mode = "process"
+    #run_mode = "process"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1585,6 +1583,7 @@ class CompareNeighborsOp(Op):
         }
     }
     output_types = {"neighbor_comparison"}
+    #run_mode = "process"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any], k_values: list[int]=[1, 5, 10, 20]) -> dict[str, Any]|None:
@@ -1734,7 +1733,7 @@ class CompareStatsOp(Op):
         },
     }
     output_types = {"stats_comparison"}
-    #run_mode = 'process'
+    run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
         if 'many_array1d_a' in inputs:
@@ -1795,7 +1794,7 @@ class CompareStatsOp(Op):
             pearson = comp_stats.get('pearson', 0.0)
             r2 = comp_stats.get('linear_least_square_r2', 0.0)
             kl_div = comp_stats.get('kl_div', float('inf'))
-            
+
             correlations.append(abs(pearson))
             r2_values.append(r2)
             if not np.isinf(kl_div) and not np.isnan(kl_div):
@@ -1804,7 +1803,7 @@ class CompareStatsOp(Op):
         # Check for high correlations (threshold: 0.7)
         high_corr_threshold = 0.7
         high_correlations = [c for c in correlations if c > high_corr_threshold]
-        
+
         if high_correlations:
             max_corr = max(high_correlations)
             warning = dict(
@@ -1821,7 +1820,7 @@ class CompareStatsOp(Op):
         # Check for high R² values (threshold: 0.6)
         high_r2_threshold = 0.6
         high_r2_values = [r for r in r2_values if r > high_r2_threshold]
-        
+
         if high_r2_values:
             max_r2 = max(high_r2_values)
             warning = dict(

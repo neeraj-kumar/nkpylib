@@ -4,8 +4,6 @@ TODO:
 - continuation of runs?
 - curses-style view of logs vs tasks vs other stuff?
   - different panes? scrollable?
-  - separate op logs from management logs?
-  - maybe write stuff to disk and use e.g. multitail?
 - better visualization of existing results
 - compare eval runs by id
 - find structurally similar outputs in different runs (i.e., same provenance/keys)
@@ -75,6 +73,7 @@ class Result:
     The operation that produced this result is accessible via the op property.
     """
     output: Any
+    analysis: Any
     op: Op  # The operation that produced this result
     provenance: list['Result']  # List of previous Result objects
     key: str
@@ -129,7 +128,7 @@ class Result:
         """Returns all keys in the provenance chain, including this result's key."""
         return [r.key for r in self.provenance] + [self.key]
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, include_outputs: bool=False) -> dict[str, Any]:
         """Serialize for logging/reporting.
 
         Includes output only if the op is not intermediate.
@@ -146,7 +145,8 @@ class Result:
             "output_types": sorted(self.op.output_types),
             "output_py_type": type(self.output).__name__ if self.output is not None else None,
             "key": self.key,
-            "output": None if self.op.is_intermediate else self.output,
+            "output": self.output if (include_outputs or not self.op.is_intermediate) else None,
+            "analysis": self.analysis,
         }
 
 task_statuses = ("pending", "running", "completed", "failed")
@@ -161,6 +161,7 @@ class Task:
     variant_kwargs: dict[str, Any]|None = None # if applicable
     op: Op|None = None # the instantiated op (after running)
     output: Any = None # the output (after running)
+    analysis: dict[str, Any]|Exception|None = None # the analysis (or exception) (after running)
     error: Exception|None = None # any error encountered
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
 
@@ -215,7 +216,7 @@ class Task:
         task_logger.info(f'Starting {self}')
         self.status = "running"
         self.op = self.op_cls(variant=self.variant_name, **(self.variant_kwargs or {}))
-        self.output, self.error = self.op.execute(self.inputs)
+        self.output, self.analysis, self.error = self.op.execute(self.inputs)
         self.status = 'failed' if self.error else 'completed'
         task_logger.info(f'Finished {self}')
         return self
@@ -380,6 +381,10 @@ class OpManager:
         if variants is None:
             variants = {'': {}}
         for name, kwargs in variants.items():
+            key = op_cls.get_key(inputs=inputs, variant=name)
+            if key in self._results:
+                task_logger.info(f'Skipping already completed {op_cls.name}:{name} with key {key}')
+                continue
             task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
             self.add_task(task)
 
@@ -546,6 +551,7 @@ class OpManager:
         # Create the result with the provenance chain of previous results
         result = Result(
             output=task.output,
+            analysis=task.analysis,
             op=op,
             provenance=provenance,
             key=op.key,
@@ -554,7 +560,7 @@ class OpManager:
             timestamps=task.timestamps,
         )
         result_logger.info(f'From {task} -> {result}: {result.provenance_str}')
-        result_logger.info(pformat(make_jsonable(result.to_dict())))
+        result_logger.info(pformat(make_jsonable(result.to_dict(include_outputs=True))))
         om = OpManager.get()
         # Store result by key
         if op.key in om._results:
@@ -598,7 +604,7 @@ class OpManager:
         self.results_db.update(to_update)
         self.results_db.sync()
 
-    def results_to_dict(self) -> dict[str, Any]:
+    def results_to_dict(self, **kw) -> dict[str, Any]:
         """Serialize all our results for logging/reporting.
 
         This calls `make_jsonable(result.to_dict())` on each Result.
@@ -607,7 +613,7 @@ class OpManager:
         - result_keys_by_type: mapping output_type -> list of keys
         """
         ret = dict(
-            results={key: make_jsonable(r.to_dict()) for key, r in self._results.items()},
+            results={key: make_jsonable(r.to_dict(**kw)) for key, r in self._results.items()},
             result_keys_by_type=self._results_by_type,
         )
         return ret
@@ -689,7 +695,7 @@ class Op(ABC):
         """
         return None
 
-    def execute(self, inputs: dict[str, Any]) -> tuple[Any, Exception|None]:
+    def execute(self, inputs: dict[str, Any]) -> tuple[Any, dict[str, Any]|Exception, Exception|None]:
         """Execute the operation with given inputs.
 
         - inputs: dict mapping type names to Result objects
@@ -698,7 +704,7 @@ class Op(ABC):
         is the exception if any occurred, else None.
         """
         task_logger.debug(f'Going to execute op {self.name} with inputs: {inputs}')
-        self.key = self.get_key(inputs)
+        self.key = self.get_key(inputs, variant=self.variant)
         try:
             # try to get the underlying output from the result objects
             op_inputs = {}
@@ -721,7 +727,14 @@ class Op(ABC):
             # print stack trace
             error_logger.exception(e)
             error = e
-        return output, error
+        try:
+            with PerfTracker.track(output=output, op_inputs=op_inputs) as tracker:
+                analysis = self.analyze_results(output, op_inputs)
+        except Exception as e:
+            error_logger.error(f'Op {self} analysis failed with {type(e)}: {e}')
+            error_logger.exception(e)
+            analysis = e
+        return output, analysis, error
 
     @classmethod
     def get_input_contracts(cls) -> dict[tuple[str, ...], dict[str, Any]]:
@@ -745,32 +758,12 @@ class Op(ABC):
         """
         raise NotImplementedError()
 
-    def old_get_key(self, inputs: dict[str, Result]) -> str:
-        """Generate key based on operation and inputs and full provenance.
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyzes `results` from executing this op with given `inputs`."""
+        return {}
 
-        This creates a hash of the operation name and input data (including provenance) to enable
-        caching of results and avoiding duplicate work.
-        """
-        # Create a deterministic string representation of inputs
-        input_items = []
-        for key in sorted(inputs.keys()):
-            value = inputs[key]
-            if isinstance(value, Result):
-                # use the provenance chain and key for Result objects
-                prov_str = "->".join(op.name for op in value.provenance)
-            else:
-                # For complex objects, use their string representation
-                if hasattr(value, '__dict__'):
-                    value_str = str(sorted(value.__dict__.items()))
-                else:
-                    value_str = str(value)
-                input_items.append(f"{key}:{value_str}")
-        input_str = "|".join(input_items)
-        combined = f"{self.name}_{self.variant}_{input_str}"
-        # Hash to keep keys manageable
-        return hashlib.md5(combined.encode()).hexdigest()
-
-    def get_key(self, inputs: dict[str, Result]) -> str:
+    @classmethod
+    def get_key(cls, inputs: dict[str, Result], variant:str|None=None) -> str:
         """Generate key based on operation and inputs (including full provenance)."""
         dict_v = lambda d: '&'.join(sorted(f'{k}={value_key(v)}' for k, v in sorted((str(k1), v1) for k1, v1 in d.items())))
         def value_key(v: Any) -> str:
@@ -786,7 +779,7 @@ class Op(ABC):
                 return str(v)
 
         input_str = dict_v(inputs)
-        combined = f"{self.name}_{self.variant}_{input_str}"
-        task_logger.info(f'{self} got key str: {combined}')
+        combined = f"{cls.name}_{variant}_{input_str}"
+        task_logger.info(f'{cls} got key str: {combined}')
         # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()
