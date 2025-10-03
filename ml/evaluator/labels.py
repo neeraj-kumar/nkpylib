@@ -8,31 +8,26 @@ from typing import Any, Union
 
 import numpy as np
 
-from nkpylib.ml.ml_types import NUMERIC_TYPES, FLOAT_TYPES, array1d, array2d, NumericT
+from nkpylib.ml.ml_types import NUMERIC_TYPES, FLOAT_TYPES, array1d, array2d, NumericT, nparray1d, nparray2d
 
 from numpy.typing import NDArray
 import numpy as np
-
-# More specific array types
-nparray1d = NDArray[np.floating]  # 1D array of floating point numbers
-nparray2d = NDArray[np.floating]  # 2D array of floating point numbers
 
 logger = logging.getLogger(__name__)
 labels_logger = logging.getLogger('evaluator.labels')
 
 # Type aliases used in this module
 DistTuple = tuple[str, str, float]
-AllDists = dict[str, Any]
 
 @dataclass
-class AllDistancesResult:
+class AllDistances:
     """Result from get_all_distances method."""
     sub_keys: list[str]
     label_distances: nparray2d
     sub_matrix: nparray2d
 
 @dataclass
-class LabelArraysResult:
+class LabelArrays:
     """Result from get_label_arrays method."""
     sub_keys: list[str]
     label_names: list[str]
@@ -65,7 +60,7 @@ class Labels(ABC):
         """
         raise NotImplementedError()
 
-    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDistancesResult:
+    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDistances:
         """Returns all pairwise distances between `n_pts` points.
 
         We try to sample at least `perc_close` points that are "close" according to the label type's
@@ -75,7 +70,7 @@ class Labels(ABC):
         It also computes distances one-by-one using `_get_distance()`. It passes all kw to
         `_get_distance()`.
 
-        Returns an `AllDistancesResult` with the following fields:
+        Returns an `AllDistances` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_distances` is a 2d np array of distances between the overlapping keys
           - Shape `(len(sub_keys), len(sub_keys))`
@@ -92,7 +87,7 @@ class Labels(ABC):
         dists = self.compute_all_distances(ids, **kw)
         assert len(sub_keys) == len(sub_matrix) == len(ids) == dists.shape[0] == dists.shape[1]
         assert sub_matrix.shape[1] == matrix.shape[1]
-        return AllDistancesResult(
+        return AllDistances(
             sub_keys=sub_keys,
             label_distances=dists,
             sub_matrix=sub_matrix,
@@ -168,7 +163,7 @@ class Labels(ABC):
         return id_indices_, sub_keys, sub_matrix
 
     @abstractmethod
-    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArraysResult:
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArrays:
         """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
         This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
@@ -176,7 +171,7 @@ class Labels(ABC):
         different transformations of our underlying data, but in any case they are given unique
         names.
 
-        It returns a `LabelArraysResult` with the following fields:
+        It returns a `LabelArrays` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
@@ -213,7 +208,7 @@ class NumericLabels(Labels):
         )
         super().__init__(tag_type, key, ids=ids, values=values)
 
-    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArraysResult:
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArrays:
         """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
         This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
@@ -221,7 +216,7 @@ class NumericLabels(Labels):
         different transformations of our underlying data, but in any case they are given unique
         names.
 
-        It returns a `LabelArraysResult` with the following fields:
+        It returns a `LabelArrays` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
@@ -236,7 +231,7 @@ class NumericLabels(Labels):
         assert len(label_arrays) == len(label_names)
         assert len(label_arrays[0]) == len(sub_keys) == len(sub_matrix)
         assert sub_matrix.shape[1] == matrix.shape[1]
-        return LabelArraysResult(
+        return LabelArrays(
             sub_keys=sub_keys,
             label_names=label_names,
             label_arrays=label_arrays,
@@ -318,8 +313,8 @@ class NumericLabels(Labels):
         n_remaining = n_pairs - len(pairs)
         if n_remaining > 0:
             # Generate all possible pairs, removing those we've done, and sample from them
-            poss = ((id1, id2) for i, id1 in enumerate(self.ids) for j, id2 in enumerate(self.ids) if i < j)
-            poss = [p for p in poss if frozenset(p) not in pairs]
+            poss_ = ((id1, id2) for i, id1 in enumerate(self.ids) for j, id2 in enumerate(self.ids) if i < j)
+            poss = [p for p in poss_ if frozenset(p) not in pairs]
             add_pairs(poss, n_remaining, is_indices=False)
         return self._pairs_to_list(pairs)
 
@@ -329,7 +324,7 @@ class MulticlassBase(Labels):
     def by_label(self) -> dict[Any, set[str]]:
         raise NotImplementedError()
 
-    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDistancesResult:
+    def get_all_distances(self, n_pts: int, keys: list[str], matrix: nparray2d, perc_close: float = -1, **kw) -> AllDistances:
         """Returns all pairwise distances between `n_pts` points.
 
         We try to sample at least `perc_close` points that are "close" according to the label type's
@@ -339,7 +334,7 @@ class MulticlassBase(Labels):
         get points which share at least one label in common, in rough proportion to the size of each
         label group.
 
-        Returns an `AllDistancesResult` with the following fields:
+        Returns an `AllDistances` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_distances` is a 2d np array of distances between the overlapping keys
           - Shape `(len(sub_keys), len(sub_keys))`
@@ -350,7 +345,7 @@ class MulticlassBase(Labels):
         valid_ids = [id for id in self.ids if id in keys]
         if n_pts > len(valid_ids):
             n_pts = len(valid_ids)
-        ids = set()
+        ids: set[str] = set()
         n_close = int(n_pts * perc_close)
         if n_close > 0:
             groups = {}
@@ -369,11 +364,11 @@ class MulticlassBase(Labels):
             remaining_ids = set(valid_ids) - ids
             ids.update(random.sample(sorted(remaining_ids), n_pts - len(ids)))
         # at this point we should have all our ids
-        ids = sorted(ids)
-        id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix, ids=ids)
-        labels_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
-        dists = self.compute_all_distances(ids, **kw)
-        return AllDistancesResult(
+        ids_ = sorted(ids)
+        id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix, ids=ids_)
+        labels_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids_[:10]}...')
+        dists = self.compute_all_distances(ids_, **kw)
+        return AllDistances(
             sub_keys=sub_keys,
             label_distances=dists,
             sub_matrix=sub_matrix,
@@ -407,22 +402,22 @@ class MulticlassBase(Labels):
         if n_close > 0:
             # First get close pairs by sampling within each label group (since they by definition
             # share at least one label in common)
-            cands = []
+            cands: list[tuple[str, str]] = []
             for ids in self.by_label().values():
-                ids = list(ids)
-                cands.extend((id1, id2) for idx, id1 in enumerate(ids) for id2 in ids[idx+1:])
+                ids_ = list(ids)
+                cands.extend((id1, id2) for idx, id1 in enumerate(ids_) for id2 in ids_[idx+1:])
             add_pairs(cands, n_close)
         # Fill remaining with random pairs
         n_remaining = n_pairs - len(pairs)
         if n_remaining > 0:
             # Generate all possible pairs, removing those we've done, and sample from them
             unique_ids = set(self.ids)
-            poss = ((id1, id2) for i, id1 in enumerate(unique_ids) for j, id2 in enumerate(unique_ids) if i < j)
-            poss = [p for p in poss if frozenset(p) not in pairs]
+            poss_ = ((id1, id2) for i, id1 in enumerate(unique_ids) for j, id2 in enumerate(unique_ids) if i < j)
+            poss = [p for p in poss_ if frozenset(p) not in pairs]
             add_pairs(poss, n_remaining)
         return self._pairs_to_list(pairs)
 
-    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArraysResult:
+    def get_label_arrays(self, keys: list[str], matrix: nparray2d) -> LabelArrays:
         """Returns a list of 1d arrays of numeric values using the given `keys` to filter down.
 
         This checks for overlap between the given `keys` and our `self.ids`, and returns 1 or more
@@ -430,7 +425,7 @@ class MulticlassBase(Labels):
         different transformations of our underlying data, but in any case they are given unique
         names.
 
-        It returns a `LabelArraysResult` with the following fields:
+        It returns a `LabelArrays` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
@@ -450,7 +445,7 @@ class MulticlassBase(Labels):
         assert len(label_arrays_np) == len(label_names)
         assert len(label_arrays_np[0]) == len(sub_keys) == len(sub_matrix)
         assert sub_matrix.shape[1] == matrix.shape[1]
-        return LabelArraysResult(
+        return LabelArrays(
             sub_keys=sub_keys,
             label_names=label_names,
             label_arrays=label_arrays_np,
@@ -493,16 +488,16 @@ class MultilabelLabels(MulticlassBase):
     This stores ids as a list and values as a dictionary mapping id -> list of labels.
     """
     def __init__(self, tag_type: str, key: str, ids_values: list[tuple[str, Any]]):
-        ids = set()
+        ids_ = set()
         values = defaultdict(list)
-        types = Counter()
+        types: Counter[type] = Counter()
         for id, v in ids_values:
-            ids.add(id)
+            ids_.add(id)
             values[id].append(v)
             types[type(v)] += 1
-        ids = sorted(ids)
+        ids = sorted(ids_)
         assert len(types) == 1
-        t = type(values[0])
+        t = type(values[0]) # type: ignore[index]
         assert t not in FLOAT_TYPES, f'Not floats in multilabel label: {types}'
         super().__init__(tag_type, key, ids=ids, values=dict(values))
 

@@ -134,14 +134,12 @@ from nkpylib.ml.ml_types import (
     FLOAT_TYPES,
     array1d,
     array2d,
+    nparray1d,
+    nparray2d,
     )
 
 from numpy.typing import NDArray
 import numpy as np
-
-# More specific array types
-nparray1d = NDArray[np.floating]  # 1D array of floating point numbers  
-nparray2d = NDArray[np.floating]  # 2D array of floating point numbers
 
 from nkpylib.ml.tag_db import Tag, get_all_tags, init_tag_db
 
@@ -750,8 +748,8 @@ class GetEmbeddingDimsOp(Op):
             dims = np.log1p(np.abs(dims))
         # "raw" needs no transformation
         return EmbeddingDimsData(
-            dims_matrix=dims, 
-            transform=self.transform, 
+            dims_matrix=dims,
+            transform=self.transform,
             label_key=label_data.label_key
         )
 
@@ -807,7 +805,7 @@ class GetEmbeddingDistancesOp(Op):
             distances = squareform(pdist(matrix, 'euclidean'))
         else:
             raise ValueError(f"Unknown metric: {self.metric}")
-        
+
         return EmbeddingDistancesData(
             label_key=label_data.label_key,
             metric=self.metric,
@@ -857,7 +855,7 @@ class GetNeighborsOp(Op):
         # Determine which type of distance matrix we're using
         data = inputs['distances']
         op_logger.info(f'Computing neighbors, got data type {type(data)}, k={self.k}')
-        
+
         if isinstance(data, LabelDistancesData):
             distances = data.label_distances
             keys = data.sub_keys
@@ -883,7 +881,7 @@ class GetNeighborsOp(Op):
         nn_cls = NearestNeighbors(n_neighbors=k, metric='precomputed')
         nn_cls.fit(distances)
         neighbor_dists, neighbor_indices = nn_cls.kneighbors(distances)
-        
+
         return NeighborsData(
             distance_type=distance_type,
             label_key=label_key,
@@ -975,7 +973,7 @@ class GenPredictionTasksOp(LabelOp):
                 bin_values = np.array([int(v in label.values.get(id, [])) for id in valid_ids])
                 if np.sum(bin_values) >= self.min_pos:
                     tasks[f'binarized-{v}'] = (bin_values, 'classification')
-        
+
         return PredictionTasksData(
             label_key=self.label_key,
             tasks=tasks,
@@ -1275,7 +1273,7 @@ class CompareNeighborsOp(Op):
                 metrics.setdefault(f"jaccard@{k}", []).append(jaccard)
         # Calculate averages
         avg_metrics = {k: sum(v) / len(v) if v else 0.0 for k, v in metrics.items()}
-        
+
         return NeighborComparison(
             label_key=neighbors_a.label_key,
             embedding_metric_a=neighbors_a.metric,
@@ -1367,18 +1365,18 @@ class CompareStatsOp(Op):
         assert arrays_a.ndim == 2
         assert arrays_b.ndim == 2
         assert arrays_a.shape[1] == arrays_b.shape[1], f'Arrays must have same number of columns, got {arrays_a.shape} vs {arrays_b.shape}'
-        
+
         stats_a = get_array1d_stats(arrays_a)
         stats_b = get_array1d_stats(arrays_b)
         comparisons = {}
-        
+
         # compare cartesian product of rows
         for i, a in enumerate(arrays_a):
             for j, b in enumerate(arrays_b):
                 comparisons[(i,j)] = compare_array1d_stats(
                     a, b, stats_a=stats_a[i], stats_b=stats_b[j]
                 )
-        
+
         return StatsComparison(
             stats_a=stats_a,
             stats_b=stats_b,

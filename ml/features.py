@@ -70,6 +70,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Mapping, MutableMapping
+from dataclasses import asdict, is_dataclass
 from os.path import dirname
 from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable, Type
 
@@ -91,6 +92,8 @@ class PrintableJSONEncoder(json.JSONEncoder):
     """A JSON encoder that takes every non-serializable object and converts it to a string."""
     def default(self, obj):
         """A non-serializable type is converted to a string."""
+        if is_dataclass(obj):
+            return asdict(obj)
         try:
             return super().default(obj)
         except TypeError:

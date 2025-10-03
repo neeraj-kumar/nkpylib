@@ -28,10 +28,10 @@ import time
 from abc import ABC, abstractmethod
 from collections import defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, Future, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, Field
 from itertools import product
 from pprint import pprint, pformat
-from typing import Any, Callable, Union
+from typing import Any, Callable, Protocol
 
 import numpy as np
 
@@ -47,9 +47,13 @@ perf_logger = logging.getLogger("evaluator.perf")
 result_logger = logging.getLogger("evaluator.results")
 error_logger = logging.getLogger("evaluator.errors")
 
+# Protocol for things that are like dataclasses
+class DataclassT(Protocol):
+    __dict__: dict[str, Any]
+
 
 # Type alias for Op results - can be a dict or any dataclass
-OpResult = Union[dict[str, Any], Any]
+OpResult = dict[str, Any]|DataclassT
 
 # Global manager instance that all Ops will register with
 _global_op_manager: 'OpManager'|None = None
