@@ -1223,12 +1223,6 @@ class CompareStatsOp(Op):
         elif 'label_distances' in inputs:
             arrays_a = inputs['label_distances']['label_distances']
             #iu = np.triu_indices(label_dists.shape[0], k=1); label_dists=label_dists #TODO?
-            if 0:
-                plots = self.make_plots(label_dists, m, a_name=f'Label dists for {key}', b_name=f'{k} dists for {key}') # type: ignore
-                # display each plot interactively
-                for name, plot in plots.items():
-                    plt.figure(plot.number)
-                    plt.show()
         else:
             raise NotImplementedError(f'Cannot handle inputs {inputs.keys()} for array A')
         if 'many_array1d_b' in inputs:

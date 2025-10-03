@@ -41,7 +41,7 @@ class Labels(ABC):
     def __repr__(self):
         return f'<{self.__class__.__name__} {self.tag_type} {self.key} ({len(self.ids)} labels)>'
 
-    def get_distance(self, idx1: int, idx2: int, **kw) -> float:
+    def _get_distance(self, idx1: int, idx2: int, **kw) -> float:
         """Returns distance between two id indices.
 
         This is implemented by subclasses to define their specific distance metric.
@@ -56,8 +56,8 @@ class Labels(ABC):
         definition of closeness. < 0 means we don't care about closeness (default).
 
         This is a naive implementation that ignores `perc_close` and just does random sampling.
-        It also computes distances one-by-one using `get_distance()`. It passes all kw to
-        `get_distance()`.
+        It also computes distances one-by-one using `_get_distance()`. It passes all kw to
+        `_get_distance()`.
 
         Returns a dict with the following fields:
         - `sub_keys` is the list of overlapping keys
@@ -71,7 +71,7 @@ class Labels(ABC):
         if n_pts > len(ids):
             n_pts = len(ids)
         ids = sorted(random.sample(ids, n_pts))
-        id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
+        id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix, ids=ids)
         labels_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
         assert len(sub_keys) == len(sub_matrix) == len(ids) == dists.shape[0] == dists.shape[1]
@@ -83,7 +83,7 @@ class Labels(ABC):
         )
 
     def compute_all_distances(self, ids: list[str], **kw) -> nparray2d:
-        """Computes all distances in `ids` using `get_distance(id1, id2, **kw)`."""
+        """Computes all distances in `ids` using `_get_distance(id1, id2, **kw)`."""
         n_pts = len(ids)
         dists = np.zeros((n_pts, n_pts), dtype=np.float32)
         for i, id1 in enumerate(ids):
@@ -91,7 +91,7 @@ class Labels(ABC):
             for j in range(i+1, n_pts):
                 id2 = ids[j]
                 idx2 = self.ids.index(id2)
-                dists[i, j] = dists[j, i] = dist = self.get_distance(idx1, idx2, **kw)
+                dists[i, j] = dists[j, i] = dist = self._get_distance(idx1, idx2, **kw)
         return dists
 
     @abstractmethod
@@ -109,7 +109,7 @@ class Labels(ABC):
         """
         raise NotImplementedError()
 
-    def get_matching_matrix(self, keys: list[str], matrix: nparray2d, ids: list[str]|None=None) -> tuple[nparray1d, list[str], nparray2d]:
+    def _get_matching_matrix(self, keys: list[str], matrix: nparray2d, ids: list[str]|None=None) -> tuple[nparray1d, list[str], nparray2d]:
         """Returns matching submatrix based on overlapping keys.
 
         This does a set intersection between our ids and the given `keys`, and returns a tuple of
@@ -214,7 +214,7 @@ class NumericLabels(Labels):
           - Shape `(len(sub_keys), matrix.shape[1])`
         """
         ret = dict(label_names=['value'])
-        id_indices, ret['sub_keys'], ret['sub_matrix'] = self.get_matching_matrix(keys, matrix)
+        id_indices, ret['sub_keys'], ret['sub_matrix'] = self._get_matching_matrix(keys, matrix)
         # convert the values into a 2d array with one row
         ret['label_arrays'] = self.values[id_indices].reshape((1, -1))
         assert len(ret['label_arrays']) == len(ret['label_names'])
@@ -222,7 +222,7 @@ class NumericLabels(Labels):
         assert ret['sub_matrix'].shape[1] == matrix.shape[1]
         return ret
 
-    def get_distance(self, idx1: int, idx2: int, norm_type: str='raw', **kw) -> float:
+    def _get_distance(self, idx1: int, idx2: int, norm_type: str='raw', **kw) -> float:
         """Returns distance between two id indices.
 
         You can specify `norm_type`:
@@ -349,7 +349,7 @@ class MulticlassBase(Labels):
             ids.update(random.sample(sorted(remaining_ids), n_pts - len(ids)))
         # at this point we should have all our ids
         ids = sorted(ids)
-        id_indices, sub_keys, sub_matrix = self.get_matching_matrix(keys, matrix, ids=ids)
+        id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix, ids=ids)
         labels_logger.debug(f'Sampled {n_pts} ids for all-pairs distance: {ids[:10]}...')
         dists = self.compute_all_distances(ids, **kw)
         return dict(
@@ -365,7 +365,7 @@ class MulticlassBase(Labels):
         the label type's definition of closeness.
 
         This implementation handles the pair generation and sampling strategy,
-        while subclasses implement get_distance() for their specific distance metric.
+        while subclasses implement _get_distance() for their specific distance metric.
         """
         # we store pairs as a frozenset pair of ids mapping to distance
         pairs: dict[frozenset[str], float] = {}
@@ -379,7 +379,7 @@ class MulticlassBase(Labels):
                     continue
                 spair = frozenset((id1, id2))
                 i1, i2 = self.ids.index(id1), self.ids.index(id2)
-                dist = self.get_distance(i1, i2)
+                dist = self._get_distance(i1, i2)
                 pairs[spair] = dist
 
         n_close = int(n_pairs * perc_close)
@@ -418,7 +418,7 @@ class MulticlassBase(Labels):
           - Shape `(len(sub_keys), matrix.shape[1])`
         """
         ret = dict(label_names=[])
-        id_indices, ret['sub_keys'], ret['sub_matrix'] = self.get_matching_matrix(keys, matrix)
+        id_indices, ret['sub_keys'], ret['sub_matrix'] = self._get_matching_matrix(keys, matrix)
         # For each specific label value, create +1/-1 array
         label_arrays = []
         for label_name, ids in self.by_label().items():
@@ -453,7 +453,7 @@ class MulticlassLabels(MulticlassBase):
             ret[v].add(id)
         return dict(ret)
 
-    def get_distance(self, idx1: int, idx2: int, **kw) -> float:
+    def _get_distance(self, idx1: int, idx2: int, **kw) -> float:
         """Returns distance between two id indices.
 
         Distance is 0 for same class, 1 for different class.
@@ -488,7 +488,7 @@ class MultilabelLabels(MulticlassBase):
                 ret[v].add(id)
         return dict(ret)
 
-    def get_distance(self, idx1: int, idx2: int, **kw) -> float:
+    def _get_distance(self, idx1: int, idx2: int, **kw) -> float:
         """Returns distance between two id indices.
 
         Distance is Jaccard distance: 1 - |intersection|/|union|.
