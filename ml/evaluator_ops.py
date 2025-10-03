@@ -388,7 +388,7 @@ class OpManager:
             task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
             self.add_task(task)
 
-    def create_tasks(self, result: Result|Exception) -> None:
+    def create_tasks(self, result: Result|Exception|None) -> None:
         """Create new work tasks to do based on a new result."""
         if isinstance(result, Exception) or result is None or not result.is_success:
             return
@@ -429,8 +429,8 @@ class OpManager:
                 # Count occurrences of each type in the input tuple to determine how to handle them
                 type_counts = Counter(input_tuple)
                 # Generate dict of inputs, properly handling multiple inputs of the same type
-                inputs = {}
-                type_indices = defaultdict(int)
+                inputs: dict[str, Any] = {}
+                type_indices: defaultdict[str, int] = defaultdict(int)
                 for t, r in zip(input_tuple, cur_results):
                     if type_counts[t] > 1: # appears multiple times, so it should be a list
                         if t not in inputs:
@@ -525,7 +525,7 @@ class OpManager:
         self.create_tasks(result)
 
     @staticmethod
-    def add_result_from_task(task: Task) -> Result:
+    def add_result_from_task(task: Task) -> Result|None:
         """Add a result from a completed `task`.
 
         This creates a `Result` object with full provenance and stores it in our results index. It
@@ -729,7 +729,7 @@ class Op(ABC):
             error = e
         try:
             with PerfTracker.track(output=output, op_inputs=op_inputs) as tracker:
-                analysis = self.analyze_results(output, op_inputs)
+                analysis: dict[str, Any]|Exception = self.analyze_results(output, op_inputs)
         except Exception as e:
             error_logger.error(f'Op {self} analysis failed with {type(e)}: {e}')
             error_logger.exception(e)
