@@ -257,12 +257,37 @@ class BaseSearcher(ABC):
         dict, so you can return whatever you want. It will be available to the client as `ret` in the
         returned response.
         """
+        return asyncio.run(self.async_search(q=q, req=req, **kw))
+
+    async def async_search(self, q: str, req: RequestHandler, **kw: Any) -> dict[str, object]:
+        """Async Search wrapper which takes the query and request and returns results.
+
+        This calls _search() for the underlying implementation.
+
+        This method does the following:
+        - store the request object in `self.req`
+        - create an empty list in the req called `msgs`
+          - you can add to this using `self.add_msg()`
+        - parse the `q` string using `self.parse()`
+        - call `self._search()` with the parsed query and any other `kw` args
+        - logs the query and results, and some metadata.
+        - collect some basic timings
+        - returns a dict with q, parsed, ret, msgs, and times.
+
+        A common pattern in your subclass is to call this method using super().search() and then
+        do other post-processing. You can also update the `times` and `msgs` fields in the returned
+        dict if you want to add more info.
+
+        Note that there is no expectation of what the results should look like, other than being a
+        dict, so you can return whatever you want. It will be available to the client as `ret` in the
+        returned response.
+        """
         t0 = time.time()
         self.req = req
         self.req.msgs = [] # type: ignore
         parsed = self.parse(q)
         t1 = time.time()
-        ret = self._search(q=q, parsed=parsed, **kw)
+        ret = await self._search(q=q, parsed=parsed, **kw)
         t2 = time.time()
         times = dict(parse=t1-t0, search=t2-t1, total=t2-t0)
         self.log(q=q, parsed=parsed, ret=ret, times=times, **kw)
@@ -276,7 +301,7 @@ class BaseSearcher(ABC):
         return q.strip()
 
     @abstractmethod
-    def _search(self, q: str, parsed: object, **kw: Any) -> dict[str, object]:
+    async def _search(self, q: str, parsed: object, **kw: Any) -> dict[str, object]:
         """Takes a search query `q` and the `parsed` version, and returns a dict of results.
 
         You can also pass in any other `kw` args.
@@ -413,7 +438,7 @@ class LLMSearcher(BaseSearcher):
         """
         ...
 
-    def _search(self, q: str, parsed: object, **kw: Any) -> dict[str, object]:
+    async def _search(self, q: str, parsed: object, **kw: Any) -> dict[str, object]:
         """Runs the search using whichever searcher was used in `parse()`.
 
         Note that because we're generating multiple queries, we run many searches in parallel using
@@ -426,6 +451,7 @@ class LLMSearcher(BaseSearcher):
         # wait for all the futures to finish
         results = []
         for future in futures:
+            asyncio.sleep(0)
             try:
                 result = future.result()
                 results.append(result)
@@ -451,12 +477,28 @@ def run_search(q: str,
     It then calls the `search()` method on the chosen searcher with the `q` (with prefix removed)
     and any other `kw` args.
     """
+    return asyncio.run(async_run_search(q, searchers, **kw))
+
+async def async_run_search(q: str,
+               searchers: list[tuple[str, Callable[[], BaseSearcher]]],
+               **kw: Any) -> dict[str, object]:
+    """Generic search handler that can flexibly switch between different searchers.
+
+    This takes the `q` to run and then checks for certain prefixes to determine which searcher to
+    use. This mapping is specified in the `searchers` list, which is a list of tuples where the
+    first element is the prefix and the second element is a callable which evaluates to a
+    searcher instance.
+
+    It then calls the `search()` method on the chosen searcher with the `q` (with prefix removed)
+    and any other `kw` args.
+    """
     for prefix, make_searcher in searchers:
         if q.startswith(prefix):
             searcher = make_searcher()
             q = q[len(prefix):]
             break
-    return searcher.search(q=q, **kw)
+    return await searcher.async_search(q=q, **kw)
+
 
 class BaseHandler(RequestHandler):
     """A base tornado handler that sets up some common functionality.
