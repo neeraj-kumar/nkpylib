@@ -87,6 +87,7 @@ from collections.abc import Mapping
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+from enum import Enum
 from itertools import product
 from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint, pformat
@@ -179,6 +180,46 @@ PTask = tuple[PTaskData, PTaskType]
 
 # Define the tasks dictionary type
 PTasks = dict[str, PTask]
+
+class ClusteringAlgorithm(Enum):
+    """Enumeration of available clustering algorithms."""
+    MINIBATCH_KMEANS = "minibatch_kmeans"
+    DBSCAN = "dbscan"
+    AGGLOMERATIVE = "agglomerative"
+    AFFINITY_PROPAGATION = "affinity_propagation"
+    
+    @property
+    def is_distance_based(self) -> bool:
+        """Returns True if this algorithm requires distance matrices."""
+        return self in {self.AGGLOMERATIVE, self.AFFINITY_PROPAGATION}
+    
+    @property
+    def is_embedding_based(self) -> bool:
+        """Returns True if this algorithm works on raw embeddings."""
+        return self in {self.MINIBATCH_KMEANS, self.DBSCAN}
+
+class PredictionAlgorithm(Enum):
+    """Enumeration of available prediction algorithms."""
+    # Regression algorithms
+    RIDGE = "ridge"
+    RBF_SVR = "rbf_svr"
+    LINEAR_SVR = "linear_svr"
+    KNN_REG = "knn_reg"
+    
+    # Classification algorithms
+    RBF_SVM = "rbf_svm"
+    LINEAR_SVM = "linear_svm"
+    KNN_CLS = "knn_cls"
+    
+    @property
+    def is_regression(self) -> bool:
+        """Returns True if this is a regression algorithm."""
+        return self in {self.RIDGE, self.RBF_SVR, self.LINEAR_SVR, self.KNN_REG}
+    
+    @property
+    def is_classification(self) -> bool:
+        """Returns True if this is a classification algorithm."""
+        return self in {self.RBF_SVM, self.LINEAR_SVM, self.KNN_CLS}
 
 @dataclass
 class DimensionCheckResult:
@@ -1049,16 +1090,16 @@ class RunPredictionOp(Op):
         for task_name, (_, task_type) in tasks.items():
             if task_type == 'regression':
                 models = {
-                    "ridge": {"model_type": "ridge"},
-                    "rbf_svr": {"model_type": "rbf_svr"},
-                    "linear_svr": {"model_type": "linear_svr"},
-                    "knn_reg": {"model_type": "knn_reg"}
+                    "ridge": {"model_type": PredictionAlgorithm.RIDGE},
+                    "rbf_svr": {"model_type": PredictionAlgorithm.RBF_SVR},
+                    "linear_svr": {"model_type": PredictionAlgorithm.LINEAR_SVR},
+                    "knn_reg": {"model_type": PredictionAlgorithm.KNN_REG}
                 }
             else:  # classification
                 models = {
-                    "rbf_svm": {"model_type": "rbf_svm"},
-                    "linear_svm": {"model_type": "linear_svm"},
-                    "knn_cls": {"model_type": "knn_cls"}
+                    "rbf_svm": {"model_type": PredictionAlgorithm.RBF_SVM},
+                    "linear_svm": {"model_type": PredictionAlgorithm.LINEAR_SVM},
+                    "knn_cls": {"model_type": PredictionAlgorithm.KNN_CLS}
                 }
 
             for model_name, model_params in models.items():
@@ -1070,7 +1111,7 @@ class RunPredictionOp(Op):
 
         return variants
 
-    def __init__(self, task_name: str, model_type: str, n_splits: int = 4, **kw):
+    def __init__(self, task_name: str, model_type: PredictionAlgorithm, n_splits: int = 4, **kw):
         """Initialize with task and model parameters.
 
         - `task_name`: The specific task to run
@@ -1085,19 +1126,19 @@ class RunPredictionOp(Op):
     def _get_model(self):
         """Get the appropriate model based on model_type."""
         match self.model_type:
-            case "ridge":
+            case PredictionAlgorithm.RIDGE:
                 return Ridge(alpha=1.0)
-            case "rbf_svr":
+            case PredictionAlgorithm.RBF_SVR:
                 return SVR(kernel='rbf', C=1.0, epsilon=0.1)
-            case "linear_svr":
+            case PredictionAlgorithm.LINEAR_SVR:
                 return LinearSVR(C=1.0, epsilon=0.1, dual='auto')
-            case "knn_reg":
+            case PredictionAlgorithm.KNN_REG:
                 return KNeighborsRegressor(n_neighbors=10)
-            case "rbf_svm":
+            case PredictionAlgorithm.RBF_SVM:
                 return SVC(kernel='rbf', C=1.0, probability=True)
-            case "linear_svm":
+            case PredictionAlgorithm.LINEAR_SVM:
                 return LinearSVC(C=1.0, max_iter=200, dual='auto')
-            case "knn_cls":
+            case PredictionAlgorithm.KNN_CLS:
                 return KNeighborsClassifier(n_neighbors=10)
             case _:
                 raise ValueError(f"Unknown model type: {self.model_type}")
@@ -1113,7 +1154,7 @@ class RunPredictionOp(Op):
 
         # Get appropriate model and cross-validation strategy
         model = self._get_model()
-        is_regression = task_type == 'regression'
+        is_regression = self.model_type.is_regression
         cv_cls = KFold if is_regression else StratifiedKFold
         cv = cv_cls(n_splits=self.n_splits, shuffle=True, random_state=42)
 
@@ -1155,7 +1196,7 @@ class RunPredictionOp(Op):
         return PredictionResult(
             label_key=label_key,
             task_name=self.task_name,
-            model_name=self.model_type,
+            model_name=self.model_type.value,
             score=float(score),
             score_type=score_type,
             n_classes=n_classes,
@@ -1514,25 +1555,25 @@ class RunClusteringOp(Op):
         # Algorithms that work on raw embeddings
         if "normalized_embeddings" in inputs:
             embedding_algorithms = {
-                "dbscan_0.3": {"algorithm": "dbscan", "eps": 0.3, "min_samples": 5},
-                "dbscan_0.5": {"algorithm": "dbscan", "eps": 0.5, "min_samples": 5},
+                "dbscan_0.3": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.3, "min_samples": 5},
+                "dbscan_0.5": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.5, "min_samples": 5},
             }
             for k in cluster_sizes:
-                embedding_algorithms[f'kmeans_{k}'] = {"algorithm": "minibatch_kmeans", "n_clusters": k}
+                embedding_algorithms[f'kmeans_{k}'] = {"algorithm": ClusteringAlgorithm.MINIBATCH_KMEANS, "n_clusters": k}
             variants.update(embedding_algorithms)
 
         # Algorithms that work on distance matrices
         if "distances" in inputs:
             distance_algorithms = {
-                "affinity_prop": {"algorithm": "affinity_propagation"},
+                "affinity_prop": {"algorithm": ClusteringAlgorithm.AFFINITY_PROPAGATION},
             }
             for k in cluster_sizes:
-                distance_algorithms[f"agglomerative_{k}"] = {"algorithm": "agglomerative", "n_clusters": k}
+                distance_algorithms[f"agglomerative_{k}"] = {"algorithm": ClusteringAlgorithm.AGGLOMERATIVE, "n_clusters": k}
             variants.update(distance_algorithms)
 
         return variants if variants else None
 
-    def __init__(self, algorithm: str, **params):
+    def __init__(self, algorithm: ClusteringAlgorithm, **params):
         self.algorithm = algorithm
         self.params = params
         super().__init__()
@@ -1540,13 +1581,13 @@ class RunClusteringOp(Op):
     def _get_clusterer(self):
         """Get the appropriate clustering algorithm."""
         match self.algorithm:
-            case "minibatch_kmeans":
+            case ClusteringAlgorithm.MINIBATCH_KMEANS:
                 return MiniBatchKMeans(n_clusters=self.params["n_clusters"], random_state=42)
-            case "dbscan":
+            case ClusteringAlgorithm.DBSCAN:
                 return DBSCAN(eps=self.params["eps"], min_samples=self.params.get("min_samples", 5))
-            case "agglomerative":
+            case ClusteringAlgorithm.AGGLOMERATIVE:
                 return AgglomerativeClustering(n_clusters=self.params["n_clusters"], metric='precomputed', linkage='average')
-            case "affinity_propagation":
+            case ClusteringAlgorithm.AFFINITY_PROPAGATION:
                 return AffinityPropagation(affinity='precomputed', random_state=42)
             case _:
                 raise ValueError(f"Unknown clustering algorithm: {self.algorithm}")
@@ -1555,7 +1596,7 @@ class RunClusteringOp(Op):
         clusterer = self._get_clusterer()
 
         # Determine input data based on algorithm requirements
-        if self.algorithm in ["minibatch_kmeans", "dbscan"]:
+        if self.algorithm.is_embedding_based:
             # Use normalized embeddings
             norm_emb = inputs["normalized_embeddings"]
             data = norm_emb.embeddings
@@ -1572,7 +1613,7 @@ class RunClusteringOp(Op):
             else:
                 raise ValueError(f"Unknown distances data type: {type(distances_data)}")
 
-        op_logger.info(f'Running {self.algorithm} clustering on {data.shape} data')
+        op_logger.info(f'Running {self.algorithm.value} clustering on {data.shape} data')
 
         # Fit the clustering algorithm
         cluster_labels = clusterer.fit_predict(data)
@@ -1583,7 +1624,7 @@ class RunClusteringOp(Op):
         inertia = getattr(clusterer, 'inertia_', None)
 
         return ClusteringResult(
-            algorithm=self.algorithm,
+            algorithm=self.algorithm.value,
             labels=cluster_labels,
             n_clusters=n_clusters,
             centroids=centroids,
@@ -1595,7 +1636,7 @@ class RunClusteringOp(Op):
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyze clustering results and compute quality metrics."""
         # Get the data that was clustered
-        if self.algorithm in ["minibatch_kmeans", "dbscan"]:
+        if self.algorithm.is_embedding_based:
             data = inputs["normalized_embeddings"].embeddings
         else:
             distances_data = inputs["distances"]
@@ -1612,7 +1653,7 @@ class RunClusteringOp(Op):
         unique_labels, counts = np.unique(cluster_labels[cluster_labels >= 0], return_counts=True)
         cluster_sizes = dict(zip(unique_labels.tolist(), counts.tolist()))
         analysis = {
-            "algorithm": self.algorithm,
+            "algorithm": self.algorithm.value,
             "n_clusters": n_clusters,
             "n_noise_points": int(n_noise),
             "cluster_sizes": cluster_sizes,
@@ -1624,7 +1665,7 @@ class RunClusteringOp(Op):
         if n_clusters > 1 and data is not None and len(cluster_labels[cluster_labels >= 0]) > 1:
             try:
                 # For distance-based algorithms, we need to handle precomputed distances
-                if self.algorithm in ["agglomerative", "affinity_propagation"]:
+                if self.algorithm.is_distance_based:
                     # Convert distance matrix to similarity for silhouette score
                     # Use negative distances as similarities (closer = higher similarity)
                     similarities = -data
@@ -1648,16 +1689,16 @@ class RunClusteringOp(Op):
         if n_clusters == 1:
             analysis["warnings"].append({
                 "unit": "clustering",
-                "algorithm": self.algorithm,
+                "algorithm": self.algorithm.value,
                 "issue": "single_cluster",
                 "score": 1,
-                "warning": f"Clustering produced only 1 cluster with {self.algorithm}"
+                "warning": f"Clustering produced only 1 cluster with {self.algorithm.value}"
             })
 
         if n_noise > len(cluster_labels) * 0.5:  # More than 50% noise
             analysis["warnings"].append({
                 "unit": "clustering",
-                "algorithm": self.algorithm,
+                "algorithm": self.algorithm.value,
                 "issue": "high_noise",
                 "noise_ratio": n_noise / len(cluster_labels),
                 "score": 2,
@@ -1670,7 +1711,7 @@ class RunClusteringOp(Op):
             if imbalance_ratio > 10:
                 analysis["warnings"].append({
                     "unit": "clustering",
-                    "algorithm": self.algorithm,
+                    "algorithm": self.algorithm.value,
                     "issue": "imbalanced_clusters",
                     "imbalance_ratio": float(imbalance_ratio),
                     "score": 1,
@@ -1681,7 +1722,7 @@ class RunClusteringOp(Op):
         if "silhouette_score" in analysis and analysis["silhouette_score"] > 0.7:
             analysis["warnings"].append({
                 "unit": "clustering",
-                "algorithm": self.algorithm,
+                "algorithm": self.algorithm.value,
                 "metric": "silhouette_score",
                 "value": analysis["silhouette_score"],
                 "score": 3,
