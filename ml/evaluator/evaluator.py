@@ -842,10 +842,10 @@ class GetEmbeddingDistancesOp(Op):
         """Analyzes `results` from executing this op with given `inputs`."""
         return dict(
             variant=self.variant,
-            label_key=results.get('label_key'),
-            metric=results.get('metric'),
-            n_sub_keys=len(results.get('sub_keys', [])),
-            distances_shape=results.get('distances', []).shape if 'distances' in results else None,
+            label_key=results.label_key,
+            metric=results.metric,
+            n_sub_keys=len(results.sub_keys),
+            distances_shape=results.embedding_distances.shape,
         )
 
 
@@ -920,12 +920,12 @@ class GetNeighborsOp(Op):
         """Analyzes `results` from executing this op with given `inputs`."""
         return dict(
             variant=self.variant,
-            distance_type=results.get('distance_type'),
-            label_key=results.get('label_key'),
-            metric=results.get('metric'),
-            n_keys=len(results.get('keys', [])),
-            neighbors_shape=results.get('neighbors', []).shape if 'neighbors' in results else None,
-            distances_shape=results.get('distances', []).shape if 'distances' in results else None,
+            distance_type=results.distance_type,
+            label_key=results.label_key,
+            metric=results.metric,
+            n_keys=len(results.keys),
+            neighbors_shape=results.neighbors.shape,
+            distances_shape=results.distances.shape,
         )
 
 
@@ -1010,11 +1010,11 @@ class GenPredictionTasksOp(LabelOp):
         """Analyzes `results` from executing this op with given `inputs`."""
         return dict(
             variant=self.variant,
-            label_key=results.get('label_key'),
-            n_tasks=len(results.get('tasks', {})),
-            n_sub_keys=len(results.get('sub_keys', [])),
-            sub_matrix_shape=results.get('sub_matrix', []).shape if 'sub_matrix' in results else None,
-            task_counts={k: v[1] for k, v in results.get('tasks', {}).items()},
+            label_key=results.label_key,
+            n_tasks=len(results.tasks),
+            n_sub_keys=len(results.sub_keys),
+            sub_matrix_shape=results.sub_matrix.shape,
+            task_counts={k: v[1] for k, v in results.tasks.items()},
         )
 
 
@@ -1170,12 +1170,12 @@ class RunPredictionOp(Op):
         generates appropriate warnings for high-performing models.
         """
         # Extract key information from results
-        score = results.get("score", 0.0)
-        score_type = results.get("score_type", "")
-        label_key = results.get("label_key", "")
-        task_name = results.get("task_name", "")
-        model_name = results.get("model_name", "")
-        n_classes = results.get("n_classes")
+        score = results.score
+        score_type = results.score_type
+        label_key = results.label_key
+        task_name = results.task_name
+        model_name = results.model_name
+        n_classes = results.n_classes
 
         # Create analysis dict
         analysis = {
@@ -1316,10 +1316,10 @@ class CompareNeighborsOp(Op):
         threshold = 0.5  # Threshold for highlighting high similarity metrics
 
         # Extract key metrics
-        metrics = results.get("metrics", {})
-        label_key = results.get("label_key", "")
-        embedding_metric_a = results.get("embedding_metric_a", "")
-        embedding_metric_b = results.get("embedding_metric_b", "")
+        metrics = results.metrics
+        label_key = results.label_key
+        embedding_metric_a = results.embedding_metric_a
+        embedding_metric_b = results.embedding_metric_b
 
         # Create analysis dict
         analysis = {
@@ -1417,7 +1417,7 @@ class CompareStatsOp(Op):
         Checks for high correlations, significant differences, and other statistical patterns
         between the compared arrays.
         """
-        comparisons = results.get('comparisons', {})
+        comparisons = results.comparisons
         if not comparisons:
             return dict(warnings=[])
 
