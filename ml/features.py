@@ -129,13 +129,39 @@ class PrintableJSONEncoder(json.JSONEncoder):
         return super().encode(obj)
 
 
-def make_jsonable(obj: Any) -> Any:
+def recursive_json(o: Any) -> Any:
+    """Recursively convert strings that are JSON to objects"""
+    def try_json(v: str) -> Any:
+        try:
+            return json.loads(v)
+        except Exception:
+            return v
+    if isinstance(o, dict):
+        return {k: recursive_json(v) for k, v in o.items()}
+    elif isinstance(o, list):
+        return [recursive_json(v) for v in o]
+    elif isinstance(o, str):
+        return try_json(o)
+    else:
+        return o
+
+def make_jsonable(obj: Any, **kw) -> Any:
     """Convert an object to a JSON-serializable form.
 
     This uses the `PrintableJSONEncoder` to convert any non-serializable objects to strings. It
     will first serialize to JSON string and then parse back to a Python object.
     """
-    return json.loads(json.dumps(obj, cls=PrintableJSONEncoder))
+    # first try a direct json.dumps
+    try:
+        json.dumps(obj)
+        ret = obj
+    except Exception:
+        pass
+    # now do it via our encoder
+    ret = json.loads(json.dumps(obj, cls=PrintableJSONEncoder, **kw))
+    # recursively convert strings that are JSON to objects
+    return recursive_json(ret)
+
 
 class Template(Mapping):
     """Base class for feature templates that hold shared parameters."""
