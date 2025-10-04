@@ -680,11 +680,11 @@ class GetLabelArraysOp(LabelOp):
         """Analyzes `results` from executing this op with given `inputs`."""
         return dict(
             variant=self.variant,
-            label_key=results.get('label_key'),
-            n_sub_keys=len(results.get('sub_keys', [])),
-            n_label_names=len(results.get('label_names', [])),
-            label_array_shape=results.get('label_arrays', []).shape if 'label_arrays' in results else None,
-            sub_matrix_shape=results.get('sub_matrix', []).shape if 'sub_matrix' in results else None,
+            label_key=results.label_key,
+            n_sub_keys=len(results.sub_keys),
+            n_label_names=len(results.label_names),
+            label_array_shape=results.label_arrays.shape,
+            sub_matrix_shape=results.sub_matrix.shape,
         )
 
 class GetLabelDistancesOp(LabelOp):
@@ -783,8 +783,8 @@ class GetEmbeddingDimsOp(Op):
         return dict(
             variant=self.variant,
             label_key=results.label_key,
-            dims_shape=results.get('dims_matrix', []).shape if 'dims_matrix' in results else None,
-            transform=results.get('transform'),
+            dims_shape=results.dims_matrix.shape,
+            transform=results.transform,
         )
 
 
