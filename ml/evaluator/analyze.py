@@ -79,19 +79,19 @@ def analyze_op_dependencies():
     """Analyze which ops can run based on input/output type matching."""
     from nkpylib.ml.evaluator.evaluator_ops import find_subclasses, Op
     from collections import defaultdict
-    
+
     # Get all enabled op classes
     op_classes = [cls for cls in find_subclasses(Op) if cls.enabled]
-    
+
     # Build dependency graph
     producers = defaultdict(list)  # output_type -> [op_classes]
     consumers = defaultdict(list)  # input_type -> [op_classes]
-    
+
     for op_cls in op_classes:
         # Handle output types
         for output_type in op_cls.output_types:
             producers[output_type].append(op_cls)
-        
+
         # Handle input types (both set and contract formats)
         if isinstance(op_cls.input_types, set):
             for input_type in op_cls.input_types:
@@ -100,26 +100,26 @@ def analyze_op_dependencies():
             for input_tuple in op_cls.input_types.keys():
                 for input_type in input_tuple:
                     consumers[input_type].append(op_cls)
-    
+
     return producers, consumers, op_classes
 
 def print_dependency_analysis():
     """Print analysis of op dependencies."""
     producers, consumers, op_classes = analyze_op_dependencies()
-    
+
     print("=== PRODUCERS (what each type is produced by) ===")
     for output_type, ops in sorted(producers.items()):
         print(f"{output_type}: {[op.name for op in ops]}")
-    
+
     print("\n=== CONSUMERS (what each type is consumed by) ===")
     for input_type, ops in sorted(consumers.items()):
         print(f"{input_type}: {[op.name for op in ops]}")
-    
+
     print("\n=== ORPHANED TYPES (produced but not consumed) ===")
     orphaned = set(producers.keys()) - set(consumers.keys())
     for output_type in sorted(orphaned):
         print(f"{output_type}: produced by {[op.name for op in producers[output_type]]}")
-    
+
     print("\n=== MISSING TYPES (consumed but not produced) ===")
     missing = set(consumers.keys()) - set(producers.keys())
     for input_type in sorted(missing):
@@ -127,12 +127,12 @@ def print_dependency_analysis():
 
 def simulate_execution_path(starting_inputs: set[str]):
     """Simulate which ops could run given starting input types."""
-    
+
     producers, consumers, op_classes = analyze_op_dependencies()
-    
+
     available_types = set(starting_inputs)
     runnable_ops = []
-    
+
     # Keep adding ops until no more can run
     changed = True
     iteration = 0
@@ -141,14 +141,14 @@ def simulate_execution_path(starting_inputs: set[str]):
         iteration += 1
         print(f"\n--- Iteration {iteration} ---")
         print(f"Available types: {sorted(available_types)}")
-        
+
         for op_cls in op_classes:
             if op_cls in [op.__class__ for op in runnable_ops]:
                 continue  # Already added
-            
+
             # Check if this op can run
             can_run = False
-            
+
             if isinstance(op_cls.input_types, set):
                 # Simple set format - need all input types
                 if op_cls.input_types.issubset(available_types):
@@ -159,21 +159,21 @@ def simulate_execution_path(starting_inputs: set[str]):
                     if set(input_tuple).issubset(available_types):
                         can_run = True
                         break
-            
+
             if can_run:
                 runnable_ops.append(op_cls)
                 available_types.update(op_cls.output_types)
                 changed = True
                 print(f"  Can run: {op_cls.name} -> produces {sorted(op_cls.output_types)}")
-    
+
     return runnable_ops
 
 def analyze_contracts():
     """Analyze complex input contracts."""
     from nkpylib.ml.evaluator.evaluator_ops import find_subclasses, Op
-    
+
     op_classes = [cls for cls in find_subclasses(Op) if cls.enabled]
-    
+
     print("=== COMPLEX CONTRACTS ===")
     for op_cls in op_classes:
         if isinstance(op_cls.input_types, dict):
@@ -184,22 +184,22 @@ def analyze_contracts():
 
 def full_dependency_analysis():
     """Complete analysis of op dependencies."""
-    
+
     print("=== OP DEPENDENCY ANALYSIS ===\n")
-    
+
     # Basic analysis
     print_dependency_analysis()
-    
+
     print("\n" + "="*50)
-    
-    # Contract analysis  
+
+    # Contract analysis
     analyze_contracts()
-    
+
     print("\n" + "="*50)
-    
+
     # Execution simulation
-    print("=== SIMULATION STARTING WITH argparse ===")
-    runnable = simulate_execution_path({"argparse"})
+    print("=== SIMULATION STARTING ===")
+    runnable = simulate_execution_path({"start_validator"})
     print(f"\nTotal runnable ops: {len(runnable)}")
     print("Runnable ops in order:", [op.name for op in runnable])
 
@@ -211,7 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--result_path', type=str, help='Path to the results JsonLMDB database [default latest]')
     parser.add_argument('--starting_inputs', type=str, nargs='*', default=['argparse'], help='Starting input types for simulation')
     args = parser.parse_args()
-    
+
     if args.func in ['explore_results']:
         if not args.result_path:
             args.result_path = get_latest_result_path()

@@ -86,8 +86,18 @@ class Result:
     provenance: list['Result']  # List of previous Result objects
     key: str
     variant: str|None = None
+    instance_vars: dict[str, Any]|None = None # instance vars at time of op creation
     timestamps: dict[str, float] = field(default_factory=dict) # status -> timestamp
     error: Exception|None = None
+
+    def __post_init__(self) -> None:
+        """Fill in instance_vars if not provided."""
+        if self.instance_vars is None:
+            # skip OpManger, Field, TaskManager, and callables
+            pred = lambda k, v: k not in ('op_manager',) and not isinstance(v, (OpManager, Field, TaskPool)) and not callable(v)
+            self.instance_vars = {k: v for k, v in vars(self.op).items() if pred(k, v)}
+            # also include class variables
+            self.instance_vars.update({k: v for k, v in vars(self.op.__class__).items() if pred(k, v)})
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Result):
@@ -125,7 +135,8 @@ class Result:
     def provenance_str(self) -> str:
         """Human-readable provenance chain."""
         def per_op(r: Result) -> str:
-            return f"{r.op.name}:{r.variant}" if r.variant else r.op.name
+            op = r if isinstance(r, Op) else r.op
+            return f"{op.name}:{r.variant}" if r.variant else op.name
         return " -> ".join(per_op(r) for r in self.provenance) + (f" -> {per_op(self.op)}")
 
     @property
@@ -145,6 +156,7 @@ class Result:
         """
         return {
             "op_name": self.op.name,
+            "instance_vars": self.instance_vars,
             "is_success": self.is_success,
             "error": self.error,
             "variant": self.variant,
@@ -387,7 +399,7 @@ class OpManager:
             else:
                 _inputs[k] = v.output if isinstance(v, Result) else v
         variants = op_cls.get_variants(_inputs)
-        if variants is None:
+        if not variants:
             variants = {'': {}}
         for name, kwargs in variants.items():
             key = op_cls.get_key(inputs=inputs, variant=name)
@@ -583,9 +595,9 @@ class OpManager:
         result_logger.info(pformat(make_jsonable(result.to_dict(include_outputs=True))))
         om = OpManager.get()
         # Store result by key
-        if op.key in om._results:
+        while op.key in om._results:
             error_logger.warning(f'Duplicate result key {op.key} for {op}, previous: {om._results[op.key]}')
-            return None
+            op.key += '_d'
         om._results[op.key] = result
         # Store key under all output types
         for output_type in op.output_types:

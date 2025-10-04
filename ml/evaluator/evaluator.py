@@ -1253,7 +1253,6 @@ class CompareNeighborsOp(Op):
     - `metrics`: Dict of metrics computed (recall@K, MRR@K, jaccard@K for different K values)
     - `per_item_metrics`: Optional detailed metrics for each item
     """
-    enabled = False  # Disabled for now
     name = "compare_neighbors"
     input_types = {
         ("neighbors_data", "neighbors_data"): {
@@ -1398,7 +1397,6 @@ class CompareStatsOp(Op):
     - comparisons: dict mapping (i,j) to comparison stats between row i of A and row j of B
     - n_comparisons: total number of comparisons made
     """
-    enabled = False  # Disabled for now
     name = "compare_stats"
     input_types = {
         ('many_array1d_a', 'many_array1d_b'): {},
