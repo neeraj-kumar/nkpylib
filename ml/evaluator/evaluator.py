@@ -1736,7 +1736,11 @@ class ClusterLabelAnalysisOp(Op):
     like adjusted rand index and normalized mutual information.
     """
     name = "cluster_label_analysis"
-    input_types = {"clustering_results", "label_arrays_data"}
+    input_types = {
+        ("clustering_results", "label_arrays_data"): {
+            "consistency_fields": ["label_key"]
+        }
+    }
     output_types = {"cluster_label_analysis"}
 
     @classmethod
