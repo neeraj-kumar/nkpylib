@@ -103,7 +103,7 @@ from scipy.spatial.distance import pdist, squareform # type: ignore
 from scipy.special import kl_div
 from sklearn.exceptions import ConvergenceWarning # type: ignore
 from sklearn.base import BaseEstimator # type: ignore
-from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans, DBSCAN # type: ignore
+from sklearn.cluster import AffinityPropagation, AgglomerativeClustering, MiniBatchKMeans, DBSCAN # type: ignore
 from sklearn.decomposition import PCA # type: ignore
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # type: ignore
 from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
@@ -734,8 +734,8 @@ class GetLabelDistancesOp(LabelOp):
             variant=self.variant,
             label_key=results.label_key,
             n_sub_keys=len(results.sub_keys or []),
-            label_distances_shape=results.label_distances.shape if 'label_distances' in results else None,
-            sub_matrix_shape=results.sub_matrix.shape if 'sub_matrix' in results else None,
+            label_distances_shape=results.label_distances.shape,
+            sub_matrix_shape=results.sub_matrix.shape,
         )
 
 class GetEmbeddingDimsOp(Op):
@@ -1496,7 +1496,7 @@ class RunClusteringOp(Op):
     """Run clustering algorithms on embeddings or distance matrices.
 
     Automatically selects appropriate algorithms based on available inputs:
-    - If normalized_embeddings available: KMeans, DBSCAN, GaussianMixture
+    - If normalized_embeddings available: MiniBatchKMeans, DBSCAN, GaussianMixture
     - If distances available: AgglomerativeClustering, AffinityPropagation, SpectralClustering
     """
     name = "run_clustering"
@@ -1540,7 +1540,7 @@ class RunClusteringOp(Op):
     def _get_clusterer(self):
         """Get the appropriate clustering algorithm."""
         match self.algorithm:
-            case "kmeans":
+            case "minibatch_kmeans":
                 return MiniBatchKMeans(n_clusters=self.params["n_clusters"], random_state=42)
             case "dbscan":
                 return DBSCAN(eps=self.params["eps"], min_samples=self.params.get("min_samples", 5))
@@ -1555,7 +1555,7 @@ class RunClusteringOp(Op):
         clusterer = self._get_clusterer()
 
         # Determine input data based on algorithm requirements
-        if self.algorithm in ["kmeans", "minibatch_kmeans", "dbscan"]:
+        if self.algorithm in ["minibatch_kmeans", "dbscan"]:
             # Use normalized embeddings
             norm_emb = inputs["normalized_embeddings"]
             data = norm_emb.embeddings
@@ -1595,7 +1595,7 @@ class RunClusteringOp(Op):
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyze clustering results and compute quality metrics."""
         # Get the data that was clustered
-        if self.algorithm in ["kmeans", "minibatch_kmeans", "dbscan"]:
+        if self.algorithm in ["minibatch_kmeans", "dbscan"]:
             data = inputs["normalized_embeddings"].embeddings
         else:
             distances_data = inputs["distances"]
