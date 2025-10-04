@@ -71,6 +71,7 @@ from abc import ABC, abstractmethod
 from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Mapping, MutableMapping
 from dataclasses import asdict, is_dataclass
+from enum import Enum
 from os.path import dirname
 from typing import Any, Sequence, TypeVar, Generic, Callable, Iterator, Hashable, Type
 
@@ -93,11 +94,29 @@ class PrintableJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         """A non-serializable type is converted to a string."""
         if is_dataclass(obj):
-            return asdict(obj)
+            data = asdict(obj)
+            return self._convert_tuple_keys(data)
+        elif isinstance(obj, Enum):
+            return obj.value
         try:
             return super().default(obj)
         except TypeError:
             return str(obj)
+
+    def _convert_tuple_keys(self, obj):
+        """Convert tuple keys in dicts to strings recursively."""
+        if isinstance(obj, dict):
+            new_obj = {}
+            for k, v in obj.items():
+                if isinstance(k, tuple):
+                    k = str(k)
+                if isinstance(v, dict):
+                    v = self._convert_tuple_keys(v)
+                new_obj[k] = v
+            return new_obj
+        elif isinstance(obj, (list, tuple)):
+            return [self._convert_tuple_keys(v) for v in obj]
+        return obj
 
     def encode(self, obj):
         """Dicts are normally serializable, but we have to make sure the keys are str"""

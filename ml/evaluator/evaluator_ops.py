@@ -267,7 +267,6 @@ class TaskPool:
         except Exception as e:
             task.status = 'failed'
             task.error = e
-            error_logger.error(f'Error submitting task {task}: {e}')
             error_logger.exception(e)
             return None
         self.futures[future] = task
@@ -465,16 +464,22 @@ class OpManager:
                 if result in seen:
                     return False
                 seen.add(result)
+        def get_field(r: Result, field: str, default=None) -> Any:
+            """Gets field either by direct access (for dataclasses) or via getitem (for dicts)."""
+            if isinstance(r.output, dict):
+                return r.output.get(field, default)
+            return getattr(r.output, field, default)
+
         # now check for consistency fields
         for field in consistency_fields:
             values = set()
             for result in inputs.values():
                 if isinstance(result, list): # Handle list of results
                     for r in result:
-                        if value := r.output.get(field):
+                        if value := get_field(r, field):
                             values.add(value)
                 else: # Handle single result
-                    if value := result.output.get(field):
+                    if value := get_field(result, field):
                         values.add(value)
             if len(values) > 1:  # Inconsistent values found
                 return False
@@ -540,8 +545,13 @@ class OpManager:
         also logs the result to our database.
 
         Returns the created `Result` object.
+
+        If the task failed or the result key already exists, returns `None`, and nothing is added
+        anywhere.
         """
         assert task.status in ('completed', 'failed'), f'Task {task} not done yet'
+        if task.status == 'failed':
+            return None
         op = task.op
         assert op is not None, f'Task {task} has no op'
 

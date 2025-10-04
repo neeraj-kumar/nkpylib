@@ -187,12 +187,12 @@ class ClusteringAlgorithm(Enum):
     DBSCAN = "dbscan"
     AGGLOMERATIVE = "agglomerative"
     AFFINITY_PROPAGATION = "affinity_propagation"
-    
+
     @property
     def is_distance_based(self) -> bool:
         """Returns True if this algorithm requires distance matrices."""
         return self in {self.AGGLOMERATIVE, self.AFFINITY_PROPAGATION}
-    
+
     @property
     def is_embedding_based(self) -> bool:
         """Returns True if this algorithm works on raw embeddings."""
@@ -205,17 +205,17 @@ class PredictionAlgorithm(Enum):
     RBF_SVR = "rbf_svr"
     LINEAR_SVR = "linear_svr"
     KNN_REG = "knn_reg"
-    
+
     # Classification algorithms
     RBF_SVM = "rbf_svm"
     LINEAR_SVM = "linear_svm"
     KNN_CLS = "knn_cls"
-    
+
     @property
     def is_regression(self) -> bool:
         """Returns True if this is a regression algorithm."""
         return self in {self.RIDGE, self.RBF_SVR, self.LINEAR_SVR, self.KNN_REG}
-    
+
     @property
     def is_classification(self) -> bool:
         """Returns True if this is a classification algorithm."""
@@ -762,6 +762,9 @@ class GetLabelDistancesOp(LabelOp):
             matrix=matrix,
             perc_close=self.perc_close,
         )
+        # clamp distances to be positive
+        result.label_distances = np.clip(result.label_distances, a_min=0.0, a_max=None)
+
         return LabelDistancesData(
             label_key=self.label_key,
             sub_keys=result.sub_keys,
@@ -872,6 +875,9 @@ class GetEmbeddingDistancesOp(Op):
         else:
             raise ValueError(f"Unknown metric: {self.metric}")
 
+        # clamp distances to be positive
+        distances = np.clip(distances, a_min=0.0, a_max=None)
+
         return EmbeddingDistancesData(
             label_key=label_data.label_key,
             metric=self.metric,
@@ -936,9 +942,6 @@ class GetNeighborsOp(Op):
             label_key = data.label_key
         else:
             raise ValueError(f"Distance data must be LabelDistancesData or EmbeddingDistancesData, got {type(data)}")
-
-        # clamp distances to be positive
-        distances = np.maximum(distances, 0.0)
 
         # Ensure we don't request more neighbors than we have points
         k = min(self.k + 1, distances.shape[0])  # +1 because the point itself is included
@@ -1546,7 +1549,7 @@ class RunClusteringOp(Op):
         ("distances",): {}
     }
     output_types = {"clustering_results"}
-    run_mode = "process"
+    #run_mode = "process"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any], cluster_sizes=(5,20,100)) -> dict[str, Any]|None:
@@ -1559,7 +1562,7 @@ class RunClusteringOp(Op):
                 "dbscan_0.5": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.5, "min_samples": 5},
             }
             for k in cluster_sizes:
-                embedding_algorithms[f'kmeans_{k}'] = {"algorithm": ClusteringAlgorithm.MINIBATCH_KMEANS, "n_clusters": k}
+                embedding_algorithms[f'kmeans_{k}'] = {"algorithm": ClusteringAlgorithm.MINIBATCH_KMEANS, "n_clusters": k, "n_init": 'auto'}
             variants.update(embedding_algorithms)
 
         # Algorithms that work on distance matrices
@@ -1834,6 +1837,14 @@ class ClusterLabelAnalysisOp(Op):
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyze cluster-label correspondence and identify notable patterns."""
+        if isinstance(results, Exception):
+            return dict(warnings=[{
+                "unit": "cluster_analysis",
+                "label_key": self.label_key,
+                "issue": "error",
+                "score": 3,
+                "warning": f"Error during cluster-label analysis: {results}"
+            }])
         ari = results.adjusted_rand_index
         nmi = results.normalized_mutual_info
         purities = results.cluster_purities
