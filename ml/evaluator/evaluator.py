@@ -331,19 +331,22 @@ class ClusteringResult:
     centroids: nparray2d | None
     parameters: dict[str, Any]
     keys: list[str]
+    label_key: str
     inertia: float | None = None
+    true_labels: nparray2d | None = None
 
 @dataclass
 class ClusterLabelAnalysis:
     """Result from ClusterLabelAnalysisOp."""
     cluster_labels: nparray1d
-    true_labels: nparray2d
     label_names: list[str]
     confusion_matrix: nparray2d
     cluster_purities: dict[int, float]
     dominant_labels: dict[int, str]
     adjusted_rand_index: float
     normalized_mutual_info: float
+    label_key: str
+    true_labels: nparray2d | None = None
 
 def train_and_predict(model, X_train, y_train, X_test):
     """Simple train and predict function for use in multiprocessing."""
@@ -1551,9 +1554,10 @@ class RunClusteringOp(Op):
 
         # Algorithms that work on raw embeddings
         if "normalized_embeddings" in inputs:
+            #FIXME re-enable dbscan?
             embedding_algorithms = {
-                "dbscan_0.3": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.3, "min_samples": 5},
-                "dbscan_0.5": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.5, "min_samples": 5},
+                #"dbscan_0.3": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.3, "min_samples": 5},
+                #"dbscan_0.5": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.5, "min_samples": 5},
             }
             for k in cluster_sizes:
                 embedding_algorithms[f'kmeans_{k}'] = {"algorithm": ClusteringAlgorithm.MINIBATCH_KMEANS, "n_clusters": k, "n_init": 'auto'}
@@ -1579,7 +1583,7 @@ class RunClusteringOp(Op):
         """Get the appropriate clustering algorithm."""
         match self.algorithm:
             case ClusteringAlgorithm.MINIBATCH_KMEANS:
-                return MiniBatchKMeans(n_clusters=self.params["n_clusters"], random_state=42)
+                return MiniBatchKMeans(random_state=42, **self.params)
             case ClusteringAlgorithm.DBSCAN:
                 return DBSCAN(eps=self.params["eps"], min_samples=self.params.get("min_samples", 5))
             case ClusteringAlgorithm.AGGLOMERATIVE:
@@ -1593,6 +1597,8 @@ class RunClusteringOp(Op):
         clusterer = self._get_clusterer()
 
         # Determine input data based on algorithm requirements
+        true_labels = None
+        label_key = None
         if self.algorithm.is_embedding_based:
             # Use normalized embeddings
             norm_emb = inputs["normalized_embeddings"]
@@ -1604,6 +1610,33 @@ class RunClusteringOp(Op):
             if isinstance(distances_data, LabelDistancesData):
                 data = distances_data.label_distances
                 keys = distances_data.sub_keys
+                label_key = distances_data.label_key
+
+                # Try to get true labels from the labels input if available
+                if "labels" in inputs and label_key in inputs["labels"]:
+                    label_obj = inputs["labels"][label_key]
+                    # Get true labels for the same keys
+                    try:
+                        if isinstance(label_obj, NumericLabels):
+                            true_labels = np.array([label_obj.values[label_obj.ids.index(key)]
+                                                  for key in keys if key in label_obj.ids])
+                        elif isinstance(label_obj, MulticlassLabels):
+                            true_labels = np.array([label_obj.values[label_obj.ids.index(key)]
+                                                  for key in keys if key in label_obj.ids])
+                        # For multilabel, we'll use the first label as a proxy
+                        elif isinstance(label_obj, MultilabelLabels):
+                            # Convert to binary for most common label
+                            all_labels = []
+                            for key in keys:
+                                if key in label_obj.ids:
+                                    labels_for_key = label_obj.values.get(key, [])
+                                    all_labels.extend(labels_for_key)
+                            if all_labels:
+                                most_common_label = Counter(all_labels).most_common(1)[0][0]
+                                true_labels = np.array([int(most_common_label in label_obj.values.get(key, []))
+                                                      for key in keys if key in label_obj.ids])
+                    except Exception as e:
+                        op_logger.warning(f"Could not extract true labels: {e}")
             elif isinstance(distances_data, EmbeddingDistancesData):
                 data = distances_data.embedding_distances
                 keys = distances_data.sub_keys
@@ -1626,8 +1659,10 @@ class RunClusteringOp(Op):
             n_clusters=n_clusters,
             centroids=centroids,
             parameters=self.params,
+            label_key=label_key,
             keys=keys,
-            inertia=inertia
+            inertia=inertia,
+            true_labels=true_labels,
         )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -1646,6 +1681,7 @@ class RunClusteringOp(Op):
         cluster_labels = results.labels
         n_clusters = results.n_clusters
         n_noise = np.sum(cluster_labels == -1)  # DBSCAN noise points
+        true_labels = results.true_labels
         # Compute cluster size statistics
         unique_labels, counts = np.unique(cluster_labels[cluster_labels >= 0], return_counts=True)
         cluster_sizes = dict(zip(unique_labels.tolist(), counts.tolist()))
@@ -1656,8 +1692,41 @@ class RunClusteringOp(Op):
             "cluster_sizes": cluster_sizes,
             "largest_cluster_size": int(max(counts)) if len(counts) > 0 else 0,
             "smallest_cluster_size": int(min(counts)) if len(counts) > 0 else 0,
+            "true_labels": results.true_labels.tolist() if results.true_labels is not None else None,
             "warnings": []
         }
+
+        # Add supervised metrics if we have true labels
+        if true_labels is not None and len(true_labels) > 0:
+            # Remove noise points for supervised metrics
+            valid_mask = cluster_labels >= 0
+            if np.sum(valid_mask) > 1 and len(true_labels) == len(cluster_labels):
+                cluster_labels_clean = cluster_labels[valid_mask]
+                true_labels_clean = true_labels[valid_mask]
+
+                if len(cluster_labels_clean) > 0 and len(set(true_labels_clean)) > 1:
+                    try:
+                        ari = adjusted_rand_score(true_labels_clean, cluster_labels_clean)
+                        nmi = normalized_mutual_info_score(true_labels_clean, cluster_labels_clean)
+                        analysis["adjusted_rand_index"] = float(ari)
+                        analysis["normalized_mutual_info"] = float(nmi)
+
+                        # Compute cluster purities
+                        cluster_purities = {}
+                        for cluster_id in np.unique(cluster_labels_clean):
+                            cluster_mask = cluster_labels_clean == cluster_id
+                            cluster_true_labels = true_labels_clean[cluster_mask]
+                            if len(cluster_true_labels) > 0:
+                                unique_vals, counts_vals = np.unique(cluster_true_labels, return_counts=True)
+                                purity = max(counts_vals) / len(cluster_true_labels)
+                                cluster_purities[int(cluster_id)] = float(purity)
+
+                        analysis["cluster_purities"] = cluster_purities
+                        analysis["average_purity"] = float(np.mean(list(cluster_purities.values()))) if cluster_purities else 0.0
+
+                    except Exception as e:
+                        op_logger.warning(f"Could not compute supervised clustering metrics: {e}")
+
         # Compute quality metrics if we have valid clusters and data
         if n_clusters > 1 and data is not None and len(cluster_labels[cluster_labels >= 0]) > 1:
             try:
@@ -1760,6 +1829,7 @@ class ClusterLabelAnalysisOp(Op):
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         clustering_result = inputs["clustering_results"]
         label_data = inputs["label_arrays_data"]
+        label_key = label_data.label_key
 
         # Get cluster labels and true labels for the same keys
         cluster_labels = clustering_result.labels
@@ -1826,6 +1896,7 @@ class ClusterLabelAnalysisOp(Op):
             cluster_labels=cluster_labels_subset,
             true_labels=true_labels_subset.reshape(1, -1),  # Keep as 2D for consistency
             label_names=[label_data.label_names[0]],  # First label name
+            label_key=label_key,
             confusion_matrix=conf_matrix,
             cluster_purities=cluster_purities,
             dominant_labels=dominant_labels,
@@ -1835,7 +1906,7 @@ class ClusterLabelAnalysisOp(Op):
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyze cluster-label correspondence and identify notable patterns."""
-        if isinstance(results, Exception):
+        if results is None or isinstance(results, Exception):
             return dict(warnings=[{
                 "unit": "cluster_analysis",
                 "label_key": self.label_key,
@@ -1859,6 +1930,7 @@ class ClusterLabelAnalysisOp(Op):
             "max_purity": max_purity,
             "min_purity": min_purity,
             "n_clusters": len(purities),
+            "true_labels": results.true_labels.tolist() if results.true_labels is not None else None,
             "warnings": []
         }
 
