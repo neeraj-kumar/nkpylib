@@ -27,16 +27,12 @@ def get_latest_result_path(dir=RESULTS_DIR) -> str:
 
 def explore_results(db: JsonLmdb, **kw):
     """Uses objexplore to explore the results database."""
-    from rich.tree import Tree
-    from rich import print
     # get all results
     results = {k: db[k] for k in db.keys() if k.startswith('key:')}
     # filter down to 5 results
-    results = {k: v for i, (k, v) in enumerate(results.items()) if i < 5}
+    results = {k: v for i, (k, v) in enumerate(results.items()) if i < 10}
     logger.info(f'Exploring {len(results)} results')
-    tree = Tree(results)
-    #explore(list(results.items())[:5], **kw)
-    print(tree)
+    explore(results, **kw)
 
 
 if __name__ == '__main__':

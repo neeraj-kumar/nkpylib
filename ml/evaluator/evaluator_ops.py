@@ -124,7 +124,9 @@ class Result:
     @property
     def provenance_str(self) -> str:
         """Human-readable provenance chain."""
-        return " -> ".join(r.op.name for r in self.provenance) + (f" -> {self.op.name}")
+        def per_op(r: Result) -> str:
+            return f"{r.op.name}:{r.variant}" if r.variant else r.op.name
+        return " -> ".join(per_op(r) for r in self.provenance) + (f" -> {per_op(self.op)}")
 
     @property
     def all_ops(self) -> list[Op]:
