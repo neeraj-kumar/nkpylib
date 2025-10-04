@@ -108,8 +108,10 @@ from sklearn.decomposition import PCA # type: ignore
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # type: ignore
 from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
 from sklearn.metrics import recall_score, r2_score, balanced_accuracy_score, accuracy_score # type: ignore
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, confusion_matrix # type: ignore
 from sklearn.model_selection import cross_val_score, train_test_split, KFold, StratifiedKFold # type: ignore
 from sklearn.metrics import recall_score, r2_score, balanced_accuracy_score, accuracy_score # type: ignore
+from sklearn.metrics import silhouette_score, davies_bouldin_score # type: ignore
 from sklearn.neighbors import NearestNeighbors, KNeighborsClassifier, KNeighborsRegressor # type: ignore
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # type: ignore
 from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
@@ -1492,7 +1494,7 @@ class CompareStatsOp(Op):
 
 class RunClusteringOp(Op):
     """Run clustering algorithms on embeddings or distance matrices.
-    
+
     Automatically selects appropriate algorithms based on available inputs:
     - If normalized_embeddings available: KMeans, DBSCAN, GaussianMixture
     - If distances available: AgglomerativeClustering, AffinityPropagation, SpectralClustering
@@ -1506,29 +1508,26 @@ class RunClusteringOp(Op):
     run_mode = "process"
 
     @classmethod
-    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
-        variants = {}
+    def get_variants(cls, inputs: dict[str, Any], cluster_sizes=(5,20,100)) -> dict[str, Any]|None:
+        variants: dict[str, dict[str, Any]] = {}
 
         # Algorithms that work on raw embeddings
         if "normalized_embeddings" in inputs:
             embedding_algorithms = {
-                "kmeans_5": {"algorithm": "kmeans", "n_clusters": 5},
-                "kmeans_8": {"algorithm": "kmeans", "n_clusters": 8},
-                "kmeans_10": {"algorithm": "kmeans", "n_clusters": 10},
                 "dbscan_0.3": {"algorithm": "dbscan", "eps": 0.3, "min_samples": 5},
                 "dbscan_0.5": {"algorithm": "dbscan", "eps": 0.5, "min_samples": 5},
-                "minibatch_kmeans_8": {"algorithm": "minibatch_kmeans", "n_clusters": 8},
             }
+            for k in cluster_sizes:
+                embedding_algorithms[f'kmeans_{k}'] = {"algorithm": "minibatch_kmeans", "n_clusters": k}
             variants.update(embedding_algorithms)
 
         # Algorithms that work on distance matrices
         if "distances" in inputs:
             distance_algorithms = {
-                "agglomerative_5": {"algorithm": "agglomerative", "n_clusters": 5},
-                "agglomerative_8": {"algorithm": "agglomerative", "n_clusters": 8},
-                "agglomerative_10": {"algorithm": "agglomerative", "n_clusters": 10},
                 "affinity_prop": {"algorithm": "affinity_propagation"},
             }
+            for k in cluster_sizes:
+                distance_algorithms[f"agglomerative_{k}"] = {"algorithm": "agglomerative", "n_clusters": k}
             variants.update(distance_algorithms)
 
         return variants if variants else None
@@ -1542,11 +1541,8 @@ class RunClusteringOp(Op):
         """Get the appropriate clustering algorithm."""
         match self.algorithm:
             case "kmeans":
-                return KMeans(n_clusters=self.params["n_clusters"], random_state=42, n_init=10)
-            case "minibatch_kmeans":
                 return MiniBatchKMeans(n_clusters=self.params["n_clusters"], random_state=42)
             case "dbscan":
-                from sklearn.cluster import DBSCAN
                 return DBSCAN(eps=self.params["eps"], min_samples=self.params.get("min_samples", 5))
             case "agglomerative":
                 return AgglomerativeClustering(n_clusters=self.params["n_clusters"], metric='precomputed', linkage='average')
@@ -1598,8 +1594,6 @@ class RunClusteringOp(Op):
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyze clustering results and compute quality metrics."""
-        from sklearn.metrics import silhouette_score, davies_bouldin_score
-
         # Get the data that was clustered
         if self.algorithm in ["kmeans", "minibatch_kmeans", "dbscan"]:
             data = inputs["normalized_embeddings"].embeddings
@@ -1611,15 +1605,12 @@ class RunClusteringOp(Op):
                 data = distances_data.embedding_distances
             else:
                 data = None
-
         cluster_labels = results.labels
         n_clusters = results.n_clusters
         n_noise = np.sum(cluster_labels == -1)  # DBSCAN noise points
-
         # Compute cluster size statistics
         unique_labels, counts = np.unique(cluster_labels[cluster_labels >= 0], return_counts=True)
         cluster_sizes = dict(zip(unique_labels.tolist(), counts.tolist()))
-
         analysis = {
             "algorithm": self.algorithm,
             "n_clusters": n_clusters,
@@ -1629,7 +1620,6 @@ class RunClusteringOp(Op):
             "smallest_cluster_size": int(min(counts)) if len(counts) > 0 else 0,
             "warnings": []
         }
-
         # Compute quality metrics if we have valid clusters and data
         if n_clusters > 1 and data is not None and len(cluster_labels[cluster_labels >= 0]) > 1:
             try:
@@ -1726,8 +1716,6 @@ class ClusterLabelAnalysisOp(Op):
         super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
-        from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, confusion_matrix
-
         clustering_result = inputs["clustering_results"]
         label_data = inputs["label_arrays_data"]
 
