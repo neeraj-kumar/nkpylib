@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 
 from argparse import ArgumentParser
 from glob import glob
 from os.path import dirname, abspath, join
+from subprocess import run
 
 from objexplore import explore
 
@@ -26,13 +28,22 @@ def get_latest_result_path(dir=RESULTS_DIR) -> str:
     return result_files[-1]
 
 def explore_results(db: JsonLmdb, **kw):
-    """Uses objexplore to explore the results database."""
-    # get all results
-    results = {k: db[k] for k in db.keys() if k.startswith('key:')}
-    # filter down to 5 results
-    results = {k: v for i, (k, v) in enumerate(results.items()) if i < 10}
+    """Uses visidata to explore the results database."""
+    # get result keys ordered by end time
+    by_end = [f'key:{k}' for (k, _) in db['by:end_time']]
+    # get all results, filtered down
+    results = {k: db[k] for k in by_end[:200]}
     logger.info(f'Exploring {len(results)} results')
-    explore(results, **kw)
+    #explore(results, **kw)
+    # write to a tempfile then run visidata on it
+    with tempfile.NamedTemporaryFile(mode='w+', suffix='.jsonl', delete=False) as f:
+        for k, v in results.items():
+            f.write(json.dumps({'key': k, **v}) + '\n')
+        temp_path = f.name
+    logger.info(f'Wrote results to {temp_path} of size {os.path.getsize(temp_path)/1024/1024} MB')
+    run(['visidata', temp_path])
+    # cleanup
+    os.remove(temp_path)
 
 
 if __name__ == '__main__':
