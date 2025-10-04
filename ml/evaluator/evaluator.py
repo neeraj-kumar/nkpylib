@@ -1492,13 +1492,16 @@ class CompareStatsOp(Op):
 
 class RunClusteringOp(Op):
     """Run clustering algorithms on embeddings or distance matrices.
-
+    
     Automatically selects appropriate algorithms based on available inputs:
     - If normalized_embeddings available: KMeans, DBSCAN, GaussianMixture
     - If distances available: AgglomerativeClustering, AffinityPropagation, SpectralClustering
     """
     name = "run_clustering"
-    input_types = {"normalized_embeddings", "distances"}
+    input_types = {
+        ("normalized_embeddings",): {},
+        ("distances",): {}
+    }
     output_types = {"clustering_results"}
     run_mode = "process"
 
