@@ -445,7 +445,7 @@ class StartValidatorOp(Op):
     Passes through kw version of parsed args from ArgumentParser.
     """
     name = 'start_validator'
-    input_types = set()
+    input_types: set[str] = set()
     output_types = {"argparse"}
     is_intermediate = True
 
@@ -544,7 +544,7 @@ class CheckDimensionsOp(Op):
 class CheckNaNsOp(Op):
     """Check for NaN values in embeddings."""
 
-    run_mode = 'process'
+    run_mode = 'main'  # Changed from 'process' to avoid pool issues
     name = "check_nans"
     input_types = {"feature_set"}
     output_types = {"nan_check_result"}
@@ -580,7 +580,7 @@ class BasicChecksOp(Op):
     name = "basic_checks"
     input_types = {"dimension_check_result", "nan_check_result"}
     output_types = {"basic_checks_report"}
-    run_mode = 'process'
+    run_mode = 'main'  # Changed from 'process' to avoid pool issues
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         dim_result = inputs["dimension_check_result"]
@@ -741,7 +741,7 @@ class GetLabelDistancesOp(LabelOp):
     input_types = {"labels", "normalized_embeddings"}
     output_types = {"label_distances", 'distances'}
     is_intermediate = True
-    run_mode = "process"
+    run_mode = "main"  # Changed from 'process' to avoid pool issues
 
     def __init__(self, label_key: str, n_pts: int = 200, perc_close: float = 0.5, **kw):
         self.label_key = label_key
@@ -789,7 +789,7 @@ class GetEmbeddingDimsOp(Op):
     input_types = {"label_arrays_data"}
     output_types = {"embedding_dims"}
     is_intermediate = True
-    run_mode = "process"
+    run_mode = "main"  # Changed from 'process' to avoid pool issues
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -838,7 +838,7 @@ class GetEmbeddingDistancesOp(Op):
     name = "get_embedding_distances"
     input_types = {"normalized_embeddings", "label_distances"}
     output_types = {"embedding_distances", 'distances'}
-    run_mode = "process"
+    run_mode = "main"  # Changed from 'process' to avoid pool issues
     is_intermediate = True
 
     @classmethod
@@ -986,7 +986,7 @@ class GenPredictionTasksOp(LabelOp):
     name = "gen_prediction_tasks"
     input_types = {"labels", "normalized_embeddings"}
     output_types = {"prediction_tasks"}
-    run_mode = "process"
+    run_mode = "main"  # Changed from 'process' to avoid pool issues
     is_intermediate = True
 
     def __init__(self, label_key: str, min_pos: int = 10, max_tasks: int = 10, **kw):
@@ -1253,7 +1253,7 @@ class CompareNeighborsOp(Op):
     - `metrics`: Dict of metrics computed (recall@K, MRR@K, jaccard@K for different K values)
     - `per_item_metrics`: Optional detailed metrics for each item
     """
-    #enabled = False
+    enabled = False  # Disabled for now
     name = "compare_neighbors"
     input_types = {
         ("neighbors_data", "neighbors_data"): {
@@ -1261,7 +1261,7 @@ class CompareNeighborsOp(Op):
         }
     }
     output_types = {"neighbor_comparison"}
-    #run_mode = "process"
+    run_mode = "main"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any], k_values: list[int]=[1, 5, 10, 20]) -> dict[str, Any]|None:
@@ -1398,7 +1398,7 @@ class CompareStatsOp(Op):
     - comparisons: dict mapping (i,j) to comparison stats between row i of A and row j of B
     - n_comparisons: total number of comparisons made
     """
-    #enabled = False
+    enabled = False  # Disabled for now
     name = "compare_stats"
     input_types = {
         ('many_array1d_a', 'many_array1d_b'): {},
@@ -1410,7 +1410,7 @@ class CompareStatsOp(Op):
         },
     }
     output_types = {"stats_comparison"}
-    run_mode = 'process'
+    run_mode = 'main'
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         if 'many_array1d_a' in inputs:
