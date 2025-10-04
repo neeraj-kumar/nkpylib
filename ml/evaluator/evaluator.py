@@ -732,10 +732,10 @@ class GetLabelDistancesOp(LabelOp):
         """Analyzes `results` from executing this op with given `inputs`."""
         return dict(
             variant=self.variant,
-            label_key=results.get('label_key'),
-            n_sub_keys=len(results.get('sub_keys', [])),
-            label_distances_shape=results.get('label_distances', []).shape if 'label_distances' in results else None,
-            sub_matrix_shape=results.get('sub_matrix', []).shape if 'sub_matrix' in results else None,
+            label_key=results.label_key,
+            n_sub_keys=len(results.sub_keys or []),
+            label_distances_shape=results.label_distances.shape if 'label_distances' in results else None,
+            sub_matrix_shape=results.sub_matrix.shape if 'sub_matrix' in results else None,
         )
 
 class GetEmbeddingDimsOp(Op):
@@ -782,7 +782,7 @@ class GetEmbeddingDimsOp(Op):
         """Analyzes `results` from executing this op with given `inputs`."""
         return dict(
             variant=self.variant,
-            label_key=results.get('label_key'),
+            label_key=results.label_key,
             dims_shape=results.get('dims_matrix', []).shape if 'dims_matrix' in results else None,
             transform=results.get('transform'),
         )
@@ -805,7 +805,7 @@ class GetEmbeddingDistancesOp(Op):
         """Returns different variants for distance metrics."""
         metrics = ['cosine', 'dot_product', 'euclidean']
         metrics = ['cosine', 'dot_product'] #TODO 'euclidean' is too similar to cosine
-        label_key = inputs['label_distances']['label_key']
+        label_key = inputs['label_distances'].label_key
         return {f'label:{label_key}_metric:{metric}': dict(metric=metric) for metric in metrics}
 
     def __init__(self, metric, **kw):
@@ -1042,8 +1042,8 @@ class RunPredictionOp(Op):
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants for model types and tasks."""
-        tasks = inputs["prediction_tasks"]["tasks"]
-        label_key = inputs["prediction_tasks"]["label_key"]
+        tasks = inputs["prediction_tasks"].tasks
+        label_key = inputs["prediction_tasks"].label_key
 
         variants = {}
         for task_name, (_, task_type) in tasks.items():
