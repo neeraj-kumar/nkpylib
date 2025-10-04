@@ -103,7 +103,7 @@ from scipy.spatial.distance import pdist, squareform # type: ignore
 from scipy.special import kl_div
 from sklearn.exceptions import ConvergenceWarning # type: ignore
 from sklearn.base import BaseEstimator # type: ignore
-from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
+from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans, DBSCAN # type: ignore
 from sklearn.decomposition import PCA # type: ignore
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # type: ignore
 from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
@@ -284,6 +284,29 @@ class StatsComparison:
     shape_b: tuple[int, int]
     comparisons: dict[tuple[int, int], Stats]
     n_comparisons: int
+
+@dataclass
+class ClusteringResult:
+    """Result from RunClusteringOp."""
+    algorithm: str
+    labels: nparray1d
+    n_clusters: int
+    centroids: nparray2d | None
+    parameters: dict[str, Any]
+    keys: list[str]
+    inertia: float | None = None
+
+@dataclass
+class ClusterLabelAnalysis:
+    """Result from ClusterLabelAnalysisOp."""
+    cluster_labels: nparray1d
+    true_labels: nparray2d
+    label_names: list[str]
+    confusion_matrix: nparray2d
+    cluster_purities: dict[int, float]
+    dominant_labels: dict[int, str]
+    adjusted_rand_index: float
+    normalized_mutual_info: float
 
 def train_and_predict(model, X_train, y_train, X_test):
     """Simple train and predict function for use in multiprocessing."""
@@ -1464,6 +1487,373 @@ class CompareStatsOp(Op):
             warnings=warnings
         )
 
+        return analysis
+
+
+class RunClusteringOp(Op):
+    """Run clustering algorithms on embeddings or distance matrices.
+    
+    Automatically selects appropriate algorithms based on available inputs:
+    - If normalized_embeddings available: KMeans, DBSCAN, GaussianMixture
+    - If distances available: AgglomerativeClustering, AffinityPropagation, SpectralClustering
+    """
+    name = "run_clustering"
+    input_types = {"normalized_embeddings", "distances"}
+    output_types = {"clustering_results"}
+    run_mode = "process"
+    
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        variants = {}
+        
+        # Algorithms that work on raw embeddings
+        if "normalized_embeddings" in inputs:
+            embedding_algorithms = {
+                "kmeans_5": {"algorithm": "kmeans", "n_clusters": 5},
+                "kmeans_8": {"algorithm": "kmeans", "n_clusters": 8},
+                "kmeans_10": {"algorithm": "kmeans", "n_clusters": 10},
+                "dbscan_0.3": {"algorithm": "dbscan", "eps": 0.3, "min_samples": 5},
+                "dbscan_0.5": {"algorithm": "dbscan", "eps": 0.5, "min_samples": 5},
+                "minibatch_kmeans_8": {"algorithm": "minibatch_kmeans", "n_clusters": 8},
+            }
+            variants.update(embedding_algorithms)
+        
+        # Algorithms that work on distance matrices  
+        if "distances" in inputs:
+            distance_algorithms = {
+                "agglomerative_5": {"algorithm": "agglomerative", "n_clusters": 5},
+                "agglomerative_8": {"algorithm": "agglomerative", "n_clusters": 8},
+                "agglomerative_10": {"algorithm": "agglomerative", "n_clusters": 10},
+                "affinity_prop": {"algorithm": "affinity_propagation"},
+            }
+            variants.update(distance_algorithms)
+        
+        return variants if variants else None
+    
+    def __init__(self, algorithm: str, **params):
+        self.algorithm = algorithm
+        self.params = params
+        super().__init__()
+    
+    def _get_clusterer(self):
+        """Get the appropriate clustering algorithm."""
+        match self.algorithm:
+            case "kmeans":
+                return KMeans(n_clusters=self.params["n_clusters"], random_state=42, n_init=10)
+            case "minibatch_kmeans":
+                return MiniBatchKMeans(n_clusters=self.params["n_clusters"], random_state=42)
+            case "dbscan":
+                from sklearn.cluster import DBSCAN
+                return DBSCAN(eps=self.params["eps"], min_samples=self.params.get("min_samples", 5))
+            case "agglomerative":
+                return AgglomerativeClustering(n_clusters=self.params["n_clusters"], metric='precomputed', linkage='average')
+            case "affinity_propagation":
+                return AffinityPropagation(affinity='precomputed', random_state=42)
+            case _:
+                raise ValueError(f"Unknown clustering algorithm: {self.algorithm}")
+    
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+        clusterer = self._get_clusterer()
+        
+        # Determine input data based on algorithm requirements
+        if self.algorithm in ["kmeans", "minibatch_kmeans", "dbscan"]:
+            # Use normalized embeddings
+            norm_emb = inputs["normalized_embeddings"]
+            data = norm_emb.embeddings
+            keys = norm_emb.keys
+        else:
+            # Use distance matrix
+            distances_data = inputs["distances"]
+            if isinstance(distances_data, LabelDistancesData):
+                data = distances_data.label_distances
+                keys = distances_data.sub_keys
+            elif isinstance(distances_data, EmbeddingDistancesData):
+                data = distances_data.embedding_distances  
+                keys = distances_data.sub_keys
+            else:
+                raise ValueError(f"Unknown distances data type: {type(distances_data)}")
+        
+        op_logger.info(f'Running {self.algorithm} clustering on {data.shape} data')
+        
+        # Fit the clustering algorithm
+        cluster_labels = clusterer.fit_predict(data)
+        
+        # Extract results
+        n_clusters = len(np.unique(cluster_labels[cluster_labels >= 0]))  # Exclude noise points (-1)
+        centroids = getattr(clusterer, 'cluster_centers_', None)
+        inertia = getattr(clusterer, 'inertia_', None)
+        
+        return ClusteringResult(
+            algorithm=self.algorithm,
+            labels=cluster_labels,
+            n_clusters=n_clusters,
+            centroids=centroids,
+            parameters=self.params,
+            keys=keys,
+            inertia=inertia
+        )
+    
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyze clustering results and compute quality metrics."""
+        from sklearn.metrics import silhouette_score, davies_bouldin_score
+        
+        # Get the data that was clustered
+        if self.algorithm in ["kmeans", "minibatch_kmeans", "dbscan"]:
+            data = inputs["normalized_embeddings"].embeddings
+        else:
+            distances_data = inputs["distances"]
+            if isinstance(distances_data, LabelDistancesData):
+                data = distances_data.label_distances
+            elif isinstance(distances_data, EmbeddingDistancesData):
+                data = distances_data.embedding_distances
+            else:
+                data = None
+        
+        cluster_labels = results.labels
+        n_clusters = results.n_clusters
+        n_noise = np.sum(cluster_labels == -1)  # DBSCAN noise points
+        
+        # Compute cluster size statistics
+        unique_labels, counts = np.unique(cluster_labels[cluster_labels >= 0], return_counts=True)
+        cluster_sizes = dict(zip(unique_labels.tolist(), counts.tolist()))
+        
+        analysis = {
+            "algorithm": self.algorithm,
+            "n_clusters": n_clusters,
+            "n_noise_points": int(n_noise),
+            "cluster_sizes": cluster_sizes,
+            "largest_cluster_size": int(max(counts)) if len(counts) > 0 else 0,
+            "smallest_cluster_size": int(min(counts)) if len(counts) > 0 else 0,
+            "warnings": []
+        }
+        
+        # Compute quality metrics if we have valid clusters and data
+        if n_clusters > 1 and data is not None and len(cluster_labels[cluster_labels >= 0]) > 1:
+            try:
+                # For distance-based algorithms, we need to handle precomputed distances
+                if self.algorithm in ["agglomerative", "affinity_propagation"]:
+                    # Convert distance matrix to similarity for silhouette score
+                    # Use negative distances as similarities (closer = higher similarity)
+                    similarities = -data
+                    valid_mask = cluster_labels >= 0
+                    if np.sum(valid_mask) > 1:
+                        sil_score = silhouette_score(similarities[np.ix_(valid_mask, valid_mask)], 
+                                                   cluster_labels[valid_mask], metric='precomputed')
+                        analysis["silhouette_score"] = float(sil_score)
+                else:
+                    # For embedding-based algorithms
+                    valid_mask = cluster_labels >= 0
+                    if np.sum(valid_mask) > 1:
+                        sil_score = silhouette_score(data[valid_mask], cluster_labels[valid_mask])
+                        db_score = davies_bouldin_score(data[valid_mask], cluster_labels[valid_mask])
+                        analysis["silhouette_score"] = float(sil_score)
+                        analysis["davies_bouldin_score"] = float(db_score)
+            except Exception as e:
+                op_logger.warning(f"Could not compute clustering quality metrics: {e}")
+        
+        # Generate warnings for notable results
+        if n_clusters == 1:
+            analysis["warnings"].append({
+                "unit": "clustering",
+                "algorithm": self.algorithm,
+                "issue": "single_cluster",
+                "score": 1,
+                "warning": f"Clustering produced only 1 cluster with {self.algorithm}"
+            })
+        
+        if n_noise > len(cluster_labels) * 0.5:  # More than 50% noise
+            analysis["warnings"].append({
+                "unit": "clustering", 
+                "algorithm": self.algorithm,
+                "issue": "high_noise",
+                "noise_ratio": n_noise / len(cluster_labels),
+                "score": 2,
+                "warning": f"High noise ratio: {n_noise}/{len(cluster_labels)} points classified as noise"
+            })
+        
+        # Check for very unbalanced clusters
+        if len(counts) > 1:
+            imbalance_ratio = max(counts) / min(counts)
+            if imbalance_ratio > 10:
+                analysis["warnings"].append({
+                    "unit": "clustering",
+                    "algorithm": self.algorithm, 
+                    "issue": "imbalanced_clusters",
+                    "imbalance_ratio": float(imbalance_ratio),
+                    "score": 1,
+                    "warning": f"Highly imbalanced clusters: largest/smallest = {imbalance_ratio:.1f}"
+                })
+        
+        # High silhouette score warning
+        if "silhouette_score" in analysis and analysis["silhouette_score"] > 0.7:
+            analysis["warnings"].append({
+                "unit": "clustering",
+                "algorithm": self.algorithm,
+                "metric": "silhouette_score", 
+                "value": analysis["silhouette_score"],
+                "score": 3,
+                "warning": f"High silhouette score ({analysis['silhouette_score']:.3f}) indicates well-separated clusters"
+            })
+        
+        return analysis
+
+
+class ClusterLabelAnalysisOp(Op):
+    """Analyze clustering results against ground truth labels.
+    
+    Computes confusion matrix, cluster purity, and supervised clustering metrics
+    like adjusted rand index and normalized mutual information.
+    """
+    name = "cluster_label_analysis"
+    input_types = {"clustering_results", "label_arrays_data"}
+    output_types = {"cluster_label_analysis"}
+    
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        # One variant per label type in label_arrays_data
+        label_data = inputs.get("label_arrays_data")
+        if not label_data:
+            return None
+        
+        label_key = label_data.label_key
+        return {f"label_key:{label_key}": {"label_key": label_key}}
+    
+    def __init__(self, label_key: str, **kw):
+        self.label_key = label_key
+        super().__init__(**kw)
+    
+    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+        from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score, confusion_matrix
+        
+        clustering_result = inputs["clustering_results"]
+        label_data = inputs["label_arrays_data"]
+        
+        # Get cluster labels and true labels for the same keys
+        cluster_labels = clustering_result.labels
+        cluster_keys = clustering_result.keys
+        
+        # Find intersection of keys
+        common_keys = set(cluster_keys) & set(label_data.sub_keys)
+        if not common_keys:
+            raise ValueError("No common keys between clustering results and labels")
+        
+        # Get indices for common keys
+        cluster_indices = [cluster_keys.index(key) for key in common_keys if key in cluster_keys]
+        label_indices = [label_data.sub_keys.index(key) for key in common_keys if key in label_data.sub_keys]
+        
+        # Extract corresponding labels
+        cluster_labels_subset = cluster_labels[cluster_indices]
+        
+        # For multilabel/multiclass labels, we'll analyze each label array separately
+        # For now, take the first label array (could be extended to handle multiple)
+        true_labels_subset = label_data.label_arrays[0][label_indices]  # First label array
+        
+        # Convert continuous labels to discrete if needed (for numeric labels)
+        if len(np.unique(true_labels_subset)) > 20:  # Likely continuous
+            # Discretize into quartiles
+            quartiles = np.percentile(true_labels_subset, [25, 50, 75])
+            true_labels_discrete = np.digitize(true_labels_subset, quartiles)
+        else:
+            true_labels_discrete = true_labels_subset.astype(int)
+        
+        # Remove noise points (-1) from clustering for supervised metrics
+        valid_mask = cluster_labels_subset >= 0
+        cluster_labels_clean = cluster_labels_subset[valid_mask]
+        true_labels_clean = true_labels_discrete[valid_mask]
+        
+        if len(cluster_labels_clean) == 0:
+            raise ValueError("No valid cluster assignments (all noise)")
+        
+        # Compute metrics
+        ari = adjusted_rand_score(true_labels_clean, cluster_labels_clean)
+        nmi = normalized_mutual_info_score(true_labels_clean, cluster_labels_clean)
+        
+        # Compute confusion matrix
+        conf_matrix = confusion_matrix(true_labels_clean, cluster_labels_clean)
+        
+        # Compute cluster purities
+        cluster_purities = {}
+        dominant_labels = {}
+        
+        for cluster_id in np.unique(cluster_labels_clean):
+            cluster_mask = cluster_labels_clean == cluster_id
+            cluster_true_labels = true_labels_clean[cluster_mask]
+            
+            if len(cluster_true_labels) > 0:
+                # Find most common true label in this cluster
+                unique_labels, counts = np.unique(cluster_true_labels, return_counts=True)
+                dominant_label_idx = np.argmax(counts)
+                dominant_label = unique_labels[dominant_label_idx]
+                purity = counts[dominant_label_idx] / len(cluster_true_labels)
+                
+                cluster_purities[int(cluster_id)] = float(purity)
+                dominant_labels[int(cluster_id)] = str(dominant_label)
+        
+        return ClusterLabelAnalysis(
+            cluster_labels=cluster_labels_subset,
+            true_labels=true_labels_subset.reshape(1, -1),  # Keep as 2D for consistency
+            label_names=[label_data.label_names[0]],  # First label name
+            confusion_matrix=conf_matrix,
+            cluster_purities=cluster_purities,
+            dominant_labels=dominant_labels,
+            adjusted_rand_index=ari,
+            normalized_mutual_info=nmi
+        )
+    
+    def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Analyze cluster-label correspondence and identify notable patterns."""
+        ari = results.adjusted_rand_index
+        nmi = results.normalized_mutual_info
+        purities = results.cluster_purities
+        
+        # Compute average purity
+        avg_purity = np.mean(list(purities.values())) if purities else 0.0
+        max_purity = max(purities.values()) if purities else 0.0
+        min_purity = min(purities.values()) if purities else 0.0
+        
+        analysis = {
+            "adjusted_rand_index": ari,
+            "normalized_mutual_info": nmi,
+            "average_purity": avg_purity,
+            "max_purity": max_purity,
+            "min_purity": min_purity,
+            "n_clusters": len(purities),
+            "warnings": []
+        }
+        
+        # Generate warnings for notable results
+        if ari > 0.5:
+            analysis["warnings"].append({
+                "unit": "cluster_analysis",
+                "label_key": self.label_key,
+                "metric": "adjusted_rand_index",
+                "value": ari,
+                "score": 3,
+                "warning": f"High adjusted rand index ({ari:.3f}) indicates good cluster-label correspondence"
+            })
+        
+        if avg_purity > 0.8:
+            analysis["warnings"].append({
+                "unit": "cluster_analysis", 
+                "label_key": self.label_key,
+                "metric": "average_purity",
+                "value": avg_purity,
+                "score": 2,
+                "warning": f"High average cluster purity ({avg_purity:.3f}) indicates homogeneous clusters"
+            })
+        
+        # Check for very pure individual clusters
+        high_purity_clusters = {k: v for k, v in purities.items() if v > 0.9}
+        if high_purity_clusters:
+            analysis["warnings"].append({
+                "unit": "cluster_analysis",
+                "label_key": self.label_key,
+                "metric": "individual_purity", 
+                "clusters": high_purity_clusters,
+                "score": 2,
+                "warning": f"{len(high_purity_clusters)} clusters with >90% purity: {high_purity_clusters}"
+            })
+        
         return analysis
 
 
