@@ -908,7 +908,7 @@ class GetNeighborsOp(Op):
     """
     name = "get_neighbors"
     input_types = {'distances'}
-    output_types = {"neighbors_data"}
+    output_types = {"neighbors_data", "neighbors_data_a", "neighbors_data_b"} # aliases
     #run_mode = "process"
     is_intermediate = True
 
@@ -1255,7 +1255,7 @@ class CompareNeighborsOp(Op):
     """
     name = "compare_neighbors"
     input_types = {
-        ("neighbors_data", "neighbors_data"): {
+        ("neighbors_data_a", "neighbors_data_b"): {
             "consistency_fields": ["label_key"]
         }
     }
@@ -1279,17 +1279,7 @@ class CompareNeighborsOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         # Find which input is label neighbors and which is embedding neighbors
-        neighbors_a, neighbors_b = list(inputs["neighbors_data"])
-
-        if 0: #TODO actually i think we wanted to compare all distances against each other?
-            if neighbors_a.distance_type == "label" and neighbors_b.distance_type == "embedding":
-                label_neighbors = neighbors_a
-                embedding_neighbors = neighbors_b
-            elif neighbors_b.distance_type == "label" and neighbors_a.distance_type == "embedding":
-                label_neighbors = neighbors_b
-                embedding_neighbors = neighbors_a
-            else:
-                raise ValueError(f"Need one label and one embedding neighbors, got {neighbors_a.distance_type} and {neighbors_b.distance_type}")
+        neighbors_a, neighbors_b = inputs["neighbors_data_a"], inputs["neighbors_data_b"]
 
         # Get the neighbor indices
         l_nn = neighbors_a.neighbors
