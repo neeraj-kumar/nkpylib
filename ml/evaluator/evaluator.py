@@ -1581,7 +1581,7 @@ class RunClusteringOp(Op):
         """Get the appropriate clustering algorithm."""
         match self.algorithm:
             case ClusteringAlgorithm.MINIBATCH_KMEANS:
-                return MiniBatchKMeans(random_state=42, **self.params)
+                return MiniBatchKMeans(random_state=42, n_clusters=self.params["n_clusters"], n_init=self.params.get("n_init", 'auto'))
             case ClusteringAlgorithm.DBSCAN:
                 return DBSCAN(eps=self.params["eps"], min_samples=self.params.get("min_samples", 5))
             case ClusteringAlgorithm.AGGLOMERATIVE:
@@ -1990,7 +1990,10 @@ def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval', 
     # Configure each logger
     for name in log_names:
         logger = logging.getLogger(f"evaluator.{name}")
-        logger.setLevel(logging.INFO)
+        if name == 'task':
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.INFO)
 
         # Always add a file handler
         file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode=file_mode)
