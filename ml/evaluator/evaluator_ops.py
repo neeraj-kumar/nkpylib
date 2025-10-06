@@ -346,8 +346,9 @@ class OpManager:
         self.ops_by_input_type: dict[str, list[type[Op]]] = defaultdict(list)
         for op_cls in find_subclasses(Op):
             if op_cls.enabled is False:
+                task_logger.debug(f'Skipping disabled op class {op_cls.__name__}')
                 continue
-            task_logger.info(f'Registering op class {op_cls}, run_mode {op_cls.run_mode}')
+            task_logger.info(f'Registering op class {op_cls.__name__}, run_mode {op_cls.run_mode}')
             # Convert to frozensets for safe internal operations
             frozen_output_types = frozenset(op_cls.output_types)
             # Handle input_types - could be set or dict (contracts)
@@ -391,6 +392,8 @@ class OpManager:
 
     def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
         """Adds tasks for all variants of the given `op_cls` with the given `inputs`."""
+        task_logger.debug(f'Adding variants for {op_cls.__name__} with inputs: {list(inputs.keys())}')
+        
         # convert inputs to the actual output from the previous step, not Result objects
         _inputs = {}
         for k, v in inputs.items():
@@ -398,27 +401,43 @@ class OpManager:
                 _inputs[k] = [item.output if isinstance(item, Result) else item for item in v]
             else:
                 _inputs[k] = v.output if isinstance(v, Result) else v
+                
+        task_logger.debug(f'Calling get_variants for {op_cls.__name__} with converted inputs')
         variants = op_cls.get_variants(_inputs)
+        task_logger.debug(f'{op_cls.__name__}.get_variants returned: {variants}')
+        
         if not variants:
+            task_logger.debug(f'No variants returned, using default empty variant')
             variants = {'': {}}
+            
+        task_logger.debug(f'Processing {len(variants)} variants for {op_cls.__name__}: {list(variants.keys())}')
+        
         for name, kwargs in variants.items():
             key = op_cls.get_key(inputs=inputs, variant=name)
             if key in self._results:
-                task_logger.info(f'Skipping already completed {op_cls.name}:{name} with key {key}')
+                task_logger.info(f'Skipping already completed {op_cls.__name__}:{name} with key {key}')
                 continue
+            task_logger.debug(f'Creating task for {op_cls.__name__}:{name}')
             task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
             self.add_task(task)
 
     def create_tasks(self, result: Result|Exception|None) -> None:
         """Create new work tasks to do based on a new result."""
-        if isinstance(result, Exception) or result is None or not result.is_success:
+        if isinstance(result, Exception) or result is None:
+            task_logger.debug(f'Skipping task creation: result is {type(result)}')
+            return
+        if not result.is_success:
+            task_logger.debug(f'Skipping task creation: result {result.key} failed')
             return
         # Get consumers for all output types of this result
         consumers = set()
         for output_type in result.op.output_types:
-            consumers.update(self.get_consumers(output_type))
+            type_consumers = self.get_consumers(output_type)
+            task_logger.debug(f'Output type {output_type} has consumers: {[c.__name__ for c in type_consumers]}')
+            consumers.update(type_consumers)
         task_logger.info(f'Creating new tasks from {result}: consumers={[c.__name__ for c in consumers]}')
         for consumer in consumers:
+            task_logger.debug(f'Processing consumer {consumer.__name__} for result {result.key}')
             self._create_tasks_for_consumer(consumer, result)
 
     def _create_tasks_for_consumer(self, consumer: type[Op], new_result: Result) -> None:
@@ -432,21 +451,37 @@ class OpManager:
         name.
         """
         contracts = consumer.get_input_contracts()
+        task_logger.debug(f'Consumer {consumer.__name__} has {len(contracts)} contracts: {list(contracts.keys())}')
+        
         for input_tuple, contract in contracts.items():
-            task_logger.debug(f'Checking contract {input_tuple}, {contract} for {consumer}')
+            task_logger.debug(f'Checking contract {input_tuple}, {contract} for {consumer.__name__}')
             # Check if this contract can use the new result
-            if not any(output_type in input_tuple for output_type in new_result.op.output_types):
+            can_use_result = any(output_type in input_tuple for output_type in new_result.op.output_types)
+            task_logger.debug(f'Contract {input_tuple} can use result {new_result.key} (types {new_result.op.output_types}): {can_use_result}')
+            if not can_use_result:
                 continue
+                
             # Generate lists of results for each input type in this contract
             input_results = []
             for input_type in input_tuple:
                 keys = self._results_by_type.get(input_type, [])
                 results = [self._results[key] for key in keys if self._results[key].is_success]
+                task_logger.debug(f'Input type {input_type}: found {len(results)} results from keys {keys}')
                 input_results.append(results)
-            if not input_results or any(not results for results in input_results):
+                
+            if not input_results:
+                task_logger.debug(f'No input results for contract {input_tuple}')
                 continue
+            if any(not results for results in input_results):
+                task_logger.debug(f'Some input types have no results for contract {input_tuple}')
+                continue
+                
+            task_logger.debug(f'Generating cartesian product for contract {input_tuple}: {[len(r) for r in input_results]} combinations')
+            
             # Generate cartesian product of tasks for this contract and add variants
+            combination_count = 0
             for cur_results in product(*input_results):
+                combination_count += 1
                 # Count occurrences of each type in the input tuple to determine how to handle them
                 type_counts = Counter(input_tuple)
                 # Generate dict of inputs, properly handling multiple inputs of the same type
@@ -460,24 +495,32 @@ class OpManager:
                         type_indices[t] += 1
                     else: # appears only once
                         inputs[t] = r
-                if self._satisfies_contract(inputs, contract):
+                        
+                contract_satisfied = self._satisfies_contract(inputs, contract)
+                task_logger.debug(f'Combination {combination_count} for {consumer.__name__}: contract satisfied = {contract_satisfied}')
+                if contract_satisfied:
+                    task_logger.debug(f'Adding variants for {consumer.__name__} with inputs: {list(inputs.keys())}')
                     self.add_all_variants(consumer, inputs)
 
     def _satisfies_contract(self, inputs: dict[str, Result], contract: dict[str, Any]) -> bool:
         """Check if `inputs` satisfy the `contract` requirements."""
         consistency_fields = contract.get("consistency_fields", [])
+        task_logger.debug(f'Checking contract with consistency_fields: {consistency_fields}')
+        
         seen = set()
         # first make sure we're not using the same result twice
-        for result in inputs.values():
+        for input_name, result in inputs.items():
             if isinstance(result, list): # Handle list of results (for same input_type)
                 if len(set(result)) != len(result):
-                    task_logger.info(f'Got duplicate results: {result} for {inputs}')
+                    task_logger.debug(f'Contract failed: duplicate results in {input_name}: {[r.key for r in result]}')
                     return False
                 seen.update(result)
             else: # single result for input_type
                 if result in seen:
+                    task_logger.debug(f'Contract failed: result {result.key} used multiple times')
                     return False
                 seen.add(result)
+                
         def get_field(r: Result, field: str, default=None) -> Any:
             """Gets field either by direct access (for dataclasses) or via getitem (for dicts)."""
             if isinstance(r.output, dict):
@@ -487,16 +530,21 @@ class OpManager:
         # now check for consistency fields
         for field in consistency_fields:
             values = set()
-            for result in inputs.values():
+            for input_name, result in inputs.items():
                 if isinstance(result, list): # Handle list of results
                     for r in result:
                         if value := get_field(r, field):
                             values.add(value)
+                            task_logger.debug(f'Field {field} from {r.key}: {value}')
                 else: # Handle single result
                     if value := get_field(result, field):
                         values.add(value)
+                        task_logger.debug(f'Field {field} from {result.key}: {value}')
+            task_logger.debug(f'Consistency check for field {field}: found values {values}')
             if len(values) > 1:  # Inconsistent values found
+                task_logger.debug(f'Contract failed: inconsistent values for field {field}: {values}')
                 return False
+        task_logger.debug(f'Contract satisfied for inputs: {[r.key if not isinstance(r, list) else [x.key for x in r] for r in inputs.values()]}')
         return True
 
     def run_tasks(self) -> None:
