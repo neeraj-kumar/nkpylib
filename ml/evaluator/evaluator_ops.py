@@ -397,10 +397,7 @@ class OpManager:
         # convert inputs to the actual output from the previous step, not Result objects
         _inputs = {}
         for k, v in inputs.items():
-            if isinstance(v, list):
-                _inputs[k] = [item.output if isinstance(item, Result) else item for item in v]
-            else:
-                _inputs[k] = v.output if isinstance(v, Result) else v
+            _inputs[k] = v.output if isinstance(v, Result) else v
                 
         task_logger.debug(f'Calling get_variants for {op_cls.__name__} with converted inputs')
         variants = op_cls.get_variants(_inputs)
@@ -482,19 +479,10 @@ class OpManager:
             combination_count = 0
             for cur_results in product(*input_results):
                 combination_count += 1
-                # Count occurrences of each type in the input tuple to determine how to handle them
-                type_counts = Counter(input_tuple)
-                # Generate dict of inputs, properly handling multiple inputs of the same type
+                # Generate dict of inputs - each input type maps to one result
                 inputs: dict[str, Any] = {}
-                type_indices: defaultdict[str, int] = defaultdict(int)
                 for t, r in zip(input_tuple, cur_results):
-                    if type_counts[t] > 1: # appears multiple times, so it should be a list
-                        if t not in inputs:
-                            inputs[t] = [None] * type_counts[t]
-                        inputs[t][type_indices[t]] = r
-                        type_indices[t] += 1
-                    else: # appears only once
-                        inputs[t] = r
+                    inputs[t] = r
                         
                 contract_satisfied = self._satisfies_contract(inputs, contract)
                 task_logger.debug(f'Combination {combination_count} for {consumer.__name__}: contract satisfied = {contract_satisfied}')
@@ -510,16 +498,10 @@ class OpManager:
         seen = set()
         # first make sure we're not using the same result twice
         for input_name, result in inputs.items():
-            if isinstance(result, list): # Handle list of results (for same input_type)
-                if len(set(result)) != len(result):
-                    task_logger.debug(f'Contract failed: duplicate results in {input_name}: {[r.key for r in result]}')
-                    return False
-                seen.update(result)
-            else: # single result for input_type
-                if result in seen:
-                    task_logger.debug(f'Contract failed: result {result.key} used multiple times')
-                    return False
-                seen.add(result)
+            if result in seen:
+                task_logger.debug(f'Contract failed: result {result.key} used multiple times')
+                return False
+            seen.add(result)
                 
         def get_field(r: Result, field: str, default=None) -> Any:
             """Gets field either by direct access (for dataclasses) or via getitem (for dicts)."""
@@ -531,20 +513,14 @@ class OpManager:
         for field in consistency_fields:
             values = set()
             for input_name, result in inputs.items():
-                if isinstance(result, list): # Handle list of results
-                    for r in result:
-                        if value := get_field(r, field):
-                            values.add(value)
-                            task_logger.debug(f'Field {field} from {r.key}: {value}')
-                else: # Handle single result
-                    if value := get_field(result, field):
-                        values.add(value)
-                        task_logger.debug(f'Field {field} from {result.key}: {value}')
+                if value := get_field(result, field):
+                    values.add(value)
+                    task_logger.debug(f'Field {field} from {result.key}: {value}')
             task_logger.debug(f'Consistency check for field {field}: found values {values}')
             if len(values) > 1:  # Inconsistent values found
                 task_logger.debug(f'Contract failed: inconsistent values for field {field}: {values}')
                 return False
-        task_logger.debug(f'Contract satisfied for inputs: {[r.key if not isinstance(r, list) else [x.key for x in r] for r in inputs.values()]}')
+        task_logger.debug(f'Contract satisfied for inputs: {[r.key for r in inputs.values()]}')
         return True
 
     def run_tasks(self) -> None:
@@ -620,12 +596,7 @@ class OpManager:
         # Collect all previous results from inputs
         provenance = []
         for input_type, input_value in task.inputs.items():
-            if isinstance(input_value, list):
-                # Handle list of results
-                for item in input_value:
-                    if isinstance(item, Result):
-                        provenance.append(item)
-            elif isinstance(input_value, Result):
+            if isinstance(input_value, Result):
                 provenance.append(input_value)
 
         # Create the result with the provenance chain of previous results
@@ -789,11 +760,7 @@ class Op(ABC):
             # try to get the underlying output from the result objects
             op_inputs = {}
             for k, v in inputs.items():
-                if isinstance(v, list):
-                    # Handle multiple inputs of the same type
-                    op_inputs[k] = [item.output for item in v]
-                else:
-                    op_inputs[k] = v.output
+                op_inputs[k] = v.output
         except Exception:
             op_inputs = inputs
         task_logger.info(f'Executing {self} ({self.variant}) -> {self.key}')
