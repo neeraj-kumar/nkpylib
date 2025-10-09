@@ -6,6 +6,7 @@ import base64
 import mimetypes
 import os
 
+from dataclasses import dataclass
 from os.path import dirname, join
 from typing import Literal
 
@@ -14,6 +15,12 @@ SERVER_BASE_URL = "http://localhost:8234"
 SERVER_API_VERSION = "1"
 
 PROVIDERS_PATH = 'providers.json'
+
+@dataclass
+class ModelConfig:
+    name: str
+    max_tokens: int=10240
+
 
 DEFAULT_MODELS = dict(
     # sentence embedding models for lots of text
