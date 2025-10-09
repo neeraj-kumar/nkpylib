@@ -16,11 +16,15 @@ SERVER_API_VERSION = "1"
 
 PROVIDERS_PATH = 'providers.json'
 
+DEFAULT_MAX_TOKENS = 32768
+
+
 @dataclass
 class ModelConfig:
     name: str
-    max_tokens: int=10240
-
+    max_tokens: int=DEFAULT_MAX_TOKENS
+    max_dims: int=0
+    default_dims: int=0
 
 DEFAULT_MODELS = dict(
     # sentence embedding models for lots of text
@@ -30,34 +34,36 @@ DEFAULT_MODELS = dict(
     clip=ModelConfig("openai/clip-vit-large-patch14"),
     image=ModelConfig('openai/clip-vit-large-patch14'),
     # jina-clip-v2 for better image <-> text embeddings in the same space
-    jina=ModelConfig("jinaai/jina-clip-v2"),
+    # - Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance
+    #   at all (and might even slightly improve it for some tasks).
+    jina=ModelConfig("jinaai/jina-clip-v2", max_dims=1024, default_dims=768),
     # llama4 (scout) for top-line perf on text tasks
-    llama4=ModelConfig('meta-llama/Llama-4-Scout-17B-16E-Instruct', 131072),
+    llama4=ModelConfig('meta-llama/Llama-4-Scout-17B-16E-Instruct', max_tokens=131072),
     # qwen, latest baidu model
-    qwen=ModelConfig('Qwen/Qwen3-30B-A3B', 32768),
-    qwen_large=ModelConfig('Qwen/Qwen3-235B-A22B', 32768),
+    qwen=ModelConfig('Qwen/Qwen3-30B-A3B', max_tokens=32768),
+    qwen_large=ModelConfig('Qwen/Qwen3-235B-A22B', max_tokens=32768),
     # llama3 for default good perf on various text tasks
-    llama3=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', 131072),
-    text=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', 131072),
+    llama3=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
+    text=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
     # llama3 turbo as all-purpose default fast model
-    llama3_turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', 131072),
-    turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', 131072),
+    llama3_turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
+    turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     # faster llama3 for chat
-    chat=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', 131072),
+    chat=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     # generic vlm model for vision+language tasks
-    vlm=ModelConfig('meta-llama/Llama-3.2-90B-Vision-Instruct', 131072),
+    vlm=ModelConfig('meta-llama/Llama-3.2-90B-Vision-Instruct', max_tokens=131072),
     # model for better vlm performance on extracting doc data
-    docimage=ModelConfig('accounts/fireworks/models/qwen2-vl-72b-instruct', 32768),
+    docimage=ModelConfig('accounts/fireworks/models/qwen2-vl-72b-instruct', max_tokens=32768),
     # a fast model for text tasks
-    fast=ModelConfig('mistralai/Mistral-Small-24B-Instruct-2501', 32768),
+    fast=ModelConfig('mistralai/Mistral-Small-24B-Instruct-2501', max_tokens=32768),
     # a good model for manipulating json
-    json=ModelConfig('Qwen/Qwen2.5-72B-Instruct', 32768),
+    json=ModelConfig('Qwen/Qwen2.5-72B-Instruct', max_tokens=32768),
     # a good model for manipulating html (llama3)
-    html=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', 131072),
+    html=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
     # nomic is a good model for text embeddings
     nomic=ModelConfig('nomic-ai/nomic-embed-text-v1.5'),
     # suitable for generating code
-    code=ModelConfig('Qwen/Qwen2.5-Coder-32B-Instruct', 32768),
+    code=ModelConfig('Qwen/Qwen2.5-Coder-32B-Instruct', max_tokens=32768),
     # speech transcription
     whisper=ModelConfig('openai/whisper-large-v3'),
     speech=ModelConfig('openai/whisper-large-v3'),
@@ -70,7 +76,7 @@ DEFAULT_MODELS = dict(
     qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B'),
     qwen_emb_small=ModelConfig('Qwen/Qwen3-Embedding-0.6B'),
     # groq fastest
-    groq=ModelConfig('openai/gpt-oss-20b', 8192),
+    groq=ModelConfig('openai/gpt-oss-20b', max_tokens=8192),
 
 )
 
@@ -87,20 +93,6 @@ REPLICATE_MODELS = dict(
 Role = Literal['user', 'assistant', 'system']
 Msg = tuple[Role, str]
 
-
-def get_model_name(key: str) -> str:
-    """Get the model name from DEFAULT_MODELS, maintaining backward compatibility."""
-    model_config = DEFAULT_MODELS.get(key, key)
-    if isinstance(model_config, ModelConfig):
-        return model_config.name
-    return model_config
-
-def get_model_max_tokens(key: str) -> int:
-    """Get the max_tokens for a model, with sensible default."""
-    model_config = DEFAULT_MODELS.get(key)
-    if isinstance(model_config, ModelConfig):
-        return model_config.max_tokens
-    return 10240  # default fallback
 
 def data_url_from_file(file_obj, mimetype='') -> str:
     """Converts a file object to a data URL. You can optionally provide the explicit mimetype"""

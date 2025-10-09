@@ -275,7 +275,7 @@ def llm_final_func(resp):
 
 @execution_wrapper(final_func=llm_final_func)
 def call_llm_completion(prompt: str,
-                        max_tokens:int =1024,
+                        max_tokens:int =0,
                         model:Optional[str] =None,
                         use_cache=True,
                         **kw) -> ResponseT:
@@ -293,8 +293,8 @@ def call_llm_completion(prompt: str,
                        **kw)
 
 
-def call_llm_impl(prompts: str|list[Msg],
-                  max_tokens:int,
+def call_llm_impl(messages: str|list[Msg]|list[dict[str,str]],
+                  max_tokens:int=0,
                   image: str='',
                   model:Optional[str] =None,
                   session_id:str ='',
@@ -311,12 +311,12 @@ def call_llm_impl(prompts: str|list[Msg],
             lst = session_cache[session_id][:]
         else:
             lst = []
-        if isinstance(prompts, str):
-            prompts = [('user', prompts)]
-        lst += prompts
-        prompts = lst
-        logger.debug(f'for session {session_id}, using prompts {prompts}')
-    call_kwargs = dict(prompts=prompts, max_tokens=max_tokens, model=model, use_cache=use_cache, **kw)
+        if isinstance(messages, str):
+            messages = [('user', messages)]
+        lst += messages
+        messages = lst
+        logger.debug(f'for session {session_id}, using messages {messages}')
+    call_kwargs = dict(messages=messages, max_tokens=max_tokens, model=model, use_cache=use_cache, **kw)
     if image:
         if isinstance(image, str): # it's already an image or url
             ret = single_call("vlm", image=image, **call_kwargs)
@@ -329,14 +329,14 @@ def call_llm_impl(prompts: str|list[Msg],
     logger.debug(f'chat response: {ret}')
     if session_id:
         msg = ret['choices'][0]['message']
-        assert isinstance(prompts, list)
-        session_cache[session_id] = prompts + [(msg['role'], msg['content'])]
+        assert isinstance(messages, list)
+        session_cache[session_id] = messages + [(msg['role'], msg['content'])]
     return ret
 
 
 @execution_wrapper(final_func=llm_final_func)
 def call_llm(prompts: str|list[Msg],
-             max_tokens:int =10240,
+             max_tokens:int =0,
              model:Optional[str] =None,
              session_id:str ='',
              use_cache=True,
@@ -356,7 +356,7 @@ def call_llm(prompts: str|list[Msg],
 
     Returns the raw json response (as a dict).
     """
-    return call_llm_impl(prompts=prompts,
+    return call_llm_impl(messages=prompts,
                          max_tokens=max_tokens,
                          model=model,
                          session_id=session_id,
@@ -366,7 +366,7 @@ def call_llm(prompts: str|list[Msg],
 
 @execution_wrapper(final_func=llm_final_func)
 def call_vlm(inputs: tuple[str, str|list[Msg]],
-             max_tokens:int =10240,
+             max_tokens:int =0,
              model:Optional[str] =None,
              session_id:str ='',
              use_cache=True,
@@ -383,12 +383,10 @@ def call_vlm(inputs: tuple[str, str|list[Msg]],
     conversation history. In that case, any `prompts` you pass in, and each response from the
     server, will be appended to the history indexed by `session_cache[session_id]`.
 
-    Uses the 'vlm' model in DEFAULT_MODELS by default.
-
     Returns the raw json response (as a dict).
     """
     image, prompts = inputs
-    return call_llm_impl(prompts=prompts,
+    return call_llm_impl(messages=prompts,
                          max_tokens=max_tokens,
                          image=image,
                          model=model,

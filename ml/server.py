@@ -75,7 +75,7 @@ from PIL import Image
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from nkpylib.ml.constants import DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
+from nkpylib.ml.constants import DEFAULT_MAX_TOKENS, DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
 from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
 from nkpylib.thread_utils import Singleton
@@ -95,8 +95,14 @@ RESULTS_CACHE_LIMIT = 90000
 LoadFuncT = Callable[[Any], Any]
 RunFuncT = Callable[[Any, Any], dict]
 
+def _default(name: str) -> str:
+    """Returns the default model full name"""
+    if name not in DEFAULT_MODELS:
+        return name
+    return DEFAULT_MODELS[name].name
+
 @functools.cache
-def load_clip(model_name=DEFAULT_MODELS['clip']):
+def load_clip(model_name=_default('clip')):
     """Loads clip and returns two embedding functions: one for text, one for images"""
     import torch
     from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
@@ -121,14 +127,15 @@ def load_clip(model_name=DEFAULT_MODELS['clip']):
     return get_text_features, get_image_features
 
 @functools.cache
-def load_jina(model_name=DEFAULT_MODELS['jina'], dims:int =768):
+def load_jina(model_name=_default('jina'), dims:int =DEFAULT_MODELS['jina'].default_dims):
     """Loads jina and returns two embedding functions: one for text, one for images.
 
     Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance at
     all (and might even slightly improve it for some tasks).
     """
     from sentence_transformers import SentenceTransformer
-    assert dims <= 1024, "Jina-clip-v2 only supports up to 1024 dimensions"
+    cfg = DEFAULT_MODELS['jina']
+    assert dims <= cfg.max_dims, "Jina-clip-v2 only supports up to 1024 dimensions"
     model = SentenceTransformer(model_name, trust_remote_code=True, truncate_dim=dims)
 
     def get_image_features(image_or_path):
@@ -142,73 +149,15 @@ def load_jina(model_name=DEFAULT_MODELS['jina'], dims:int =768):
     return get_text_features, get_image_features
 
 
-def get_clip_text_embedding(s: str):
-    """Gets the clip text embedding for the given `s`"""
-    clip_text, clip_image = load_clip()
-    return clip_text(s).numpy()
-
-
-def get_clip_image_embedding(img: Union[str, Image.Image]):
-    """Gets the clip image embedding for the given `img` (url, path, or image)"""
-    clip_image, clip_image = load_clip()
-    return clip_image(img).numpy()
-
-
-def llama(prompt, methods, model_dir='models', get_embeddings=False):
-    from llama_cpp import Llama
-    from llama_cpp import (
-        LLAMA_POOLING_TYPE_NONE,
-        LLAMA_POOLING_TYPE_MEAN,
-        LLAMA_POOLING_TYPE_CLS,
-    )
-    print(f'Loading model from {model_dir}, get_embeddings={get_embeddings}')
-    model_path = f"{model_dir}/mistral-7b-instruct-v0.2.Q5_K_M.gguf"
-    model_path = f"{model_dir}/Meta-Llama-3-8B-Instruct.Q8_0.gguf"
-    model_path = f"{model_dir}/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
-    if get_embeddings:
-        model_path = f"{model_dir}/ggml-gritlm-7b-q4_k.gguf"
-
-    # Set gpu_layers to the number of layers to offload to GPU. Set to 0 if no GPU acceleration is available on your system.
-    t0 = time.time()
-    llm = Llama(
-      model_path=model_path,  # Download the model file first
-      n_ctx=8192,#32768,      # The max sequence length to use - note that longer sequence lengths require much more resources
-      n_threads=8,            # The number of CPU threads to use, tailor to your system and the resulting performance
-      n_gpu_layers=35,        # The number of layers to offload to GPU, if you have GPU acceleration available
-      embedding=get_embeddings,  # Whether to create embeddings for the input and output
-      #pooling_type=LLAMA_POOLING_TYPE_MEAN,
-    )
-    t1 = time.time()
-    print(f'Loaded model using llama in {t1-t0}s')
-
-    if get_embeddings:
-        embeddings = llm.create_embedding(prompt)
-        t2 = time.time()
-        print(f'Took {t2-t1}s to create embeddings for prompt: {embeddings}')
-    else:
-        output = llm(
-          f"<s>[INST] {prompt} [/INST]", # Prompt
-          max_tokens=512,  # Generate up to 512 tokens
-          stop=["</s>"],   # Example stop token - not necessarily correct for this specific model! Please check before using.
-          echo=False,      # Whether to echo the prompt
-        )
-        t2 = time.time()
-        print(f'Took {t2-t1}s to generate using llama-cpp for prompt: {prompt}')
-        print(output)
-
-
-def test(prompt = "Summarize the plot of the movie Fight Club."):
-    methods = ['greedy', 'sample', 'beam']
-    #methods = ['beam'] # 1.7 tokens/s
-    func = llama
-    func(prompt, methods)
-
-
 class Model(ABC):
     """Base class for models, providing a common interface for loading and running models."""
     def __init__(self, model_name: str='', use_cache: bool=True, **kw):
-        if model_name in DEFAULT_MODELS:
-            model_name = DEFAULT_MODELS[model_name]
+        self.model_cfg = DEFAULT_MODELS.get(model_name)
+        if self.model_cfg:
+            model_name = self.model_cfg.name
+            self.max_tokens = self.model_cfg.max_tokens
+        else:
+            self.max_tokens = DEFAULT_MAX_TOKENS
         self.model_name = model_name
         self.lock = Lock()
         self.condition = Condition()
@@ -325,8 +274,8 @@ class ChatModel(Model):
     """
     def update_kw(self, input: Any, **kw) -> dict:
         """Updates the `kw` input dict with default parameters, etc."""
-        if 'max_tokens' not in kw:
-            kw['max_tokens'] = 1024
+        if 'max_tokens' not in kw or not kw['max_tokens']:
+            kw['max_tokens'] = self.max_tokens
         return kw
 
     async def _get_cache_key(self, input: Any, **kw) -> str:
@@ -334,14 +283,23 @@ class ChatModel(Model):
 
     def postprocess(self, input, ret, **kw) -> dict:
         """Augments the output with additional information."""
-        ret['prompts'] = input
+        ret['messages'] = input
         ret['model'] = self.model_name.split('/', 1)[-1]
         ret['max_tokens'] = kw['max_tokens']
+        ret['object'] = 'chat.completion'
+        ret['created'] = int(time.time())
+        #print(f'Sending back response: {pformat(ret)}')
         return ret
 
 
 class LocalChatModel(ChatModel):
-    """Model subclass for handling local chat models."""
+    """Model subclass for handling local chat models.
+
+    This runs llama locally using llama-cpp-python.
+
+    Note this is extremely slow on my current machine (mini-pc, no gpu), and in general I think
+    people recommend using ollama or vllm instead these days.
+    """
     async def _load(self, **kw) -> Any:
         from llama_cpp import Llama
         return Llama(
@@ -369,13 +327,14 @@ class ExternalChatModel(ChatModel):
             model = self.model_name.split('/', 1)[-1]
         else:
             model = self.model_name
-        prompts = input
-        if isinstance(prompts, str):
-            prompts = [('user', prompts)]
-        assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
-        if not kw:
-            kw = {}
-        kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+        messages = input
+        # if we have a single string -> map to a single user message
+        if isinstance(messages, str):
+            messages = [('user', messages)]
+        # map list of Msg tuples to list of dicts
+        kw = kw or {}
+        fix_msg = lambda m: {'role': m[0], 'content': m[1]} if isinstance(m, tuple) else m
+        kw['messages'] = [fix_msg(m) for m in messages]
         ret = await call_external(endpoint='/chat/completions', provider_name=kw.pop('provider', ''), model=model, **kw)
         return self.postprocess(input, ret, **kw)
 
@@ -510,10 +469,14 @@ class TextExtractionModel(Model):
             logger.error(f"Error extracting text from {input}: {e}")
             return dict(url=input, text='', error=str(e))
 
+
 class TranscriptionModel(Model):
     """Base class for transcription models.
 
-    This checks that the input is a valid path, and uses the hash of the path as the cache key"""
+    This checks that the input is a valid path, and uses the hash of the file as the cache key.
+    It also includes the language (default 'en') and 'chunk_level' (default 'segment') in the cache
+    key.
+    """
     async def _get_cache_key(self, input: Any, **kw) -> str:
         with open(input, 'rb') as f:
             sha = sha256(f.read()).hexdigest()
@@ -557,6 +520,7 @@ class ExternalTranscriptionModel(TranscriptionModel):
             **kw
         )
         return ret
+
 
 ALL_SINGLETON_MODELS = [
     ExternalChatModel,
@@ -615,23 +579,25 @@ class BaseRequest(BaseModel):
 
 # setup fastapi chat endpoint
 class ChatRequest(BaseRequest):
-    prompts: str|list[Msg]
+    messages: str|list[Msg]|list[dict[str,str]]
     model: str='chat' # this will get mapped based on DEFAULT_MODELS['chat']
-    max_tokens: int=1024
+    max_tokens: int=0
 
-@app.post("/v1/chat")
-async def chat(req: ChatRequest):
-    """Generates chat response for the given prompts using the given model."""
+
+
+async def chat_impl(req: ChatRequest):
+    """Generates chat response for the given messages using the given model."""
     logger.debug(f'running chat model')
+    # note that we only need to look up the default model to know whether to use local or external
     if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
+        req.model = DEFAULT_MODELS[req.model].name
     model: ChatModel
     if req.model in LOCAL_MODELS:
         model = LocalChatModel(model_name=req.model, device='cpu', use_cache=req.use_cache)
     else:
         model = ExternalChatModel(model_name=req.model, use_cache=req.use_cache)
     ret = await model.run(
-        input=req.prompts,
+        input=req.messages,
         max_tokens=req.max_tokens,
         provider=req.provider,
         caller=req.caller,
@@ -639,19 +605,30 @@ async def chat(req: ChatRequest):
     )
     return ret
 
+@app.post("/v1/chat")
+async def chat(req: ChatRequest):
+    """Generates chat response for the given messages using the given model."""
+    return await chat_impl(req)
+
+@app.post("/v1/chat/completions")
+async def chat_completion(req: ChatRequest):
+    """Generates chat response for the given messages using the given model."""
+    return await chat_impl(req)
+
 # setup fastapi VLM endpoint
 class VLMRequest(BaseRequest):
     image: str # path/url/image directly?
-    prompts: str|list[Msg]
+    messages: str|list[Msg]
     model: str='vlm' # this will get mapped based on DEFAULT_MODELS['vlm']
-    max_tokens: int=1024
+    max_tokens: int=0
 
 @app.post("/v1/vlm")
 async def vlm(req: VLMRequest):
-    """Generates VLM chat response for the given image and prompts using the given model."""
+    """Generates VLM chat response for the given image and messages using the given model."""
+    # note that we don't need to look up the default model, since it's always external
     model = VLMModel(model_name=req.model, use_cache=req.use_cache)
     ret = await model.run(
-        input=(req.image, req.prompts),
+        input=(req.image, req.messages),
         max_tokens=req.max_tokens,
         provider=req.provider,
         caller=req.caller,
@@ -668,38 +645,34 @@ class TextEmbeddingRequest(BaseRequest):
 @app.post("/v1/embeddings")
 async def text_embeddings(req: TextEmbeddingRequest):
     """Generates embeddings for the given text using the given model."""
-    if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
+    req.model = _default(req.model)
     model_class_by_name = {
-        DEFAULT_MODELS['clip']: lambda **kw: ClipEmbeddingModel(mode='text', **kw),
-        DEFAULT_MODELS['jina']: lambda **kw: JinaEmbeddingModel(mode='text', **kw),
-        DEFAULT_MODELS['sentence']: SentenceTransformerModel,
+        _default('clip'): lambda **kw: ClipEmbeddingModel(mode='text', **kw),
+        _default('jina'): lambda **kw: JinaEmbeddingModel(mode='text', **kw),
+        _default('sentence'): SentenceTransformerModel,
     }
     ModelClass: Any = model_class_by_name.get(req.model, ExternalEmbeddingModel)
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
-    if 0: #FIXME what was this code even doing??
-        async with dl_temp_file(req.input) as path:
-            ret = await model.run(input=path, provider=req.provider, caller=req.caller)
-    else:
-        ret = await model.run(input=req.input, provider=req.provider, caller=req.caller)
+    ret = await model.run(input=req.input, provider=req.provider, caller=req.caller)
     return ret
 
 
 class ImageEmbeddingRequest(BaseRequest):
     url: str
-    model: str=DEFAULT_MODELS['image']
+    model: str=_default('image')
 
 
 @app.post("/v1/image_embeddings")
 async def image_embeddings(req: ImageEmbeddingRequest):
     """Generates embeddings for the given image url (or local path) using the given model."""
-    req.model = DEFAULT_MODELS.get(req.model, req.model)
-    if req.model == DEFAULT_MODELS['clip']:
-        Cls = ClipEmbeddingModel
-    elif req.model == DEFAULT_MODELS['jina']:
-        Cls = JinaEmbeddingModel
-    else:
-        raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
+    req.model = _default(req.model)
+    match req.model:
+        case _default('clip'):
+            Cls = ClipEmbeddingModel
+        case _default('jina'):
+            Cls = JinaEmbeddingModel
+        case _:
+            raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
     model = Cls(model_name=req.model, mode='image', use_cache=req.use_cache)
     ret = await model.run(input=req.url, caller=req.caller)
     return ret
@@ -708,13 +681,12 @@ async def image_embeddings(req: ImageEmbeddingRequest):
 class StrSimRequest(BaseRequest):
     a: str
     b: str
-    model: str=DEFAULT_MODELS['clip']
+    model: str=_default('clip')
 
 @app.post("/v1/strsim")
 async def strsim(req: StrSimRequest):
     """Computes the strsim between `a` and `b` (higher is more similar)"""
-    if req.model in DEFAULT_MODELS:
-        req.model = DEFAULT_MODELS[req.model]
+    req.model = _default(req.model)
     # embed both texts by calling the text_embeddings function
     timings: dict[str, float] = {}
     async def call(s):
@@ -764,7 +736,7 @@ class TranscriptionRequest(BaseRequest):
 async def speech_transcription(req: TranscriptionRequest):
     """Generates a transcription object for the given audio (path, url, or bytes)."""
     ModelClass = LocalTranscriptionModel if req.model == 'local-transcription' else ExternalTranscriptionModel
-    print(f'In speech transcription, got model {req.model} and cls {ModelClass}')
+    logger.info(f'In speech transcription, got model {req.model} and cls {ModelClass}')
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
     async with dl_temp_file(req.url) as path:
         kw = req.kwargs or {}
@@ -786,4 +758,3 @@ async def test_api():
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
-    test()

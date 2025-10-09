@@ -136,7 +136,7 @@ async def dl_temp_file(url_or_path):
     """Makes the given `url_or_path` available as a temporary file in a context manager.
 
     Use as:
-        with dl_temp_file(url_or_path) as path:
+        async with dl_temp_file(url_or_path) as path:
             # do something with path
 
     This will download the file at `url_or_path` to a temporary file (with proper extension), and
