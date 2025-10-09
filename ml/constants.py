@@ -24,53 +24,53 @@ class ModelConfig:
 
 DEFAULT_MODELS = dict(
     # sentence embedding models for lots of text
-    st='BAAI/bge-large-en-v1.5',
-    sentence='BAAI/bge-large-en-v1.5',
+    st=ModelConfig('BAAI/bge-large-en-v1.5'),
+    sentence=ModelConfig('BAAI/bge-large-en-v1.5'),
     # clip for image <-> text embeddings in same space
-    clip="openai/clip-vit-large-patch14",
-    image='openai/clip-vit-large-patch14',
+    clip=ModelConfig("openai/clip-vit-large-patch14"),
+    image=ModelConfig('openai/clip-vit-large-patch14'),
     # jina-clip-v2 for better image <-> text embeddings in the same space
-    jina="jinaai/jina-clip-v2",
+    jina=ModelConfig("jinaai/jina-clip-v2"),
     # llama4 (scout) for top-line perf on text tasks
-    llama4='meta-llama/Llama-4-Scout-17B-16E-Instruct',
+    llama4=ModelConfig('meta-llama/Llama-4-Scout-17B-16E-Instruct', 131072),
     # qwen, latest baidu model
-    qwen='Qwen/Qwen3-30B-A3B',
-    qwen_large='Qwen/Qwen3-235B-A22B',
+    qwen=ModelConfig('Qwen/Qwen3-30B-A3B', 32768),
+    qwen_large=ModelConfig('Qwen/Qwen3-235B-A22B', 32768),
     # llama3 for default good perf on various text tasks
-    llama3='meta-llama/Llama-3.3-70B-Instruct',
-    text='meta-llama/Llama-3.3-70B-Instruct',
+    llama3=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', 131072),
+    text=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', 131072),
     # llama3 turbo as all-purpose default fast model
-    llama3_turbo='meta-llama/Llama-3.3-70B-Instruct-Turbo',
-    turbo='meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    llama3_turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', 131072),
+    turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', 131072),
     # faster llama3 for chat
-    chat='meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    chat=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', 131072),
     # generic vlm model for vision+language tasks
-    vlm='meta-llama/Llama-3.2-90B-Vision-Instruct',
+    vlm=ModelConfig('meta-llama/Llama-3.2-90B-Vision-Instruct', 131072),
     # model for better vlm performance on extracting doc data
-    docimage='accounts/fireworks/models/qwen2-vl-72b-instruct',
+    docimage=ModelConfig('accounts/fireworks/models/qwen2-vl-72b-instruct', 32768),
     # a fast model for text tasks
-    fast='mistralai/Mistral-Small-24B-Instruct-2501',
+    fast=ModelConfig('mistralai/Mistral-Small-24B-Instruct-2501', 32768),
     # a good model for manipulating json
-    json='Qwen/Qwen2.5-72B-Instruct',
+    json=ModelConfig('Qwen/Qwen2.5-72B-Instruct', 32768),
     # a good model for manipulating html (llama3)
-    html='meta-llama/Llama-3.3-70B-Instruct',
+    html=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', 131072),
     # nomic is a good model for text embeddings
-    nomic='nomic-ai/nomic-embed-text-v1.5',
+    nomic=ModelConfig('nomic-ai/nomic-embed-text-v1.5'),
     # suitable for generating code
-    code='Qwen/Qwen2.5-Coder-32B-Instruct',
+    code=ModelConfig('Qwen/Qwen2.5-Coder-32B-Instruct', 32768),
     # speech transcription
-    whisper='openai/whisper-large-v3',
-    speech='openai/whisper-large-v3',
-    transcription='openai/whisper-large-v3',
+    whisper=ModelConfig('openai/whisper-large-v3'),
+    speech=ModelConfig('openai/whisper-large-v3'),
+    transcription=ModelConfig('openai/whisper-large-v3'),
     # small fast ada text embedding model
-    ada='text-embedding-ada-002',
+    ada=ModelConfig('text-embedding-ada-002'),
     # e5 embeddings with 1024 output dims
-    e5='intfloat/e5-large-v2',
+    e5=ModelConfig('intfloat/e5-large-v2'),
     # qwen3 embeddings (large and small)
-    qwen_emb='Qwen/Qwen3-Embedding-8B',
-    qwen_emb_small='Qwen/Qwen3-Embedding-0.6B',
+    qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B'),
+    qwen_emb_small=ModelConfig('Qwen/Qwen3-Embedding-0.6B'),
     # groq fastest
-    groq='openai/gpt-oss-20b',
+    groq=ModelConfig('openai/gpt-oss-20b', 8192),
 
 )
 
@@ -87,6 +87,20 @@ REPLICATE_MODELS = dict(
 Role = Literal['user', 'assistant', 'system']
 Msg = tuple[Role, str]
 
+
+def get_model_name(key: str) -> str:
+    """Get the model name from DEFAULT_MODELS, maintaining backward compatibility."""
+    model_config = DEFAULT_MODELS.get(key, key)
+    if isinstance(model_config, ModelConfig):
+        return model_config.name
+    return model_config
+
+def get_model_max_tokens(key: str) -> int:
+    """Get the max_tokens for a model, with sensible default."""
+    model_config = DEFAULT_MODELS.get(key)
+    if isinstance(model_config, ModelConfig):
+        return model_config.max_tokens
+    return 10240  # default fallback
 
 def data_url_from_file(file_obj, mimetype='') -> str:
     """Converts a file object to a data URL. You can optionally provide the explicit mimetype"""
