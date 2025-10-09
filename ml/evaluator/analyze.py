@@ -77,7 +77,7 @@ def explore_results(db: JsonLmdb, **kw):
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s\t%(levelname)s\t%(name)s\t%(funcName)s\t%(message)s', level=logging.INFO)
-    funcs = {f.__name__: f for f in [explore_results, full_dependency_analysis, print_dependency_analysis, simulate_execution_path, analyze_contracts]}
+    funcs = {f.__name__: f for f in [explore_results]}
     parser = ArgumentParser(description=__doc__)
     parser.add_argument('func', type=str, choices=funcs, help=f'Function to run [choices: {", ".join(funcs)}]')
     parser.add_argument('--result_path', type=str, help='Path to the results JsonLMDB database [default latest]')
