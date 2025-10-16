@@ -71,6 +71,9 @@ class Searcher(ABC):
         """Search the web for the given query and yield an iterator over results."""
         pass
 
+class AuthorizationFailure(Exception):
+    pass
+
 
 class BrightDataSearch(Searcher):
     def __init__(self, site:str='google', api_key_env_var: str='BRIGHTDATA_API_KEY'):
@@ -97,8 +100,14 @@ class BrightDataSearch(Searcher):
         payload = dict(zone=self.zone_name, format='json', url=self._url_by_query(query, site))
         logger.debug(f'Payload: {payload}')
         req = make_request(url=url, method='post', headers=headers, json=payload)
+        if req.status_code == 407:
+            raise AuthorizationFailure('BrightData Authorization failed, check your API key')
         #req.raise_for_status()
-        data = json.loads(req.json()['body'])
+        try:
+            data = json.loads(req.json()['body'])
+        except Exception as e:
+            logger.info(f'Error parsing response: {e}, full response: {req.text}')
+            raise
         logger.debug(f'Searching {self.site} for: {query}, got {req.url} -> {json.dumps(data, indent=2)}')
         results = []
         sr_map = dict(title='title', url='link', description='description', image_url='image_base64')

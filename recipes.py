@@ -311,8 +311,7 @@ Input Steps follow after this.
                                     inputs=ingredients,
                                     batch_size=50,
                                     json_outputs=True,
-                                    model='llama4',
-                                    max_tokens=1000000)
+                                    model='llama4')
         counts_by_name: Counter[str] = Counter()
         for batch, outputs in llm_outs:
             for input, obj in zip(batch, outputs):
