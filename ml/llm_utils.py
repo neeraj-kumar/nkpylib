@@ -19,11 +19,14 @@ from nkpylib.ml.client import call_llm, chunked
 
 logger = logging.getLogger(__name__)
 
-def load_llm_json(s: str) -> Any:
+def load_llm_json(s: str, allow_extra: bool=True) -> Any:
     """"Tries to load a cleaned up version of JSON output from an LLM.
 
     This tries a few common things to clean up JSON and then load it.
     It might still fail, in which case, it will raise a `ValueError`.
+
+    If `allow_extra` is `True` (default), then we will allow the LLM to return extra text after a
+    valid non-empty JSON object, which we just skip.
     """
     # look for the first { or [
     delims = '{['
@@ -43,6 +46,18 @@ def load_llm_json(s: str) -> Any:
     try:
         return json.loads(json_str)
     except Exception as e:
+        if allow_extra:
+            # look for the "extra data" error and parse the position of the error
+            # e.g. "Extra data: line 75 column 1 (char 1539)"
+            str_e = str(e)
+            if n := str_e.find('Extra data:') >= 0:
+                char_pos = re.search(r'char (\d+)', str_e[n:])
+                if char_pos:
+                    try:
+                        pos = int(char_pos.group(1))
+                        return json.loads(json_str[:pos])
+                    except Exception:
+                        pass
         raise ValueError(f"Could not load JSON from {json_str}: {e}")
 
 def json_per_line(obj) -> str:
