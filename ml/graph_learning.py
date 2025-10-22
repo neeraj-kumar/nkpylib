@@ -157,6 +157,7 @@ from __future__ import annotations
 import logging
 import time
 
+from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from typing import Callable, Sequence, Any
 
@@ -739,9 +740,8 @@ def quick_test(data):
     print("Random edges:", compare_embeddings(orig, random_edge), f"accuracy: {random_acc:.4f}")
     print("No edges:", compare_embeddings(orig, no_edge), f"accuracy: {no_edge_acc:.4f}")
 
-
-if __name__ == '__main__':
-    # load not Cora and not PubMed
+def baic_test():
+    # load not Cora and not PubMed, Citeseer
     data, dataset = load_data('Citeseer')
     print(f'Device {device}, Loaded data: {data}, num_classes: {dataset.num_classes}, {data.y.shape}, {data.y}')
     #quick_test(data)
@@ -756,3 +756,10 @@ if __name__ == '__main__':
         model = gl.train_random_walks(walks, n_epochs=5)
     embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
     gl.train_and_eval_cls(embs)
+
+def main():
+    parser = ArgumentParser('Graph Learning Driver')
+
+
+if __name__ == '__main__':
+    main()
