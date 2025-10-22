@@ -397,21 +397,27 @@ def compare_array1d_stats(a: array1d, b: array1d, *,
     b = np.asarray(b)
     assert a.shape == b.shape
     assert a.ndim == b.ndim == 1
-    ret = dict(
-        pearson=float(np.corrcoef(a, b)[0, 1]),
-        spearman=float(stats.spearmanr(a, b).statistic),
-        tau=float(stats.kendalltau(a, b).statistic),
-        kl_div=float(stats.entropy(a, b)),
+    funcs = dict(
+            pearson=lambda: float(np.corrcoef(a, b)[0, 1]),
+            spearman=lambda: float(stats.spearmanr(a, b).statistic),
+            tau=lambda: float(stats.kendalltau(a, b).statistic),
+            kl_div=lambda: float(stats.entropy(a, b)),
+            linear_least_square_slope=lambda: float(stats.linregress(a, b).rvalue)**2.0,
     )
-    # compute least squares linear fit to get rvalue
-    try:
-        res = stats.linregress(a, b)
-        ret.update(linear_least_square_r2=float(res.rvalue)**2.0)
-    except Exception as e:
-        error_logger.exception(e)
-        ret.update(linear_least_square_r2=float('nan'))
+    ret = {}
+    for name, func in funcs.items():
+        try:
+            ret[name] = func()
+        except Exception as e:
+            error_logger.exception(e)
+            ret[name] = float('nan')
     if stats_a is not None and stats_b is not None:
-        ret.update({f'diff_{k}': stats_b[k] - stats_a[k] for k in stats_a})
+        key = f'diff_{k}'
+        try:
+            ret.update({key: stats_b[k] - stats_a[k] for k in stats_a})
+        except Exception as e:
+            error_logger.exception(e)
+            ret[key] = float('nan')
     return ret
 
 def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure.Figure:
@@ -669,8 +675,7 @@ class LabelOp(Op):
         for key in labels:
             variant_name = f"label_key:{key}"
             ret[variant_name] = {"label_key": key}
-            if len(ret) > 3: #FIXME temporary
-                break
+            #if len(ret) > 3: break #FIXME temporary
         op_logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
         return ret
 
