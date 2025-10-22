@@ -58,7 +58,14 @@ def explore_results(db: JsonLmdb, **kw):
     # get result keys ordered by end time
     by_end = [f'key:{k}' for (k, _) in db['by:end_time']]
     # get all results, filtered down
-    results = {k: db[k] for k in by_end[:300]}
+    results = {k: db[k] for k in by_end[:500]}
+    # print all 'warnings' from analysis objects
+    for key, r in results.items():
+        analysis = r.get('analysis', {})
+        warnings = analysis.get('warnings', [])
+        for w in warnings:
+            print(f"Result {key} warning: {w}")
+
     # get full provenance analysis
     for k, result_data in results.items():
         results[k] = {**result_data, 'analysis': build_provenance_analysis(result_data, db=db)}
@@ -70,6 +77,8 @@ def explore_results(db: JsonLmdb, **kw):
             f.write(json.dumps({'key': k, **v}) + '\n')
         temp_path = f.name
     logger.info(f'Wrote results to {temp_path} of size {os.path.getsize(temp_path)/1024/1024} MB')
+    # wait for user to press enter to continue
+    input('Press Enter to launch visidata...')
     run(['visidata', temp_path])
     # cleanup
     os.remove(temp_path)

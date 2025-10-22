@@ -1060,7 +1060,7 @@ class GenPredictionTasksOp(Op):
             counts: Counter[str] = Counter()
             unique_values = set(label_array)
             if len(unique_values) == 2 and set(unique_values).issubset({-1.0, 1.0}): # binary labels
-                n_positive = np.sum(label_array > 1)
+                n_positive = np.sum(label_array > 0)
                 if n_positive >= self.min_pos:
                     key = f'{self.label_key}-binary-{self.label_name}'
                     tasks[key] = (label_array, 'classification')
@@ -1069,6 +1069,7 @@ class GenPredictionTasksOp(Op):
                 for i, (key, _) in enumerate(counts.most_common()):
                     if i < self.max_tasks:
                         continue
+                    op_logger.debug(f'Deleting task {key} because {i} > {self.max_tasks}')
                     del tasks[key]
             else: # multiclass
                 tasks[f'{self.label_name}-multiclass-orig'] = (label_array, 'classification')
@@ -1114,7 +1115,7 @@ class RunPredictionOp(Op):
     name = "run_prediction"
     input_types = {"prediction_tasks"}
     output_types = {"prediction_results"}
-    run_mode = "process"
+    run_mode = "main"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
@@ -1138,14 +1139,13 @@ class RunPredictionOp(Op):
                     "linear_svm": {"model_type": PredictionAlgorithm.LINEAR_SVM},
                     "knn_cls": {"model_type": PredictionAlgorithm.KNN_CLS}
                 }
-
             for model_name, model_params in models.items():
                 variant_name = f"label_key:{label_key}_label_name:{label_name}_task:{task_name}_model:{model_name}"
                 variants[variant_name] = {
                     "task_name": task_name,
                     "model_type": model_params["model_type"]
                 }
-
+        #print(f'RunPredictionOp got {len(variants)} variants for label_key:{label_key}, label_name:{label_name}: {variants}')
         return variants
 
     def __init__(self, task_name: str, model_type: PredictionAlgorithm, n_splits: int = 4, **kw):
@@ -1182,30 +1182,23 @@ class RunPredictionOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         task_data = inputs["prediction_tasks"]
-        label_key, label_name, tasks = task_data.label_key, task_data.label_name, task_data.tasks
-
+        tasks = task_data.tasks
         assert self.task_name in tasks, f"PTask {self.task_name} not found in available tasks"
-
         X = task_data.sub_matrix
         y, task_type = tasks[self.task_name]
-
         # Get appropriate model and cross-validation strategy
         model = self._get_model()
         is_regression = self.model_type.is_regression
         cv_cls = KFold if is_regression else StratifiedKFold
         cv = cv_cls(n_splits=self.n_splits, shuffle=True, random_state=42)
-
         # Run cross-validation
         all_preds = []
         all_true = []
-
         for train_idx, test_idx in cv.split(X, y):
             X_train, X_test = X[train_idx], X[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
-
             # Train model
             model.fit(X_train, y_train)
-
             # Get predictions
             try:
                 preds = model.predict(X_test)
@@ -1216,10 +1209,8 @@ class RunPredictionOp(Op):
                     preds = (decisions > 0).astype(int)
                 else:
                     raise
-
             all_preds.extend(preds)
             all_true.extend(y_test)
-
         # Calculate score
         if is_regression:
             score = r2_score(all_true, all_preds)
@@ -1229,10 +1220,9 @@ class RunPredictionOp(Op):
             score = balanced_accuracy_score(all_true, all_preds)
             score_type = 'balanced_accuracy'
             n_classes = len(np.unique(y))
-
         return PredictionResult(
-            label_key=label_key,
-            label_name=label_name,
+            label_key=task_data.label_key,
+            label_name=task_data.label_name,
             task_name=self.task_name,
             model_name=self.model_type.value,
             score=float(score),
@@ -1249,6 +1239,7 @@ class RunPredictionOp(Op):
         generates appropriate warnings for high-performing models.
         """
         # Extract key information from results
+        R = results
         score = results.score
         score_type = results.score_type
         label_key = results.label_key
@@ -1437,7 +1428,7 @@ class CompareStatsOp(Op):
         },
     }
     output_types = {"stats_comparison"}
-    run_mode = 'main'
+    run_mode = 'process'
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         if 'many_array1d_a' in inputs:
@@ -1592,17 +1583,26 @@ class RunClusteringOp(Op):
 
         # Algorithms that work on distance matrices
         if "distances" in inputs:
+            label_key = inputs["distances"].label_key
             distance_algorithms = {
-                "affinity_prop": {"algorithm": ClusteringAlgorithm.AFFINITY_PROPAGATION},
+                f"{label_key}-affinity_prop": {
+                    "algorithm": ClusteringAlgorithm.AFFINITY_PROPAGATION,
+                    'label_key': label_key,
+                },
             }
             for k in cluster_sizes:
-                distance_algorithms[f"agglomerative_{k}"] = {"algorithm": ClusteringAlgorithm.AGGLOMERATIVE, "n_clusters": k}
+                distance_algorithms[f"{label_key}-agglomerative_{k}"] = {
+                    "algorithm": ClusteringAlgorithm.AGGLOMERATIVE,
+                    "n_clusters": k,
+                    'label_key':label_key,
+                }
             variants.update(distance_algorithms)
 
         return variants if variants else None
 
-    def __init__(self, algorithm: ClusteringAlgorithm, **params):
+    def __init__(self, algorithm: ClusteringAlgorithm, label_key='', **params):
         self.algorithm = algorithm
+        self.label_key = label_key
         self.params = params
         super().__init__()
 

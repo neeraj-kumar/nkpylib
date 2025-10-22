@@ -237,8 +237,13 @@ class Task:
         """Runs this task, returning self when done."""
         task_logger.info(f'Starting {self}')
         self.status = "running"
-        self.op = self.op_cls(variant=self.variant_name, **(self.variant_kwargs or {}))
-        self.output, self.analysis, self.error = self.op.execute(self.inputs)
+        try:
+            self.op = self.op_cls(variant=self.variant_name, **(self.variant_kwargs or {}))
+            self.output, self.analysis, self.error = self.op.execute(self.inputs)
+        except Exception as e:
+            self.output = None
+            self.analysis = None
+            self.error = e
         self.status = 'failed' if self.error else 'completed'
         task_logger.info(f'Finished {self}')
         return self
@@ -387,7 +392,7 @@ class OpManager:
             if existing.same_type(task):
                 return
         self.tasks.append(task)
-        counts = lambda field: Counter(getattr(t, field) for t in self.tasks).most_common()
+        counts = lambda field: Counter(getattr(t, field) for t in self.tasks).most_common(5)
         task_logger.info(f'Added task {task}, {len(self.tasks)} tasks: {counts("status")}, {counts("name")}')
 
     def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
@@ -410,6 +415,7 @@ class OpManager:
                 task_logger.info(f'Skipping already completed {op_cls.__name__}:{name} with key {key}')
                 continue
             task_logger.debug(f'Creating task for {op_cls.__name__}:{name}')
+            #print(f'Creating task for {op_cls.__name__}:{name}, variant: {name}, kwargs: {kwargs}')
             task = Task(op_cls=op_cls, inputs=inputs, variant_name=name, variant_kwargs=kwargs)
             self.add_task(task)
 
@@ -822,6 +828,6 @@ class Op(ABC):
 
         input_str = dict_v(inputs)
         combined = f"{cls.name}_{variant}_{input_str}"
-        task_logger.info(f'{cls} got key str: {combined}')
+        #FIXME task_logger.debug(f'{cls} got key str: {combined}')
         # Hash to keep keys manageable
         return hashlib.md5(combined.encode()).hexdigest()
