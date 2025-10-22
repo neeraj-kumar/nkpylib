@@ -35,6 +35,7 @@ class Tag(tag_db.Entity, GetMixin):
     key = Required(str, index=True)
     value = Optional(str, default='')
     type = Optional(str, default='')
+    added_ts = Required(int, default=lambda: int(time.time()))
     composite_index(id, type, key, value)
     composite_index(type, key, value)
     composite_index(key, value)

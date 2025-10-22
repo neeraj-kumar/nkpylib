@@ -5,6 +5,7 @@ This is mostly in reference to a set of labels you provide, in the form of a tag
 
 TODO:
 
+- I think the duplicate results are perhaps coming from multiple "label_name" per label_key
 - Restartability
 - Lots of ways of mapping embeddings to other embeddings, should be common procedure
   - PCA, K-PCA, ISOMAP, t-SNE, UMAP, LLE, Beta-VAE, etc
