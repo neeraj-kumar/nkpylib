@@ -291,6 +291,7 @@ class PredictionTasksData:
     tasks: PTasks
     sub_keys: list[str]
     sub_matrix: nparray2d
+    label_name: str | None = None
 
 @dataclass
 class PredictionResult:
@@ -976,81 +977,126 @@ class GetNeighborsOp(Op):
         )
 
 
-class GenPredictionTasksOp(LabelOp):
-    """Generate prediction tasks from labels.
+class GenPredictionTasksOp(Op):
+    """Generate prediction tasks from processed label arrays.
 
-    For numeric labels, generates original values and log/exp transformations.
-    For multiclass labels, generates original values and binarized versions for each class.
-    For multilabel labels, generates binarized versions for each label.
+    Uses the processed label arrays from GetLabelArraysOp to generate prediction tasks.
+    Creates variants for each label_name in the label arrays, allowing fine-grained
+    prediction tasks for multilabel scenarios.
 
     Returns a dict with:
     - `label_key`: The label key these tasks are for
+    - `label_name`: The specific label name this variant handles
     - `tasks`: Dict mapping task name to tuple of (label array, task type)
     - `sub_keys`: List of keys used in the tasks
     - `sub_matrix`: Submatrix of embeddings corresponding to the keys
     """
     name = "gen_prediction_tasks"
-    input_types = {"labels", "normalized_embeddings"}
+    input_types = {"label_arrays_data"}
     output_types = {"prediction_tasks"}
-    run_mode = "main"  # Changed from 'process' to avoid pool issues
+    run_mode = "main"
     is_intermediate = True
 
-    def __init__(self, label_key: str, min_pos: int = 10, max_tasks: int = 10, **kw):
+    @classmethod
+    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+        """Returns different variants based on label names in label_arrays_data."""
+        label_data = inputs.get("label_arrays_data")
+        if not label_data:
+            return None
+        
+        variants = {}
+        label_key = label_data.label_key
+        
+        # Create one variant per label_name
+        for i, label_name in enumerate(label_data.label_names):
+            variant_name = f"label_key:{label_key}_label_name:{label_name}"
+            variants[variant_name] = {
+                "label_key": label_key,
+                "label_name": label_name,
+                "label_index": i
+            }
+        
+        return variants
+
+    def __init__(self, label_key: str, label_name: str, label_index: int, 
+                 min_pos: int = 10, max_tasks: int = 10, **kw):
         """Initialize with parameters for task generation.
 
         - `label_key`: The label key to generate tasks for
+        - `label_name`: The specific label name to generate tasks for
+        - `label_index`: Index of this label in the label_arrays
         - `min_pos`: Minimum number of positive examples for classification tasks
         - `max_tasks`: Maximum number of tasks to generate
         """
+        self.label_key = label_key
+        self.label_name = label_name
+        self.label_index = label_index
         self.min_pos = min_pos
         self.max_tasks = max_tasks
-        super().__init__(label_key=label_key, **kw)
+        super().__init__(**kw)
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
-        label = inputs["labels"][self.label_key]
-        norm_emb = inputs["normalized_embeddings"]
-        keys, matrix = norm_emb.keys, norm_emb.embeddings
-
-        # Get intersection of keys with label ids
-        valid_ids = [id for id in label.ids if id in keys]
-        id_indices = [keys.index(id) for id in valid_ids]
-        sub_matrix = matrix[id_indices]
+        label_data = inputs["label_arrays_data"]
+        
+        # Get the specific label array for this variant
+        label_array = label_data.label_arrays[self.label_index]
+        sub_keys = label_data.sub_keys
+        sub_matrix = label_data.sub_matrix
+        
         tasks: PTasks = {}
-        if isinstance(label, NumericLabels):
-            # For numeric labels, generate original, log, and exp transformations
-            values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
-            tasks['orig-num'] = (values, 'regression')
-            # Log transformation (shift to positive)
-            tasks['log'] = (np.log1p(values - np.min(values) + 1.0), 'regression')
-            # Exp transformation
-            tasks['exp'] = (np.expm1(values - np.min(values) + 1.0), 'regression')
-        elif isinstance(label, MulticlassLabels):
-            # For multiclass labels, generate original and binarized versions
-            values = np.array([label.values[label.ids.index(id)] for id in valid_ids])
-            tasks['orig-cls'] = (values, 'classification')
-
-            # Generate binary tasks for each class
-            counts = Counter(values)
-            for v, _ in counts.most_common(self.max_tasks):
-                bin_values = np.array([int(val == v) for val in values])
-                if np.sum(bin_values) >= self.min_pos:
-                    tasks[f'binarized-{v}'] = (bin_values, 'classification')
-        elif isinstance(label, MultilabelLabels):
-            # For multilabel labels, generate binarized versions for each label
-            counts = Counter()
-            for id in valid_ids:
-                counts.update(label.values.get(id, []))
-
-            for v, _ in counts.most_common(self.max_tasks):
-                bin_values = np.array([int(v in label.values.get(id, [])) for id in valid_ids])
-                if np.sum(bin_values) >= self.min_pos:
-                    tasks[f'binarized-{v}'] = (bin_values, 'classification')
+        
+        # Determine if this is a binary classification or regression task
+        unique_values = np.unique(label_array)
+        n_unique = len(unique_values)
+        
+        if n_unique == 2 and set(unique_values).issubset({-1, 1, 0, 1}):
+            # Binary classification (common for multilabel or binarized multiclass)
+            # Convert -1/1 to 0/1 if needed
+            if set(unique_values) == {-1, 1}:
+                binary_values = (label_array + 1) // 2  # Convert -1,1 to 0,1
+            else:
+                binary_values = label_array.astype(int)
+            
+            # Check if we have enough positive examples
+            n_positive = np.sum(binary_values)
+            if n_positive >= self.min_pos:
+                tasks[f'{self.label_name}-binary'] = (binary_values, 'classification')
+        
+        elif n_unique <= 20:
+            # Discrete classification (multiclass)
+            # Convert to integer labels starting from 0
+            unique_sorted = np.sort(unique_values)
+            label_map = {val: i for i, val in enumerate(unique_sorted)}
+            mapped_values = np.array([label_map[val] for val in label_array])
+            tasks[f'{self.label_name}-multiclass'] = (mapped_values, 'classification')
+            
+            # Also create binary tasks for each class if we have enough examples
+            for class_val in unique_sorted:
+                binary_values = (label_array == class_val).astype(int)
+                n_positive = np.sum(binary_values)
+                if n_positive >= self.min_pos:
+                    tasks[f'{self.label_name}-binary-{class_val}'] = (binary_values, 'classification')
+        
+        else:
+            # Continuous regression
+            values = label_array.astype(float)
+            tasks[f'{self.label_name}-regression'] = (values, 'regression')
+            
+            # Add log transformation if all values are positive
+            if np.all(values > 0):
+                log_values = np.log(values)
+                tasks[f'{self.label_name}-log-regression'] = (log_values, 'regression')
+            
+            # Add log1p transformation (handles zeros and negatives)
+            log1p_values = np.log1p(values - np.min(values))
+            tasks[f'{self.label_name}-log1p-regression'] = (log1p_values, 'regression')
 
         return PredictionTasksData(
             label_key=self.label_key,
             tasks=tasks,
-            sub_keys=valid_ids,
-            sub_matrix=sub_matrix
+            sub_keys=sub_keys,
+            sub_matrix=sub_matrix,
+            label_name=self.label_name
         )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -1058,10 +1104,13 @@ class GenPredictionTasksOp(LabelOp):
         return dict(
             variant=self.variant,
             label_key=results.label_key,
+            label_name=self.label_name,
+            label_index=self.label_index,
             n_tasks=len(results.tasks),
             n_sub_keys=len(results.sub_keys),
             sub_matrix_shape=results.sub_matrix.shape,
             task_counts={k: v[1] for k, v in results.tasks.items()},
+            task_names=list(results.tasks.keys()),
         )
 
 
