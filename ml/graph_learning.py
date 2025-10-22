@@ -169,10 +169,12 @@ import torch.nn.functional as F
 
 from scipy.sparse import csr_matrix
 from sklearn.svm import LinearSVC, SVC
+from sklearn.metrics.pairwise import cosine_similarity
 from torch_geometric.nn import GATConv, GATv2Conv
 from torch_geometric.nn.models import GAT
 from torch_geometric.datasets import Planetoid
 from torch_geometric.transforms import NormalizeFeatures
+from torch_geometric.data import Data
 from tqdm import tqdm
 
 from nkpylib.ml.feature_set import (
@@ -180,6 +182,8 @@ from nkpylib.ml.feature_set import (
     array2d,
     nparray1d,
     nparray2d,
+    FeatureSet,
+    NumpyLmdb,
 )
 
 torch.manual_seed(0)
@@ -757,8 +761,194 @@ def baic_test():
     embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
     gl.train_and_eval_cls(embs)
 
+def build_graph_from_features(feature_set: FeatureSet, 
+                             n_nodes: int = None,
+                             similarity_threshold: float = 0.5) -> Data:
+    """Convert FeatureSet into PyG Data object.
+    
+    Args:
+        feature_set: FeatureSet containing node features
+        n_nodes: Number of nodes to sample (None for all)
+        similarity_threshold: Minimum cosine similarity to create edge
+        
+    Returns:
+        PyG Data object with node features and edge connectivity
+    """
+    # Get keys and embeddings
+    keys, embeddings = feature_set.get_keys_embeddings()
+    
+    # Sample subset if requested
+    if n_nodes is not None and n_nodes < len(keys):
+        indices = np.random.choice(len(keys), n_nodes, replace=False)
+        keys = [keys[i] for i in indices]
+        embeddings = embeddings[indices]
+    
+    # Compute similarity matrix and create edges
+    sim_matrix = cosine_similarity(embeddings)
+    edge_indices = np.where(sim_matrix > similarity_threshold)
+    
+    # Remove self-loops
+    mask = edge_indices[0] != edge_indices[1]
+    edge_index = torch.tensor([edge_indices[0][mask], edge_indices[1][mask]], dtype=torch.long)
+    
+    # Convert to PyG Data object
+    x = torch.tensor(embeddings, dtype=torch.float)
+    data = Data(x=x, edge_index=edge_index)
+    data.keys = keys  # Store original keys for later mapping
+    
+    logger.info(f"Built graph with {data.num_nodes} nodes, {data.num_edges} edges")
+    return data
+
+
+def create_learner(learner_type: str, data: Data, **kwargs) -> GraphLearner:
+    """Factory function to create the appropriate GAT learner.
+    
+    Args:
+        learner_type: Type of learner ('node_classification', 'random_walk', 'contrastive')
+        data: PyG Data object
+        **kwargs: Additional parameters for the learner
+        
+    Returns:
+        Configured GraphLearner instance
+    """
+    gl = GraphLearner(data, **kwargs)
+    
+    if learner_type == 'node_classification':
+        # For node classification, we need to create synthetic labels
+        # This is a placeholder - in practice you'd have real labels
+        data.y = torch.randint(0, 3, (data.num_nodes,))  # 3 classes
+        data.train_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
+        data.test_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
+        data.train_mask[:data.num_nodes//2] = True
+        data.test_mask[data.num_nodes//2:] = True
+        
+    return gl
+
+
+def save_embeddings(model: torch.nn.Module, 
+                   data: Data, 
+                   output_path: str, 
+                   output_flag: str = 'c'):
+    """Extract learned embeddings and save to NumpyLmdb.
+    
+    Args:
+        model: Trained GAT model
+        data: PyG Data object with original keys
+        output_path: Path to output NumpyLmdb
+        output_flag: LMDB flag for opening
+    """
+    # Extract embeddings
+    embeddings = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
+    
+    # Save to NumpyLmdb
+    with NumpyLmdb.open(output_path, flag=output_flag) as db:
+        for key, embedding in zip(data.keys, embeddings):
+            db[key] = embedding
+        
+        # Save metadata
+        db.md_set(db.global_key, 
+                 model_type=model.__class__.__name__,
+                 embedding_dim=embeddings.shape[1],
+                 num_nodes=len(embeddings))
+    
+    logger.info(f"Saved {len(embeddings)} embeddings to {output_path}")
+
+
 def main():
-    parser = ArgumentParser('Graph Learning Driver')
+    parser = ArgumentParser(description='Graph Learning Driver')
+    
+    # Input/Output
+    parser.add_argument('-i', '--inputs', nargs='+', required=True,
+                       help='Paths to FeatureSet inputs (NumpyLmdb files)')
+    parser.add_argument('-o', '--output', required=True,
+                       help='Output NumpyLmdb path for learned embeddings')
+    parser.add_argument('-f', '--output-flag', default='c', choices=['c', 'w', 'n'],
+                       help='LMDB flag for output (default: c)')
+    
+    # Model configuration
+    parser.add_argument('-t', '--learner-type', default='random_walk',
+                       choices=['node_classification', 'random_walk', 'contrastive'],
+                       help='Type of GAT learner (default: random_walk)')
+    parser.add_argument('-n', '--n-nodes', type=int,
+                       help='Number of nodes to sample from feature set')
+    parser.add_argument('-w', '--walk-length', type=int, default=12,
+                       help='Length of random walks (default: 12)')
+    parser.add_argument('--n-walks-per-node', type=int, default=10,
+                       help='Number of walks per node (default: 10)')
+    parser.add_argument('--walk-window', type=int, default=5,
+                       help='Context window for walks (default: 5)')
+    
+    # Architecture parameters
+    parser.add_argument('-h', '--hidden-channels', type=int, default=64,
+                       help='Hidden channels in GAT layers (default: 64)')
+    parser.add_argument('--heads', type=int, default=8,
+                       help='Number of attention heads (default: 8)')
+    parser.add_argument('-d', '--dropout', type=float, default=0.6,
+                       help='Dropout rate (default: 0.6)')
+    
+    # Training parameters
+    parser.add_argument('-e', '--n-epochs', type=int, default=200,
+                       help='Number of training epochs (default: 200)')
+    parser.add_argument('-b', '--batch-size', type=int, default=1024,
+                       help='Batch size for training (default: 1024)')
+    parser.add_argument('-s', '--similarity-threshold', type=float, default=0.5,
+                       help='Similarity threshold for edge creation (default: 0.5)')
+    
+    args = parser.parse_args()
+    
+    # Load FeatureSet
+    logger.info(f"Loading FeatureSet from {len(args.inputs)} inputs")
+    feature_set = FeatureSet(args.inputs)
+    logger.info(f"Loaded FeatureSet with {len(feature_set)} keys, {feature_set.n_dims} dims")
+    
+    # Build graph from features
+    data = build_graph_from_features(
+        feature_set, 
+        n_nodes=args.n_nodes,
+        similarity_threshold=args.similarity_threshold
+    )
+    
+    # Create learner
+    gl = create_learner(
+        args.learner_type,
+        data,
+        hidden_channels=args.hidden_channels,
+        heads=args.heads,
+        dropout=args.dropout
+    )
+    
+    # Train model
+    logger.info(f"Training {args.learner_type} model for {args.n_epochs} epochs")
+    
+    if args.learner_type == 'node_classification':
+        # Create synthetic dataset for node classification
+        class SyntheticDataset:
+            def __init__(self, num_classes=3):
+                self.num_classes = num_classes
+        
+        dataset = SyntheticDataset()
+        model = gl.train_node_classification(dataset, n_epochs=args.n_epochs)
+        
+    elif args.learner_type == 'random_walk':
+        # Generate walks and train
+        walks = gl.gen_walks(
+            n_walks_per_node=args.n_walks_per_node,
+            walk_length=args.walk_length
+        )
+        logger.info(f"Generated {walks.shape[0]} walks of length {walks.shape[1]}")
+        
+        model = gl.train_random_walks(walks, n_epochs=args.n_epochs)
+        
+    else:
+        raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
+    
+    # Save embeddings
+    save_embeddings(model, data, args.output, args.output_flag)
+    
+    # Evaluate embeddings with simple classifier
+    embeddings = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
+    logger.info(f"Final embeddings shape: {embeddings.shape}")
+    logger.info(f"Embedding stats: mean={embeddings.mean():.3f}, std={embeddings.std():.3f}")
 
 
 if __name__ == '__main__':
