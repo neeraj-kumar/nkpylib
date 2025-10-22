@@ -111,7 +111,7 @@ class BrightDataSearch(Searcher):
         logger.debug(f'Searching {self.site} for: {query}, got {req.url} -> {json.dumps(data, indent=2)}')
         results = []
         sr_map = dict(title='title', url='link', description='description', image_url='image_base64')
-        for r in data['organic']:
+        for r in data.get('organic', []):
             r = {k: r.get(v, '') for k, v in sr_map.items()}
             # extract the site from the url field
             r['site'] = urlparse(r['url']).netloc
