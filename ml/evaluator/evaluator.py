@@ -245,6 +245,7 @@ class NormalizedEmbeddings:
 @dataclass
 class LabelArraysData:
     """Result from GetLabelArraysOp."""
+    label_obj: Labels
     label_key: str
     sub_keys: list[str]
     label_names: list[str]
@@ -297,6 +298,7 @@ class PredictionTasksData:
 class PredictionResult:
     """Result from RunPredictionOp."""
     label_key: str
+    label_name: str
     task_name: str
     model_name: str
     score: float
@@ -414,12 +416,13 @@ def compare_array1d_stats(a: array1d, b: array1d, *,
             error_logger.exception(e)
             ret[name] = float('nan')
     if stats_a is not None and stats_b is not None:
-        key = f'diff_{k}'
-        try:
-            ret.update({key: stats_b[k] - stats_a[k] for k in stats_a})
-        except Exception as e:
-            error_logger.exception(e)
-            ret[key] = float('nan')
+        for k in stats_a:
+            key = f'diff_{k}'
+            try:
+                ret[key] = stats_b[k] - stats_a[k]
+            except Exception as e:
+                error_logger.exception(e)
+                ret[key] = float('nan')
     return ret
 
 def join_mpl_figs(figs: list[mpl.figure.Figure], scaling: float=5) -> mpl.figure.Figure:
@@ -677,7 +680,7 @@ class LabelOp(Op):
         for key in labels:
             variant_name = f"label_key:{key}"
             ret[variant_name] = {"label_key": key}
-            #if len(ret) > 3: break #FIXME temporary
+            if len(ret) > 3: break #FIXME temporary
         op_logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
         return ret
 
@@ -714,6 +717,7 @@ class GetLabelArraysOp(LabelOp):
         label = inputs["labels"][self.label_key]
         result = label.get_label_arrays(keys, matrix)
         return LabelArraysData(
+            label_obj=label,
             label_key=self.label_key,
             sub_keys=result.sub_keys,
             label_names=result.label_names,
@@ -1003,10 +1007,8 @@ class GenPredictionTasksOp(Op):
         label_data = inputs.get("label_arrays_data")
         if not label_data:
             return None
-        
         variants = {}
         label_key = label_data.label_key
-        
         # Create one variant per label_name
         for i, label_name in enumerate(label_data.label_names):
             variant_name = f"label_key:{label_key}_label_name:{label_name}"
@@ -1015,11 +1017,15 @@ class GenPredictionTasksOp(Op):
                 "label_name": label_name,
                 "label_index": i
             }
-        
         return variants
 
-    def __init__(self, label_key: str, label_name: str, label_index: int, 
-                 min_pos: int = 10, max_tasks: int = 10, **kw):
+    def __init__(self,
+                 label_key: str,
+                 label_name: str,
+                 label_index: int,
+                 min_pos: int = 10,
+                 max_tasks: int = 10,
+                 **kw):
         """Initialize with parameters for task generation.
 
         - `label_key`: The label key to generate tasks for
@@ -1037,65 +1043,40 @@ class GenPredictionTasksOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         label_data = inputs["label_arrays_data"]
-        
         # Get the specific label array for this variant
+        label_obj = label_data.label_obj
         label_array = label_data.label_arrays[self.label_index]
-        sub_keys = label_data.sub_keys
-        sub_matrix = label_data.sub_matrix
-        
         tasks: PTasks = {}
-        
-        # Determine if this is a binary classification or regression task
-        unique_values = np.unique(label_array)
-        n_unique = len(unique_values)
-        
-        if n_unique == 2 and set(unique_values).issubset({-1, 1, 0, 1}):
-            # Binary classification (common for multilabel or binarized multiclass)
-            # Convert -1/1 to 0/1 if needed
-            if set(unique_values) == {-1, 1}:
-                binary_values = (label_array + 1) // 2  # Convert -1,1 to 0,1
-            else:
-                binary_values = label_array.astype(int)
-            
-            # Check if we have enough positive examples
-            n_positive = np.sum(binary_values)
-            if n_positive >= self.min_pos:
-                tasks[f'{self.label_name}-binary'] = (binary_values, 'classification')
-        
-        elif n_unique <= 20:
-            # Discrete classification (multiclass)
-            # Convert to integer labels starting from 0
-            unique_sorted = np.sort(unique_values)
-            label_map = {val: i for i, val in enumerate(unique_sorted)}
-            mapped_values = np.array([label_map[val] for val in label_array])
-            tasks[f'{self.label_name}-multiclass'] = (mapped_values, 'classification')
-            
-            # Also create binary tasks for each class if we have enough examples
-            for class_val in unique_sorted:
-                binary_values = (label_array == class_val).astype(int)
-                n_positive = np.sum(binary_values)
-                if n_positive >= self.min_pos:
-                    tasks[f'{self.label_name}-binary-{class_val}'] = (binary_values, 'classification')
-        
-        else:
-            # Continuous regression
+        # Determine what kind of task this is
+        if isinstance(label_obj, NumericLabels):
+            # For numeric labels, generate original, log, and exp transformations
             values = label_array.astype(float)
-            tasks[f'{self.label_name}-regression'] = (values, 'regression')
-            
-            # Add log transformation if all values are positive
-            if np.all(values > 0):
-                log_values = np.log(values)
-                tasks[f'{self.label_name}-log-regression'] = (log_values, 'regression')
-            
-            # Add log1p transformation (handles zeros and negatives)
-            log1p_values = np.log1p(values - np.min(values))
-            tasks[f'{self.label_name}-log1p-regression'] = (log1p_values, 'regression')
-
+            tasks[f'{self.label_name}-regression-orig'] = (values, 'regression')
+            # Log transformation (shift to positive)
+            tasks[f'{self.label_name}-regression-log'] = (np.log1p(values - np.min(values) + 1.0), 'regression')
+            # Exp transformation
+            tasks[f'{self.label_name}-regression-exp'] = (np.expm1(values - np.min(values) + 1.0), 'regression')
+        else: # multiclass or multilabel
+            counts: Counter[str] = Counter()
+            unique_values = set(label_array)
+            if len(unique_values) == 2 and set(unique_values).issubset({-1.0, 1.0}): # binary labels
+                n_positive = np.sum(label_array > 1)
+                if n_positive >= self.min_pos:
+                    key = f'{self.label_key}-binary-{self.label_name}'
+                    tasks[key] = (label_array, 'classification')
+                    counts[key] = n_positive
+                # keep only the top `self.max_tasks` most common binary classes (by # positive)
+                for i, (key, _) in enumerate(counts.most_common()):
+                    if i < self.max_tasks:
+                        continue
+                    del tasks[key]
+            else: # multiclass
+                tasks[f'{self.label_name}-multiclass-orig'] = (label_array, 'classification')
         return PredictionTasksData(
             label_key=self.label_key,
             tasks=tasks,
-            sub_keys=sub_keys,
-            sub_matrix=sub_matrix,
+            sub_keys=label_data.sub_keys,
+            sub_matrix=label_data.sub_matrix,
             label_name=self.label_name
         )
 
@@ -1133,14 +1114,15 @@ class RunPredictionOp(Op):
     name = "run_prediction"
     input_types = {"prediction_tasks"}
     output_types = {"prediction_results"}
-    #run_mode = "process"
+    run_mode = "process"
 
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants for model types and tasks."""
-        tasks = inputs["prediction_tasks"].tasks
-        label_key = inputs["prediction_tasks"].label_key
-
+        pt = inputs.get("prediction_tasks")
+        assert pt is not None
+        tasks = pt.tasks
+        label_key, label_name = pt.label_key, pt.label_name
         variants = {}
         for task_name, (_, task_type) in tasks.items():
             if task_type == 'regression':
@@ -1158,7 +1140,7 @@ class RunPredictionOp(Op):
                 }
 
             for model_name, model_params in models.items():
-                variant_name = f"label:{label_key}_task:{task_name}_model:{model_name}"
+                variant_name = f"label_key:{label_key}_label_name:{label_name}_task:{task_name}_model:{model_name}"
                 variants[variant_name] = {
                     "task_name": task_name,
                     "model_type": model_params["model_type"]
@@ -1200,7 +1182,7 @@ class RunPredictionOp(Op):
 
     def _execute(self, inputs: dict[str, Any]) -> OpResult:
         task_data = inputs["prediction_tasks"]
-        label_key, tasks = task_data.label_key, task_data.tasks
+        label_key, label_name, tasks = task_data.label_key, task_data.label_name, task_data.tasks
 
         assert self.task_name in tasks, f"PTask {self.task_name} not found in available tasks"
 
@@ -1250,6 +1232,7 @@ class RunPredictionOp(Op):
 
         return PredictionResult(
             label_key=label_key,
+            label_name=label_name,
             task_name=self.task_name,
             model_name=self.model_type.value,
             score=float(score),
@@ -1269,6 +1252,7 @@ class RunPredictionOp(Op):
         score = results.score
         score_type = results.score_type
         label_key = results.label_key
+        label_name = results.label_name
         task_name = results.task_name
         model_name = results.model_name
         n_classes = results.n_classes
@@ -1284,13 +1268,13 @@ class RunPredictionOp(Op):
         if score > threshold:
             warning = {
                 "unit": "prediction",
-                "key": label_key,
+                "key": f'{label_key}:{label_name}',
                 "task": task_name,
                 "method": model_name,
                 "value": score,
                 "n_classes": n_classes,
                 "score": 3,  # Importance score
-                "warning": f"High prediction {score_type} {score:.3f} for {label_key} using {model_name}"
+                "warning": f"High prediction {score_type} {score:.3f} for {label_key}:{label_name} using {model_name}"
             }
             analysis["warnings"].append(warning)
         return analysis

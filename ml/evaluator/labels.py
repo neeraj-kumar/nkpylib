@@ -435,6 +435,7 @@ class MulticlassBase(Labels):
         """
         label_names = []
         id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix)
+        #TODO also add direct multiclass?
         # For each specific label value, create +1/-1 array
         label_arrays = []
         for label_name, ids in self.by_label().items():

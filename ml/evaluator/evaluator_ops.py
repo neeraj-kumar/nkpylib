@@ -393,22 +393,17 @@ class OpManager:
     def add_all_variants(self, op_cls: type[Op], inputs: dict[str, Result]) -> None:
         """Adds tasks for all variants of the given `op_cls` with the given `inputs`."""
         task_logger.debug(f'Adding variants for {op_cls.__name__} with inputs: {list(inputs.keys())}')
-        
         # convert inputs to the actual output from the previous step, not Result objects
         _inputs = {}
         for k, v in inputs.items():
             _inputs[k] = v.output if isinstance(v, Result) else v
-                
         task_logger.debug(f'Calling get_variants for {op_cls.__name__} with converted inputs')
         variants = op_cls.get_variants(_inputs)
         task_logger.debug(f'{op_cls.__name__}.get_variants returned: {variants}')
-        
         if not variants:
             task_logger.debug(f'No variants returned, using default empty variant')
             variants = {'': {}}
-            
         task_logger.debug(f'Processing {len(variants)} variants for {op_cls.__name__}: {list(variants.keys())}')
-        
         for name, kwargs in variants.items():
             key = op_cls.get_key(inputs=inputs, variant=name)
             if key in self._results:
