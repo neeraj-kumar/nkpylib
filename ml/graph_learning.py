@@ -159,7 +159,7 @@ import time
 
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
-from typing import Callable, Sequence, Any
+from typing import Callable, Sequence, Any, Iterator
 
 import numpy as np
 import numpy.random as npr
@@ -350,7 +350,7 @@ class ContrastiveGAT(GATBase):
 
         return batch_loss
 
-    def pair_generator(self, batch_size: int) -> iterable[tuple[array1d, array1d]]:
+    def pair_generator(self, batch_size: int) -> Iterator[tuple[array1d, array1d]]:
         """Generates positive pairs of nodes for contrastive learning.
 
         This should yield tuples of `(anchors, positive_nodes)`
@@ -415,7 +415,7 @@ class RandomWalkGAT(ContrastiveGAT):
         self.walk_window = walk_window
         self.walks = walks
 
-    def pair_generator(self, batch_size: int) -> iterable[tuple[array1d, array1d]]:
+    def pair_generator(self, batch_size: int) -> Iterator[tuple[array1d, array1d]]:
         """Generate positive pairs from random walks."""
         walks_tensor = torch.tensor(self.walks)
         valid_mask = walks_tensor != INVALID_NODE
@@ -554,7 +554,7 @@ class GraphLearner:
 
         def loss_fn(model):
             out = model(self.data.x, self.data.edge_index)
-            loss = F.cross_entropy(out[self.data.train_mask], data.y[self.data.train_mask])
+            loss = F.cross_entropy(out[self.data.train_mask], self.data.y[self.data.train_mask])
             return loss
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
