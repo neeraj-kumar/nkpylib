@@ -254,7 +254,11 @@ class NKRecipe:
         ingrs = ['i_%d:%s' % (i, ingr.strip().replace('\n', '. ')) for i, ingr in enumerate(ingrs)]
         steps = []
         for i, step in enumerate(all_steps):
-            steps.append(f's_%s:%s' % (step['section'], step['text'].replace("\n", ". ").strip()))
+            try:
+                steps.append(f's_%s:%s' % (step['section'], step['text'].replace("\n", ". ").strip()))
+            except Exception as e:
+                logger.warning(f'Error processing step {i}: {e} -> {step}')
+                raise
 
         prompt = f'''Here is the full list of ingredients for the recipe "{name}", followed by the steps. Each ingredient is written as <ingredient id>:<ingredient text> and each step is written as <step index>. <step section>:<step text>
 
@@ -317,6 +321,8 @@ Input Steps follow after this.
             for input, obj in zip(batch, outputs):
                 if not obj:
                     raise ValueError(f'Error processing ingredient: {input}')
+                if isinstance(obj, str):
+                    raise ValueError(f'Ingredient output is string, not object: {input} -> {obj}')
                 name = obj['main_item'].lower().replace(' ', '_')[:3]
                 counts_by_name[name] += 1
                 obj.setdefault('notes', [])
@@ -327,10 +333,18 @@ Input Steps follow after this.
         return ret
 
     @classmethod
-    def clean_text(cls, s: str) -> str:
-        """Does some cleanup of text, such as replacing &nbsp; with spaces, stripping spaces, etc."""
+    def clean_text(cls, s: str|Any) -> str|Any:
+        """Does some cleanup of text, such as replacing &nbsp; with spaces, stripping spaces, etc.
+
+        Note that if the input is not a string, we return it as-is
+        """
+        if not isinstance(s, str):
+            return s
         s = html.unescape(s)
-        s = re.sub(r'\s+', ' ', s).strip()
+        try:
+            s = re.sub(r'\s+', ' ', s).strip()
+        except Exception as e:
+            logger.warning(f'Error cleaning text {e}: {type(s)}: {s}')
         return s
 
     @classmethod
@@ -338,8 +352,16 @@ Input Steps follow after this.
         """Splits the ingredients from the raw recipe into sections as needed. Also does some cleanup."""
         # if we have no sections, enclose in a section named main
         ret = {}
-        if instructions[0]['@type'] == 'HowToStep':
-            instructions = [{'itemListElement': instructions, '@type': 'HowToSection', 'name': 'main'}]
+        if isinstance(instructions, list) and len(instructions) > 0 and isinstance(instructions[0], str):
+            instructions = [{'itemListElement': instructions, 'name': 'main', '@type': 'HowToSection'}]
+        if isinstance(instructions, str):
+            instructions = [{'itemListElement': [instructions], 'name': 'main', '@type': 'HowToSection'}]
+        try:
+            if instructions[0]['@type'] == 'HowToStep':
+                instructions = [{'itemListElement': instructions, '@type': 'HowToSection', 'name': 'main'}]
+        except Exception as e:
+            logger.warning(f'Error checking for sections: {e} -> {instructions}')
+            raise
         done = set()
         for section in instructions:
             name = section['name']
@@ -374,6 +396,6 @@ Input Steps follow after this.
         # map the recipe step-ingredients to ingredient ids
         for sec, steps in recipe['steps'].items():
             for step in steps:
-                step['ingredients'] = [ingr_id_by_idx[i] for i in step['ingredients']]
+                step['ingredients'] = [ingr_id_by_idx[i] for i in step['ingredients'] if i in ingr_id_by_idx]
         #print(json.dumps(recipe, indent=2, cls=GeneralJSONEncoder))
         return recipe
