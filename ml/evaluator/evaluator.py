@@ -373,7 +373,7 @@ class Warning:
         return {k: v for k, v in self.__dict__.items() if v is not None and v != ""}
 
     @classmethod
-    def add_warning(cls, *, unit: str, warning: str, analysis: dict[str, Any], pred: bool=True, **kwargs) -> None]:
+    def add_warning(cls, *, unit: str, warning: str, analysis: dict[str, Any], pred: bool=True, **kwargs) -> None:
         """Create a Warning instance and adds it to `analysis['warnings']` as a dict if `pred`."""
         if not pred or not analysis:
             return
