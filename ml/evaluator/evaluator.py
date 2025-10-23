@@ -1437,16 +1437,17 @@ class CompareNeighborsOp(Op):
         for metric_name, value in metrics.items():
             if value > threshold:
                 metric_type, k = metric_name.split('@')
-                warning = {
-                    "unit": "neighbors",
-                    "label_key": label_key,
-                    "metric": metric_name,
-                    "metrics": [embedding_metric_a, embedding_metric_b],
-                    "value": value,
-                    "score": 2,  # Importance score
-                    "warning": f"High neighbor {metric_type} ({value:.3f}) at k={k} between {embedding_metric_a or 'label'} and {embedding_metric_b or 'label'} for {label_key}"
-                }
-                analysis["warnings"].append(warning)
+                Warning.add_warning(
+                    analysis=analysis,
+                    pred=True,
+                    unit="neighbors",
+                    warning=f"High neighbor {metric_type} ({value:.3f}) at k={k} between {embedding_metric_a or 'label'} and {embedding_metric_b or 'label'} for {label_key}",
+                    label_key=label_key,
+                    metric=metric_name,
+                    metrics=[embedding_metric_a, embedding_metric_b],
+                    value=value,
+                    score=2  # Importance score
+                )
 
         return analysis
 
@@ -1545,35 +1546,35 @@ class CompareStatsOp(Op):
         high_corr_threshold = 0.7
         high_correlations = [c for c in correlations if c > high_corr_threshold]
 
-        if high_correlations:
-            max_corr = max(high_correlations)
-            warning = dict(
-                unit="stats_comparison",
-                key="correlation",
-                value=max_corr,
-                count=len(high_correlations),
-                total_comparisons=len(comparisons),
-                score=3,  # High importance
-                warning=f"High correlation found: {max_corr:.3f} ({len(high_correlations)}/{len(comparisons)} comparisons > {high_corr_threshold})"
-            )
-            warnings.append(warning)
+        analysis = {"warnings": []}
+        Warning.add_warning(
+            analysis=analysis,
+            pred=bool(high_correlations),
+            unit="stats_comparison",
+            warning=f"High correlation found: {max(high_correlations):.3f} ({len(high_correlations)}/{len(comparisons)} comparisons > {high_corr_threshold})" if high_correlations else "",
+            key="correlation",
+            value=max(high_correlations) if high_correlations else None,
+            count=len(high_correlations),
+            total_comparisons=len(comparisons),
+            score=3  # High importance
+        )
+        warnings = analysis["warnings"]
 
         # Check for high R² values (threshold: 0.6)
         high_r2_threshold = 0.6
         high_r2_values = [r for r in r2_values if r > high_r2_threshold]
 
-        if high_r2_values:
-            max_r2 = max(high_r2_values)
-            warning = dict(
-                unit="stats_comparison",
-                key="r2",
-                value=max_r2,
-                count=len(high_r2_values),
-                total_comparisons=len(comparisons),
-                score=2,  # Medium importance
-                warning=f"High R² found: {max_r2:.3f} ({len(high_r2_values)}/{len(comparisons)} comparisons > {high_r2_threshold})"
-            )
-            warnings.append(warning)
+        Warning.add_warning(
+            analysis=analysis,
+            pred=bool(high_r2_values),
+            unit="stats_comparison",
+            warning=f"High R² found: {max(high_r2_values):.3f} ({len(high_r2_values)}/{len(comparisons)} comparisons > {high_r2_threshold})" if high_r2_values else "",
+            key="r2",
+            value=max(high_r2_values) if high_r2_values else None,
+            count=len(high_r2_values),
+            total_comparisons=len(comparisons),
+            score=2  # Medium importance
+        )
 
         # Summary statistics
         analysis = dict(
@@ -1820,49 +1821,53 @@ class RunClusteringOp(Op):
                 op_logger.warning(f"Could not compute clustering quality metrics: {e}")
 
         # Generate warnings for notable results
-        if n_clusters == 1:
-            analysis["warnings"].append({
-                "unit": "clustering",
-                "algorithm": self.algorithm.value,
-                "issue": "single_cluster",
-                "score": 1,
-                "warning": f"Clustering produced only 1 cluster with {self.algorithm.value}"
-            })
+        Warning.add_warning(
+            analysis=analysis,
+            pred=n_clusters == 1,
+            unit="clustering",
+            warning=f"Clustering produced only 1 cluster with {self.algorithm.value}",
+            algorithm=self.algorithm.value,
+            issue="single_cluster",
+            score=-1  # Negative score for potential error condition
+        )
 
-        if n_noise > len(cluster_labels) * 0.5:  # More than 50% noise
-            analysis["warnings"].append({
-                "unit": "clustering",
-                "algorithm": self.algorithm.value,
-                "issue": "high_noise",
-                "noise_ratio": n_noise / len(cluster_labels),
-                "score": 2,
-                "warning": f"High noise ratio: {n_noise}/{len(cluster_labels)} points classified as noise"
-            })
+        Warning.add_warning(
+            analysis=analysis,
+            pred=n_noise > len(cluster_labels) * 0.5,
+            unit="clustering",
+            warning=f"High noise ratio: {n_noise}/{len(cluster_labels)} points classified as noise",
+            algorithm=self.algorithm.value,
+            issue="high_noise",
+            noise_ratio=n_noise / len(cluster_labels),
+            score=-2  # Negative score for potential error condition
+        )
 
         # Check for very unbalanced clusters
         if len(counts) > 1:
             imbalance_ratio = max(counts) / min(counts)
-            if imbalance_ratio > 10:
-                analysis["warnings"].append({
-                    "unit": "clustering",
-                    "label_key": self.label_key,
-                    "algorithm": self.algorithm.value,
-                    "issue": "imbalanced_clusters",
-                    "value": float(imbalance_ratio),
-                    "score": 1,
-                    "warning": f"Highly imbalanced clusters: largest/smallest = {imbalance_ratio:.1f}"
-                })
+            Warning.add_warning(
+                analysis=analysis,
+                pred=imbalance_ratio > 10,
+                unit="clustering",
+                warning=f"Highly imbalanced clusters: largest/smallest = {imbalance_ratio:.1f}",
+                label_key=self.label_key,
+                algorithm=self.algorithm.value,
+                issue="imbalanced_clusters",
+                value=float(imbalance_ratio),
+                score=-1  # Negative score for potential error condition
+            )
 
         # High silhouette score warning
-        if "silhouette_score" in analysis and analysis["silhouette_score"] > 0.7:
-            analysis["warnings"].append({
-                "unit": "clustering",
-                "algorithm": self.algorithm.value,
-                "metric": "silhouette_score",
-                "value": analysis["silhouette_score"],
-                "score": 3,
-                "warning": f"High silhouette score ({analysis['silhouette_score']:.3f}) indicates well-separated clusters"
-            })
+        Warning.add_warning(
+            analysis=analysis,
+            pred="silhouette_score" in analysis and analysis["silhouette_score"] > 0.7,
+            unit="clustering",
+            warning=f"High silhouette score ({analysis.get('silhouette_score', 0):.3f}) indicates well-separated clusters",
+            algorithm=self.algorithm.value,
+            metric="silhouette_score",
+            value=analysis.get("silhouette_score"),
+            score=3
+        )
 
         return analysis
 
@@ -1976,15 +1981,18 @@ class ClusterLabelAnalysisOp(Op):
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyze cluster-label correspondence and identify notable patterns."""
         if results is None or isinstance(results, Exception):
-            return dict(warnings=[{
-                "unit": "cluster_analysis",
-                "algorithm": self.algorithm.value,
-                "issue": "error: no_results",
-                "label_key": self.label_key,
-                "issue": "error",
-                "score": 3,
-                "warning": f"Error during cluster-label analysis: {results}"
-            }])
+            analysis = {"warnings": []}
+            Warning.add_warning(
+                analysis=analysis,
+                pred=True,
+                unit="cluster_analysis",
+                warning=f"Error during cluster-label analysis: {results}",
+                algorithm=getattr(self, 'algorithm', {}).value if hasattr(getattr(self, 'algorithm', {}), 'value') else '',
+                label_key=self.label_key,
+                issue="error",
+                score=-3  # Negative score for error condition
+            )
+            return analysis
         ari = results.adjusted_rand_index
         nmi = results.normalized_mutual_info
         purities = results.cluster_purities
@@ -2006,42 +2014,46 @@ class ClusterLabelAnalysisOp(Op):
         }
 
         # Generate warnings for notable results
-        common = dict(
+        Warning.add_warning(
+            analysis=analysis,
+            pred=ari > 0.5,
             unit="cluster_analysis",
+            warning=f"High adjusted rand index ({ari:.3f}) indicates good cluster-label correspondence",
             label_key=self.label_key,
-            algorithm=self.algorithm.value,
+            algorithm=getattr(self, 'algorithm', {}).value if hasattr(getattr(self, 'algorithm', {}), 'value') else '',
+            issue="high adjusted_rand_index",
+            metric="adjusted_rand_index",
+            value=ari,
+            score=3
         )
-        if ari > 0.5:
-            analysis["warnings"].append({
-                "issue": "high adjusted_rand_index",
-                "metric": "adjusted_rand_index",
-                "value": ari,
-                "score": 3,
-                "warning": f"High adjusted rand index ({ari:.3f}) indicates good cluster-label correspondence",
-                **common
-            })
 
-        if avg_purity > 0.8:
-            analysis["warnings"].append({
-                "issue": "high average_purity",
-                "metric": "average_purity",
-                "value": avg_purity,
-                "score": 2,
-                "warning": f"High average cluster purity ({avg_purity:.3f}) indicates homogeneous clusters",
-                **common
-            })
+        Warning.add_warning(
+            analysis=analysis,
+            pred=avg_purity > 0.8,
+            unit="cluster_analysis",
+            warning=f"High average cluster purity ({avg_purity:.3f}) indicates homogeneous clusters",
+            label_key=self.label_key,
+            algorithm=getattr(self, 'algorithm', {}).value if hasattr(getattr(self, 'algorithm', {}), 'value') else '',
+            issue="high average_purity",
+            metric="average_purity",
+            value=avg_purity,
+            score=2
+        )
 
         # Check for very pure individual clusters
         high_purity_clusters = {k: v for k, v in purities.items() if v > 0.9}
-        if high_purity_clusters:
-            analysis["warnings"].append({
-                "issue": "high individual_cluster_purity",
-                "metric": "individual_purity",
-                "clusters": high_purity_clusters,
-                "score": 2,
-                "warning": f"{len(high_purity_clusters)} clusters with >90% purity: {high_purity_clusters}",
-                **common
-            })
+        Warning.add_warning(
+            analysis=analysis,
+            pred=bool(high_purity_clusters),
+            unit="cluster_analysis",
+            warning=f"{len(high_purity_clusters)} clusters with >90% purity: {high_purity_clusters}",
+            label_key=self.label_key,
+            algorithm=getattr(self, 'algorithm', {}).value if hasattr(getattr(self, 'algorithm', {}), 'value') else '',
+            issue="high individual_cluster_purity",
+            metric="individual_purity",
+            clusters=high_purity_clusters,
+            score=2
+        )
 
         return analysis
 
