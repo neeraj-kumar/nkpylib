@@ -849,8 +849,11 @@ def make_google_calendar_link(start: datetime,
 
     Optionally, you can provide a `description` for the event.
     """
-    if isinstance(end, timedelta):
-        end = start + end
+    try:
+        if isinstance(end, timedelta):
+            end = start + end
+    except Exception:
+        pass
     assert isinstance(start, datetime) and isinstance(end, datetime)
     times = []
     tz = pytz.timezone(default_tz)
@@ -858,7 +861,10 @@ def make_google_calendar_link(start: datetime,
         if t.tzinfo is None:
             # physically adjust the time (not just tzinfo) to match default_tz
             #t = t.astimezone(tz)
-            t = (t-tz.utcoffset(t)).astimezone(tz)
+            try:
+                t = (t-tz.utcoffset(t)).astimezone(tz)
+            except Exception:
+                pass
             ctz = default_tz
         else:
             # get the name of the tz in the format 'US/Eastern'
