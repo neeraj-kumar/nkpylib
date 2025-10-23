@@ -1310,7 +1310,7 @@ class RunPredictionOp(Op):
             algorithm=model_name,
             value=score,
             n_classes=n_classes,
-            score=3,
+            score=3,  # Importance score
             metric=score_type
         )
         return analysis
