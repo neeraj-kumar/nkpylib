@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 import os
 import pickle
 import random
@@ -1809,6 +1810,7 @@ class RunClusteringOp(Op):
             if imbalance_ratio > 10:
                 analysis["warnings"].append({
                     "unit": "clustering",
+                    "label_key": self.label_key,
                     "algorithm": self.algorithm.value,
                     "issue": "imbalanced_clusters",
                     "value": float(imbalance_ratio),
@@ -2031,19 +2033,21 @@ def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval', 
     # Create formatter
     formatter = logging.Formatter(fmt)
 
-    # Create handlers (for now, only the async queue handler)
-    handlers = []
+    # setup the async logger if requested
     if async_logging:
-        log_queue = queue.Queue
+        log_queue = Queue()
         queue_handler = logging.handlers.QueueHandler(log_queue)
-        handlers.append(queue_handler)
-
-        listener = logging.handlers.QueueListener(log_queue, *handlers)
-        listener.start()
 
     # Configure each logger
+    handlers = []
     for name in log_names:
         logger = logging.getLogger(f"evaluator.{name}")
+        def add_handler(handler):
+            if async_logging:
+                handlers.append(handler)
+                logger.addHandler(queue_handler)
+            else:
+                logger.addHandler(handler)
         if name == 'task':
             logger.setLevel(logging.DEBUG)
         else:
@@ -2052,15 +2056,18 @@ def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval', 
         # Always add a file handler
         file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode=file_mode)
         file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        for h in handlers:
-            logger.addHandler(h)
+        add_handler(file_handler)
 
         # Add stderr handler for specified loggers
         if name in stderr_loggers:
             stderr_handler = logging.StreamHandler(sys.stderr)
             stderr_handler.setFormatter(formatter)
-            logger.addHandler(stderr_handler)
+            add_handler(stderr_handler)
+
+    # Start the queue listener for async logging
+    if async_logging:
+        listener = logging.handlers.QueueListener(log_queue, *handlers)
+        listener.start()
 
 
 if __name__ == '__main__':

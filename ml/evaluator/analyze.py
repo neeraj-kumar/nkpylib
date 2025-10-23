@@ -79,6 +79,11 @@ def explore_results(db: JsonLmdb, **kw):
     warnings = []
     for key, r in results.items():
         analysis = r.get('analysis', {})
+        if isinstance(analysis, str):
+            try:
+                analysis = json.loads(analysis)
+            except Exception:
+                continue
         cur = analysis.get('warnings', [])
         for w in cur:
             #print(f"Result {key} warning: {w}")
