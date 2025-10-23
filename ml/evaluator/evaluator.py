@@ -2033,41 +2033,46 @@ def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval', 
     # Create formatter
     formatter = logging.Formatter(fmt)
 
-    # setup the async logger if requested
-    if async_logging:
-        log_queue = Queue()
-        queue_handler = logging.handlers.QueueHandler(log_queue)
-
     # Configure each logger
-    handlers = []
     for name in log_names:
         logger = logging.getLogger(f"evaluator.{name}")
-        def add_handler(handler):
-            if async_logging:
-                handlers.append(handler)
-                logger.addHandler(queue_handler)
-            else:
-                logger.addHandler(handler)
-        if name == 'task':
-            logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG if name == 'task' else logging.INFO)
+
+        if async_logging:
+            # Create separate queue and handler for this logger
+            log_queue = Queue()
+            queue_handler = logging.handlers.QueueHandler(log_queue)
+            logger.addHandler(queue_handler)
+            
+            # Create handlers for this specific logger
+            handlers_for_logger = []
+            
+            # File handler
+            file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode=file_mode)
+            file_handler.setFormatter(formatter)
+            handlers_for_logger.append(file_handler)
+            
+            # Stderr handler if needed
+            if name in stderr_loggers:
+                stderr_handler = logging.StreamHandler(sys.stderr)
+                stderr_handler.setFormatter(formatter)
+                handlers_for_logger.append(stderr_handler)
+            
+            # Create listener for this logger's queue
+            listener = logging.handlers.QueueListener(log_queue, *handlers_for_logger)
+            listener.start()
         else:
-            logger.setLevel(logging.INFO)
-
-        # Always add a file handler
-        file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode=file_mode)
-        file_handler.setFormatter(formatter)
-        add_handler(file_handler)
-
-        # Add stderr handler for specified loggers
-        if name in stderr_loggers:
-            stderr_handler = logging.StreamHandler(sys.stderr)
-            stderr_handler.setFormatter(formatter)
-            add_handler(stderr_handler)
-
-    # Start the queue listener for async logging
-    if async_logging:
-        listener = logging.handlers.QueueListener(log_queue, *handlers)
-        listener.start()
+            # Non-async version - add handlers directly
+            # File handler
+            file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode=file_mode)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+            
+            # Stderr handler if needed
+            if name in stderr_loggers:
+                stderr_handler = logging.StreamHandler(sys.stderr)
+                stderr_handler.setFormatter(formatter)
+                logger.addHandler(stderr_handler)
 
 
 if __name__ == '__main__':
