@@ -86,6 +86,7 @@ from enum import Enum
 from itertools import product
 from os.path import abspath, dirname, exists, join
 from pprint import pprint as _pprint, pformat
+from queue import Queue
 from typing import Any, Literal, Sequence, Generic, TypeVar, Union
 
 import matplotlib as mpl
@@ -241,6 +242,9 @@ class NormalizedEmbeddings:
     """Result from NormalizeOp."""
     keys: list[str]
     embeddings: nparray2d
+    normed: bool
+    scale_mean: bool
+    scale_std: bool
 
 @dataclass
 class LabelArraysData:
@@ -657,7 +661,8 @@ class NormalizeOp(Op):
             scale_std=self.scale_std
         )
         op_logger.info(f'from {len(valid_keys)} got {len(keys)} embeddings {emb.shape}')
-        return NormalizedEmbeddings(keys=keys, embeddings=emb)
+        return NormalizedEmbeddings(keys=keys, embeddings=emb, normed=self.normed,
+                                    scale_mean=self.scale_mean, scale_std=self.scale_std)
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyzes `results` from executing this op with given `inputs`."""
@@ -665,6 +670,9 @@ class NormalizeOp(Op):
             variant=self.variant,
             n_embeddings=len(results.keys),
             embedding_shape=results.embeddings.shape,
+            normed=self.normed,
+            scale_mean=self.scale_mean,
+            scale_std=self.scale_std
         )
 
 
@@ -680,7 +688,7 @@ class LabelOp(Op):
         for key in labels:
             variant_name = f"label_key:{key}"
             ret[variant_name] = {"label_key": key}
-            if len(ret) > 3: break #FIXME temporary
+            #if len(ret) > 3: break #FIXME temporary
         op_logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
         return ret
 
@@ -1259,12 +1267,13 @@ class RunPredictionOp(Op):
         if score > threshold:
             warning = {
                 "unit": "prediction",
-                "key": f'{label_key}:{label_name}',
+                "label_key": f'{label_key}:{label_name}',
                 "task": task_name,
-                "method": model_name,
+                "algorithm": model_name,
                 "value": score,
                 "n_classes": n_classes,
                 "score": 3,  # Importance score
+                "metric": score_type,
                 "warning": f"High prediction {score_type} {score:.3f} for {label_key}:{label_name} using {model_name}"
             }
             analysis["warnings"].append(warning)
@@ -1394,7 +1403,7 @@ class CompareNeighborsOp(Op):
                 metric_type, k = metric_name.split('@')
                 warning = {
                     "unit": "neighbors",
-                    "key": label_key,
+                    "label_key": label_key,
                     "metric": metric_name,
                     "metrics": [embedding_metric_a, embedding_metric_b],
                     "value": value,
@@ -1572,6 +1581,7 @@ class RunClusteringOp(Op):
 
         # Algorithms that work on raw embeddings
         if "normalized_embeddings" in inputs:
+            #TODO when we generate multiple embeddings, this should incorporate those into
             #FIXME re-enable dbscan?
             embedding_algorithms = {
                 #"dbscan_0.3": {"algorithm": ClusteringAlgorithm.DBSCAN, "eps": 0.3, "min_samples": 5},
@@ -1598,7 +1608,7 @@ class RunClusteringOp(Op):
                 }
             variants.update(distance_algorithms)
 
-        return variants if variants else None
+        return variants
 
     def __init__(self, algorithm: ClusteringAlgorithm, label_key='', **params):
         self.algorithm = algorithm
@@ -1634,11 +1644,10 @@ class RunClusteringOp(Op):
         else:
             # Use distance matrix
             distances_data = inputs["distances"]
+            label_key = distances_data.label_key
+            keys = distances_data.sub_keys
             if isinstance(distances_data, LabelDistancesData):
                 data = distances_data.label_distances
-                keys = distances_data.sub_keys
-                label_key = distances_data.label_key
-
                 # Try to get true labels from the labels input if available
                 if "labels" in inputs and label_key in inputs["labels"]:
                     label_obj = inputs["labels"][label_key]
@@ -1666,20 +1675,16 @@ class RunClusteringOp(Op):
                         op_logger.warning(f"Could not extract true labels: {e}")
             elif isinstance(distances_data, EmbeddingDistancesData):
                 data = distances_data.embedding_distances
-                keys = distances_data.sub_keys
             else:
                 raise ValueError(f"Unknown distances data type: {type(distances_data)}")
 
         op_logger.info(f'Running {self.algorithm.value} clustering on {data.shape} data')
-
         # Fit the clustering algorithm
         cluster_labels = clusterer.fit_predict(data)
-
         # Extract results
         n_clusters = len(np.unique(cluster_labels[cluster_labels >= 0]))  # Exclude noise points (-1)
         centroids = getattr(clusterer, 'cluster_centers_', None)
         inertia = getattr(clusterer, 'inertia_', None)
-
         return ClusteringResult(
             algorithm=self.algorithm.value,
             labels=cluster_labels,
@@ -1806,7 +1811,7 @@ class RunClusteringOp(Op):
                     "unit": "clustering",
                     "algorithm": self.algorithm.value,
                     "issue": "imbalanced_clusters",
-                    "imbalance_ratio": float(imbalance_ratio),
+                    "value": float(imbalance_ratio),
                     "score": 1,
                     "warning": f"Highly imbalanced clusters: largest/smallest = {imbalance_ratio:.1f}"
                 })
@@ -1936,6 +1941,8 @@ class ClusterLabelAnalysisOp(Op):
         if results is None or isinstance(results, Exception):
             return dict(warnings=[{
                 "unit": "cluster_analysis",
+                "algorithm": self.algorithm.value,
+                "issue": "error: no_results",
                 "label_key": self.label_key,
                 "issue": "error",
                 "score": 3,
@@ -1962,36 +1969,41 @@ class ClusterLabelAnalysisOp(Op):
         }
 
         # Generate warnings for notable results
+        common = dict(
+            unit="cluster_analysis",
+            label_key=self.label_key,
+            algorithm=self.algorithm.value,
+        )
         if ari > 0.5:
             analysis["warnings"].append({
-                "unit": "cluster_analysis",
-                "label_key": self.label_key,
+                "issue": "high adjusted_rand_index",
                 "metric": "adjusted_rand_index",
                 "value": ari,
                 "score": 3,
-                "warning": f"High adjusted rand index ({ari:.3f}) indicates good cluster-label correspondence"
+                "warning": f"High adjusted rand index ({ari:.3f}) indicates good cluster-label correspondence",
+                **common
             })
 
         if avg_purity > 0.8:
             analysis["warnings"].append({
-                "unit": "cluster_analysis",
-                "label_key": self.label_key,
+                "issue": "high average_purity",
                 "metric": "average_purity",
                 "value": avg_purity,
                 "score": 2,
-                "warning": f"High average cluster purity ({avg_purity:.3f}) indicates homogeneous clusters"
+                "warning": f"High average cluster purity ({avg_purity:.3f}) indicates homogeneous clusters",
+                **common
             })
 
         # Check for very pure individual clusters
         high_purity_clusters = {k: v for k, v in purities.items() if v > 0.9}
         if high_purity_clusters:
             analysis["warnings"].append({
-                "unit": "cluster_analysis",
-                "label_key": self.label_key,
+                "issue": "high individual_cluster_purity",
                 "metric": "individual_purity",
                 "clusters": high_purity_clusters,
                 "score": 2,
-                "warning": f"{len(high_purity_clusters)} clusters with >90% purity: {high_purity_clusters}"
+                "warning": f"{len(high_purity_clusters)} clusters with >90% purity: {high_purity_clusters}",
+                **common
             })
 
         return analysis
@@ -1999,12 +2011,15 @@ class ClusterLabelAnalysisOp(Op):
 
 def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval', 'labels'),
                  stderr_loggers=('op', 'errors', 'eval'),
-                 file_mode='w'): #FIXME change this to 'a'
+                 file_mode='w', #FIXME change this to 'a'
+                 async_logging = True):
     """initializes all our logging
 
     Args:
-        log_names: Names of all loggers to initialize
-        stderr_loggers: Names of loggers that should also write to stderr
+    - log_names: Names of all loggers to initialize
+    - stderr_loggers: Names of loggers that should also write to stderr
+    - file_mode: Mode to open log files with ('w' for write, 'a' for append)
+    - async_logging: Whether to use asynchronous logging handlers
     """
     fmt = '\t'.join(['%(asctime)s', '%(levelname)s', '%(name)s', '%(process)d:%(thread)d', '%(module)s:%(lineno)d', '%(funcName)s'])+'\n%(message)s\n'
     #logging.basicConfig(format=fmt, level=logging.INFO)
@@ -2015,6 +2030,16 @@ def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval', 
 
     # Create formatter
     formatter = logging.Formatter(fmt)
+
+    # Create handlers (for now, only the async queue handler)
+    handlers = []
+    if async_logging:
+        log_queue = queue.Queue
+        queue_handler = logging.handlers.QueueHandler(log_queue)
+        handlers.append(queue_handler)
+
+        listener = logging.handlers.QueueListener(log_queue, *handlers)
+        listener.start()
 
     # Configure each logger
     for name in log_names:
@@ -2028,6 +2053,8 @@ def init_logging(log_names=('tasks', 'perf', 'op', 'results', 'errors', 'eval', 
         file_handler = logging.FileHandler(f"{log_dir}/{name}.log", mode=file_mode)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
+        for h in handlers:
+            logger.addHandler(h)
 
         # Add stderr handler for specified loggers
         if name in stderr_loggers:

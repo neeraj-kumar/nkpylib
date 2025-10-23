@@ -21,12 +21,28 @@ logger = logging.getLogger(__name__)
 
 RESULTS_DIR = 'results/'
 
-def get_latest_result_path(dir=RESULTS_DIR) -> str:
-    """Get the path to the latest results JsonLMDB database."""
+def get_matching_result_path(key='-1', dir=RESULTS_DIR) -> str:
+    """Get the path to the matching results for `key` from a JsonLMDB database.
+
+    The key can be:
+    - '' or '-1': the latest results file
+    - a substring to match in the results filenames (latest match)
+    - an index (pos or neg) to select from the sorted list of results files (as a string)
+    """
     result_files = sorted(glob(join(dir, 'results_*.lmdb')))
     if not result_files:
         raise FileNotFoundError('No results files found in results directory')
-    return result_files[-1]
+    # first try as int
+    try:
+        key = int(key)
+        return result_files[key]
+    except ValueError:
+        pass
+    # now look for substrings
+    matching_files = [f for f in result_files if key in os.path.basename(f)]
+    if matching_files:
+        return matching_files[-1]
+    raise ValueError(f'No results file matching key "{key}" found in {dir}')
 
 
 def build_provenance_analysis(result_data: dict[str, Any], db: JsonLmdb):
@@ -60,12 +76,13 @@ def explore_results(db: JsonLmdb, **kw):
     # get all results, filtered down
     results = {k: db[k] for k in by_end[:500]}
     # print all 'warnings' from analysis objects
+    warnings = []
     for key, r in results.items():
         analysis = r.get('analysis', {})
-        warnings = analysis.get('warnings', [])
-        for w in warnings:
-            print(f"Result {key} warning: {w}")
-
+        cur = analysis.get('warnings', [])
+        for w in cur:
+            #print(f"Result {key} warning: {w}")
+            warnings.append(dict(result_key=key, **w))
     # get full provenance analysis
     for k, result_data in results.items():
         results[k] = {**result_data, 'analysis': build_provenance_analysis(result_data, db=db)}
@@ -73,15 +90,24 @@ def explore_results(db: JsonLmdb, **kw):
     #explore(results, **kw)
     # write to a tempfile then run visidata on it
     with tempfile.NamedTemporaryFile(mode='w+', suffix='.jsonl', delete=False) as f:
+        f.write(json.dumps({'key': 'warnings', 'instance_vars': warnings}) + '\n')
         for k, v in results.items():
             f.write(json.dumps({'key': k, **v}) + '\n')
         temp_path = f.name
     logger.info(f'Wrote results to {temp_path} of size {os.path.getsize(temp_path)/1024/1024} MB')
     # wait for user to press enter to continue
-    input('Press Enter to launch visidata...')
+    #input('Press Enter to launch visidata...')
     run(['visidata', temp_path])
     # cleanup
     os.remove(temp_path)
+
+def redo_analysis(db: JsonLmdb, **kw):
+    """Redoes the analysis on the given results database."""
+    raise NotImplementedError('Redo analysis not implemented yet')
+    by_end = [f'key:{k}' for (k, _) in db['by:end_time']]
+    for full_key in by_end:
+        result_data = db[full_key]
+        logger.info(f'Redoing analysis for result {full_key}')
 
 
 if __name__ == '__main__':
@@ -89,21 +115,21 @@ if __name__ == '__main__':
     funcs = {f.__name__: f for f in [explore_results]}
     parser = ArgumentParser(description=__doc__)
     parser.add_argument('func', type=str, choices=funcs, help=f'Function to run [choices: {", ".join(funcs)}]')
+    parser.add_argument('-k', '--key', type=str, default='-1', help='Key to match results database [default latest]')
     parser.add_argument('--result_path', type=str, help='Path to the results JsonLMDB database [default latest]')
     parser.add_argument('--starting_inputs', type=str, nargs='*', default=['argparse'], help='Starting input types for simulation')
     args = parser.parse_args()
 
     if args.func in ['explore_results']:
         if not args.result_path:
-            args.result_path = get_latest_result_path()
+            args.result_path = get_matching_result_path(args.key)
         db = JsonLmdb.open(args.result_path)
         kw = vars(args)
         kw.pop('result_path')
         kw.pop('starting_inputs')
+        kw.pop('key')
         func = kw.pop('func')
         funcs[func](db=db, **kw) # type: ignore
-    elif args.func == 'simulate_execution_path':
-        simulate_execution_path(set(args.starting_inputs))
     else:
         func = args.func
         funcs[func]()
