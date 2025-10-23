@@ -1687,18 +1687,30 @@ class RunClusteringOp(Op):
                         elif isinstance(label_obj, MulticlassLabels):
                             true_labels = np.array([label_obj.values[label_obj.ids.index(key)]
                                                   for key in keys if key in label_obj.ids])
-                        # For multilabel, we'll use the first label as a proxy
+                        # For multilabel, we'll use the most common label as the class
                         elif isinstance(label_obj, MultilabelLabels):
-                            # Convert to binary for most common label
+                            # Find the most common label across all keys
                             all_labels = []
                             for key in keys:
                                 if key in label_obj.ids:
                                     labels_for_key = label_obj.values.get(key, [])
                                     all_labels.extend(labels_for_key)
+                            
                             if all_labels:
                                 most_common_label = Counter(all_labels).most_common(1)[0][0]
-                                true_labels = np.array([int(most_common_label in label_obj.values.get(key, []))
-                                                      for key in keys if key in label_obj.ids])
+                                # Assign the most common label to keys that have it, otherwise assign a default
+                                true_labels = []
+                                for key in keys:
+                                    if key in label_obj.ids:
+                                        labels_for_key = label_obj.values.get(key, [])
+                                        if most_common_label in labels_for_key:
+                                            true_labels.append(most_common_label)
+                                        else:
+                                            # Assign the first label if available, otherwise a default
+                                            true_labels.append(labels_for_key[0] if labels_for_key else "unknown")
+                                    else:
+                                        true_labels.append("unknown")
+                                true_labels = np.array(true_labels)
                     except Exception as e:
                         op_logger.warning(f"Could not extract true labels: {e}")
             elif isinstance(distances_data, EmbeddingDistancesData):
