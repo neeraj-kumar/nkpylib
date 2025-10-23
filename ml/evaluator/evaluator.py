@@ -371,6 +371,12 @@ class Warning:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         return {k: v for k, v in self.__dict__.items() if v is not None and v != ""}
+    
+    @classmethod
+    def create_dict(cls, unit: str, warning: str, **kwargs) -> dict[str, Any]:
+        """Create a Warning instance and return it as a dictionary."""
+        instance = cls(unit=unit, warning=warning, **kwargs)
+        return instance.to_dict()
 
 @dataclass
 class ClusterLabelAnalysis:
@@ -1294,17 +1300,17 @@ class RunPredictionOp(Op):
 
         # Check if score exceeds threshold
         if score > threshold:
-            warning = {
-                "unit": "prediction",
-                "label_key": f'{label_key}:{label_name}',
-                "task": task_name,
-                "algorithm": model_name,
-                "value": score,
-                "n_classes": n_classes,
-                "score": 3,  # Importance score
-                "metric": score_type,
-                "warning": f"High prediction {score_type} {score:.3f} for {label_key}:{label_name} using {model_name}"
-            }
+            warning = Warning.create_dict(
+                unit="prediction",
+                warning=f"High prediction {score_type} {score:.3f} for {label_key}:{label_name} using {model_name}",
+                label_key=f'{label_key}:{label_name}',
+                task=task_name,
+                algorithm=model_name,
+                value=score,
+                n_classes=n_classes,
+                score=3,  # Importance score
+                metric=score_type
+            )
             analysis["warnings"].append(warning)
         return analysis
 
