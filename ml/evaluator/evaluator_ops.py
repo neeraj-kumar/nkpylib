@@ -567,6 +567,11 @@ class OpManager:
         self.done_tasks.append(task)
         result = self.add_result_from_task(task)
         self.create_tasks(result)
+        self.reorder_tasks()
+
+    def reorder_tasks(self) -> None:
+        """Reorders tasks to prioritize those that are not intermediate."""
+        self.tasks.sort(key=lambda t: t.op_cls.is_intermediate)
 
     @staticmethod
     def add_result_from_task(task: Task) -> Result|None:
