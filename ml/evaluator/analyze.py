@@ -74,7 +74,7 @@ def explore_results(db: JsonLmdb, **kw):
     # get result keys ordered by end time
     by_end = [f'key:{k}' for (k, _) in db['by:end_time']]
     # get all results, filtered down
-    results = {k: db[k] for k in by_end[:500]}
+    results = {k: db[k] for k in by_end}
     # print all 'warnings' from analysis objects
     warnings = []
     for key, r in results.items():
@@ -85,9 +85,14 @@ def explore_results(db: JsonLmdb, **kw):
             except Exception:
                 continue
         cur = analysis.get('warnings', [])
+        output = r.get('output', {})
+        provenance_str = r.get('provenance_str', '')
         for w in cur:
             #print(f"Result {key} warning: {w}")
-            warnings.append(dict(result_key=key, **w))
+            warnings.append(dict(result_key=key, provenance_str=provenance_str, **w, output=output))
+    # sort warnings first by label_key then by unit then by descending score then by descending
+    # value
+    warnings.sort(key=lambda w: (w.get('label_key', ''), w.get('unit', ''), -w.get('score', 0), -w.get('value', 0)))
     # get full provenance analysis
     for k, result_data in results.items():
         results[k] = {**result_data, 'analysis': build_provenance_analysis(result_data, db=db)}
