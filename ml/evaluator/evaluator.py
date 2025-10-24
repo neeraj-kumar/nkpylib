@@ -360,7 +360,6 @@ class Warning:
     algorithm: str = ""  # Algorithm name if applicable
     metric: str = ""  # Metric name if applicable
     value: float | int | None = None  # Numeric value associated with warning
-    task: str = ""  # Task name if applicable
     issue: str = ""  # Issue type/category
     n_classes: int | None = None  # Number of classes for classification tasks
     count: int | None = None  # Count of items if applicable
@@ -1324,7 +1323,6 @@ class RunPredictionOp(Op):
             warning=f"High prediction {R.score_type} {R.score:.3f} for {R.label_key}:{R.label_name} using {R.model_name}",
             label_key=f'{R.label_key}:{R.label_name}',
             issue='high_prediction_score',
-            task=R.task_name,
             algorithm=R.model_name,
             value=R.score,
             n_classes=R.n_classes,
