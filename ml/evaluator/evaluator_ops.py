@@ -450,7 +450,6 @@ class OpManager:
         """
         contracts = consumer.get_input_contracts()
         task_logger.debug(f'Consumer {consumer.__name__} has {len(contracts)} contracts: {list(contracts.keys())}')
-        
         for input_tuple, contract in contracts.items():
             task_logger.debug(f'Checking contract {input_tuple}, {contract} for {consumer.__name__}')
             # Check if this contract can use the new result
@@ -458,7 +457,6 @@ class OpManager:
             task_logger.debug(f'Contract {input_tuple} can use result {new_result.key} (types {new_result.op.output_types}): {can_use_result}')
             if not can_use_result:
                 continue
-                
             # Generate lists of results for each input type in this contract
             input_results = []
             for input_type in input_tuple:
@@ -466,16 +464,13 @@ class OpManager:
                 results = [self._results[key] for key in keys if self._results[key].is_success]
                 task_logger.debug(f'Input type {input_type}: found {len(results)} results from keys {keys}')
                 input_results.append(results)
-                
             if not input_results:
                 task_logger.debug(f'No input results for contract {input_tuple}')
                 continue
             if any(not results for results in input_results):
                 task_logger.debug(f'Some input types have no results for contract {input_tuple}')
                 continue
-                
             task_logger.debug(f'Generating cartesian product for contract {input_tuple}: {[len(r) for r in input_results]} combinations')
-            
             # Generate cartesian product of tasks for this contract and add variants
             combination_count = 0
             for cur_results in product(*input_results):
@@ -484,7 +479,6 @@ class OpManager:
                 inputs: dict[str, Any] = {}
                 for t, r in zip(input_tuple, cur_results):
                     inputs[t] = r
-                        
                 contract_satisfied = self._satisfies_contract(inputs, contract)
                 task_logger.debug(f'Combination {combination_count} for {consumer.__name__}: contract satisfied = {contract_satisfied}')
                 if contract_satisfied:
@@ -495,7 +489,6 @@ class OpManager:
         """Check if `inputs` satisfy the `contract` requirements."""
         consistency_fields = contract.get("consistency_fields", [])
         task_logger.debug(f'Checking contract with consistency_fields: {consistency_fields}')
-        
         seen = set()
         # first make sure we're not using the same result twice
         for input_name, result in inputs.items():
@@ -503,7 +496,6 @@ class OpManager:
                 task_logger.debug(f'Contract failed: result {result.key} used multiple times')
                 return False
             seen.add(result)
-                
         def get_field(r: Result, field: str, default=None) -> Any:
             """Gets field either by direct access (for dataclasses) or via getitem (for dicts)."""
             if isinstance(r.output, dict):

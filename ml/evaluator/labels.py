@@ -190,6 +190,10 @@ class Labels(ABC):
         ret.sort(key=lambda x: x[2])
         return ret
 
+    @abstractmethod
+    def get_cluster_labels(self, keys: list[str]) -> nparray1d:
+        """Returns "true" cluster labels"""
+        raise NotImplementedError()
 
 class NumericLabels(Labels):
     """A class for numeric labels. For now we convert them to floats.
@@ -318,6 +322,18 @@ class NumericLabels(Labels):
             add_pairs(poss, n_remaining, is_indices=False)
         return self._pairs_to_list(pairs)
 
+    def get_cluster_labels(self, keys: list[str]) -> nparray1d:
+        """Returns "true" cluster labels.
+
+        If the number of unique values is less than 20, we return things as is, else we bucket."""
+        true_labels = np.array([self.values[self.ids.index(key)] if key in self.ids else 'unknown' for key in keys])
+        unique_vals = set(true_labels)
+        if len(unique_vals) > 20:
+            # bucket into 20 equal-width bins
+            bins = np.linspace(np.min(self.values), np.max(self.values), num=21)
+            bin_indices = np.digitize(true_labels.astype(np.float32), bins) - 1
+            return bin_indices.flatten()
+        return true_labels.flatten()
 
 class MulticlassBase(Labels):
     """Some common code for multiclass/multilabel labels."""
@@ -482,6 +498,11 @@ class MulticlassLabels(MulticlassBase):
         """
         return 0.0 if self.values[idx1] == self.values[idx2] else 1.0
 
+    def get_cluster_labels(self, keys: list[str]) -> nparray1d:
+        """Returns "true" cluster labels"""
+        true_labels = np.array([self.values[self.ids.index(key)] if key in self.ids else 'unknown' for key in keys])
+        return true_labels.flatten()
+
 
 class MultilabelLabels(MulticlassBase):
     """A class for multilabel (non-mutually-exclusive) labels.
@@ -522,6 +543,24 @@ class MultilabelLabels(MulticlassBase):
         if union == 0:
             return 1.0
         return 1.0 - (intersection / union)
+
+    def get_cluster_labels(self, keys: list[str]) -> nparray1d:
+        """Returns "true" cluster labels.
+
+        For this, we use the most common label for each key (as measured across all ids).
+        """
+        # Find the most common label across all keys
+        label_counts = Counter({label: len(ids) for label, ids in self.by_label().items()})
+        true_labels = []
+        for key in keys:
+            if key in self.ids:
+                labels_for_key = self.values.get(key, [])
+                most_common = sorted([(label_counts[label], label) for label in labels_for_key], reverse=True)
+                label = most_common[0][1] if most_common else 'none'
+                true_labels.append(label)
+            else:
+                true_labels.append("unknown")
+        return np.array(true_labels).flatten()
 
 
 def parse_into_labels(tag_type: str,

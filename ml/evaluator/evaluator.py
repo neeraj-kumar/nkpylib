@@ -116,7 +116,7 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor # typ
 from sklearn.linear_model import Ridge, SGDClassifier # type: ignore
 from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from sklearn.model_selection import cross_val_score, train_test_split, KFold, StratifiedKFold # type: ignore
-from sklearn.preprocessing import StandardScaler # type: ignore
+from sklearn.preprocessing import StandardScaler, LabelEncoder # type: ignore
 from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
@@ -261,6 +261,7 @@ class LabelArraysData:
 @dataclass
 class LabelDistancesData:
     """Result from GetLabelDistancesOp."""
+    label_obj: Labels
     label_key: str
     sub_keys: list[str]
     label_distances: nparray2d
@@ -343,7 +344,7 @@ class ClusteringResult:
     keys: list[str]
     label_key: str
     inertia: float | None = None
-    true_labels: nparray2d | None = None
+    true_labels: nparray1d | None = None
 
 @dataclass
 class Warning:
@@ -392,6 +393,20 @@ class Warning:
         instance = cls(unit=unit, warning=warning, **kwargs)
         analysis.setdefault('warnings', []).append(instance.to_dict())
 
+    @classmethod
+    def create_scoped_adder(cls, **defaults) -> Callable[..., None]:
+        """Create a warning adder function with default parameters pre-filled.
+
+        Returns a function that can be called with just the specific parameters,
+        while the defaults are automatically applied.
+        """
+        def add_scoped_warning(*, pred: bool = True, **kwargs):
+            # Merge kwargs with defaults, with kwargs taking precedence
+            merged_params = {**defaults, **kwargs}
+            cls.add_warning(pred=pred, **merged_params)
+
+        return add_scoped_warning
+
 @dataclass
 class ClusterLabelAnalysis:
     """Result from ClusterLabelAnalysisOp."""
@@ -403,7 +418,8 @@ class ClusterLabelAnalysis:
     adjusted_rand_index: float
     normalized_mutual_info: float
     label_key: str
-    true_labels: nparray2d | None = None
+    true_labels: nparray1d | None = None
+    true_labels_orig: nparray1d | None = None
 
 def train_and_predict(model, X_train, y_train, X_test):
     """Simple train and predict function for use in multiprocessing."""
@@ -736,7 +752,8 @@ class LabelOp(Op):
         ret = {}
         for key in labels:
             variant_name = f"label_key:{key}"
-            ret[variant_name] = {"label_key": key}
+            if 'actor' in key or 'actress' in key or 'director' in key:
+                ret[variant_name] = {"label_key": key}
             #if len(ret) > 3: break #FIXME temporary
         op_logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
         return ret
@@ -831,6 +848,7 @@ class GetLabelDistancesOp(LabelOp):
         result.label_distances = np.clip(result.label_distances, a_min=0.0, a_max=None)
 
         return LabelDistancesData(
+            label_obj=label,
             label_key=self.label_key,
             sub_keys=result.sub_keys,
             label_distances=result.label_distances,
@@ -1295,29 +1313,23 @@ class RunPredictionOp(Op):
         Checks if the prediction score exceeds a threshold (0.7 by default) and
         generates appropriate warnings for high-performing models.
         """
-        # Extract key information from results
+        if results is None:
+            return {}
         R = results
-        score = results.score
-        score_type = results.score_type
-        label_key = results.label_key
-        label_name = results.label_name
-        task_name = results.task_name
-        model_name = results.model_name
-        n_classes = results.n_classes
-
         # Create analysis dict and add warnings
-        analysis = dict(score=score, score_type=score_type)
+        analysis = dict(score=R.score, score_type=R.score_type)
         Warning.add_warning(
             analysis=analysis,
-            pred=score > threshold,
-            warning=f"High prediction {score_type} {score:.3f} for {label_key}:{label_name} using {model_name}",
-            label_key=f'{label_key}:{label_name}',
-            task=task_name,
-            algorithm=model_name,
-            value=score,
-            n_classes=n_classes,
+            pred=R.score > threshold,
+            warning=f"High prediction {R.score_type} {R.score:.3f} for {R.label_key}:{R.label_name} using {R.model_name}",
+            label_key=f'{R.label_key}:{R.label_name}',
+            issue='high_prediction_score',
+            task=R.task_name,
+            algorithm=R.model_name,
+            value=R.score,
+            n_classes=R.n_classes,
             score=3,  # Importance score
-            metric=score_type
+            metric=R.score_type
         )
         return analysis
 
@@ -1560,29 +1572,28 @@ class CompareStatsOp(Op):
                 std=np.std(r2_values) if r2_values else 0.0
             ),
         )
-        Warning.add_warning(
+        add_warning = Warning.create_scoped_adder(
             analysis=analysis,
+            total_comparisons=len(comparisons),
+        )
+        add_warning(
             pred=bool(high_correlations),
             warning=f"High correlation found: {max(high_correlations):.3f} ({len(high_correlations)}/{len(comparisons)} comparisons > {high_corr_threshold})" if high_correlations else "",
             key="correlation",
             value=max(high_correlations) if high_correlations else None,
             count=len(high_correlations),
-            total_comparisons=len(comparisons),
             score=3  # High importance
         )
 
         # Check for high R² values (threshold: 0.6)
         high_r2_threshold = 0.6
         high_r2_values = [r for r in r2_values if r > high_r2_threshold]
-
-        Warning.add_warning(
-            analysis=analysis,
+        add_warning(
             pred=bool(high_r2_values),
             warning=f"High R² found: {max(high_r2_values):.3f} ({len(high_r2_values)}/{len(comparisons)} comparisons > {high_r2_threshold})" if high_r2_values else "",
             key="r2",
             value=max(high_r2_values) if high_r2_values else None,
             count=len(high_r2_values),
-            total_comparisons=len(comparisons),
             score=2  # Medium importance
         )
         return analysis
@@ -1676,48 +1687,11 @@ class RunClusteringOp(Op):
             keys = distances_data.sub_keys
             if isinstance(distances_data, LabelDistancesData):
                 data = distances_data.label_distances
-                # Try to get true labels from the labels input if available
-                if "labels" in inputs and label_key in inputs["labels"]:
-                    label_obj = inputs["labels"][label_key]
-                    # Get true labels for the same keys
-                    try:
-                        if isinstance(label_obj, NumericLabels):
-                            true_labels = np.array([label_obj.values[label_obj.ids.index(key)]
-                                                  for key in keys if key in label_obj.ids])
-                        elif isinstance(label_obj, MulticlassLabels):
-                            true_labels = np.array([label_obj.values[label_obj.ids.index(key)]
-                                                  for key in keys if key in label_obj.ids])
-                        # For multilabel, we'll use the most common label as the class
-                        elif isinstance(label_obj, MultilabelLabels):
-                            # Find the most common label across all keys
-                            all_labels = []
-                            for key in keys:
-                                if key in label_obj.ids:
-                                    labels_for_key = label_obj.values.get(key, [])
-                                    all_labels.extend(labels_for_key)
-                            
-                            if all_labels:
-                                most_common_label = Counter(all_labels).most_common(1)[0][0]
-                                # Assign the most common label to keys that have it, otherwise assign a default
-                                true_labels = []
-                                for key in keys:
-                                    if key in label_obj.ids:
-                                        labels_for_key = label_obj.values.get(key, [])
-                                        if most_common_label in labels_for_key:
-                                            true_labels.append(most_common_label)
-                                        else:
-                                            # Assign the first label if available, otherwise a default
-                                            true_labels.append(labels_for_key[0] if labels_for_key else "unknown")
-                                    else:
-                                        true_labels.append("unknown")
-                                true_labels = np.array(true_labels)
-                    except Exception as e:
-                        op_logger.warning(f"Could not extract true labels: {e}")
+                true_labels = distances_data.label_obj.get_cluster_labels(keys)
             elif isinstance(distances_data, EmbeddingDistancesData):
                 data = distances_data.embedding_distances
             else:
                 raise ValueError(f"Unknown distances data type: {type(distances_data)}")
-
         op_logger.info(f'Running {self.algorithm.value} clustering on {data.shape} data')
         # Fit the clustering algorithm
         cluster_labels = clusterer.fit_predict(data)
@@ -1764,18 +1738,17 @@ class RunClusteringOp(Op):
             "cluster_sizes": cluster_sizes,
             "largest_cluster_size": int(max(counts)) if len(counts) > 0 else 0,
             "smallest_cluster_size": int(min(counts)) if len(counts) > 0 else 0,
-            "true_labels": results.true_labels.tolist() if results.true_labels is not None else None,
-            "warnings": []
+            "true_labels": true_labels.tolist() if isinstance(true_labels, np.ndarray) else true_labels,
         }
 
         # Add supervised metrics if we have true labels
         if true_labels is not None and len(true_labels) > 0:
+            true_labels = np.array(true_labels).flatten()
             # Remove noise points for supervised metrics
             valid_mask = cluster_labels >= 0
             if np.sum(valid_mask) > 1 and len(true_labels) == len(cluster_labels):
                 cluster_labels_clean = cluster_labels[valid_mask]
-                true_labels_clean = true_labels[valid_mask]
-
+                true_labels_clean = LabelEncoder().fit_transform(true_labels[valid_mask])
                 if len(cluster_labels_clean) > 0 and len(set(true_labels_clean)) > 1:
                     try:
                         ari = adjusted_rand_score(true_labels_clean, cluster_labels_clean)
@@ -1824,20 +1797,21 @@ class RunClusteringOp(Op):
                 op_logger.warning(f"Could not compute clustering quality metrics: {e}")
 
         # Generate warnings for notable results
-        Warning.add_warning(
+        add_warning = Warning.create_scoped_adder(
             analysis=analysis,
+            algorithm=self.algorithm.value,
+            label_key=self.label_key,
+        )
+        add_warning(
             pred=n_clusters == 1,
             warning=f"Clustering produced only 1 cluster with {self.algorithm.value}",
-            algorithm=self.algorithm.value,
             issue="single_cluster",
             score=-1  # Negative score for potential error condition
         )
 
-        Warning.add_warning(
-            analysis=analysis,
+        add_warning(
             pred=n_noise > len(cluster_labels) * 0.5,
             warning=f"High noise ratio: {n_noise}/{len(cluster_labels)} points classified as noise",
-            algorithm=self.algorithm.value,
             issue="high_noise",
             noise_ratio=n_noise / len(cluster_labels),
             score=-2  # Negative score for potential error condition
@@ -1846,23 +1820,18 @@ class RunClusteringOp(Op):
         # Check for very unbalanced clusters
         if len(counts) > 1:
             imbalance_ratio = max(counts) / min(counts)
-            Warning.add_warning(
-                analysis=analysis,
+            add_warning(
                 pred=imbalance_ratio > 10,
                 warning=f"Highly imbalanced clusters: largest/smallest = {imbalance_ratio:.1f}",
-                label_key=self.label_key,
-                algorithm=self.algorithm.value,
                 issue="imbalanced_clusters",
                 value=float(imbalance_ratio),
                 score=-1  # Negative score for potential error condition
             )
 
         # High silhouette score warning
-        Warning.add_warning(
-            analysis=analysis,
+        add_warning(
             pred="silhouette_score" in analysis and analysis["silhouette_score"] > 0.7,
             warning=f"High silhouette score ({analysis.get('silhouette_score', 0):.3f}) indicates well-separated clusters",
-            algorithm=self.algorithm.value,
             metric="silhouette_score",
             value=analysis.get("silhouette_score"),
             score=3
@@ -1909,35 +1878,15 @@ class ClusterLabelAnalysisOp(Op):
         # Get cluster labels and true labels for the same keys
         cluster_labels = clustering_result.labels
         cluster_keys = clustering_result.keys
-
-        # Find intersection of keys
         common_keys = set(cluster_keys) & set(label_data.sub_keys)
-        if not common_keys:
-            raise ValueError("No common keys between clustering results and labels")
-
-        # Get indices for common keys
-        cluster_indices = [cluster_keys.index(key) for key in common_keys if key in cluster_keys]
-        label_indices = [label_data.sub_keys.index(key) for key in common_keys if key in label_data.sub_keys]
-
-        # Extract corresponding labels
-        cluster_labels_subset = cluster_labels[cluster_indices]
-
-        # For multilabel/multiclass labels, we'll analyze each label array separately
-        # For now, take the first label array (could be extended to handle multiple)
-        true_labels_subset = label_data.label_arrays[0][label_indices]  # First label array
-
-        # Convert continuous labels to discrete if needed (for numeric labels)
-        if len(np.unique(true_labels_subset)) > 20:  # Likely continuous
-            # Discretize into quartiles
-            quartiles = np.percentile(true_labels_subset, [25, 50, 75])
-            true_labels_discrete = np.digitize(true_labels_subset, quartiles)
-        else:
-            true_labels_discrete = true_labels_subset.astype(int)
+        key_to_index = {key: idx for idx, key in enumerate(cluster_keys)}
+        cluster_labels_subset = np.array([cluster_labels[key_to_index[key]] for key in common_keys])
+        true_labels_subset = label_data.label_obj.get_cluster_labels(list(common_keys))
 
         # Remove noise points (-1) from clustering for supervised metrics
         valid_mask = cluster_labels_subset >= 0
         cluster_labels_clean = cluster_labels_subset[valid_mask]
-        true_labels_clean = true_labels_discrete[valid_mask]
+        true_labels_clean = LabelEncoder().fit_transform(true_labels_subset[valid_mask])
 
         if len(cluster_labels_clean) == 0:
             raise ValueError("No valid cluster assignments (all noise)")
@@ -1968,8 +1917,9 @@ class ClusterLabelAnalysisOp(Op):
                 dominant_labels[int(cluster_id)] = str(dominant_label)
 
         return ClusterLabelAnalysis(
-            cluster_labels=cluster_labels_subset,
-            true_labels=true_labels_subset.reshape(1, -1),  # Keep as 2D for consistency
+            cluster_labels=cluster_labels_clean,
+            true_labels=true_labels_clean,
+            true_labels_orig=true_labels_subset,
             label_names=[label_data.label_names[0]],  # First label name
             label_key=label_key,
             confusion_matrix=conf_matrix,
@@ -1985,7 +1935,6 @@ class ClusterLabelAnalysisOp(Op):
             analysis = {"warnings": []}
             Warning.add_warning(
                 analysis=analysis,
-                pred=True,
                 warning=f"Error during cluster-label analysis: {results}",
                 algorithm=self.algorithm,
                 label_key=self.label_key,
@@ -2011,26 +1960,24 @@ class ClusterLabelAnalysisOp(Op):
             "n_clusters": len(purities),
             "true_labels": results.true_labels.tolist() if results.true_labels is not None else None,
         }
+        add_warning = Warning.create_scoped_adder(
+            analysis=analysis,
+            algorithm=self.algorithm,
+            label_key=self.label_key,
+        )
 
         # Generate warnings for notable results
-        Warning.add_warning(
-            analysis=analysis,
+        add_warning(
             pred=ari > 0.5,
             warning=f"High adjusted rand index ({ari:.3f}) indicates good cluster-label correspondence",
-            label_key=self.label_key,
-            algorithm=self.algorithm,
             issue="high adjusted_rand_index",
             metric="adjusted_rand_index",
             value=ari,
             score=3
         )
-
-        Warning.add_warning(
-            analysis=analysis,
+        add_warning(
             pred=avg_purity > 0.8,
             warning=f"High average cluster purity ({avg_purity:.3f}) indicates homogeneous clusters",
-            label_key=self.label_key,
-            algorithm=self.algorithm,
             issue="high average_purity",
             metric="average_purity",
             value=avg_purity,
@@ -2039,12 +1986,9 @@ class ClusterLabelAnalysisOp(Op):
 
         # Check for very pure individual clusters
         high_purity_clusters = {k: v for k, v in purities.items() if v > 0.9}
-        Warning.add_warning(
-            analysis=analysis,
+        add_warning(
             pred=bool(high_purity_clusters),
             warning=f"{len(high_purity_clusters)} clusters with >90% purity: {high_purity_clusters}",
-            label_key=self.label_key,
-            algorithm=self.algorithm,
             issue="high individual_cluster_purity",
             metric="individual_purity",
             clusters=high_purity_clusters,
