@@ -161,6 +161,7 @@ from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from typing import Callable, Sequence, Any, Iterator
 
+import joblib
 import numpy as np
 import numpy.random as npr
 import psutil
@@ -192,6 +193,9 @@ torch.manual_seed(0)
 logger = logging.getLogger(__name__)
 
 INVALID_NODE = -1
+
+# default batch size
+BATCH_SIZE = 128
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Got device {device}')
@@ -299,7 +303,7 @@ class ContrastiveGAT(GATBase):
     of positive and negative examples to learn node embeddings.
     """
     def __init__(self,
-                 negative_samples: int = 10,
+                 negative_samples: int = 5,
                  temperature: float = 0.07,
                  **kw):
         """Initialize this ContrastiveGAT model.
@@ -321,15 +325,16 @@ class ContrastiveGAT(GATBase):
         """Process a batch of nodes and compute the loss.
 
         Args:
-            embeddings: Node embeddings tensor
-            anchors: Anchor node indices
-            pos_nodes: Positive sample node indices
-            neg_nodes: Negative sample node indices
-            cur_batch_size: Size of current batch
+        - embeddings: Node embeddings tensor
+        - anchors: Anchor node indices
+        - pos_nodes: Positive sample node indices
+        - neg_nodes: Negative sample node indices
+        - cur_batch_size: Size of current batch
 
         Returns:
             Batch loss value
         """
+        print(f'  Computing batch loss with {anchors.shape} anchors, {pos_nodes.shape} positives, {neg_nodes.shape} negatives')
         # Get embeddings for this batch
         anchor_embeds = embeddings[anchors]
         pos_embeds = embeddings[pos_nodes]
@@ -359,16 +364,16 @@ class ContrastiveGAT(GATBase):
         """
         raise NotImplementedError("Subclasses must implement pair_generator()")
 
-    def compute_loss(self, x, edge_index, batch_size: int = 1024):
+    def compute_loss(self, x, edge_index, batch_size: int = BATCH_SIZE):
         """Compute contrastive loss using pairs of nodes.
 
         Args:
-            x: Node features
-            edge_index: Graph connectivity
-            batch_size: Number of pairs to process at once
+        - x: Node features
+        - edge_index: Graph connectivity
+        - batch_size: Number of pairs to process at once
 
         Returns:
-            Average loss across all pairs
+        - Average loss across all pairs
         """
         # Get embeddings
         embeddings = self.embedding_forward(x, edge_index).cpu()
@@ -382,6 +387,7 @@ class ContrastiveGAT(GATBase):
             # Generate negative samples
             with torch.no_grad():
                 neg_nodes = torch.randint(0, x.shape[0], (cur_batch_size, self.negative_samples))
+                #TODO filter out anchors, actual neighbors, and nodes from walks (if possible)
 
             # Process batch
             batch_loss = self.batch_loss(
@@ -406,6 +412,9 @@ class RandomWalkGAT(ContrastiveGAT):
 
     Instead of node classification, this learns node embeddings such that nodes
     appearing close together in random walks have similar embeddings.
+
+    Hence, this is a subclass of ContrastiveGAT, as we generate positive and negative node pairs
+    based on closeness within walks.
     """
     def __init__(self, walks: Sequence[Sequence[int]], walk_window: int = 5, **kw):
         """Initialize this RandomWalkGAT model.
@@ -458,6 +467,7 @@ class RandomWalkGAT(ContrastiveGAT):
                         )
 
                 if batch_pos_nodes:
+                    print(f'  Generated batch of {len(batch_pos_nodes)} positive pairs from walks at position {i}')
                     yield (
                         torch.cat(batch_anchor_idxs),
                         torch.cat(batch_pos_nodes)
@@ -506,7 +516,8 @@ class GraphLearner:
     def train_model(self,
                     model: torch.nn.Module,
                     loss_fn: Callable[[Any], torch.Tensor],
-                    n_epochs:int=200) -> torch.Tensor:
+                    n_epochs:int=200,
+                    batch_size:int=BATCH_SIZE) -> torch.Tensor:
         """Does actual model training in a loop.
 
         This does some bookkeeping around memory usage, etc.
@@ -562,7 +573,7 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model
 
-    def train_random_walks(self, walks: list[list[int]], n_epochs=5):
+    def train_random_walks(self, walks: list[list[int]], n_epochs=5, batch_size:int=BATCH_SIZE):
         """Train a graph model using random walk objectives.
 
         Pass in a list of `walks`, each of which is a list of node ids.
@@ -574,12 +585,13 @@ class GraphLearner:
             walks=walks,
         )
         def loss_fn(model):
-            return model.compute_loss(self.data.x, self.data.edge_index)
+            print(f'Computing loss function with batch size {batch_size}')
+            return model.compute_loss(self.data.x, self.data.edge_index, batch_size=batch_size)
 
-        losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
+        losses = self.train_model(model, loss_fn, n_epochs=n_epochs, batch_size=batch_size)
         return model
 
-    def gen_walks(self, n_walks_per_node:int=10, walk_length:int=12) -> nparray2d:
+    def gen_walks(self, n_walks_per_node:int=10, walk_length:int=12, n_jobs:int=6) -> nparray2d:
         """Generate random walks through the graph.
 
         The total number of walks is `n_walks_per_node * num_nodes`, each of length `walk_length`.
@@ -590,21 +602,38 @@ class GraphLearner:
         # build adjacency matrix in CSR format for fast neighbor lookup
         edges = self.data.edge_index.cpu().numpy()
         adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(N, N))
-        # pre-allocate walks array and set starting nodes
-        walks = np.zeros((n_walks_per_node * N, walk_length), dtype=np.int32)
-        walks[:, 0] = np.tile(np.arange(N), n_walks_per_node)
-        # generate walks in parallel
-        for step in tqdm(range(1, walk_length), desc=f'Generating {walks.shape} walks'):
-            # get neighbors for all current nodes
-            current_nodes = walks[:, step-1]
-            neighbors = [np.array(adj[node].indices) for node in current_nodes]
-            has_neighbors = [len(n) > 0 for n in neighbors]
-            # choose random neighbors (where possible)
-            for i, (node_neighbors, valid) in enumerate(zip(neighbors, has_neighbors)):
-                if valid: # randomly choose neighbors
-                    walks[i, step] = self.rng.choice(node_neighbors)
-                else: # no neighbors, add padding
-                    walks[i, step] = INVALID_NODE
+
+        def gen_batch(batch_start, batch_size):
+            """Generates a single batch of walks"""
+            # pre-allocate walks array and set starting nodes
+            walks = np.ones((batch_size, walk_length), dtype=np.int32) * INVALID_NODE
+            walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % N
+            rng = np.random.default_rng(0)
+            # generate walks (vectorized)
+            for step in range(1, walk_length):
+                # get neighbors for all current nodes
+                current_nodes = walks[:, step-1]
+                for i, node in enumerate(current_nodes):
+                    neighbors = adj[node].indices
+                    if len(neighbors) > 0:
+                        walks[i, step] = rng.choice(neighbors)
+                    else:
+                        walks[i, step] = INVALID_NODE
+            return walks
+
+        total_walks = n_walks_per_node * N
+        if n_jobs > 1: # parallel generation
+            batch_size = total_walks // n_jobs
+            results = joblib.Parallel(n_jobs=n_jobs)(
+                joblib.delayed(gen_batch)(i * batch_size, min(batch_size, total_walks - i * batch_size))
+                for i in tqdm(range(n_jobs))
+            )
+        else: # single-threaded
+            results = [gen_batch(0, total_walks)]
+        walks = np.vstack(results)
+        # for each walk, count how many valid nodes we have (not INVALID_NODE)
+        n_valid_per_walk = (np.array(walks) != INVALID_NODE).sum(axis=1)
+        print(f'Generated {walks.shape} walks from {total_walks} nodes in {n_jobs} jobs: {Counter(n_valid_per_walk).most_common()}, {walks}')
         return walks
 
     def test_gen_walks(self):
@@ -849,18 +878,25 @@ def main():
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
-    A('-c', '--hidden-channels', type=int, default=64, help='Hidden channels in GAT layers [64]')
-    A('-H', '--heads', type=int, default=8, help='Number of attention heads [8]')
+    A('-c', '--hidden-channels', type=int, default=32, help='Hidden channels in GAT layers [64]')
+    A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=200, help='Number of training epochs [200]')
-    A('-b', '--batch-size', type=int, default=128, help='Batch size for training [128]')
+    A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
+    A('-b', '--batch-size', type=int, default=16, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     args = parser.parse_args()
     # load input graph
-    data = torch.load(args.input_path)
+    data = torch.load(args.input_path, weights_only=False)
     print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges')
-    #return
+    if 0:
+        # print all pairs in edge_index where one of them is a given idx
+        print(data.edge_index)
+        for idx in [1, 9739, 764, 55542]:
+            indices = torch.where(data.edge_index == idx)
+            pairs = data.edge_index[:, indices[1]].T
+            print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
+        #return
 
     # Create learner
     gl = create_learner(
@@ -888,7 +924,7 @@ def main():
                 walk_length=args.walk_length
             )
             logger.info(f"Generated {walks.shape[0]} walks of length {walks.shape[1]}")
-            model = gl.train_random_walks(walks, n_epochs=args.n_epochs)
+            model = gl.train_random_walks(walks, n_epochs=args.n_epochs, batch_size=args.batch_size)
         case '_':
             raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
 
