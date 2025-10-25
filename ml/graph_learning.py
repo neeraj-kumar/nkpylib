@@ -172,6 +172,7 @@ from scipy.sparse import csr_matrix
 from sklearn.svm import LinearSVC, SVC # type: ignore
 from sklearn.metrics.pairwise import cosine_similarity # type: ignore
 from torch import Tensor
+from torch.utils.checkpoint import checkpoint
 from torch_geometric.nn import GATConv, GATv2Conv # type: ignore
 from torch_geometric.nn.models import GAT # type: ignore
 from torch_geometric.datasets import Planetoid # type: ignore
@@ -188,6 +189,7 @@ from nkpylib.ml.feature_set import (
     NumpyLmdb,
 )
 
+RNG = npr.default_rng(0)
 torch.manual_seed(0)
 
 logger = logging.getLogger(__name__)
@@ -363,7 +365,29 @@ class ContrastiveGAT(GATBase):
         """
         raise NotImplementedError("Subclasses must implement pair_generator()")
 
-    def compute_loss(self, x, edge_index, batch_size: int = BATCH_SIZE):
+    def sample_edges_per_node(self, edge_index, max_edges_per_node:int=20):
+        """Sample edges per pass without modifying original edge_index"""
+        # Group edges by source node
+        edge_dict = defaultdict(list)
+        for i, (src, tgt) in enumerate(edge_index.T):
+            edge_dict[src.item()].append(i)
+
+        # Sample edges for each node
+        sampled_indices = []
+        for src, edge_indices in edge_dict.items():
+            if len(edge_indices) <= max_edges_per_node:
+                sampled_indices.extend(edge_indices)
+            else:
+                sampled = RNG.choice(edge_indices, max_edges_per_node, replace=False)
+                sampled_indices.extend(sampled)
+        return edge_index[:, sampled_indices]
+
+    def compute_loss(self,
+                     x,
+                     edge_index,
+                     batch_size: int = BATCH_SIZE,
+                     sample_edges: int=20,
+                     use_checkpoint: bool = False):
         """Compute contrastive loss using pairs of nodes.
 
         Args:
@@ -375,7 +399,15 @@ class ContrastiveGAT(GATBase):
         - Average loss across all pairs
         """
         # Get embeddings
-        embeddings = self.embedding_forward(x, edge_index).cpu()
+        if sample_edges > 0:
+            cur_edges = self.sample_edges_per_node(edge_index, max_edges_per_node=sample_edges)
+            #embeddings = self.embedding_forward(data.x, sampled_edges)
+        else:
+            cur_edges = edge_index
+        if use_checkpoint:
+            embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
+        else:
+            embeddings = self.embedding_forward(x, cur_edges).cpu()
 
         total_loss = 0
         total_pairs = 0
@@ -509,7 +541,6 @@ class GraphLearner:
         self.heads = heads
         self.dropout = dropout
         self.kw = kw
-        self.rng = npr.default_rng(0)
 
     def train_model(self,
                     model: torch.nn.Module,
@@ -605,7 +636,6 @@ class GraphLearner:
             # pre-allocate walks array and set starting nodes
             walks = np.ones((batch_size, walk_length), dtype=np.int32) * INVALID_NODE
             walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % N
-            rng = np.random.default_rng(0)
             # generate walks (vectorized)
             for step in range(1, walk_length):
                 # get neighbors for all current nodes
@@ -613,7 +643,7 @@ class GraphLearner:
                 for i, node in enumerate(current_nodes):
                     neighbors = adj[node].indices
                     if len(neighbors) > 0:
-                        walks[i, step] = rng.choice(neighbors)
+                        walks[i, step] = RNG.choice(neighbors)
                     else:
                         walks[i, step] = INVALID_NODE
             return walks
@@ -871,7 +901,7 @@ def main():
     A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
-    A('-n', '--n-nodes', type=int, default=100000, help='Number of nodes to sample from feature set')
+    A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
     A('-w', '--walk-length', type=int, default=5, help='Length of random walks [12]')
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
@@ -883,15 +913,22 @@ def main():
     A('-e', '--n-epochs', type=int, default=50, help='Number of training epochs [200]')
     A('-b', '--batch-size', type=int, default=4, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
+    # 50k with checkpointing, about 10Gb gpu steady, but peaked earlier at 14
     args = parser.parse_args()
     # load input graph
     data = torch.load(args.input_path, weights_only=False)
-    print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}')
+    assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
+    data.edge_index = data.edge_index.to(torch.int32)
+    print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
     if args.n_nodes:
-        data.x = data.x[:args.n_nodes]
-        data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
-        print(f'Sampled to {args.n_nodes} nodes, now {data.num_edges} edges')
-    if 1:
+        if 0: # proper sampling
+            data.x = data.x[:args.n_nodes]
+            data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
+        else: # cuting off edges
+            #data.edge_index = data.edge_index[:, :args.n_nodes*100]
+            pass
+        print(f'Sampled to {data.num_nodes} nodes, now {data.num_edges} edges')
+    if 0:
         # print all pairs in edge_index where one of them is a given idx
         print(data.edge_index)
         for idx in [1, 9739, 764, 55542]:
