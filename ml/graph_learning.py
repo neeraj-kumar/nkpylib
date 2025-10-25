@@ -180,6 +180,88 @@ from torch_geometric.transforms import NormalizeFeatures # type: ignore
 from torch_geometric.data import Data # type: ignore
 from tqdm import tqdm
 
+
+class EdgeSampler:
+    """Efficient edge sampling with caching for memory optimization."""
+    
+    def __init__(self, edge_index: torch.Tensor, max_edges_per_node: int = 25):
+        """Initialize edge sampler with caching.
+        
+        Args:
+            edge_index: Graph edge index tensor of shape [2, num_edges]
+            max_edges_per_node: Maximum number of edges to sample per node
+        """
+        self.max_edges_per_node = max_edges_per_node
+        self.edge_index = edge_index
+        
+        # Cache the edge grouping (do once, reuse many times)
+        self._build_edge_groups()
+    
+    def _build_edge_groups(self):
+        """Build edge groups efficiently and cache them."""
+        # Use torch operations instead of Python loops
+        src_nodes = self.edge_index[0]
+        
+        # Get unique nodes and their edge counts
+        unique_nodes, inverse_indices, counts = torch.unique(
+            src_nodes, return_inverse=True, return_counts=True
+        )
+        
+        # Pre-allocate storage
+        max_node = src_nodes.max().item()
+        self.node_edge_starts = torch.zeros(max_node + 1, dtype=torch.long)
+        self.node_edge_counts = torch.zeros(max_node + 1, dtype=torch.long)
+        
+        # Sort edges by source node for efficient slicing
+        sorted_indices = torch.argsort(src_nodes)
+        self.sorted_edge_indices = sorted_indices
+        
+        # Store start positions and counts for each node
+        start_pos = 0
+        for node, count in zip(unique_nodes, counts):
+            self.node_edge_starts[node] = start_pos
+            self.node_edge_counts[node] = count
+            start_pos += count
+    
+    def sample(self, seed: int = None) -> torch.Tensor:
+        """Sample edges efficiently using cached structure.
+        
+        Args:
+            seed: Random seed for reproducible sampling
+            
+        Returns:
+            Sampled edge_index tensor of shape [2, num_sampled_edges]
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+        
+        sampled_indices = []
+        
+        for node in range(len(self.node_edge_starts)):
+            count = self.node_edge_counts[node]
+            if count == 0:
+                continue
+                
+            start = self.node_edge_starts[node]
+            end = start + count
+            
+            if count <= self.max_edges_per_node:
+                # Take all edges
+                node_edges = self.sorted_edge_indices[start:end]
+            else:
+                # Sample subset
+                node_edges = self.sorted_edge_indices[start:end]
+                perm = torch.randperm(count)[:self.max_edges_per_node]
+                node_edges = node_edges[perm]
+            
+            sampled_indices.append(node_edges)
+        
+        if sampled_indices:
+            sampled_indices = torch.cat(sampled_indices)
+            return self.edge_index[:, sampled_indices]
+        else:
+            return torch.empty((2, 0), dtype=self.edge_index.dtype)
+
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
@@ -365,22 +447,13 @@ class ContrastiveGAT(GATBase):
         """
         raise NotImplementedError("Subclasses must implement pair_generator()")
 
-    def sample_edges_per_node(self, edge_index, max_edges_per_node:int=20):
+    def sample_edges_per_node(self, edge_index, max_edges_per_node: int = 20):
         """Sample edges per pass without modifying original edge_index"""
-        # Group edges by source node
-        edge_dict = defaultdict(list)
-        for i, (src, tgt) in tqdm(enumerate(edge_index.T)):
-            edge_dict[src.item()].append(i)
-
-        # Sample edges for each node
-        sampled_indices = []
-        for src, edge_indices in tqdm(edge_dict.items()):
-            if len(edge_indices) <= max_edges_per_node:
-                sampled_indices.extend(edge_indices)
-            else:
-                sampled = RNG.choice(edge_indices, max_edges_per_node, replace=False)
-                sampled_indices.extend(sampled)
-        return edge_index[:, sampled_indices]
+        # Use EdgeSampler for efficient sampling
+        if not hasattr(self, '_edge_sampler') or self._edge_sampler.max_edges_per_node != max_edges_per_node:
+            self._edge_sampler = EdgeSampler(edge_index, max_edges_per_node)
+        
+        return self._edge_sampler.sample()
 
     def compute_loss(self,
                      x,
