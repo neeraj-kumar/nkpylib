@@ -369,12 +369,12 @@ class ContrastiveGAT(GATBase):
         """Sample edges per pass without modifying original edge_index"""
         # Group edges by source node
         edge_dict = defaultdict(list)
-        for i, (src, tgt) in enumerate(edge_index.T):
+        for i, (src, tgt) in tqdm(enumerate(edge_index.T)):
             edge_dict[src.item()].append(i)
 
         # Sample edges for each node
         sampled_indices = []
-        for src, edge_indices in edge_dict.items():
+        for src, edge_indices in tqdm(edge_dict.items()):
             if len(edge_indices) <= max_edges_per_node:
                 sampled_indices.extend(edge_indices)
             else:
@@ -398,6 +398,7 @@ class ContrastiveGAT(GATBase):
         Returns:
         - Average loss across all pairs
         """
+        print(f'Computing contrastive loss with batch size {batch_size}, sample_edges {sample_edges}, use_checkpoint {use_checkpoint}')
         # Get embeddings
         if sample_edges > 0:
             cur_edges = self.sample_edges_per_node(edge_index, max_edges_per_node=sample_edges)
@@ -413,6 +414,7 @@ class ContrastiveGAT(GATBase):
         total_pairs = 0
 
         for anchors, pos_nodes in self.pair_generator(batch_size=batch_size):
+            print(f'  Processing batch with {len(anchors)} pairs')
             cur_batch_size = len(anchors)
 
             # Generate negative samples
@@ -567,10 +569,14 @@ class GraphLearner:
         pbar = tqdm(range(n_epochs), desc="Training Epochs")
         losses = []
         for epoch in pbar:
+            print('setting 0 grad')
             optimizer.zero_grad()
+            print(f'computing loss for epoch {epoch}')
             loss = loss_fn(model)
             losses.append(loss.item())
+            print(f'running backward')
             loss.backward()
+            print(f'incrementing optimizer')
             optimizer.step()
             # Get current memory usage
             memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
@@ -902,7 +908,7 @@ def main():
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
     A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
-    A('-w', '--walk-length', type=int, default=5, help='Length of random walks [12]')
+    A('-w', '--walk-length', type=int, default=4, help='Length of random walks [12]')
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
