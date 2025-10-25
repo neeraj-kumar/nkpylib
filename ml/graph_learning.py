@@ -334,7 +334,6 @@ class ContrastiveGAT(GATBase):
         Returns:
             Batch loss value
         """
-        print(f'  Computing batch loss with {anchors.shape} anchors, {pos_nodes.shape} positives, {neg_nodes.shape} negatives')
         # Get embeddings for this batch
         anchor_embeds = embeddings[anchors]
         pos_embeds = embeddings[pos_nodes]
@@ -467,7 +466,6 @@ class RandomWalkGAT(ContrastiveGAT):
                         )
 
                 if batch_pos_nodes:
-                    print(f'  Generated batch of {len(batch_pos_nodes)} positive pairs from walks at position {i}')
                     yield (
                         torch.cat(batch_anchor_idxs),
                         torch.cat(batch_pos_nodes)
@@ -585,7 +583,6 @@ class GraphLearner:
             walks=walks,
         )
         def loss_fn(model):
-            print(f'Computing loss function with batch size {batch_size}')
             return model.compute_loss(self.data.x, self.data.edge_index, batch_size=batch_size)
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs, batch_size=batch_size)
@@ -844,10 +841,11 @@ def save_embeddings(model: torch.nn.Module,
     """
     # Extract embeddings
     embeddings = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
+    print(f'Got embeddings of shape {embeddings.shape}: {embeddings}')
 
     # Save to NumpyLmdb
     with NumpyLmdb.open(output_path, flag=output_flag) as db:
-        for key, embedding in zip(data.keys, embeddings):
+        for key, embedding in zip(data['keys'], embeddings):
             db[key] = embedding
 
         # Save metadata
@@ -873,7 +871,7 @@ def main():
     A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
-    A('-n', '--n-nodes', type=int, help='Number of nodes to sample from feature set')
+    A('-n', '--n-nodes', type=int, default=10000, help='Number of nodes to sample from feature set')
     A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
@@ -882,14 +880,18 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
-    A('-b', '--batch-size', type=int, default=16, help=f'Batch size for training [{BATCH_SIZE}]')
+    A('-e', '--n-epochs', type=int, default=1, help='Number of training epochs [200]')
+    A('-b', '--batch-size', type=int, default=128, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     args = parser.parse_args()
     # load input graph
     data = torch.load(args.input_path, weights_only=False)
     print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges')
-    if 0:
+    if args.n_nodes:
+        data.x = data.x[:args.n_nodes]
+        data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
+        print(f'Sampled to {args.n_nodes} nodes, now {data.num_edges} edges')
+    if 1:
         # print all pairs in edge_index where one of them is a given idx
         print(data.edge_index)
         for idx in [1, 9739, 764, 55542]:
@@ -911,13 +913,6 @@ def main():
     print(f"Training {args.learner_type} model for {args.n_epochs} epochs")
 
     match args.learner_type:
-        case 'node_classification': # Create synthetic dataset for node classification
-            class SyntheticDataset:
-                def __init__(self, num_classes=3):
-                    self.num_classes = num_classes
-
-            dataset = SyntheticDataset()
-            model = gl.train_node_classification(dataset, n_epochs=args.n_epochs)
         case 'random_walk': # Generate walks and train
             walks = gl.gen_walks(
                 n_walks_per_node=args.n_walks_per_node,
@@ -930,7 +925,7 @@ def main():
 
     # Save embeddings
     kwargs = {f'kw_{name}': value for name, value in vars(args).items()}
-    save_embeddings(model, data, args.output, args.output_flag, **kwargs)
+    save_embeddings(model, data, args.output_path, args.output_flag, **kwargs)
 
 
 if __name__ == '__main__':

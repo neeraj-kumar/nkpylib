@@ -40,6 +40,7 @@ watcher:
 transfer:
 	rsync-clean ./ src3:src/nkpylib/
 	rsync -avz --progress ~/src/projects/movies/embeddings/movie-graph.pt src3:embeddings/
+	rsync -avz --progress src3:embeddings/learned-movie-graph.lmdb ~/src/projects/movies/embeddings/
 
 ## watches for changes using inotifywait and runs the transfer command
 watch:
