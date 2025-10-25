@@ -871,8 +871,8 @@ def main():
     A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
-    A('-n', '--n-nodes', type=int, default=10000, help='Number of nodes to sample from feature set')
-    A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
+    A('-n', '--n-nodes', type=int, default=100000, help='Number of nodes to sample from feature set')
+    A('-w', '--walk-length', type=int, default=5, help='Length of random walks [12]')
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
@@ -880,13 +880,13 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=1, help='Number of training epochs [200]')
-    A('-b', '--batch-size', type=int, default=128, help=f'Batch size for training [{BATCH_SIZE}]')
+    A('-e', '--n-epochs', type=int, default=50, help='Number of training epochs [200]')
+    A('-b', '--batch-size', type=int, default=4, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     args = parser.parse_args()
     # load input graph
     data = torch.load(args.input_path, weights_only=False)
-    print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges')
+    print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}')
     if args.n_nodes:
         data.x = data.x[:args.n_nodes]
         data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
