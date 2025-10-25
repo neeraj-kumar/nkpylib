@@ -194,6 +194,7 @@ logger = logging.getLogger(__name__)
 INVALID_NODE = -1
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Got device {device}')
 
 class GATBase(torch.nn.Module):
     """An expanded version of the Graph ATtention Network (GAT) with various options.
@@ -494,12 +495,12 @@ class GraphLearner:
         embeddings are a concatenation of the outputs of the two layers, so have size
         `hidden_channels * heads * 2`.
         """
-        self.data = data
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.data = data.to(self.device)
         self.hidden_channels = hidden_channels
         self.heads = heads
         self.dropout = dropout
         self.kw = kw
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.rng = npr.default_rng(0)
 
     def train_model(self,
@@ -762,45 +763,6 @@ def baic_test():
     embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
     gl.train_and_eval_cls(embs)
 
-def build_graph_from_features(feature_set: FeatureSet,
-                              n_nodes: int|None = None,
-                              similarity_threshold: float = 0.5) -> Data:
-    """Convert `FeatureSet` into PyG Data object.
-
-    Args:
-    - feature_set: FeatureSet containing node features
-    - n_nodes: Number of nodes to sample (None for all)
-    - similarity_threshold: Minimum cosine similarity to create edge
-
-    Returns:
-    -PyG Data object with node features and edge connectivity
-    """
-    raise ValueError('This is wrong, fix it')
-    # Get keys and embeddings
-    keys, embeddings = feature_set.get_keys_embeddings()
-
-    # Sample subset if requested
-    if n_nodes is not None and n_nodes < len(keys):
-        indices = np.random.choice(len(keys), n_nodes, replace=False)
-        keys = [keys[i] for i in indices]
-        embeddings = embeddings[indices]
-
-    # Compute similarity matrix and create edges
-    sim_matrix = cosine_similarity(embeddings)
-    edge_indices = np.where(sim_matrix > similarity_threshold)
-
-    # Remove self-loops
-    mask = edge_indices[0] != edge_indices[1]
-    edge_index = torch.tensor([edge_indices[0][mask], edge_indices[1][mask]], dtype=torch.long)
-
-    # Convert to PyG Data object
-    x = torch.tensor(embeddings, dtype=torch.float)
-    data = Data(x=x, edge_index=edge_index)
-    data.keys = keys  # Store original keys for later mapping
-
-    logger.info(f"Built graph with {data.num_nodes} nodes, {data.num_edges} edges")
-    return data
-
 LEARNERS = dict(
     node_classification=NodeClassificationGAT,
     random_walk=RandomWalkGAT,
@@ -873,41 +835,32 @@ def save_embeddings(model: torch.nn.Module,
 
 
 def main():
+    # create and setup arg parser
     parser = ArgumentParser(description='Graph Learning Driver')
     A = lambda *s, **kw: parser.add_argument(*s, **kw)
-
     # Input/Output
+    A('input_path', help='Input PyG.Data path (as .pt)')
     A('output_path', help='Output NumpyLmdb path for learned embeddings')
-    A('inputs', nargs='+', help='Paths to FeatureSet inputs (NumpyLmdb files)')
     A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
     A('-n', '--n-nodes', type=int, help='Number of nodes to sample from feature set')
     A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
-    A('--n-walks-per-node', type=int, default=10, help='Number of walks per node [10]')
+    A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
     A('-c', '--hidden-channels', type=int, default=64, help='Hidden channels in GAT layers [64]')
-    A('-h', '--heads', type=int, default=8, help='Number of attention heads [8]')
+    A('-H', '--heads', type=int, default=8, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
     A('-e', '--n-epochs', type=int, default=200, help='Number of training epochs [200]')
     A('-b', '--batch-size', type=int, default=128, help='Batch size for training [128]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
-
     args = parser.parse_args()
-
-    # Load FeatureSet
-    logger.info(f"Loading FeatureSet from {len(args.inputs)} inputs")
-    feature_set = FeatureSet(args.inputs)
-    logger.info(f"Loaded FeatureSet with {len(feature_set)} keys, {feature_set.n_dims} dims")
-
-    # Build graph from features
-    data = build_graph_from_features(
-        feature_set,
-        n_nodes=args.n_nodes,
-        similarity_threshold=args.similarity_threshold
-    )
+    # load input graph
+    data = torch.load(args.input_path)
+    print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges')
+    #return
 
     # Create learner
     gl = create_learner(
@@ -919,7 +872,7 @@ def main():
     )
 
     # Train model
-    logger.info(f"Training {args.learner_type} model for {args.n_epochs} epochs")
+    print(f"Training {args.learner_type} model for {args.n_epochs} epochs")
 
     match args.learner_type:
         case 'node_classification': # Create synthetic dataset for node classification
