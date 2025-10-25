@@ -67,3 +67,7 @@ sync:
 ## runs gat
 gat:
 	python3 graph_learning.py
+
+## trains movie embeddings
+train:
+	@python3 graph_learning.py ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb

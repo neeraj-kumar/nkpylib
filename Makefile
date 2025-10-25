@@ -36,6 +36,15 @@ lint:
 watcher:
 	python3 file_watcher.py ~/dp/Recipes/ ./
 
+## transfers code to the server
+transfer:
+	rsync-clean ./ src3:src/nkpylib/
+	rsync -avz --progress ~/src/projects/movies/embeddings/movie-graph.pt src3:embeddings/
+
+## watches for changes using inotifywait and runs the transfer command
+watch:
+	while inotifywait -e modify,create . ml/ ; do make transfer; done
+
 ## geocoder tests
 geo:
 	python3 geo.py
