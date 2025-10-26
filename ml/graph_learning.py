@@ -393,20 +393,24 @@ class EdgeSampler:
     def __init__(self,
                  edge_index: torch.Tensor,
                  max_edges_per_node: int,
-                 proportional: bool = True):
+                 proportional: bool = True,
+                 global_sampling: bool = False):
         """Initialize edge sampler with caching.
 
         Args:
         - edge_index: Graph edge index tensor of shape [2, num_edges]
         - max_edges_per_node: Maximum number of edges to sample per node
         - proportional: If True, sample edges proportionally to their degree (capping to max_edges_per_node)
+        - global_sampling: If True, use fast global random sampling instead of per-node sampling
         """
         self.max_edges_per_node = max_edges_per_node
         self.edge_index = edge_index
         self.proportional = proportional
+        self.global_sampling = global_sampling
         assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
-        # Cache the edge grouping (do once, reuse many times)
-        self._build_edge_groups()
+        # Cache the edge grouping (do once, reuse many times) - only needed for per-node sampling
+        if not self.global_sampling:
+            self._build_edge_groups()
 
     @trace
     def _build_edge_groups(self):
@@ -441,6 +445,29 @@ class EdgeSampler:
         """
         if seed is not None:
             torch.manual_seed(seed)
+        
+        if self.global_sampling:
+            return self._sample_global()
+        else:
+            return self._sample_per_node()
+    
+    def _sample_global(self) -> torch.Tensor:
+        """Fast global random sampling of edges."""
+        n_edges = self.edge_index.shape[1]
+        if n_edges == 0:
+            return torch.empty((2, 0), dtype=self.edge_index.dtype)
+        
+        # Calculate target number of edges based on max_edges_per_node
+        # Estimate: if we have N nodes and want max_edges_per_node per node on average
+        n_nodes = max(self.edge_index.max().item() + 1, 1)
+        target_edges = min(n_edges, n_nodes * self.max_edges_per_node)
+        
+        # Simple random sampling
+        indices = torch.randperm(n_edges)[:target_edges]
+        return self.edge_index[:, indices]
+    
+    def _sample_per_node(self) -> torch.Tensor:
+        """Per-node sampling preserving degree distribution."""
         sampled_indices = []
         for node in range(len(self.node_edge_starts)):
             count = self.node_edge_counts[node]
