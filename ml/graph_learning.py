@@ -323,6 +323,7 @@ class WalkGenerator:
         self._adj = None
         self._maybe_rebuild_adj(edge_index)
 
+    @trace
     def _maybe_rebuild_adj(self, edge_index=None):
         if edge_index is None:
             return
@@ -633,38 +634,35 @@ class ContrastiveGAT(GATBase):
         """
         raise NotImplementedError("Subclasses must implement pos_pair_generator()")
 
-    def neg_pair_generator(self, 
-                          x: torch.Tensor,
-                          anchors: torch.Tensor, 
-                          pos_nodes: torch.Tensor,
-                          edge_index: torch.Tensor,
-                          shape: tuple[int, int],
-                          walks: torch.Tensor = None) -> torch.Tensor:
+    def neg_pair_generator(self,
+                           n_nodes: int,
+                           anchors: torch.Tensor,
+                           pos_nodes: torch.Tensor,
+                           edge_index: torch.Tensor,
+                           shape: tuple[int, int],
+                           walks: torch.Tensor = None) -> torch.Tensor:
         """Generate negative samples while filtering out invalid nodes.
-        
+
         Args:
-        - x: Node features (for getting total number of nodes)
+        - n_nodes: total number of nodes in graph
         - anchors: Current batch anchor nodes to exclude
-        - pos_nodes: Current batch positive nodes to exclude  
+        - pos_nodes: Current batch positive nodes to exclude
         - edge_index: Graph edges to identify actual neighbors to exclude
         - shape: Target shape (batch_size, negative_samples)
         - walks: Optional tensor of current walks to exclude walk neighbors
-        
+
         Returns:
         - Tensor of negative node indices with shape `shape`
         """
         batch_size, neg_samples = shape
-        n_nodes = x.shape[0]
-        
+
         # Build exclusion sets for each anchor
         exclude_sets = []
         for i, anchor in enumerate(anchors):
             exclude = set([anchor.item(), pos_nodes[i].item()])
-            
             # Add graph neighbors
             neighbors = edge_index[1][edge_index[0] == anchor]
             exclude.update(neighbors.tolist())
-            
             # Add walk neighbors if provided
             if walks is not None:
                 # Find walks containing this anchor and exclude those nodes
@@ -674,11 +672,9 @@ class ContrastiveGAT(GATBase):
                     # Filter out invalid nodes
                     valid_walk_neighbors = walk_neighbors[walk_neighbors != INVALID_NODE]
                     exclude.update(valid_walk_neighbors.tolist())
-                
             exclude_sets.append(exclude)
-        
         # Sample negatives while avoiding exclusions
-        neg_nodes = torch.zeros((batch_size, neg_samples), dtype=torch.long, device=x.device)
+        neg_nodes = torch.zeros((batch_size, neg_samples), dtype=torch.long, device=device)
         for i in range(batch_size):
             valid_nodes = [n for n in range(n_nodes) if n not in exclude_sets[i]]
             if len(valid_nodes) >= neg_samples:
@@ -686,8 +682,8 @@ class ContrastiveGAT(GATBase):
             else:
                 # Fallback: sample with replacement if not enough valid nodes
                 sampled = torch.tensor(RNG.choice(valid_nodes, neg_samples, replace=True))
-            neg_nodes[i] = sampled.to(x.device)
-        
+            neg_nodes[i] = sampled.to(device)
+        assert neg_nodes.shape == shape
         return neg_nodes
 
     @trace
@@ -731,7 +727,7 @@ class ContrastiveGAT(GATBase):
             # Generate negative samples
             with torch.no_grad():
                 neg_nodes = self.neg_pair_generator(
-                    x=x,
+                    n_nodes=x.shape[0],
                     anchors=anchors,
                     pos_nodes=pos_nodes,
                     edge_index=cur_edges,
