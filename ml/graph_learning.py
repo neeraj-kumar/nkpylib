@@ -721,10 +721,10 @@ class ContrastiveGAT(GATBase):
                                edge_index: torch.Tensor,
                                shape: tuple[int, int],
                                walks: torch.Tensor = None) -> torch.Tensor:
-        """CPU-based negative sampling to reduce GPU memory usage.
+        """Vectorized CPU-based negative sampling to reduce GPU memory usage.
         
-        This version uses numpy arrays and Python data structures for all
-        computations, only creating the final torch tensor at the end.
+        This version uses vectorized numpy operations for better performance
+        compared to the previous loop-based approach.
         
         Args:
         - n_nodes: total number of nodes in graph
@@ -745,44 +745,38 @@ class ContrastiveGAT(GATBase):
         edge_index_np = edge_index.cpu().numpy()
         walks_np = walks.cpu().numpy() if walks is not None else None
         
-        # Build adjacency list for fast neighbor lookup
-        adj_list = defaultdict(set)
-        for src, dst in edge_index_np.T:
-            adj_list[src].add(dst)
+        # Build global exclusion matrix (batch_size x n_nodes boolean mask)
+        exclude_mask = np.zeros((batch_size, n_nodes), dtype=bool)
         
-        # Build exclusion sets for each anchor using CPU data structures
-        exclude_sets = []
-        for i in range(batch_size):
-            anchor = int(anchors_np[i])
-            pos_node = int(pos_nodes_np[i])
-            
-            exclude = {anchor, pos_node}
-            
-            # Add graph neighbors
-            exclude.update(adj_list[anchor])
-            
-            # Add walk neighbors if provided
-            if walks_np is not None:
-                # Find walks containing this anchor
+        # Exclude anchors and positives (vectorized)
+        exclude_mask[np.arange(batch_size), anchors_np] = True
+        exclude_mask[np.arange(batch_size), pos_nodes_np] = True
+        
+        # Exclude neighbors (vectorized where possible)
+        for i, anchor in enumerate(anchors_np):
+            neighbors = edge_index_np[1][edge_index_np[0] == anchor]
+            if len(neighbors) > 0:
+                exclude_mask[i, neighbors] = True
+        
+        # Exclude walk neighbors if provided
+        if walks_np is not None:
+            for i, anchor in enumerate(anchors_np):
                 walk_mask = (walks_np == anchor).any(axis=1)
                 if walk_mask.any():
                     walk_neighbors = walks_np[walk_mask].flatten()
-                    # Filter out invalid nodes
                     valid_walk_neighbors = walk_neighbors[walk_neighbors != INVALID_NODE]
-                    exclude.update(valid_walk_neighbors.tolist())
-            
-            exclude_sets.append(exclude)
+                    if len(valid_walk_neighbors) > 0:
+                        exclude_mask[i, valid_walk_neighbors] = True
         
-        # Sample negatives using numpy random generation
+        # Sample negatives for all anchors (vectorized where possible)
         neg_nodes_np = np.zeros((batch_size, neg_samples), dtype=np.int64)
         for i in range(batch_size):
-            valid_nodes = [n for n in range(n_nodes) if n not in exclude_sets[i]]
-            if len(valid_nodes) >= neg_samples:
-                sampled = RNG.choice(valid_nodes, neg_samples, replace=False)
+            valid_indices = np.where(~exclude_mask[i])[0]
+            if len(valid_indices) >= neg_samples:
+                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=False)
             else:
                 # Fallback: sample with replacement if not enough valid nodes
-                sampled = RNG.choice(valid_nodes, neg_samples, replace=True)
-            neg_nodes_np[i] = sampled
+                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=True)
         
         # Convert back to torch tensor only at the end
         neg_nodes = torch.from_numpy(neg_nodes_np).long()
