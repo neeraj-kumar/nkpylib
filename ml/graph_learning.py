@@ -257,6 +257,8 @@ class EdgeSampler:
         Returns:
             Sampled edge_index tensor of shape [2, num_sampled_edges]
         """
+        t0 = time.time()
+        m0 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
         if seed is not None:
             torch.manual_seed(seed)
 
@@ -283,9 +285,13 @@ class EdgeSampler:
             sampled_indices.append(node_edges)
         if sampled_indices:
             sampled_indices = torch.cat(sampled_indices)
-            return self.edge_index[:, sampled_indices]
+            ret = self.edge_index[:, sampled_indices]
         else:
-            return torch.empty((2, 0), dtype=self.edge_index.dtype)
+            ret = torch.empty((2, 0), dtype=self.edge_index.dtype)
+        t1 = time.time()
+        m1 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
+        print(f'  Sampled {ret.shape} edges in {t1-t0:.3f}s, memory delta {m1 - m0:.2f}GB')
+        return ret
 
 
 class GATBase(torch.nn.Module):
@@ -391,7 +397,7 @@ class ContrastiveGAT(GATBase):
     of positive and negative examples to learn node embeddings.
     """
     def __init__(self,
-                 negative_samples: int = 5,
+                 negative_samples: int = 2, # should be 10?
                  temperature: float = 0.07,
                  **kw):
         """Initialize this ContrastiveGAT model.
@@ -521,19 +527,18 @@ class RandomWalkGAT(ContrastiveGAT):
     Hence, this is a subclass of ContrastiveGAT, as we generate positive and negative node pairs
     based on closeness within walks.
     """
-    def __init__(self, walks: Sequence[Sequence[int]], walk_window: int = 5, **kw):
+    def __init__(self, walk_window: int = 5, **kw):
         """Initialize this RandomWalkGAT model.
 
         Args:
-            walk_window: Context window size for walks (how many nodes before/after to consider)
+        - walk_window: Context window size for walks (how many nodes before/after to consider)
         """
         super().__init__(**kw)
         self.walk_window = walk_window
-        self.walks = walks
 
-    def pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
+    def pos_pair_generator(self, walks, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
         """Generate positive pairs from random walks."""
-        walks_tensor = torch.tensor(self.walks)
+        walks_tensor = torch.tensor(walks)
         valid_mask = walks_tensor != INVALID_NODE
         walk_length = walks_tensor.shape[1]
 
@@ -640,7 +645,6 @@ class GraphLearner:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
         pbar = tqdm(range(n_epochs), desc="Training Epochs")
         losses = []
-        
         try:
             for epoch in pbar:
                 print('setting 0 grad')
@@ -665,7 +669,6 @@ class GraphLearner:
         except KeyboardInterrupt:
             print(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
             pbar.close()
-        
         return torch.tensor(losses)
 
     def train_node_classification(self, dataset, n_epochs:int=100):
@@ -986,15 +989,15 @@ def main():
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
     A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
-    A('-w', '--walk-length', type=int, default=8, help='Length of random walks [12]')
+    A('-w', '--walk-length', type=int, default=7, help='Length of random walks [12]')
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
-    A('-c', '--hidden-channels', type=int, default=16, help='Hidden channels in GAT layers [64]')
+    A('-c', '--hidden-channels', type=int, default=8, help='Hidden channels in GAT layers [64]')
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=50, help='Number of training epochs [200]')
+    A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
     A('-b', '--batch-size', type=int, default=4, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     # 50k with checkpointing, about 10Gb gpu steady, but peaked earlier at 14
