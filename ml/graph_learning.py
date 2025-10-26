@@ -202,8 +202,18 @@ INVALID_NODE = -1
 BATCH_SIZE = 128
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f'Got device {device}')
 
+
+def explain_args(*args, **kwargs) -> dict[str|int, Any]:
+    """This takes an arbitrary set of input `args` and `kwargs` and "explains" them.
+
+    That means for each one:
+    - if it's a scalar, then just return it as-is
+    - if it's a list/array, then return its type and shape
+    - if it's numpy array or torch tensor, then return its type and shape
+
+    The output is a dict mapping argument index (for `args`) or name (for `kwargs`) to the explanation.
+    """
 
 def trace(func):
     """Decorator that tracks total time and memory delta for a function.
@@ -212,25 +222,25 @@ def trace(func):
     For generators, traces the entire iteration lifecycle.
     """
     import inspect
-    
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         process = psutil.Process()
         start_time = time.time()
         start_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-        
+
         def finish(suffix=''):
             end_time = time.time()
             end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
             time_delta = end_time - start_time
             memory_delta = end_memory - start_memory
-            print(f"TRACE {func.__name__}{suffix}: {time_delta:.3f}s, "
-                  f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
-                  f"(Δ{memory_delta:+.2f}GB)")
+            logger.info(f"{func.__name__}{suffix}: {explain_args(args, kwargs), {time_delta:.3f}s, "
+                        f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
+                        f"(Δ{memory_delta:+.2f}GB)")
 
         try:
             result = func(*args, **kwargs)
-            
+
             # Check if result is a generator
             if inspect.isgenerator(result):
                 def traced_generator():
@@ -243,13 +253,12 @@ def trace(func):
                     except StopIteration:
                         finish(f' [generator, {yield_count} yields]')
                         return
-                
+
                 return traced_generator()
             else:
                 # Regular function
                 finish()
                 return result
-                
         except Exception as e:
             finish(' [FAILED]')
             raise
@@ -530,6 +539,7 @@ class ContrastiveGAT(GATBase):
         self.temperature = temperature
         self.edge_sampler = None
 
+    @trace
     def batch_loss(self,
                       embeddings: torch.Tensor,
                       anchors: torch.Tensor,
@@ -577,6 +587,7 @@ class ContrastiveGAT(GATBase):
         """
         raise NotImplementedError("Subclasses must implement pos_pair_generator()")
 
+    @trace
     def compute_loss(self,
                      x,
                      edge_index,
@@ -593,7 +604,7 @@ class ContrastiveGAT(GATBase):
         Returns:
         - Average loss across all pairs
         """
-        print(f'Computing contrastive loss with batch size {batch_size}, sample_edges {sample_edges}, use_checkpoint {use_checkpoint}')
+        logger.info(f'Computing contrastive loss with batch size {batch_size}, sample_edges {sample_edges}, use_checkpoint {use_checkpoint}')
         # Get embeddings
         if sample_edges > 0:
             if not self.edge_sampler or self.edge_sampler.max_edges_per_node != sample_edges:
@@ -601,7 +612,7 @@ class ContrastiveGAT(GATBase):
             cur_edges = self.edge_sampler.sample()
         else:
             cur_edges = edge_index
-        print(f'Got edges of shape {cur_edges.shape} vs {edge_index.shape}, {cur_edges.dtype} for loss computation')
+        logger.info(f'Got edges of shape {cur_edges.shape} vs {edge_index.shape}, {cur_edges.dtype} for loss computation')
         if use_checkpoint:
             embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
         else:
@@ -611,7 +622,7 @@ class ContrastiveGAT(GATBase):
         total_loss = 0
         total_pairs = 0
         for anchors, pos_nodes in self.pos_pair_generator(batch_size=batch_size):
-            #print(f'  Processing batch with {len(anchors)} pairs')
+            logger.debug(f'  Processing batch with {len(anchors)} pairs')
             cur_batch_size = len(anchors)
 
             # Generate negative samples
@@ -657,6 +668,7 @@ class RandomWalkGAT(ContrastiveGAT):
         self.walk_gen = walk_gen
         self.walk_window = walk_window
 
+    @trace
     def pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
         """Generate walks on-demand and yield positive pairs.
 
@@ -794,14 +806,14 @@ class GraphLearner:
         losses = []
         try:
             for epoch in pbar:
-                print('setting 0 grad')
+                logger.info('setting 0 grad')
                 optimizer.zero_grad()
-                print(f'computing loss for epoch {epoch}')
+                logger.info(f'computing loss for epoch {epoch}')
                 loss = loss_fn(model)
                 losses.append(loss.item())
-                print(f'running backward')
+                logger.info(f'running backward')
                 loss.backward()
-                print(f'incrementing optimizer')
+                logger.info(f'incrementing optimizer')
                 optimizer.step()
                 # Get current memory usage
                 memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
@@ -814,7 +826,7 @@ class GraphLearner:
                     f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}'
                 )
         except KeyboardInterrupt:
-            print(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
+            logger.warning(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
             pbar.close()
         return torch.tensor(losses)
 
@@ -1024,7 +1036,7 @@ def save_embeddings(model: torch.nn.Module,
     """
     # Extract embeddings
     embeddings = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
-    print(f'Got embeddings of shape {embeddings.shape}: {embeddings}')
+    logger.info(f'Got embeddings of shape {embeddings.shape}: {embeddings}')
 
     # Save to NumpyLmdb
     with NumpyLmdb.open(output_path, flag=output_flag) as db:
@@ -1073,7 +1085,7 @@ def main():
     data = torch.load(args.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
     data.edge_index = data.edge_index.to(torch.int32)
-    print(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
+    logger.info(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
     if args.n_nodes:
         if 0: # proper sampling
             data.x = data.x[:args.n_nodes]
@@ -1081,7 +1093,7 @@ def main():
         else: # cutting off edges
             #data.edge_index = data.edge_index[:, :args.n_nodes*100]
             pass
-        print(f'Sampled to {data.num_nodes} nodes, now {data.num_edges} edges')
+        logger.info(f'Sampled to {data.num_nodes} nodes, now {data.num_edges} edges')
     if 0:
         # print all pairs in edge_index where one of them is a given idx
         print(data.edge_index)
@@ -1102,7 +1114,7 @@ def main():
     )
 
     # Train model
-    print(f"Training {args.learner_type} model for {args.n_epochs} epochs")
+    logger.info(f"Training {args.learner_type} model for {args.n_epochs} epochs")
 
     match args.learner_type:
         case 'random_walk': # Generate walks and train
@@ -1116,4 +1128,6 @@ def main():
 
 
 if __name__ == '__main__':
+    logging.basicConfig(format='%(asctime)s\t%(levelname)s\t%(name)s\t%(funcName)s\t%(message)s', level=logging.INFO)
+    logger.info(f'Got device {device}')
     main()
