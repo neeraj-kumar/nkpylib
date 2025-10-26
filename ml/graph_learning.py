@@ -207,7 +207,7 @@ print(f'Got device {device}')
 
 def trace(func):
     """Decorator that tracks total time and memory delta for a function.
-    
+
     Prints timing and memory usage information when the decorated function is called.
     """
     @functools.wraps(func)
@@ -216,38 +216,27 @@ def trace(func):
         process = psutil.Process()
         start_time = time.time()
         start_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-        
-        try:
-            # Call the function
-            result = func(*args, **kwargs)
-            
+        def finish(suffix:''):
             # Get final state
             end_time = time.time()
             end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-            
-            # Calculate deltas
             time_delta = end_time - start_time
             memory_delta = end_memory - start_memory
-            
             # Print trace information
-            print(f"TRACE {func.__name__}: {time_delta:.3f}s, "
+            print(f"TRACE {func.__name__}{suffix}: {time_delta:.3f}s, "
                   f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
                   f"(Δ{memory_delta:+.2f}GB)")
-            
+
+        try:
+            # Call the function
+            result = func(*args, **kwargs)
+            finish()
             return result
-            
         except Exception as e:
             # Still print timing info even if function fails
-            end_time = time.time()
-            end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-            time_delta = end_time - start_time
-            memory_delta = end_memory - start_memory
-            
-            print(f"TRACE {func.__name__} [FAILED]: {time_delta:.3f}s, "
-                  f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
-                  f"(Δ{memory_delta:+.2f}GB)")
+            finish(' [FAILED]')
             raise
-    
+
     return wrapper
 
 
@@ -292,6 +281,7 @@ class WalkGenerator:
                     walks[i, step] = INVALID_NODE
         return walks
 
+    @trace
     def gen_walks(self, n_walks: int) -> nparray2d:
         """Generate `n_walks` random walks, continuing from current index.
 
@@ -344,13 +334,9 @@ class EdgeSampler:
         self.proportional = proportional
         assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
         # Cache the edge grouping (do once, reuse many times)
-        t0 = time.time()
-        m0 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
         self._build_edge_groups()
-        t1 = time.time()
-        m1 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
-        print(f'Took {t1-t0:.3f}s to build edge sampler cache, memory delta {m1 - m0:.2f}GB')
 
+    @trace
     def _build_edge_groups(self):
         """Build edge groups efficiently and cache them."""
         src_nodes = self.edge_index[0]
@@ -371,6 +357,7 @@ class EdgeSampler:
             self.node_edge_counts[node] = count
             start_pos += count
 
+    @trace
     def sample(self, seed: int = None) -> torch.Tensor:
         """Sample edges efficiently using cached structure.
 
@@ -380,21 +367,15 @@ class EdgeSampler:
         Returns:
             Sampled edge_index tensor of shape [2, num_sampled_edges]
         """
-        t0 = time.time()
-        m0 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
         if seed is not None:
             torch.manual_seed(seed)
-
         sampled_indices = []
-
         for node in range(len(self.node_edge_starts)):
             count = self.node_edge_counts[node]
             if count == 0:
                 continue
-
             start = self.node_edge_starts[node]
             end = start + count
-
             n_sample = self.max_edges_per_node
             if self.proportional:
                 ratio = min(1.0, self.max_edges_per_node / count)
@@ -411,9 +392,6 @@ class EdgeSampler:
             ret = self.edge_index[:, sampled_indices]
         else:
             ret = torch.empty((2, 0), dtype=self.edge_index.dtype)
-        t1 = time.time()
-        m1 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
-        print(f'  Sampled {ret.shape} edges in {t1-t0:.3f}s, memory delta {m1 - m0:.2f}GB')
         return ret
 
 
@@ -455,6 +433,7 @@ class GATBase(torch.nn.Module):
         self.dropout = dropout
         self.process = psutil.Process()
 
+    @trace
     def embedding_forward(self, x, edge_index):
         """Get raw embeddings from both layers before activation.
 
