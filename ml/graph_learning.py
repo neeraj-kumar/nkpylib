@@ -714,6 +714,81 @@ class ContrastiveGAT(GATBase):
         assert neg_nodes.shape == shape
         return neg_nodes
 
+    def cpu_neg_pair_generator(self,
+                               n_nodes: int,
+                               anchors: torch.Tensor,
+                               pos_nodes: torch.Tensor,
+                               edge_index: torch.Tensor,
+                               shape: tuple[int, int],
+                               walks: torch.Tensor = None) -> torch.Tensor:
+        """CPU-based negative sampling to reduce GPU memory usage.
+        
+        This version uses numpy arrays and Python data structures for all
+        computations, only creating the final torch tensor at the end.
+        
+        Args:
+        - n_nodes: total number of nodes in graph
+        - anchors: Current batch anchor nodes to exclude
+        - pos_nodes: Current batch positive nodes to exclude
+        - edge_index: Graph edges to identify actual neighbors to exclude
+        - shape: Target shape (batch_size, negative_samples)
+        - walks: Optional tensor of current walks to exclude walk neighbors
+        
+        Returns:
+        - Tensor of negative node indices with shape `shape`
+        """
+        batch_size, neg_samples = shape
+        
+        # Convert to numpy for CPU processing
+        anchors_np = anchors.cpu().numpy()
+        pos_nodes_np = pos_nodes.cpu().numpy()
+        edge_index_np = edge_index.cpu().numpy()
+        walks_np = walks.cpu().numpy() if walks is not None else None
+        
+        # Build adjacency list for fast neighbor lookup
+        adj_list = defaultdict(set)
+        for src, dst in edge_index_np.T:
+            adj_list[src].add(dst)
+        
+        # Build exclusion sets for each anchor using CPU data structures
+        exclude_sets = []
+        for i in range(batch_size):
+            anchor = int(anchors_np[i])
+            pos_node = int(pos_nodes_np[i])
+            
+            exclude = {anchor, pos_node}
+            
+            # Add graph neighbors
+            exclude.update(adj_list[anchor])
+            
+            # Add walk neighbors if provided
+            if walks_np is not None:
+                # Find walks containing this anchor
+                walk_mask = (walks_np == anchor).any(axis=1)
+                if walk_mask.any():
+                    walk_neighbors = walks_np[walk_mask].flatten()
+                    # Filter out invalid nodes
+                    valid_walk_neighbors = walk_neighbors[walk_neighbors != INVALID_NODE]
+                    exclude.update(valid_walk_neighbors.tolist())
+            
+            exclude_sets.append(exclude)
+        
+        # Sample negatives using numpy random generation
+        neg_nodes_np = np.zeros((batch_size, neg_samples), dtype=np.int64)
+        for i in range(batch_size):
+            valid_nodes = [n for n in range(n_nodes) if n not in exclude_sets[i]]
+            if len(valid_nodes) >= neg_samples:
+                sampled = RNG.choice(valid_nodes, neg_samples, replace=False)
+            else:
+                # Fallback: sample with replacement if not enough valid nodes
+                sampled = RNG.choice(valid_nodes, neg_samples, replace=True)
+            neg_nodes_np[i] = sampled
+        
+        # Convert back to torch tensor only at the end
+        neg_nodes = torch.from_numpy(neg_nodes_np).long()
+        assert neg_nodes.shape == shape
+        return neg_nodes
+
     @trace
     def compute_loss(self,
                      x,
