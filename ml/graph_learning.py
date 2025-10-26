@@ -366,7 +366,7 @@ class WalkGenerator:
         """
         self._maybe_rebuild_adj(cur_edges)
         assert self._adj is not None
-        if self.n_jobs > 1: #FIXME
+        if False and self.n_jobs > 1: #FIXME this doesn't seem to help for small batches
             # Parallel generation
             batch_size = max(1, n_walks // self.n_jobs)
             results = joblib.Parallel(n_jobs=self.n_jobs)(
