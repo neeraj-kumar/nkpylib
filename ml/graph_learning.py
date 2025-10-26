@@ -394,7 +394,7 @@ class EdgeSampler:
                  edge_index: torch.Tensor,
                  max_edges_per_node: int,
                  proportional: bool = True,
-                 global_sampling: bool = False):
+                 global_sampling: bool = True):
         """Initialize edge sampler with caching.
 
         Args:
@@ -438,34 +438,34 @@ class EdgeSampler:
         """Sample edges efficiently using cached structure.
 
         Args:
-            seed: Random seed for reproducible sampling
+        - seed: Random seed for reproducible sampling
 
         Returns:
-            Sampled edge_index tensor of shape [2, num_sampled_edges]
+        - Sampled edge_index tensor of shape [2, num_sampled_edges]
         """
         if seed is not None:
             torch.manual_seed(seed)
-        
+
         if self.global_sampling:
             return self._sample_global()
         else:
             return self._sample_per_node()
-    
+
     def _sample_global(self) -> torch.Tensor:
         """Fast global random sampling of edges."""
         n_edges = self.edge_index.shape[1]
         if n_edges == 0:
             return torch.empty((2, 0), dtype=self.edge_index.dtype)
-        
+
         # Calculate target number of edges based on max_edges_per_node
         # Estimate: if we have N nodes and want max_edges_per_node per node on average
         n_nodes = max(self.edge_index.max().item() + 1, 1)
         target_edges = min(n_edges, n_nodes * self.max_edges_per_node)
-        
+
         # Simple random sampling
         indices = torch.randperm(n_edges)[:target_edges]
         return self.edge_index[:, indices]
-    
+
     def _sample_per_node(self) -> torch.Tensor:
         """Per-node sampling preserving degree distribution."""
         sampled_indices = []
@@ -701,7 +701,7 @@ class ContrastiveGAT(GATBase):
                     exclude.update(valid_walk_neighbors.tolist())
             exclude_sets.append(exclude)
         # Sample negatives while avoiding exclusions
-        neg_nodes = torch.zeros((batch_size, neg_samples), dtype=torch.long, device=device)
+        neg_nodes = torch.zeros((batch_size, neg_samples), dtype=torch.long)
         for i in range(batch_size):
             valid_nodes = [n for n in range(n_nodes) if n not in exclude_sets[i]]
             if len(valid_nodes) >= neg_samples:
@@ -709,7 +709,7 @@ class ContrastiveGAT(GATBase):
             else:
                 # Fallback: sample with replacement if not enough valid nodes
                 sampled = torch.tensor(RNG.choice(valid_nodes, neg_samples, replace=True))
-            neg_nodes[i] = sampled.to(device)
+            neg_nodes[i] = sampled
         assert neg_nodes.shape == shape
         return neg_nodes
 
@@ -1232,11 +1232,10 @@ def main():
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
     A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
-    A('-w', '--walk-length', type=int, default=7, help='Length of random walks [12]')
-    A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
+    A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
-    A('-c', '--hidden-channels', type=int, default=8, help='Hidden channels in GAT layers [64]')
+    A('-c', '--hidden-channels', type=int, default=16, help='Hidden channels in GAT layers [64]')
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
