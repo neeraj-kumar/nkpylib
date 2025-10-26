@@ -181,80 +181,6 @@ from torch_geometric.data import Data # type: ignore
 from tqdm import tqdm
 
 
-class WalkGenerator:
-    """Generates random walks through a graph with stateful batch generation."""
-    
-    def __init__(self, 
-                 data: Data,
-                 walk_length: int = 12,
-                 n_jobs: int = 6):
-        """Initialize walk generator with graph data and parameters.
-        
-        Args:
-            data: PyG Data object containing the graph
-            walk_length: Length of each random walk
-            n_jobs: Number of parallel jobs for walk generation
-        """
-        self.data = data
-        self.walk_length = walk_length
-        self.n_jobs = n_jobs
-        self.current_index = 0
-        
-        # Build adjacency matrix for fast neighbor lookup
-        N = self.data.num_nodes
-        edges = self.data.edge_index.cpu().numpy()
-        self.adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(N, N))
-        
-    def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
-        """Generate a single batch of walks."""
-        N = self.data.num_nodes
-        walks = np.ones((batch_size, self.walk_length), dtype=np.int32) * INVALID_NODE
-        walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % N
-        
-        # Generate walks (vectorized)
-        for step in range(1, self.walk_length):
-            current_nodes = walks[:, step-1]
-            for i, node in enumerate(current_nodes):
-                neighbors = self.adj[node].indices
-                if len(neighbors) > 0:
-                    walks[i, step] = RNG.choice(neighbors)
-                else:
-                    walks[i, step] = INVALID_NODE
-        return walks
-    
-    def gen_walks(self, n_walks: int) -> nparray2d:
-        """Generate n_walks random walks, continuing from current index.
-        
-        Args:
-            n_walks: Number of walks to generate
-            
-        Returns:
-            Array of walks with shape (n_walks, walk_length)
-        """
-        if self.n_jobs > 1:
-            # Parallel generation
-            batch_size = n_walks // self.n_jobs
-            results = joblib.Parallel(n_jobs=self.n_jobs)(
-                joblib.delayed(self._gen_batch)(
-                    self.current_index + i * batch_size, 
-                    min(batch_size, n_walks - i * batch_size)
-                )
-                for i in range(self.n_jobs)
-            )
-            walks = np.vstack(results)
-        else:
-            # Single-threaded generation
-            walks = self._gen_batch(self.current_index, n_walks)
-        
-        # Update current index for next batch
-        self.current_index = (self.current_index + n_walks) % self.data.num_nodes
-        
-        return walks
-    
-    def reset_index(self):
-        """Reset the current index to 0."""
-        self.current_index = 0
-
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
@@ -276,6 +202,81 @@ BATCH_SIZE = 128
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Got device {device}')
+
+
+class WalkGenerator:
+    """Generates random walks through a graph with stateful batch generation."""
+    def __init__(self,
+                 n_nodes: int,
+                 edge_index: torch.Tensor,
+                 walk_length: int = 12,
+                 n_jobs: int = 6):
+        """Initialize walk generator with graph data and parameters.
+
+        Args:
+        - n_nodes: Total number of nodes
+        - edge_index: Edge index tensor of shape [2, num_edges]
+        - walk_length: Length of each random walk
+        - n_jobs: Number of parallel jobs for walk generation
+        """
+        self.N = n_nodes
+        self.edge_index = edge_index
+        assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
+        self.walk_length = walk_length
+        self.n_jobs = n_jobs
+        self.current_index = 0
+
+        # Build adjacency matrix for fast neighbor lookup
+        edges = self.edge_index.cpu().numpy()
+        self.adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(self.N, self.N))
+
+    def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
+        """Generate a single batch of walks starting at `batch_start`"""
+        walks = np.ones((batch_size, self.walk_length), dtype=np.int32) * INVALID_NODE
+        walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % self.N
+        # Generate walks (vectorized)
+        for step in range(1, self.walk_length):
+            current_nodes = walks[:, step-1]
+            for i, node in enumerate(current_nodes):
+                neighbors = self.adj[node].indices
+                if len(neighbors) > 0:
+                    walks[i, step] = RNG.choice(neighbors)
+                else:
+                    walks[i, step] = INVALID_NODE
+        return walks
+
+    def gen_walks(self, n_walks: int) -> nparray2d:
+        """Generate `n_walks` random walks, continuing from current index.
+
+        This is a wrapper around self._gen_batch that handles parallelization.
+
+        Args:
+        - n_walks: Number of walks to generate
+
+        Returns:
+        - Array of walks with shape (n_walks, walk_length)
+        """
+        if self.n_jobs > 1:
+            # Parallel generation
+            batch_size = n_walks // self.n_jobs
+            results = joblib.Parallel(n_jobs=self.n_jobs)(
+                joblib.delayed(self._gen_batch)(
+                    self.current_index + i * batch_size,
+                    min(batch_size, n_walks - i * batch_size)
+                )
+                for i in range(self.n_jobs)
+            )
+            walks = np.vstack(results)
+        else:
+            # Single-threaded generation
+            walks = self._gen_batch(self.current_index, n_walks)
+        # Update current index for next batch
+        self.current_index = (self.current_index + n_walks) % self.N
+        return walks
+
+    def reset_index(self):
+        """Reset the current index to 0."""
+        self.current_index = 0
 
 
 class EdgeSampler:
@@ -602,60 +603,16 @@ class RandomWalkGAT(ContrastiveGAT):
     Hence, this is a subclass of ContrastiveGAT, as we generate positive and negative node pairs
     based on closeness within walks.
     """
-    def __init__(self, walk_window: int = 5, **kw):
+    def __init__(self, walk_gen: WalkGenerator, walk_window: int = 5, **kw):
         """Initialize this RandomWalkGAT model.
 
         Args:
+        - walk_gen: A walk generator
         - walk_window: Context window size for walks (how many nodes before/after to consider)
         """
         super().__init__(**kw)
+        self.walk_gen = walk_gen
         self.walk_window = walk_window
-
-    def old_pos_pair_generator(self, walks, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
-        """Generate positive pairs from random walks."""
-        walks_tensor = torch.tensor(walks)
-        valid_mask = walks_tensor != INVALID_NODE
-        walk_length = walks_tensor.shape[1]
-
-        for i in range(walk_length):
-            pos_mask = valid_mask[:, i].clone()
-            if not pos_mask.any():
-                continue
-
-            # Get valid walks for this position
-            pos_walks = pos_mask.nonzero().squeeze(1)
-            if len(pos_walks.shape) == 0:
-                pos_walks = pos_walks.unsqueeze(0)
-            n_pos = len(pos_walks)
-
-            # Process walks in batches
-            for batch_start in range(0, n_pos, batch_size):
-                batch_end = min(batch_start + batch_size, n_pos)
-                batch_walks = pos_walks[batch_start:batch_end]
-
-                # Get context window
-                start = max(0, i - self.walk_window)
-                end = min(walk_length, i + self.walk_window + 1)
-                context = walks_tensor[batch_walks][:, start:end]
-                context_mask = valid_mask[batch_walks][:, start:end].clone()
-                context_mask[:, i-start] = False
-
-                # Collect positive pairs
-                batch_pos_nodes = []
-                batch_anchor_idxs = []
-                for idx, walk_idx in enumerate(batch_walks):
-                    valid_context = context[idx][context_mask[idx]]
-                    if len(valid_context) > 0:
-                        batch_pos_nodes.append(valid_context)
-                        batch_anchor_idxs.append(
-                            torch.full_like(valid_context, walks_tensor[walk_idx, i])
-                        )
-
-                if batch_pos_nodes:
-                    yield (
-                        torch.cat(batch_anchor_idxs),
-                        torch.cat(batch_pos_nodes)
-                    )
 
     def pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
         """Generate walks on-demand and yield positive pairs.
@@ -678,9 +635,7 @@ class RandomWalkGAT(ContrastiveGAT):
             walks_needed = max(1, remaining_pairs // max_pairs_per_walk)
 
             # Generate a small batch of walks on-demand
-            if not hasattr(self, '_walk_generator'):
-                self._walk_generator = WalkGenerator(self.data, walk_length=12)
-            batch_walks = self._walk_generator.gen_walks(walks_needed)
+            batch_walks = self.walk_gen.gen_walks(walks_needed)
 
             # Convert to tensor and extract pairs
             walks_tensor = torch.tensor(batch_walks)
@@ -747,6 +702,7 @@ class GraphLearner:
                  hidden_channels:int=64,
                  heads:int=8,
                  dropout:float=0.6,
+                 n_jobs:int=6,
                  **kw):
         """Initialize this learning with the given `data` and parameters.
 
@@ -766,6 +722,7 @@ class GraphLearner:
         self.hidden_channels = hidden_channels
         self.heads = heads
         self.dropout = dropout
+        self.n_jobs = n_jobs
         self.kw = kw
 
     def train_model(self,
@@ -836,67 +793,31 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model
 
-    def train_random_walks(self, walks: list[list[int]], n_epochs=5, batch_size:int=BATCH_SIZE):
+    def train_random_walks(self, walk_length: int, n_epochs=5, batch_size:int=BATCH_SIZE):
         """Train a graph model using random walk objectives.
 
-        Pass in a list of `walks`, each of which is a list of node ids.
+        Pass in the `walk_length` to use for generating walks. This creates a `WalkGenerator` that
+        the model uses to generate walks on-demand during training. These positive pairs are sampled
+        from these walks, and then randomly generated (and filtered) negative pairs are used for the
+        contrastive learning setup.
         """
         model = RandomWalkGAT(
             in_channels=self.data.num_features,
             hidden_channels=self.hidden_channels,
             heads=self.heads,
-            walks=walks,
+            dropout=self.dropout,
+            walk_gen=WalkGenerator(
+                n_nodes=self.data.num_nodes,
+                edge_index=self.data.edge_index,
+                walk_length=walk_length,
+                n_jobs=self.n_jobs,
+            ),
         )
         def loss_fn(model):
             return model.compute_loss(self.data.x, self.data.edge_index, batch_size=batch_size)
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs, batch_size=batch_size)
         return model
-
-    def gen_walks(self, n_walks_per_node: int = 10, walk_length: int = 12, n_jobs: int = 6) -> nparray2d:
-        """Generate random walks through the graph using WalkGenerator.
-
-        The total number of walks is `n_walks_per_node * num_nodes`, each of length `walk_length`.
-
-        Returns a list of walks, each of which is a list of node indices.
-        """
-        total_walks = n_walks_per_node * self.data.num_nodes
-        
-        # Create walk generator if not exists or parameters changed
-        if not hasattr(self, '_walk_generator') or \
-           self._walk_generator.walk_length != walk_length or \
-           self._walk_generator.n_jobs != n_jobs:
-            self._walk_generator = WalkGenerator(self.data, walk_length, n_jobs)
-        
-        # Generate all walks at once
-        walks = self._walk_generator.gen_walks(total_walks)
-        
-        # Statistics
-        n_valid_per_walk = (walks != INVALID_NODE).sum(axis=1)
-        print(f'Generated {walks.shape} walks from {total_walks} nodes in {n_jobs} jobs: {Counter(n_valid_per_walk).most_common()}, {walks}')
-        return walks
-
-    def test_gen_walks(self):
-        """Tests out walk generation"""
-        n, l = 20, 12
-        t0 = time.time()
-        walks = self.gen_walks(n_walks_per_node=n, walk_length=l)
-        t1 = time.time()
-        assert walks.shape == (self.data.num_nodes * n, l)
-        edges = self.data.edge_index.cpu().numpy()
-        print(f'Generated {walks.shape} walks in {t1-t0}s: {walks}, {edges}')
-        counts = Counter()
-        # check each walk
-        for walk in walks:
-            counts[walk[0]] += 1
-            for i in range(1, len(walk)):
-                if walk[i] == INVALID_NODE:
-                    continue
-                neighbors = edges[1][edges[0] == walk[i-1]]
-                assert walk[i] in neighbors, f'Walk step {walk[i]} not a neighbor of {walk[i-1]}'
-        # check that we have exactly n walks starting from each node
-        for node in range(self.data.num_nodes):
-            assert counts[node] == n, f'Node {node} has {counts[node]} walks, expected {n}'
 
     def train_and_eval_cls(self, embs):
         """Train and evaluate a node classification model on given `embs`.
@@ -1015,23 +936,6 @@ def quick_test(data):
     print("Random edges:", compare_embeddings(orig, random_edge), f"accuracy: {random_acc:.4f}")
     print("No edges:", compare_embeddings(orig, no_edge), f"accuracy: {no_edge_acc:.4f}")
 
-def baic_test():
-    # load not Cora and not PubMed, Citeseer
-    data, dataset = load_data('Citeseer')
-    print(f'Device {device}, Loaded data: {data}, num_classes: {dataset.num_classes}, {data.y.shape}, {data.y}')
-    #quick_test(data)
-    mode = 'walk'
-    gl = GraphLearner(data)
-    gl.train_and_eval_cls(data.x.cpu().numpy())
-    if mode == 'cls':
-        model = gl.train_node_classification(dataset)
-        eval_model(model, data)
-    elif mode == 'walk':
-        walks = gl.gen_walks(n_walks_per_node=1, walk_length=6)
-        model = gl.train_random_walks(walks, n_epochs=5)
-    embs = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
-    gl.train_and_eval_cls(embs)
-
 LEARNERS = dict(
     node_classification=NodeClassificationGAT,
     random_walk=RandomWalkGAT,
@@ -1055,13 +959,6 @@ def create_learner(learner_type: str, data: Data, **kwargs) -> GraphLearner:
     match learner_type:
         case 'node_classification':
             raise NotImplementedError('Node classification not implemented in this example')
-            # For node classification, we need to create synthetic labels
-            # This is a placeholder - in practice you'd have real labels
-            data.y = torch.randint(0, 3, (data.num_nodes,))  # 3 classes
-            data.train_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
-            data.test_mask = torch.zeros(data.num_nodes, dtype=torch.bool)
-            data.train_mask[:data.num_nodes//2] = True
-            data.test_mask[data.num_nodes//2:] = True
         case '_':
             pass  # No special setup needed
     return gl
@@ -1126,6 +1023,7 @@ def main():
     A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
     A('-b', '--batch-size', type=int, default=4, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
+    A('-j', '--n_jobs', type=int, default=6, help='Number of parallel jobs [6]')
     # 50k with checkpointing, about 10Gb gpu steady, but peaked earlier at 14
     args = parser.parse_args()
     # load input graph
@@ -1156,7 +1054,8 @@ def main():
         data,
         hidden_channels=args.hidden_channels,
         heads=args.heads,
-        dropout=args.dropout
+        dropout=args.dropout,
+        n_jobs=args.n_jobs,
     )
 
     # Train model
@@ -1164,12 +1063,7 @@ def main():
 
     match args.learner_type:
         case 'random_walk': # Generate walks and train
-            walks = gl.gen_walks(
-                n_walks_per_node=args.n_walks_per_node,
-                walk_length=args.walk_length
-            )
-            logger.info(f"Generated {walks.shape[0]} walks of length {walks.shape[1]}")
-            model = gl.train_random_walks(walks, n_epochs=args.n_epochs, batch_size=args.batch_size)
+            model = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, batch_size=args.batch_size)
         case '_':
             raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
 
