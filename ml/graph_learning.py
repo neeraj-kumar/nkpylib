@@ -208,32 +208,49 @@ print(f'Got device {device}')
 def trace(func):
     """Decorator that tracks total time and memory delta for a function.
 
-    Prints timing and memory usage information when the decorated function is called.
+    Handles both regular functions and generator functions.
+    For generators, traces the entire iteration lifecycle.
     """
+    import inspect
+    
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Get initial state
         process = psutil.Process()
         start_time = time.time()
         start_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-        def finish(suffix:''):
-            # Get final state
+        
+        def finish(suffix=''):
             end_time = time.time()
             end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
             time_delta = end_time - start_time
             memory_delta = end_memory - start_memory
-            # Print trace information
             print(f"TRACE {func.__name__}{suffix}: {time_delta:.3f}s, "
                   f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
                   f"(Δ{memory_delta:+.2f}GB)")
 
         try:
-            # Call the function
             result = func(*args, **kwargs)
-            finish()
-            return result
+            
+            # Check if result is a generator
+            if inspect.isgenerator(result):
+                def traced_generator():
+                    try:
+                        yield_count = 0
+                        while True:
+                            value = next(result)
+                            yield_count += 1
+                            yield value
+                    except StopIteration:
+                        finish(f' [generator, {yield_count} yields]')
+                        return
+                
+                return traced_generator()
+            else:
+                # Regular function
+                finish()
+                return result
+                
         except Exception as e:
-            # Still print timing info even if function fails
             finish(' [FAILED]')
             raise
 
