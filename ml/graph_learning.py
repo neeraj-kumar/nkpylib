@@ -640,26 +640,32 @@ class GraphLearner:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
         pbar = tqdm(range(n_epochs), desc="Training Epochs")
         losses = []
-        for epoch in pbar:
-            print('setting 0 grad')
-            optimizer.zero_grad()
-            print(f'computing loss for epoch {epoch}')
-            loss = loss_fn(model)
-            losses.append(loss.item())
-            print(f'running backward')
-            loss.backward()
-            print(f'incrementing optimizer')
-            optimizer.step()
-            # Get current memory usage
-            memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
-            memory['diff'] = memory['current'] - memory['initial']
-            memory['peak'] = max(memory['peak'], memory['current'])
-            memory['peak diff'] = memory['peak'] - memory['initial']
-            # update tqdm description with memory info
-            mem_s = ', '.join(f'{k}:{int(v)}' for k, v in memory.items())
-            pbar.set_description(
-                f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}'
-            )
+        
+        try:
+            for epoch in pbar:
+                print('setting 0 grad')
+                optimizer.zero_grad()
+                print(f'computing loss for epoch {epoch}')
+                loss = loss_fn(model)
+                losses.append(loss.item())
+                print(f'running backward')
+                loss.backward()
+                print(f'incrementing optimizer')
+                optimizer.step()
+                # Get current memory usage
+                memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
+                memory['diff'] = memory['current'] - memory['initial']
+                memory['peak'] = max(memory['peak'], memory['current'])
+                memory['peak diff'] = memory['peak'] - memory['initial']
+                # update tqdm description with memory info
+                mem_s = ', '.join(f'{k}:{int(v)}' for k, v in memory.items())
+                pbar.set_description(
+                    f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}'
+                )
+        except KeyboardInterrupt:
+            print(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
+            pbar.close()
+        
         return torch.tensor(losses)
 
     def train_node_classification(self, dataset, n_epochs:int=100):
