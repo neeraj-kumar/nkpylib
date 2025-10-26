@@ -158,6 +158,7 @@ import functools
 import logging
 import time
 
+from abc import abstractmethod
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from typing import Callable, Sequence, Any, Iterator
@@ -249,7 +250,7 @@ def trace(func):
         start_time = time.time()
         start_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
 
-        def finish(suffix=''):
+        def finish(result, suffix=''):
             end_time = time.time()
             end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
             time_delta = end_time - start_time
@@ -261,7 +262,8 @@ def trace(func):
 
             logger.findCaller = fake_findCaller
             try:
-                logger.info(f"{time_delta:.3f}s, {start_memory:.2f}GB -> {end_memory:.2f}GB (Δ{memory_delta:+.2f}GB) {suffix}: {explain_args(*args, **kwargs)}")
+                logger.info(f"{time_delta:.3f}s, {start_memory:.2f}GB -> {end_memory:.2f}GB (Δ{memory_delta:+.2f}GB) {suffix}")
+                logger.debug(f'Inputs: {explain_args(*args, **kwargs)}, Outputs: {explain_args(result)}')
             finally:
                 logger.findCaller = original_findCaller
 
@@ -278,16 +280,16 @@ def trace(func):
                             yield_count += 1
                             yield value
                     except StopIteration:
-                        finish(f' [generator, {yield_count} yields]')
+                        finish(result, f' [generator, {yield_count} yields]')
                         return
 
                 return traced_generator()
             else:
                 # Regular function
-                finish()
+                finish(result)
                 return result
         except Exception as e:
-            finish(' [FAILED]')
+            finish(e, ' [FAILED]')
             raise
 
     return wrapper
@@ -316,26 +318,41 @@ class WalkGenerator:
         self.current_index = 0
 
         # Build adjacency matrix for fast neighbor lookup
-        edges = self.edge_index.cpu().numpy()
-        self.adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(self.N, self.N))
+        #edges = self.edge_index.cpu().numpy()
+        self._cached_edges = None
+        self._adj = None
+        self._maybe_rebuild_adj(edge_index)
+
+    def _maybe_rebuild_adj(self, edge_index=None):
+        if edge_index is None:
+            return
+        # Only rebuild if edges changed
+        if self._cached_edges is None or not torch.equal(self._cached_edges, edge_index):
+            edges = edge_index.cpu().numpy()
+            self._adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(self.N, self.N))
+            self._cached_edges = edge_index.clone()
 
     def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
         """Generate a single batch of walks starting at `batch_start`"""
+        assert batch_size > 0
+        logger.debug(f'Generating batch from {batch_start} size {batch_size}, walk_length {self.walk_length}, {self.current_index}, {self.N}, {self.edge_index.shape}')
         walks = np.ones((batch_size, self.walk_length), dtype=np.int32) * INVALID_NODE
         walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % self.N
+        #print(f'Initial walks: {walks}')
         # Generate walks (vectorized)
         for step in range(1, self.walk_length):
             current_nodes = walks[:, step-1]
             for i, node in enumerate(current_nodes):
-                neighbors = self.adj[node].indices
+                neighbors = self._adj[node].indices
                 if len(neighbors) > 0:
                     walks[i, step] = RNG.choice(neighbors)
                 else:
                     walks[i, step] = INVALID_NODE
+            #print(f'  Step {step}, cur: {current_nodes}, walks {walks}')
         return walks
 
     @trace
-    def gen_walks(self, n_walks: int) -> nparray2d:
+    def gen_walks(self, n_walks: int, cur_edges=None) -> nparray2d:
         """Generate `n_walks` random walks, continuing from current index.
 
         This is a wrapper around self._gen_batch that handles parallelization.
@@ -346,13 +363,14 @@ class WalkGenerator:
         Returns:
         - Array of walks with shape (n_walks, walk_length)
         """
-        if self.n_jobs > 1:
+        self._maybe_rebuild_adj(cur_edges)
+        assert self._adj is not None
+        if False and self.n_jobs > 1: #FIXME
             # Parallel generation
-            batch_size = n_walks // self.n_jobs
+            batch_size = max(1, n_walks // self.n_jobs)
             results = joblib.Parallel(n_jobs=self.n_jobs)(
                 joblib.delayed(self._gen_batch)(
-                    self.current_index + i * batch_size,
-                    min(batch_size, n_walks - i * batch_size)
+                    self.current_index + (i * batch_size), batch_size,
                 )
                 for i in range(self.n_jobs)
             )
@@ -607,12 +625,18 @@ class ContrastiveGAT(GATBase):
 
         return batch_loss
 
-    def pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
+    @abstractmethod
+    def pos_pair_generator(self, cur_edges: Tensor, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
         """Generates positive pairs of nodes for contrastive learning.
 
         This should yield tuples of `(anchors, positive_nodes)`
         """
         raise NotImplementedError("Subclasses must implement pos_pair_generator()")
+
+    def neg_pair_generator(self, x, shape) -> Tensor:
+        neg_nodes = torch.randint(0, x.shape[0], shape)
+        #TODO filter out anchors, actual neighbors, and nodes from walks (if possible)
+        return neg_nodes
 
     @trace
     def compute_loss(self,
@@ -648,14 +672,13 @@ class ContrastiveGAT(GATBase):
         # accumulate loss in batches using pairs
         total_loss = 0
         total_pairs = 0
-        for anchors, pos_nodes in self.pos_pair_generator(batch_size=batch_size):
+        for anchors, pos_nodes in self.pos_pair_generator(cur_edges=cur_edges, batch_size=batch_size):
             logger.debug(f'  Processing batch with {len(anchors)} pairs')
             cur_batch_size = len(anchors)
 
             # Generate negative samples
             with torch.no_grad():
-                neg_nodes = torch.randint(0, x.shape[0], (cur_batch_size, self.negative_samples))
-                #TODO filter out anchors, actual neighbors, and nodes from walks (if possible)
+                neg_nodes = self.neg_pair_generator(x, (cur_batch_size, self.negative_samples))
 
             # Process batch
             batch_loss = self.batch_loss(
@@ -696,22 +719,22 @@ class RandomWalkGAT(ContrastiveGAT):
         self.walk_window = walk_window
 
     @trace
-    def pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
+    def pos_pair_generator(self, cur_edges: Tensor, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
         """Generate walks on-demand and yield positive pairs.
 
         This generates only as many walks as needed to produce a batch of positive pairs,
         reducing memory usage compared to pre-generating all walks.
 
         Args:
+        - cur_edges: Current set of sampled edges
         - batch_size: Target number of positive pairs per batch
 
         Yields:
         - Tuples of (anchor_nodes, positive_nodes) tensors
         """
-        logger.info(f'Starting pos_pair_generator with batch_size={batch_size}, walk_window={self.walk_window}')
+        logger.debug(f'Starting pos_pair_generator with batch_size={batch_size}, walk_window={self.walk_window}')
         pairs_generated = 0
         iteration = 0
-        
         while pairs_generated < batch_size:
             iteration += 1
             # Estimate how many walks we need for remaining pairs
@@ -720,17 +743,16 @@ class RandomWalkGAT(ContrastiveGAT):
             walks_needed = max(1, remaining_pairs)
 
             # Generate a small batch of walks on-demand
-            logger.info(f'Iteration {iteration}: Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), based on window {self.walk_window}')
-            batch_walks = self.walk_gen.gen_walks(walks_needed)
-            logger.info(f'Generated batch_walks shape: {batch_walks.shape}, dtype: {batch_walks.dtype}')
-            logger.info(f'First few walks: {batch_walks[:3] if len(batch_walks) > 0 else "EMPTY"}')
+            logger.debug(f'Iteration {iteration}: Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), window {self.walk_window}')
+            batch_walks = self.walk_gen.gen_walks(walks_needed, cur_edges=cur_edges)
+            logger.debug(f'Generated batch_walks shape: {batch_walks.shape}, dtype: {batch_walks.dtype}: {batch_walks[:10]}')
 
             # Convert to tensor and extract pairs
             walks_tensor = torch.tensor(batch_walks)
             valid_mask = walks_tensor != INVALID_NODE
             walk_length = walks_tensor.shape[1]
-            logger.info(f'walks_tensor shape: {walks_tensor.shape}, valid_mask shape: {valid_mask.shape}')
-            logger.info(f'Total valid nodes in walks: {valid_mask.sum().item()}/{valid_mask.numel()}')
+            logger.debug(f'walks_tensor shape: {walks_tensor.shape}, valid_mask shape: {valid_mask.shape}')
+            logger.debug(f'Total valid nodes in walks: {valid_mask.sum().item()}/{valid_mask.numel()}')
 
             batch_anchors = []
             batch_positives = []
@@ -755,12 +777,12 @@ class RandomWalkGAT(ContrastiveGAT):
                     context = walks_tensor[walk_idx, start:end]
                     context_mask = valid_mask[walk_idx, start:end].clone()
                     context_mask[i-start] = False  # Exclude anchor position
-                    
+
                     logger.debug(f'Walk {walk_idx.item()}, pos {i}: context window [{start}:{end}], context={context.tolist()}, mask={context_mask.tolist()}')
 
                     valid_context = context[context_mask]
                     logger.debug(f'Walk {walk_idx.item()}, pos {i}: valid_context={valid_context.tolist() if len(valid_context) > 0 else "EMPTY"}')
-                    
+
                     if len(valid_context) > 0:
                         anchor_node = walks_tensor[walk_idx, i]
                         logger.debug(f'Adding {len(valid_context)} pairs with anchor {anchor_node.item()}')
@@ -773,24 +795,24 @@ class RandomWalkGAT(ContrastiveGAT):
                             break
                     else:
                         logger.debug(f'Walk {walk_idx.item()}, pos {i}: No valid context nodes')
-                        
+
                 if len(batch_anchors) >= remaining_pairs:
                     logger.debug(f'Breaking from position loop, have {len(batch_anchors)} pairs')
                     break
-                    
-            logger.info(f'Iteration {iteration}: Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
-            
+
+            logger.debug(f'Iteration {iteration}: Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
+
             # Yield pairs if we have any
             if batch_anchors:
                 # Limit to exactly the number of pairs we need
                 n_pairs = min(len(batch_anchors), remaining_pairs)
-                logger.info(f'Yielding {n_pairs} pairs (anchors: {batch_anchors[:3]}..., positives: {batch_positives[:3]}...)')
+                logger.debug(f'Yielding {n_pairs} pairs (anchors: {batch_anchors[:3]}..., positives: {batch_positives[:3]}...)')
                 yield (
                     torch.tensor(batch_anchors[:n_pairs]),
                     torch.tensor(batch_positives[:n_pairs])
                 )
                 pairs_generated += n_pairs
-                logger.info(f'Total pairs generated so far: {pairs_generated}/{batch_size}')
+                logger.debug(f'Total pairs generated so far: {pairs_generated}/{batch_size}')
             else:
                 logger.warning(f'Iteration {iteration}: No pairs generated from {walks_tensor.shape[0]} walks!')
                 # Prevent infinite loop if no pairs can be generated
@@ -865,14 +887,14 @@ class GraphLearner:
         losses = []
         try:
             for epoch in pbar:
-                logger.info('setting 0 grad')
+                logger.debug('setting 0 grad')
                 optimizer.zero_grad()
-                logger.info(f'computing loss for epoch {epoch}')
+                logger.debug(f'computing loss for epoch {epoch}')
                 loss = loss_fn(model)
                 losses.append(loss.item())
-                logger.info(f'running backward')
+                logger.debug(f'running backward')
                 loss.backward()
-                logger.info(f'incrementing optimizer')
+                logger.debug(f'incrementing optimizer')
                 optimizer.step()
                 # Get current memory usage
                 memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
@@ -885,6 +907,9 @@ class GraphLearner:
                     f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}'
                 )
         except KeyboardInterrupt:
+            if epoch < 2:
+                logger.warning("Training interrupted at epoch {epoch}. Quitting.")
+                raise
             logger.warning(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
             pbar.close()
         return torch.tensor(losses)
@@ -1135,7 +1160,7 @@ def main():
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
     A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
-    A('-b', '--batch-size', type=int, default=4, help=f'Batch size for training [{BATCH_SIZE}]')
+    A('-b', '--batch-size', type=int, default=32, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     A('-j', '--n_jobs', type=int, default=6, help='Number of parallel jobs [6]')
     # 50k with checkpointing, about 10Gb gpu steady, but peaked earlier at 14
