@@ -215,29 +215,24 @@ def explain_args(*args, **kwargs) -> dict[str|int, Any]:
     The output is a dict mapping argument index (for `args`) or name (for `kwargs`) to the explanation.
     """
     result = {}
-    
+    def process(arg):
+        if hasattr(arg, 'shape'):  # numpy arrays, torch tensors
+            ret = f'{type(arg).__name__}{arg.shape}'
+            if hasattr(arg, 'dtype'):
+                ret += f',{arg.dtype}'
+        elif isinstance(arg, (list, tuple)):
+            return f'{type(arg).__name__}[{len(arg)}]'
+        elif isinstance(arg, dict):
+            return f'dict[{len(arg)}]'
+        else:  # scalars
+            return arg
+
     # Process positional arguments
     for i, arg in enumerate(args):
-        if hasattr(arg, 'shape'):  # numpy arrays, torch tensors
-            result[i] = f"{type(arg).__name__}({arg.shape})"
-        elif isinstance(arg, (list, tuple)):
-            result[i] = f"{type(arg).__name__}(len={len(arg)})"
-        elif isinstance(arg, dict):
-            result[i] = f"dict(len={len(arg)})"
-        else:  # scalars
-            result[i] = arg
-    
+        result[i] = process(arg)
     # Process keyword arguments
     for name, arg in kwargs.items():
-        if hasattr(arg, 'shape'):  # numpy arrays, torch tensors
-            result[name] = f"{type(arg).__name__}({arg.shape})"
-        elif isinstance(arg, (list, tuple)):
-            result[name] = f"{type(arg).__name__}(len={len(arg)})"
-        elif isinstance(arg, dict):
-            result[name] = f"dict(len={len(arg)})"
-        else:  # scalars
-            result[name] = arg
-    
+        result[name] = process(arg)
     return result
 
 def trace(func):
@@ -259,9 +254,16 @@ def trace(func):
             end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
             time_delta = end_time - start_time
             memory_delta = end_memory - start_memory
-            logger.info(f"{func.__name__}{suffix}: {explain_args(args, kwargs), {time_delta:.3f}s, "
-                        f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
-                        f"(Δ{memory_delta:+.2f}GB)")
+            # Temporarily override findCaller to return the traced function
+            original_findCaller = logger.findCaller
+            def fake_findCaller(*args, **kwargs):
+                return ('', 0, func.__name__, None)
+
+            logger.findCaller = fake_findCaller
+            try:
+                logger.info(f"{time_delta:.3f}s, {start_memory:.2f}GB -> {end_memory:.2f}GB (Δ{memory_delta:+.2f}GB) {suffix}: {explain_args(*args, **kwargs)}")
+            finally:
+                logger.findCaller = original_findCaller
 
         try:
             result = func(*args, **kwargs)
@@ -709,12 +711,12 @@ class RandomWalkGAT(ContrastiveGAT):
         pairs_generated = 0
         while pairs_generated < batch_size:
             # Estimate how many walks we need for remaining pairs
-            # Each walk can generate up to (2 * walk_window) pairs
-            max_pairs_per_walk = 2 * self.walk_window
+            # Because we filter out various pairs, generate a bunch more than we need
             remaining_pairs = batch_size - pairs_generated
-            walks_needed = max(1, remaining_pairs // max_pairs_per_walk)
+            walks_needed = max(1, remaining_pairs)
 
             # Generate a small batch of walks on-demand
+            logger.info(f'Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), based on window {self.walk_window}')
             batch_walks = self.walk_gen.gen_walks(walks_needed)
 
             # Convert to tensor and extract pairs
@@ -754,6 +756,7 @@ class RandomWalkGAT(ContrastiveGAT):
                             break
                 if len(batch_anchors) >= remaining_pairs:
                     break
+            logger.info(f'Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
             # Yield pairs if we have any
             if batch_anchors:
                 # Limit to exactly the number of pairs we need
