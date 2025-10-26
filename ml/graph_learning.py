@@ -180,88 +180,6 @@ from torch_geometric.transforms import NormalizeFeatures # type: ignore
 from torch_geometric.data import Data # type: ignore
 from tqdm import tqdm
 
-
-class EdgeSampler:
-    """Efficient edge sampling with caching for memory optimization."""
-    
-    def __init__(self, edge_index: torch.Tensor, max_edges_per_node: int = 25):
-        """Initialize edge sampler with caching.
-        
-        Args:
-            edge_index: Graph edge index tensor of shape [2, num_edges]
-            max_edges_per_node: Maximum number of edges to sample per node
-        """
-        self.max_edges_per_node = max_edges_per_node
-        self.edge_index = edge_index
-        
-        # Cache the edge grouping (do once, reuse many times)
-        self._build_edge_groups()
-    
-    def _build_edge_groups(self):
-        """Build edge groups efficiently and cache them."""
-        # Use torch operations instead of Python loops
-        src_nodes = self.edge_index[0]
-        
-        # Get unique nodes and their edge counts
-        unique_nodes, inverse_indices, counts = torch.unique(
-            src_nodes, return_inverse=True, return_counts=True
-        )
-        
-        # Pre-allocate storage
-        max_node = src_nodes.max().item()
-        self.node_edge_starts = torch.zeros(max_node + 1, dtype=torch.long)
-        self.node_edge_counts = torch.zeros(max_node + 1, dtype=torch.long)
-        
-        # Sort edges by source node for efficient slicing
-        sorted_indices = torch.argsort(src_nodes)
-        self.sorted_edge_indices = sorted_indices
-        
-        # Store start positions and counts for each node
-        start_pos = 0
-        for node, count in zip(unique_nodes, counts):
-            self.node_edge_starts[node] = start_pos
-            self.node_edge_counts[node] = count
-            start_pos += count
-    
-    def sample(self, seed: int = None) -> torch.Tensor:
-        """Sample edges efficiently using cached structure.
-        
-        Args:
-            seed: Random seed for reproducible sampling
-            
-        Returns:
-            Sampled edge_index tensor of shape [2, num_sampled_edges]
-        """
-        if seed is not None:
-            torch.manual_seed(seed)
-        
-        sampled_indices = []
-        
-        for node in range(len(self.node_edge_starts)):
-            count = self.node_edge_counts[node]
-            if count == 0:
-                continue
-                
-            start = self.node_edge_starts[node]
-            end = start + count
-            
-            if count <= self.max_edges_per_node:
-                # Take all edges
-                node_edges = self.sorted_edge_indices[start:end]
-            else:
-                # Sample subset
-                node_edges = self.sorted_edge_indices[start:end]
-                perm = torch.randperm(count)[:self.max_edges_per_node]
-                node_edges = node_edges[perm]
-            
-            sampled_indices.append(node_edges)
-        
-        if sampled_indices:
-            sampled_indices = torch.cat(sampled_indices)
-            return self.edge_index[:, sampled_indices]
-        else:
-            return torch.empty((2, 0), dtype=self.edge_index.dtype)
-
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
@@ -283,6 +201,76 @@ BATCH_SIZE = 128
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Got device {device}')
+
+
+class EdgeSampler:
+    """Efficient edge sampling with caching for memory optimization."""
+    def __init__(self, edge_index: torch.Tensor, max_edges_per_node: int = 25):
+        """Initialize edge sampler with caching.
+
+        Args:
+        - edge_index: Graph edge index tensor of shape [2, num_edges]
+        - max_edges_per_node: Maximum number of edges to sample per node
+        """
+        self.max_edges_per_node = max_edges_per_node
+        self.edge_index = edge_index
+        assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
+        # Cache the edge grouping (do once, reuse many times)
+        self._build_edge_groups()
+
+    def _build_edge_groups(self):
+        """Build edge groups efficiently and cache them."""
+        src_nodes = self.edge_index[0]
+        unique_nodes, inverse_indices, counts = torch.unique(
+            src_nodes, return_inverse=True, return_counts=True
+        )
+        # Pre-allocate storage
+        max_node = src_nodes.max().item()
+        self.node_edge_starts = torch.zeros(max_node + 1, dtype=torch.long)
+        self.node_edge_counts = torch.zeros(max_node + 1, dtype=torch.long)
+        # Sort edges by source node for efficient slicing
+        sorted_indices = torch.argsort(src_nodes)
+        self.sorted_edge_indices = sorted_indices
+        # Store start positions and counts for each node
+        start_pos = 0
+        for node, count in zip(unique_nodes, counts):
+            self.node_edge_starts[node] = start_pos
+            self.node_edge_counts[node] = count
+            start_pos += count
+
+    def sample(self, seed: int = None) -> torch.Tensor:
+        """Sample edges efficiently using cached structure.
+
+        Args:
+            seed: Random seed for reproducible sampling
+
+        Returns:
+            Sampled edge_index tensor of shape [2, num_sampled_edges]
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        sampled_indices = []
+
+        for node in range(len(self.node_edge_starts)):
+            count = self.node_edge_counts[node]
+            if count == 0:
+                continue
+
+            start = self.node_edge_starts[node]
+            end = start + count
+
+            node_edges = self.sorted_edge_indices[start:end]
+            if count > self.max_edges_per_node: # add more edges to get to max
+                perm = torch.randperm(count)[:self.max_edges_per_node]
+                node_edges = node_edges[perm]
+            sampled_indices.append(node_edges)
+        if sampled_indices:
+            sampled_indices = torch.cat(sampled_indices)
+            return self.edge_index[:, sampled_indices]
+        else:
+            return torch.empty((2, 0), dtype=self.edge_index.dtype)
+
 
 class GATBase(torch.nn.Module):
     """An expanded version of the Graph ATtention Network (GAT) with various options.
@@ -399,6 +387,7 @@ class ContrastiveGAT(GATBase):
         super().__init__(**kw)
         self.negative_samples = negative_samples
         self.temperature = temperature
+        self.edge_sampler = None
 
     def batch_loss(self,
                       embeddings: torch.Tensor,
@@ -440,26 +429,18 @@ class ContrastiveGAT(GATBase):
 
         return batch_loss
 
-    def pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
+    def pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
         """Generates positive pairs of nodes for contrastive learning.
 
         This should yield tuples of `(anchors, positive_nodes)`
         """
-        raise NotImplementedError("Subclasses must implement pair_generator()")
-
-    def sample_edges_per_node(self, edge_index, max_edges_per_node: int = 20):
-        """Sample edges per pass without modifying original edge_index"""
-        # Use EdgeSampler for efficient sampling
-        if not hasattr(self, '_edge_sampler') or self._edge_sampler.max_edges_per_node != max_edges_per_node:
-            self._edge_sampler = EdgeSampler(edge_index, max_edges_per_node)
-        
-        return self._edge_sampler.sample()
+        raise NotImplementedError("Subclasses must implement pos_pair_generator()")
 
     def compute_loss(self,
                      x,
                      edge_index,
                      batch_size: int = BATCH_SIZE,
-                     sample_edges: int=20,
+                     sample_edges: int=15,
                      use_checkpoint: bool = False):
         """Compute contrastive loss using pairs of nodes.
 
@@ -474,20 +455,22 @@ class ContrastiveGAT(GATBase):
         print(f'Computing contrastive loss with batch size {batch_size}, sample_edges {sample_edges}, use_checkpoint {use_checkpoint}')
         # Get embeddings
         if sample_edges > 0:
-            cur_edges = self.sample_edges_per_node(edge_index, max_edges_per_node=sample_edges)
-            #embeddings = self.embedding_forward(data.x, sampled_edges)
+            if not self.edge_sampler or self.edge_sampler.max_edges_per_node != sample_edges:
+                self.edge_sampler = EdgeSampler(edge_index, sample_edges)
+            cur_edges = self.edge_sampler.sample()
         else:
             cur_edges = edge_index
+        print(f'Got edges of shape {cur_edges.shape} vs {edge_index.shape}, {cur_edges.dtype} for loss computation')
         if use_checkpoint:
             embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
         else:
             embeddings = self.embedding_forward(x, cur_edges).cpu()
 
+        # accumulate loss in batches using pairs
         total_loss = 0
         total_pairs = 0
-
-        for anchors, pos_nodes in self.pair_generator(batch_size=batch_size):
-            print(f'  Processing batch with {len(anchors)} pairs')
+        for anchors, pos_nodes in self.pos_pair_generator(batch_size=batch_size):
+            #print(f'  Processing batch with {len(anchors)} pairs')
             cur_batch_size = len(anchors)
 
             # Generate negative samples
@@ -532,7 +515,7 @@ class RandomWalkGAT(ContrastiveGAT):
         self.walk_window = walk_window
         self.walks = walks
 
-    def pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
+    def pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
         """Generate positive pairs from random walks."""
         walks_tensor = torch.tensor(self.walks)
         valid_mask = walks_tensor != INVALID_NODE
@@ -981,7 +964,7 @@ def main():
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
     A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
-    A('-w', '--walk-length', type=int, default=4, help='Length of random walks [12]')
+    A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
