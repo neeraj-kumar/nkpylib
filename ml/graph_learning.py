@@ -708,21 +708,29 @@ class RandomWalkGAT(ContrastiveGAT):
         Yields:
         - Tuples of (anchor_nodes, positive_nodes) tensors
         """
+        logger.info(f'Starting pos_pair_generator with batch_size={batch_size}, walk_window={self.walk_window}')
         pairs_generated = 0
+        iteration = 0
+        
         while pairs_generated < batch_size:
+            iteration += 1
             # Estimate how many walks we need for remaining pairs
             # Because we filter out various pairs, generate a bunch more than we need
             remaining_pairs = batch_size - pairs_generated
             walks_needed = max(1, remaining_pairs)
 
             # Generate a small batch of walks on-demand
-            logger.info(f'Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), based on window {self.walk_window}')
+            logger.info(f'Iteration {iteration}: Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), based on window {self.walk_window}')
             batch_walks = self.walk_gen.gen_walks(walks_needed)
+            logger.info(f'Generated batch_walks shape: {batch_walks.shape}, dtype: {batch_walks.dtype}')
+            logger.info(f'First few walks: {batch_walks[:3] if len(batch_walks) > 0 else "EMPTY"}')
 
             # Convert to tensor and extract pairs
             walks_tensor = torch.tensor(batch_walks)
             valid_mask = walks_tensor != INVALID_NODE
             walk_length = walks_tensor.shape[1]
+            logger.info(f'walks_tensor shape: {walks_tensor.shape}, valid_mask shape: {valid_mask.shape}')
+            logger.info(f'Total valid nodes in walks: {valid_mask.sum().item()}/{valid_mask.numel()}')
 
             batch_anchors = []
             batch_positives = []
@@ -730,12 +738,15 @@ class RandomWalkGAT(ContrastiveGAT):
             # Extract pairs from these walks
             for i in range(walk_length):
                 pos_mask = valid_mask[:, i].clone()
+                logger.debug(f'Position {i}: pos_mask has {pos_mask.sum().item()} valid nodes out of {len(pos_mask)}')
                 if not pos_mask.any():
+                    logger.debug(f'Position {i}: No valid nodes, skipping')
                     continue
 
                 pos_walks = pos_mask.nonzero().squeeze(1)
                 if len(pos_walks.shape) == 0:
                     pos_walks = pos_walks.unsqueeze(0)
+                logger.debug(f'Position {i}: Processing {len(pos_walks)} walks')
 
                 for walk_idx in pos_walks:
                     # Get context window for this walk position
@@ -744,28 +755,48 @@ class RandomWalkGAT(ContrastiveGAT):
                     context = walks_tensor[walk_idx, start:end]
                     context_mask = valid_mask[walk_idx, start:end].clone()
                     context_mask[i-start] = False  # Exclude anchor position
+                    
+                    logger.debug(f'Walk {walk_idx.item()}, pos {i}: context window [{start}:{end}], context={context.tolist()}, mask={context_mask.tolist()}')
 
                     valid_context = context[context_mask]
+                    logger.debug(f'Walk {walk_idx.item()}, pos {i}: valid_context={valid_context.tolist() if len(valid_context) > 0 else "EMPTY"}')
+                    
                     if len(valid_context) > 0:
                         anchor_node = walks_tensor[walk_idx, i]
+                        logger.debug(f'Adding {len(valid_context)} pairs with anchor {anchor_node.item()}')
                         batch_anchors.extend([anchor_node] * len(valid_context))
                         batch_positives.extend(valid_context.tolist())
 
                         # Check if we have enough pairs for this batch
                         if len(batch_anchors) >= remaining_pairs:
+                            logger.debug(f'Reached target pairs ({len(batch_anchors)} >= {remaining_pairs}), breaking')
                             break
+                    else:
+                        logger.debug(f'Walk {walk_idx.item()}, pos {i}: No valid context nodes')
+                        
                 if len(batch_anchors) >= remaining_pairs:
+                    logger.debug(f'Breaking from position loop, have {len(batch_anchors)} pairs')
                     break
-            logger.info(f'Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
+                    
+            logger.info(f'Iteration {iteration}: Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
+            
             # Yield pairs if we have any
             if batch_anchors:
                 # Limit to exactly the number of pairs we need
                 n_pairs = min(len(batch_anchors), remaining_pairs)
+                logger.info(f'Yielding {n_pairs} pairs (anchors: {batch_anchors[:3]}..., positives: {batch_positives[:3]}...)')
                 yield (
                     torch.tensor(batch_anchors[:n_pairs]),
                     torch.tensor(batch_positives[:n_pairs])
                 )
                 pairs_generated += n_pairs
+                logger.info(f'Total pairs generated so far: {pairs_generated}/{batch_size}')
+            else:
+                logger.warning(f'Iteration {iteration}: No pairs generated from {walks_tensor.shape[0]} walks!')
+                # Prevent infinite loop if no pairs can be generated
+                if iteration > 10:
+                    logger.error(f'Breaking after {iteration} iterations with no pairs generated')
+                    break
 
 
 class GraphLearner:
