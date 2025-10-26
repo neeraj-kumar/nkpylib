@@ -205,18 +205,28 @@ print(f'Got device {device}')
 
 class EdgeSampler:
     """Efficient edge sampling with caching for memory optimization."""
-    def __init__(self, edge_index: torch.Tensor, max_edges_per_node: int = 25):
+    def __init__(self,
+                 edge_index: torch.Tensor,
+                 max_edges_per_node: int,
+                 proportional: bool = True):
         """Initialize edge sampler with caching.
 
         Args:
         - edge_index: Graph edge index tensor of shape [2, num_edges]
         - max_edges_per_node: Maximum number of edges to sample per node
+        - proportional: If True, sample edges proportionally to their degree (capping to max_edges_per_node)
         """
         self.max_edges_per_node = max_edges_per_node
         self.edge_index = edge_index
+        self.proportional = proportional
         assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
         # Cache the edge grouping (do once, reuse many times)
+        t0 = time.time()
+        m0 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
         self._build_edge_groups()
+        t1 = time.time()
+        m1 = psutil.Process().memory_info().rss / 1024 / 1024 / 1024
+        print(f'Took {t1-t0:.3f}s to build edge sampler cache, memory delta {m1 - m0:.2f}GB')
 
     def _build_edge_groups(self):
         """Build edge groups efficiently and cache them."""
@@ -260,9 +270,15 @@ class EdgeSampler:
             start = self.node_edge_starts[node]
             end = start + count
 
-            node_edges = self.sorted_edge_indices[start:end]
-            if count > self.max_edges_per_node: # add more edges to get to max
-                perm = torch.randperm(count)[:self.max_edges_per_node]
+            n_sample = self.max_edges_per_node
+            if self.proportional:
+                ratio = min(1.0, self.max_edges_per_node / count)
+                n_sample = max(1, max(int(count * ratio), self.max_edges_per_node))
+            if n_sample >= count: # take all edges
+                node_edges = self.sorted_edge_indices[start:end]
+            else:
+                node_edges = self.sorted_edge_indices[start:end]
+                perm = torch.randperm(count)[:n_sample]
                 node_edges = node_edges[perm]
             sampled_indices.append(node_edges)
         if sampled_indices:
@@ -440,7 +456,7 @@ class ContrastiveGAT(GATBase):
                      x,
                      edge_index,
                      batch_size: int = BATCH_SIZE,
-                     sample_edges: int=15,
+                     sample_edges: int=10,
                      use_checkpoint: bool = False):
         """Compute contrastive loss using pairs of nodes.
 
@@ -964,11 +980,11 @@ def main():
     # Model configuration
     A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
     A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
-    A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
+    A('-w', '--walk-length', type=int, default=8, help='Length of random walks [12]')
     A('--n-walks-per-node', type=int, default=1, help='Number of walks per node [10]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
-    A('-c', '--hidden-channels', type=int, default=32, help='Hidden channels in GAT layers [64]')
+    A('-c', '--hidden-channels', type=int, default=16, help='Hidden channels in GAT layers [64]')
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
@@ -986,7 +1002,7 @@ def main():
         if 0: # proper sampling
             data.x = data.x[:args.n_nodes]
             data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
-        else: # cuting off edges
+        else: # cutting off edges
             #data.edge_index = data.edge_index[:, :args.n_nodes*100]
             pass
         print(f'Sampled to {data.num_nodes} nodes, now {data.num_edges} edges')
