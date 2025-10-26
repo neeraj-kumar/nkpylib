@@ -154,6 +154,7 @@ Let me explain how each parameter would likely affect the GAT model's accuracy:
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 
@@ -202,6 +203,52 @@ BATCH_SIZE = 128
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Got device {device}')
+
+
+def trace(func):
+    """Decorator that tracks total time and memory delta for a function.
+    
+    Prints timing and memory usage information when the decorated function is called.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # Get initial state
+        process = psutil.Process()
+        start_time = time.time()
+        start_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
+        
+        try:
+            # Call the function
+            result = func(*args, **kwargs)
+            
+            # Get final state
+            end_time = time.time()
+            end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
+            
+            # Calculate deltas
+            time_delta = end_time - start_time
+            memory_delta = end_memory - start_memory
+            
+            # Print trace information
+            print(f"TRACE {func.__name__}: {time_delta:.3f}s, "
+                  f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
+                  f"(Δ{memory_delta:+.2f}GB)")
+            
+            return result
+            
+        except Exception as e:
+            # Still print timing info even if function fails
+            end_time = time.time()
+            end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
+            time_delta = end_time - start_time
+            memory_delta = end_memory - start_memory
+            
+            print(f"TRACE {func.__name__} [FAILED]: {time_delta:.3f}s, "
+                  f"memory: {start_memory:.2f}GB -> {end_memory:.2f}GB "
+                  f"(Δ{memory_delta:+.2f}GB)")
+            raise
+    
+    return wrapper
 
 
 class WalkGenerator:
