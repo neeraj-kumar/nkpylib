@@ -180,6 +180,81 @@ from torch_geometric.transforms import NormalizeFeatures # type: ignore
 from torch_geometric.data import Data # type: ignore
 from tqdm import tqdm
 
+
+class WalkGenerator:
+    """Generates random walks through a graph with stateful batch generation."""
+    
+    def __init__(self, 
+                 data: Data,
+                 walk_length: int = 12,
+                 n_jobs: int = 6):
+        """Initialize walk generator with graph data and parameters.
+        
+        Args:
+            data: PyG Data object containing the graph
+            walk_length: Length of each random walk
+            n_jobs: Number of parallel jobs for walk generation
+        """
+        self.data = data
+        self.walk_length = walk_length
+        self.n_jobs = n_jobs
+        self.current_index = 0
+        
+        # Build adjacency matrix for fast neighbor lookup
+        N = self.data.num_nodes
+        edges = self.data.edge_index.cpu().numpy()
+        self.adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(N, N))
+        
+    def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
+        """Generate a single batch of walks."""
+        N = self.data.num_nodes
+        walks = np.ones((batch_size, self.walk_length), dtype=np.int32) * INVALID_NODE
+        walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % N
+        
+        # Generate walks (vectorized)
+        for step in range(1, self.walk_length):
+            current_nodes = walks[:, step-1]
+            for i, node in enumerate(current_nodes):
+                neighbors = self.adj[node].indices
+                if len(neighbors) > 0:
+                    walks[i, step] = RNG.choice(neighbors)
+                else:
+                    walks[i, step] = INVALID_NODE
+        return walks
+    
+    def gen_walks(self, n_walks: int) -> nparray2d:
+        """Generate n_walks random walks, continuing from current index.
+        
+        Args:
+            n_walks: Number of walks to generate
+            
+        Returns:
+            Array of walks with shape (n_walks, walk_length)
+        """
+        if self.n_jobs > 1:
+            # Parallel generation
+            batch_size = n_walks // self.n_jobs
+            results = joblib.Parallel(n_jobs=self.n_jobs)(
+                joblib.delayed(self._gen_batch)(
+                    self.current_index + i * batch_size, 
+                    min(batch_size, n_walks - i * batch_size)
+                )
+                for i in range(self.n_jobs)
+            )
+            walks = np.vstack(results)
+        else:
+            # Single-threaded generation
+            walks = self._gen_batch(self.current_index, n_walks)
+        
+        # Update current index for next batch
+        self.current_index = (self.current_index + n_walks) % self.data.num_nodes
+        
+        return walks
+    
+    def reset_index(self):
+        """Reset the current index to 0."""
+        self.current_index = 0
+
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
@@ -603,7 +678,9 @@ class RandomWalkGAT(ContrastiveGAT):
             walks_needed = max(1, remaining_pairs // max_pairs_per_walk)
 
             # Generate a small batch of walks on-demand
-            batch_walks = self.generate_walks(n_walks=walks_needed)
+            if not hasattr(self, '_walk_generator'):
+                self._walk_generator = WalkGenerator(self.data, walk_length=12)
+            batch_walks = self._walk_generator.gen_walks(walks_needed)
 
             # Convert to tensor and extract pairs
             walks_tensor = torch.tensor(batch_walks)
@@ -776,47 +853,26 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs, batch_size=batch_size)
         return model
 
-    def gen_walks(self, n_walks_per_node:int=10, walk_length:int=12, n_jobs:int=6) -> nparray2d:
-        """Generate random walks through the graph.
+    def gen_walks(self, n_walks_per_node: int = 10, walk_length: int = 12, n_jobs: int = 6) -> nparray2d:
+        """Generate random walks through the graph using WalkGenerator.
 
         The total number of walks is `n_walks_per_node * num_nodes`, each of length `walk_length`.
 
         Returns a list of walks, each of which is a list of node indices.
         """
-        N = self.data.num_nodes
-        # build adjacency matrix in CSR format for fast neighbor lookup
-        edges = self.data.edge_index.cpu().numpy()
-        adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(N, N))
-
-        def gen_batch(batch_start, batch_size):
-            """Generates a single batch of walks"""
-            # pre-allocate walks array and set starting nodes
-            walks = np.ones((batch_size, walk_length), dtype=np.int32) * INVALID_NODE
-            walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % N
-            # generate walks (vectorized)
-            for step in range(1, walk_length):
-                # get neighbors for all current nodes
-                current_nodes = walks[:, step-1]
-                for i, node in enumerate(current_nodes):
-                    neighbors = adj[node].indices
-                    if len(neighbors) > 0:
-                        walks[i, step] = RNG.choice(neighbors)
-                    else:
-                        walks[i, step] = INVALID_NODE
-            return walks
-
-        total_walks = n_walks_per_node * N
-        if n_jobs > 1: # parallel generation
-            batch_size = total_walks // n_jobs
-            results = joblib.Parallel(n_jobs=n_jobs)(
-                joblib.delayed(gen_batch)(i * batch_size, min(batch_size, total_walks - i * batch_size))
-                for i in tqdm(range(n_jobs))
-            )
-        else: # single-threaded
-            results = [gen_batch(0, total_walks)]
-        walks = np.vstack(results)
-        # for each walk, count how many valid nodes we have (not INVALID_NODE)
-        n_valid_per_walk = (np.array(walks) != INVALID_NODE).sum(axis=1)
+        total_walks = n_walks_per_node * self.data.num_nodes
+        
+        # Create walk generator if not exists or parameters changed
+        if not hasattr(self, '_walk_generator') or \
+           self._walk_generator.walk_length != walk_length or \
+           self._walk_generator.n_jobs != n_jobs:
+            self._walk_generator = WalkGenerator(self.data, walk_length, n_jobs)
+        
+        # Generate all walks at once
+        walks = self._walk_generator.gen_walks(total_walks)
+        
+        # Statistics
+        n_valid_per_walk = (walks != INVALID_NODE).sum(axis=1)
         print(f'Generated {walks.shape} walks from {total_walks} nodes in {n_jobs} jobs: {Counter(n_valid_per_walk).most_common()}, {walks}')
         return walks
 
