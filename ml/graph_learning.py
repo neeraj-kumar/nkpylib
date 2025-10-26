@@ -280,7 +280,7 @@ def trace(func):
                             yield_count += 1
                             yield value
                     except StopIteration:
-                        finish(result, f' [generator, {yield_count} yields]')
+                        finish(result, f' [gen, {yield_count}x]')
                         return
 
                 return traced_generator()
@@ -366,7 +366,7 @@ class WalkGenerator:
         """
         self._maybe_rebuild_adj(cur_edges)
         assert self._adj is not None
-        if False and self.n_jobs > 1: #FIXME
+        if self.n_jobs > 1: #FIXME
             # Parallel generation
             batch_size = max(1, n_walks // self.n_jobs)
             results = joblib.Parallel(n_jobs=self.n_jobs)(
@@ -661,6 +661,7 @@ class ContrastiveGAT(GATBase):
         """
         raise NotImplementedError("Subclasses must implement pos_pair_generator()")
 
+    @trace
     def neg_pair_generator(self,
                            n_nodes: int,
                            anchors: torch.Tensor,
@@ -1240,7 +1241,7 @@ def main():
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
     A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
-    A('-b', '--batch-size', type=int, default=32, help=f'Batch size for training [{BATCH_SIZE}]')
+    A('-b', '--batch-size', type=int, default=24, help=f'Batch size for training [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     A('-j', '--n_jobs', type=int, default=6, help='Number of parallel jobs [6]')
     # 50k with checkpointing, about 10Gb gpu steady, but peaked earlier at 14
