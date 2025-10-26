@@ -214,6 +214,31 @@ def explain_args(*args, **kwargs) -> dict[str|int, Any]:
 
     The output is a dict mapping argument index (for `args`) or name (for `kwargs`) to the explanation.
     """
+    result = {}
+    
+    # Process positional arguments
+    for i, arg in enumerate(args):
+        if hasattr(arg, 'shape'):  # numpy arrays, torch tensors
+            result[i] = f"{type(arg).__name__}({arg.shape})"
+        elif isinstance(arg, (list, tuple)):
+            result[i] = f"{type(arg).__name__}(len={len(arg)})"
+        elif isinstance(arg, dict):
+            result[i] = f"dict(len={len(arg)})"
+        else:  # scalars
+            result[i] = arg
+    
+    # Process keyword arguments
+    for name, arg in kwargs.items():
+        if hasattr(arg, 'shape'):  # numpy arrays, torch tensors
+            result[name] = f"{type(arg).__name__}({arg.shape})"
+        elif isinstance(arg, (list, tuple)):
+            result[name] = f"{type(arg).__name__}(len={len(arg)})"
+        elif isinstance(arg, dict):
+            result[name] = f"dict(len={len(arg)})"
+        else:  # scalars
+            result[name] = arg
+    
+    return result
 
 def trace(func):
     """Decorator that tracks total time and memory delta for a function.
