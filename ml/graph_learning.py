@@ -823,7 +823,7 @@ class ContrastiveGAT(GATBase):
 
             # Generate negative samples
             with torch.no_grad():
-                neg_nodes = self.neg_pair_generator(
+                neg_nodes = self.cpu_neg_pair_generator(
                     n_nodes=x.shape[0],
                     anchors=anchors,
                     pos_nodes=pos_nodes,
