@@ -582,6 +582,79 @@ class RandomWalkGAT(ContrastiveGAT):
                         torch.cat(batch_pos_nodes)
                     )
 
+    def new_pos_pair_generator(self, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
+        """Generate walks on-demand and yield positive pairs.
+        
+        This generates only as many walks as needed to produce a batch of positive pairs,
+        reducing memory usage compared to pre-generating all walks.
+        
+        Args:
+            batch_size: Target number of positive pairs per batch
+            
+        Yields:
+            Tuples of (anchor_nodes, positive_nodes) tensors
+        """
+        pairs_generated = 0
+        
+        while pairs_generated < batch_size:
+            # Estimate how many walks we need for remaining pairs
+            # Each walk can generate up to (2 * walk_window) pairs
+            max_pairs_per_walk = 2 * self.walk_window
+            remaining_pairs = batch_size - pairs_generated
+            walks_needed = max(1, remaining_pairs // max_pairs_per_walk)
+            
+            # Generate a small batch of walks on-demand
+            batch_walks = self.generate_walks(n_walks=walks_needed)
+            
+            # Convert to tensor and extract pairs
+            walks_tensor = torch.tensor(batch_walks)
+            valid_mask = walks_tensor != INVALID_NODE
+            walk_length = walks_tensor.shape[1]
+            
+            batch_anchors = []
+            batch_positives = []
+            
+            # Extract pairs from these walks
+            for i in range(walk_length):
+                pos_mask = valid_mask[:, i].clone()
+                if not pos_mask.any():
+                    continue
+                
+                pos_walks = pos_mask.nonzero().squeeze(1)
+                if len(pos_walks.shape) == 0:
+                    pos_walks = pos_walks.unsqueeze(0)
+                
+                for walk_idx in pos_walks:
+                    # Get context window for this walk position
+                    start = max(0, i - self.walk_window)
+                    end = min(walk_length, i + self.walk_window + 1)
+                    context = walks_tensor[walk_idx, start:end]
+                    context_mask = valid_mask[walk_idx, start:end].clone()
+                    context_mask[i-start] = False  # Exclude anchor position
+                    
+                    valid_context = context[context_mask]
+                    if len(valid_context) > 0:
+                        anchor_node = walks_tensor[walk_idx, i]
+                        batch_anchors.extend([anchor_node] * len(valid_context))
+                        batch_positives.extend(valid_context.tolist())
+                        
+                        # Check if we have enough pairs for this batch
+                        if len(batch_anchors) >= remaining_pairs:
+                            break
+                
+                if len(batch_anchors) >= remaining_pairs:
+                    break
+            
+            # Yield pairs if we have any
+            if batch_anchors:
+                # Limit to exactly the number of pairs we need
+                n_pairs = min(len(batch_anchors), remaining_pairs)
+                yield (
+                    torch.tensor(batch_anchors[:n_pairs]),
+                    torch.tensor(batch_positives[:n_pairs])
+                )
+                pairs_generated += n_pairs
+
 
 class GraphLearner:
     """A class to do graph-based learning.
