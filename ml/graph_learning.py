@@ -155,12 +155,15 @@ Let me explain how each parameter would likely affect the GAT model's accuracy:
 from __future__ import annotations
 
 import functools
+import gc
 import logging
 import time
 
 from abc import abstractmethod
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
+from dataclasses import dataclass
+from queue import Queue, Full, Empty
 from typing import Callable, Sequence, Any, Iterator
 
 import joblib
@@ -203,6 +206,14 @@ INVALID_NODE = -1
 BATCH_SIZE = 128
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def list_gpu_tensors():
+    """Lists all tensors that are currently on the GPU."""
+    gpu_tensors = []
+    for obj in gc.get_objects():
+        if torch.is_tensor(obj) and obj.is_cuda:
+            gpu_tensors.append(obj)
+    return gpu_tensors
 
 
 def explain_args(*args, **kwargs) -> dict[str|int, Any]:
@@ -614,11 +625,11 @@ class ContrastiveGAT(GATBase):
 
     @trace
     def batch_loss(self,
-                      embeddings: torch.Tensor,
-                      anchors: torch.Tensor,
-                      pos_nodes: torch.Tensor,
-                      neg_nodes: torch.Tensor,
-                      cur_batch_size: int) -> torch.Tensor:
+                   embeddings: torch.Tensor,
+                   anchors: torch.Tensor,
+                   pos_nodes: torch.Tensor,
+                   neg_nodes: torch.Tensor,
+                   cur_batch_size: int) -> torch.Tensor:
         """Process a batch of nodes and compute the loss.
 
         Args:
@@ -650,6 +661,8 @@ class ContrastiveGAT(GATBase):
         all_sims = torch.cat([pos_sims.unsqueeze(1), neg_sims], dim=1)
         targets = torch.zeros(cur_batch_size, dtype=torch.long, device=embeddings.device)
         batch_loss = F.cross_entropy(all_sims, targets)
+        print(f'devices: {embeddings.device}, {anchor_embeds.device}, {pos_embeds.device}, {neg_embeds.device}')
+        print(f'{cos}, {pos_sims.device}, {neg_sims.device}, {all_sims.device}, {targets.device}, {batch_loss.device}')
 
         return batch_loss
 
@@ -722,10 +735,10 @@ class ContrastiveGAT(GATBase):
                                shape: tuple[int, int],
                                walks: torch.Tensor = None) -> torch.Tensor:
         """Vectorized CPU-based negative sampling to reduce GPU memory usage.
-        
+
         This version uses vectorized numpy operations for better performance
         compared to the previous loop-based approach.
-        
+
         Args:
         - n_nodes: total number of nodes in graph
         - anchors: Current batch anchor nodes to exclude
@@ -733,31 +746,31 @@ class ContrastiveGAT(GATBase):
         - edge_index: Graph edges to identify actual neighbors to exclude
         - shape: Target shape (batch_size, negative_samples)
         - walks: Optional tensor of current walks to exclude walk neighbors
-        
+
         Returns:
         - Tensor of negative node indices with shape `shape`
         """
         batch_size, neg_samples = shape
-        
+
         # Convert to numpy for CPU processing
         anchors_np = anchors.cpu().numpy()
         pos_nodes_np = pos_nodes.cpu().numpy()
         edge_index_np = edge_index.cpu().numpy()
         walks_np = walks.cpu().numpy() if walks is not None else None
-        
+
         # Build global exclusion matrix (batch_size x n_nodes boolean mask)
         exclude_mask = np.zeros((batch_size, n_nodes), dtype=bool)
-        
+
         # Exclude anchors and positives (vectorized)
         exclude_mask[np.arange(batch_size), anchors_np] = True
         exclude_mask[np.arange(batch_size), pos_nodes_np] = True
-        
+
         # Exclude neighbors (vectorized where possible)
         for i, anchor in enumerate(anchors_np):
             neighbors = edge_index_np[1][edge_index_np[0] == anchor]
             if len(neighbors) > 0:
                 exclude_mask[i, neighbors] = True
-        
+
         # Exclude walk neighbors if provided
         if walks_np is not None:
             for i, anchor in enumerate(anchors_np):
@@ -767,7 +780,7 @@ class ContrastiveGAT(GATBase):
                     valid_walk_neighbors = walk_neighbors[walk_neighbors != INVALID_NODE]
                     if len(valid_walk_neighbors) > 0:
                         exclude_mask[i, valid_walk_neighbors] = True
-        
+
         # Sample negatives for all anchors (vectorized where possible)
         neg_nodes_np = np.zeros((batch_size, neg_samples), dtype=np.int64)
         for i in range(batch_size):
@@ -777,7 +790,7 @@ class ContrastiveGAT(GATBase):
             else:
                 # Fallback: sample with replacement if not enough valid nodes
                 neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=True)
-        
+
         # Convert back to torch tensor only at the end
         neg_nodes = torch.from_numpy(neg_nodes_np).long()
         assert neg_nodes.shape == shape
@@ -808,12 +821,12 @@ class ContrastiveGAT(GATBase):
             cur_edges = self.edge_sampler.sample()
         else:
             cur_edges = edge_index
+        cur_edges = cur_edges.to(x.device)
         logger.info(f'Got edges of shape {cur_edges.shape} vs {edge_index.shape}, {cur_edges.dtype} for loss computation')
         if use_checkpoint:
             embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
         else:
             embeddings = self.embedding_forward(x, cur_edges).cpu()
-
         # accumulate loss in batches using pairs
         total_loss = 0
         total_pairs = 0
@@ -972,6 +985,7 @@ class RandomWalkGAT(ContrastiveGAT):
                     break
 
 
+
 class GraphLearner:
     """A class to do graph-based learning.
 
@@ -1004,7 +1018,7 @@ class GraphLearner:
         embeddings are a concatenation of the outputs of the two layers, so have size
         `hidden_channels * heads * 2`.
         """
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = device
         self.data = data.to(self.device)
         self.hidden_channels = hidden_channels
         self.heads = heads
@@ -1036,17 +1050,24 @@ class GraphLearner:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
         pbar = tqdm(range(n_epochs), desc="Training Epochs")
         losses = []
+        self.data.edge_index = self.data.edge_index.to('cpu') #TODO is this right?
         try:
             for epoch in pbar:
                 logger.debug('setting 0 grad')
                 optimizer.zero_grad()
                 logger.debug(f'computing loss for epoch {epoch}')
                 loss = loss_fn(model)
+                if 0:
+                    for i, tensor in enumerate(list_gpu_tensors()):
+                        mem = int(tensor.nbytes/1024/1024)
+                        if mem > 10:
+                            print(f'  {i}: {tensor.size()} - {mem}MB - {tensor.dtype}')
                 losses.append(loss.item())
                 logger.debug(f'running backward')
                 loss.backward()
                 logger.debug(f'incrementing optimizer')
                 optimizer.step()
+                print(f'train devices: {self.device}, {loss.device}, {self.data.x.device}, {self.data.edge_index.device}')
                 # Get current memory usage
                 memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
                 memory['diff'] = memory['current'] - memory['initial']
@@ -1128,6 +1149,185 @@ class GraphLearner:
             model.fit(X_train, y_train)
             acc = model.score(X_test, y_test)
             print(f'Classifier {name} accuracy: {acc:.4f}')
+
+
+@dataclass
+class WorkItem:
+    """A single work item for async processing."""
+    cur_edges: Tensor # The current edges to use
+    anchors: Tensor # Anchor nodes
+    pos_nodes: Tensor # Positive nodes
+    neg_nodes: Tensor # Negative nodes
+
+
+class RandomWalkGATAsync(RandomWalkGAT):
+    """Async version of RandomWalkGAT that separates out CPU and GPU work.
+
+    Even though we're inheriting from RandomWalkGAT, we override the `compute_loss` from ContrastiveGAT, since that's where the main control flow is.
+    """
+
+    @trace
+    def compute_loss(self,
+                     x,
+                     edge_index,
+                     batch_size: int = BATCH_SIZE,
+                     sample_edges: int=10,
+                     use_checkpoint: bool = False):
+        """Compute contrastive loss using pairs of nodes.
+
+        Args:
+        - x: Node features
+        - edge_index: Graph connectivity
+        - batch_size: Number of pairs to process at once
+
+        Returns:
+        - Average loss across all pairs
+        """
+        logger.info(f'Computing contrastive loss with batch size {batch_size}, sample_edges {sample_edges}, use_checkpoint {use_checkpoint}')
+        # Get embeddings
+        if sample_edges > 0:
+            if not self.edge_sampler or self.edge_sampler.max_edges_per_node != sample_edges:
+                self.edge_sampler = EdgeSampler(edge_index, sample_edges)
+            cur_edges = self.edge_sampler.sample()
+        else:
+            cur_edges = edge_index
+        logger.info(f'Got edges of shape {cur_edges.shape} vs {edge_index.shape}, {cur_edges.dtype} for loss computation')
+        if use_checkpoint:
+            embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
+        else:
+            embeddings = self.embedding_forward(x, cur_edges).cpu()
+
+        # accumulate loss in batches using pairs
+        total_loss = 0
+        total_pairs = 0
+        for anchors, pos_nodes in self.pos_pair_generator(cur_edges=cur_edges, batch_size=batch_size):
+            logger.debug(f'  Processing batch with {len(anchors)} pairs')
+            cur_batch_size = len(anchors)
+
+            # Generate negative samples
+            with torch.no_grad():
+                neg_nodes = self.cpu_neg_pair_generator(
+                    n_nodes=x.shape[0],
+                    anchors=anchors,
+                    pos_nodes=pos_nodes,
+                    edge_index=cur_edges,
+                    shape=(cur_batch_size, self.negative_samples)
+                )
+
+            # Process batch
+            batch_loss = self.batch_loss(
+                embeddings=embeddings,
+                anchors=anchors,
+                pos_nodes=pos_nodes,
+                neg_nodes=neg_nodes,
+                cur_batch_size=cur_batch_size,
+            )
+
+            total_loss += batch_loss #TODO what type is this? tensor? int?
+            total_pairs += cur_batch_size
+
+        if total_pairs == 0:
+            raise ValueError("No valid pairs found!")
+
+        return total_loss / total_pairs
+
+
+class GraphLearnerAsync(GraphLearner):
+    """An async version of GraphLearner that separates out CPU and GPU work.
+
+    This uses a queue to synchronize between the two kinds of work, with the CPU stuff running ahead
+    by a few epochs.
+    """
+    def __init__(self,
+                 data,
+                 hidden_channels:int=64,
+                 heads:int=8,
+                 dropout:float=0.6,
+                 n_jobs:int=6,
+                 queue_size:int=5,
+                 **kw):
+        super().__init__(data, hidden_channels, heads, dropout, n_jobs, **kw)
+        self.queue_size = queue_size
+        self.queue = Queue(maxsize=queue_size)
+
+    def train_model(self,
+                    model: torch.nn.Module,
+                    loss_fn: Callable[[Any], torch.Tensor],
+                    n_epochs:int=200,
+                    batch_size:int=BATCH_SIZE) -> torch.Tensor:
+        """Does actual model training in a loop.
+
+        This does some bookkeeping around memory usage, etc.
+
+        Args:
+        - model: The graph model to train
+        - loss_fn: A function that takes `(model)` and returns a loss tensor
+        - n_epochs: Number of training epochs to run
+
+        Returns the list of loss values per epoch.
+        """
+        process = psutil.Process()
+        memory: Counter[str] = Counter()
+        memory['initial'] = process.memory_info().rss / 1024 / 1024  # MB
+        model = model.to(self.device)
+        model.train()
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
+        pbar = tqdm(range(n_epochs), desc="Training Epochs")
+        losses = []
+        try:
+            for epoch in pbar:
+                logger.debug('setting 0 grad')
+                optimizer.zero_grad()
+                logger.debug(f'computing loss for epoch {epoch}')
+                loss = loss_fn(model)
+                losses.append(loss.item())
+                logger.debug(f'running backward')
+                loss.backward()
+                logger.debug(f'incrementing optimizer')
+                optimizer.step()
+                # Get current memory usage
+                memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
+                memory['diff'] = memory['current'] - memory['initial']
+                memory['peak'] = max(memory['peak'], memory['current'])
+                memory['peak diff'] = memory['peak'] - memory['initial']
+                # update tqdm description with memory info
+                mem_s = ', '.join(f'{k}:{int(v)}' for k, v in memory.items())
+                pbar.set_description(
+                    f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}'
+                )
+        except KeyboardInterrupt:
+            if epoch < 2:
+                logger.warning("Training interrupted at epoch {epoch}. Quitting.")
+                raise
+            logger.warning(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
+            pbar.close()
+        return torch.tensor(losses)
+
+    def train_random_walks(self, walk_length: int, n_epochs=5, batch_size:int=BATCH_SIZE):
+        """Train a graph model using random walk objectives.
+
+        Pass in the `walk_length` to use for generating walks. This creates a `WalkGenerator` that
+        the model uses to generate walks on-demand during training. These positive pairs are sampled
+        from these walks, and then randomly generated (and filtered) negative pairs are used for the
+        contrastive learning setup.
+        """
+        model = RandomWalkGATAsync(
+            in_channels=self.data.num_features,
+            hidden_channels=self.hidden_channels,
+            heads=self.heads,
+            dropout=self.dropout,
+            walk_gen=WalkGenerator(
+                n_nodes=self.data.num_nodes,
+                edge_index=self.data.edge_index,
+                walk_length=walk_length,
+                n_jobs=self.n_jobs,
+            ),
+        )
+        def loss_fn(model):
+            return model.compute_loss(self.data.x, self.data.edge_index, batch_size=batch_size)
+
+        losses = self.train_model(model, loss_fn, n_epochs=n_epochs, batch_size=batch_size)
+        return model
 
 
 def load_data(name):
