@@ -344,24 +344,35 @@ class WalkGenerator:
             self._adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(self.N, self.N))
             self._cached_edges = edge_index.clone()
 
+    @trace
     def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
         """Generate a single batch of walks starting at `batch_start`"""
         assert batch_size > 0
         assert self._adj is not None
         logger.debug(f'Generating batch from {batch_start} size {batch_size}, walk_length {self.walk_length}, {self.current_index}, {self.N}, {self.edge_index.shape}')
+        times = [time.time()]
         walks = np.ones((batch_size, self.walk_length), dtype=np.int32) * INVALID_NODE
         walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % self.N
+        times.append(time.time())
+        #max_degree = max(len(self._adj[i].indices) for i in range(self.N)) # very slow!!
+        max_degree = 200
+        times.append(time.time())
+        random_choices = RNG.integers(0, max_degree, size=(batch_size, self.walk_length-1))
+        times.append(time.time())
         #print(f'Initial walks: {walks}')
         # Generate walks (vectorized)
         for step in range(1, self.walk_length):
             current_nodes = walks[:, step-1]
             for i, node in enumerate(current_nodes):
-                neighbors = self._adj[node].indices
-                if len(neighbors) > 0:
-                    walks[i, step] = RNG.choice(neighbors)
-                else:
-                    walks[i, step] = INVALID_NODE
+                if node != INVALID_NODE:
+                    neighbors = self._adj[node].indices
+                    if len(neighbors) > 0:
+                        #walks[i, step] = RNG.choice(neighbors)
+                        choice_idx = random_choices[i, step-1] % len(neighbors)
+                        walks[i, step] = neighbors[choice_idx]
             #print(f'  Step {step}, cur: {current_nodes}, walks {walks}')
+        times.append(time.time())
+        print(f'Times (max {max_degree}): {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         return walks
 
     @trace
@@ -378,7 +389,7 @@ class WalkGenerator:
         """
         self._maybe_rebuild_adj(cur_edges)
         assert self._adj is not None
-        if self.n_jobs > 1: #FIXME this doesn't seem to help for small batches
+        if False and self.n_jobs > 1: #FIXME this doesn't seem to help for small batches
             # Parallel generation
             batch_size = max(1, n_walks // self.n_jobs)
             results = joblib.Parallel(n_jobs=self.n_jobs)(
@@ -470,12 +481,23 @@ class EdgeSampler:
 
         # Calculate target number of edges based on max_edges_per_node
         # Estimate: if we have N nodes and want max_edges_per_node per node on average
+        times = [time.time()]
         n_nodes = max(self.edge_index.max().item() + 1, 1)
+        times.append(time.time())
         target_edges = min(n_edges, n_nodes * self.max_edges_per_node)
+        times.append(time.time())
 
         # Simple random sampling
-        indices = torch.randperm(n_edges)[:target_edges] # type: ignore[misc]
-        return self.edge_index[:, indices]
+        # torch randperm is ~2s, RNG.choice is ~0.3s, scales almost linearly with size
+        #indices = torch.randperm(n_edges)[:target_edges] # type: ignore[misc]
+        indices = RNG.choice(n_edges, size=target_edges, replace=False)
+        times.append(time.time())
+        ret = self.edge_index[:, indices]
+        times.append(time.time())
+        per = n_edges / (times[-1] - times[0])
+        print(f'S times ({per}): {[t1 - t0 for t0, t1 in zip(times, times[1:])]}')
+        return ret
+
 
     def _sample_per_node(self) -> Tensor:
         """Per-node sampling preserving degree distribution."""
@@ -724,6 +746,7 @@ class ContrastiveGAT(GATBase):
         assert neg_nodes.shape == shape
         return neg_nodes
 
+    @trace
     def cpu_neg_pair_generator(self,
                                n_nodes: int,
                                anchors: Tensor,
@@ -1246,6 +1269,7 @@ class GraphLearnerAsync(GraphLearner):
         while True:
             cur_edges = self.edge_sampler.sample()
             all_anchors, all_pos_nodes, all_neg_nodes = [], [], []
+            t0 = time.time()
             for anchors, pos_nodes in model.pos_pair_generator(cur_edges=cur_edges, batch_size=self.cpu_batch_size):
                 logger.info(f'  Processing batch with {len(anchors)} pairs')
                 # Generate negative samples
@@ -1268,7 +1292,8 @@ class GraphLearnerAsync(GraphLearner):
                 pos_nodes=torch.stack(all_pos_nodes),
                 neg_nodes=torch.stack(all_neg_nodes),
             )
-            logger.info(f'Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}')
+            t1 = time.time()
+            logger.info(f'{t1-t0}s Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}')
             self.queue.put(item)
 
     def train_model(self,
