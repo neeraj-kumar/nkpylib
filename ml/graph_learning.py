@@ -162,6 +162,7 @@ import time
 from abc import abstractmethod
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, Future
 from dataclasses import dataclass
 from queue import Queue, Full, Empty
 from threading import Thread
@@ -194,6 +195,8 @@ from nkpylib.ml.feature_set import (
     FeatureSet,
     NumpyLmdb,
 )
+from nkpylib.ml.ml_utils import trace, list_gpu_tensors
+from nkpylib.ml.graph_worker import initialize_worker, worker_one_step, WorkItem
 
 RNG = npr.default_rng(0)
 torch.manual_seed(0)
@@ -206,325 +209,6 @@ INVALID_NODE = -1
 BATCH_SIZE = 128
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-def list_gpu_tensors():
-    """Lists all tensors that are currently on the GPU."""
-    gpu_tensors = []
-    for obj in gc.get_objects():
-        if torch.is_tensor(obj) and obj.is_cuda:
-            gpu_tensors.append(obj)
-    return gpu_tensors
-
-
-def explain_args(*args, **kwargs) -> dict[str|int, Any]:
-    """This takes an arbitrary set of input `args` and `kwargs` and "explains" them.
-
-    That means for each one:
-    - if it's a scalar, then just return it as-is
-    - if it's a list/array, then return its type and shape
-    - if it's numpy array or torch tensor, then return its type and shape
-
-    The output is a dict mapping argument index (for `args`) or name (for `kwargs`) to the explanation.
-    """
-    result: dict[str|int, str] = {}
-    def process(arg):
-        if hasattr(arg, 'shape'):  # numpy arrays, torch tensors
-            ret = f'{type(arg).__name__}{arg.shape}'
-            if hasattr(arg, 'dtype'):
-                ret += f',{arg.dtype}'
-        elif isinstance(arg, (list, tuple)):
-            return f'{type(arg).__name__}[{len(arg)}]'
-        elif isinstance(arg, dict):
-            return f'dict[{len(arg)}]'
-        else:  # scalars
-            return arg
-
-    # Process positional arguments
-    for i, arg in enumerate(args):
-        result[i] = process(arg)
-    # Process keyword arguments
-    for name, arg in kwargs.items():
-        result[name] = process(arg)
-    return result
-
-def trace(func):
-    """Decorator that tracks total time and memory delta for a function.
-
-    Handles both regular functions and generator functions.
-    For generators, traces the entire iteration lifecycle.
-    """
-    import inspect
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        process = psutil.Process()
-        start_time = time.time()
-        start_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-
-        def finish(result, suffix=''):
-            end_time = time.time()
-            end_memory = process.memory_info().rss / 1024 / 1024 / 1024  # GB
-            time_delta = end_time - start_time
-            memory_delta = end_memory - start_memory
-            # Temporarily override findCaller to return the traced function
-            original_findCaller = logger.findCaller
-            def fake_findCaller(*args, **kwargs):
-                return ('', 0, func.__name__, None)
-
-            logger.findCaller = fake_findCaller
-            try:
-                logger.info(f"{time_delta:.3f}s, {start_memory:.2f}GB -> {end_memory:.2f}GB (Δ{memory_delta:+.2f}GB) {suffix}")
-                logger.debug(f'Inputs: {explain_args(*args, **kwargs)}, Outputs: {explain_args(result)}')
-            finally:
-                logger.findCaller = original_findCaller
-
-        try:
-            result = func(*args, **kwargs)
-
-            # Check if result is a generator
-            if inspect.isgenerator(result):
-                def traced_generator():
-                    try:
-                        yield_count = 0
-                        while True:
-                            value = next(result)
-                            yield_count += 1
-                            yield value
-                    except StopIteration:
-                        finish(result, f' [gen, {yield_count}x]')
-                        return
-
-                return traced_generator()
-            else:
-                # Regular function
-                finish(result)
-                return result
-        except Exception as e:
-            finish(e, ' [FAILED]')
-            raise
-
-    return wrapper
-
-
-class WalkGenerator:
-    """Generates random walks through a graph with stateful batch generation."""
-    def __init__(self,
-                 n_nodes: int,
-                 edge_index: Tensor,
-                 walk_length: int = 12,
-                 n_jobs: int = 6):
-        """Initialize walk generator with graph data and parameters.
-
-        Args:
-        - n_nodes: Total number of nodes
-        - edge_index: Edge index tensor of shape [2, num_edges]
-        - walk_length: Length of each random walk
-        - n_jobs: Number of parallel jobs for walk generation
-        """
-        self.N = n_nodes
-        self.edge_index = edge_index
-        assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
-        self.walk_length = walk_length
-        self.n_jobs = n_jobs
-        self.current_index = 0
-
-        # Build adjacency matrix for fast neighbor lookup
-        #edges = self.edge_index.cpu().numpy()
-        self._cached_edges = None
-        self._adj: np.ndarray|None = None
-        self._maybe_rebuild_adj(edge_index)
-
-    @trace
-    def _maybe_rebuild_adj(self, edge_index=None):
-        if edge_index is None:
-            return
-        # Only rebuild if edges changed
-        if self._cached_edges is None or not torch.equal(self._cached_edges, edge_index):
-            edges = edge_index.cpu().numpy()
-            self._adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(self.N, self.N))
-            self._cached_edges = edge_index.clone()
-
-    @trace
-    def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
-        """Generate a single batch of walks starting at `batch_start`"""
-        assert batch_size > 0
-        assert self._adj is not None
-        logger.debug(f'Generating batch from {batch_start} size {batch_size}, walk_length {self.walk_length}, {self.current_index}, {self.N}, {self.edge_index.shape}')
-        times = [time.time()]
-        walks = np.ones((batch_size, self.walk_length), dtype=np.int32) * INVALID_NODE
-        walks[:, 0] = np.arange(batch_start, batch_start + batch_size) % self.N
-        times.append(time.time())
-        #max_degree = max(len(self._adj[i].indices) for i in range(self.N)) # very slow!!
-        max_degree = 200
-        times.append(time.time())
-        random_choices = RNG.integers(0, max_degree, size=(batch_size, self.walk_length-1))
-        times.append(time.time())
-        #print(f'Initial walks: {walks}')
-        # Generate walks (vectorized)
-        for step in range(1, self.walk_length):
-            current_nodes = walks[:, step-1]
-            for i, node in enumerate(current_nodes):
-                if node != INVALID_NODE:
-                    neighbors = self._adj[node].indices
-                    if len(neighbors) > 0:
-                        #walks[i, step] = RNG.choice(neighbors)
-                        choice_idx = random_choices[i, step-1] % len(neighbors)
-                        walks[i, step] = neighbors[choice_idx]
-            #print(f'  Step {step}, cur: {current_nodes}, walks {walks}')
-        times.append(time.time())
-        print(f'Times (max {max_degree}): {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
-        return walks
-
-    @trace
-    def gen_walks(self, n_walks: int, cur_edges=None) -> nparray2d:
-        """Generate `n_walks` random walks, continuing from current index.
-
-        This is a wrapper around self._gen_batch that handles parallelization.
-
-        Args:
-        - n_walks: Number of walks to generate
-
-        Returns:
-        - Array of walks with shape (n_walks, walk_length)
-        """
-        self._maybe_rebuild_adj(cur_edges)
-        assert self._adj is not None
-        if False and self.n_jobs > 1: #FIXME this doesn't seem to help for small batches
-            # Parallel generation
-            batch_size = max(1, n_walks // self.n_jobs)
-            results = joblib.Parallel(n_jobs=self.n_jobs)(
-                joblib.delayed(self._gen_batch)(
-                    self.current_index + (i * batch_size), batch_size,
-                )
-                for i in range(self.n_jobs)
-            )
-            walks = np.vstack(results)
-        else:
-            # Single-threaded generation
-            walks = self._gen_batch(self.current_index, n_walks)
-        # Update current index for next batch
-        self.current_index = (self.current_index + n_walks) % self.N
-        return walks
-
-    def reset_index(self):
-        """Reset the current index to 0."""
-        self.current_index = 0
-
-
-class EdgeSampler:
-    """Efficient edge sampling with caching for memory optimization."""
-    def __init__(self,
-                 edge_index: Tensor,
-                 max_edges_per_node: int,
-                 proportional: bool = True,
-                 global_sampling: bool = True):
-        """Initialize edge sampler with caching.
-
-        Args:
-        - edge_index: Graph edge index tensor of shape [2, num_edges]
-        - max_edges_per_node: Maximum number of edges to sample per node
-        - proportional: If True, sample edges proportionally to their degree (capping to max_edges_per_node)
-        - global_sampling: If True, use fast global random sampling instead of per-node sampling
-        """
-        self.max_edges_per_node = max_edges_per_node
-        self.edge_index = edge_index
-        self.proportional = proportional
-        self.global_sampling = global_sampling
-        assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
-        # Cache the edge grouping (do once, reuse many times) - only needed for per-node sampling
-        if not self.global_sampling:
-            self._build_edge_groups()
-
-    @trace
-    def _build_edge_groups(self):
-        """Build edge groups efficiently and cache them."""
-        src_nodes = self.edge_index[0]
-        unique_nodes, inverse_indices, counts = torch.unique(
-            src_nodes, return_inverse=True, return_counts=True
-        )
-        # Pre-allocate storage
-        max_node = src_nodes.max().item()
-        self.node_edge_starts = torch.zeros(max_node + 1, dtype=torch.long)
-        self.node_edge_counts = torch.zeros(max_node + 1, dtype=torch.long)
-        # Sort edges by source node for efficient slicing
-        sorted_indices = torch.argsort(src_nodes)
-        self.sorted_edge_indices = sorted_indices
-        # Store start positions and counts for each node
-        start_pos = 0
-        for node, count in zip(unique_nodes, counts):
-            self.node_edge_starts[node] = start_pos
-            self.node_edge_counts[node] = count
-            start_pos += count
-
-    @trace
-    def sample(self, seed: int|None = None) -> Tensor:
-        """Sample edges efficiently using cached structure.
-
-        Args:
-        - seed: Random seed for reproducible sampling
-
-        Returns:
-        - Sampled edge_index tensor of shape [2, num_sampled_edges]
-        """
-        if seed is not None:
-            torch.manual_seed(seed)
-        if self.global_sampling:
-            return self._sample_global()
-        else:
-            return self._sample_per_node()
-
-    def _sample_global(self) -> Tensor:
-        """Fast global random sampling of edges."""
-        n_edges = self.edge_index.shape[1]
-        if n_edges == 0:
-            return torch.empty((2, 0), dtype=self.edge_index.dtype)
-
-        # Calculate target number of edges based on max_edges_per_node
-        # Estimate: if we have N nodes and want max_edges_per_node per node on average
-        times = [time.time()]
-        n_nodes = max(self.edge_index.max().item() + 1, 1)
-        times.append(time.time())
-        target_edges = min(n_edges, n_nodes * self.max_edges_per_node)
-        times.append(time.time())
-
-        # Simple random sampling
-        # torch randperm is ~2s, RNG.choice is ~0.3s, scales almost linearly with size
-        #indices = torch.randperm(n_edges)[:target_edges] # type: ignore[misc]
-        indices = RNG.choice(n_edges, size=target_edges, replace=False)
-        times.append(time.time())
-        ret = self.edge_index[:, indices]
-        times.append(time.time())
-        per = n_edges / (times[-1] - times[0])
-        print(f'S times ({per}): {[t1 - t0 for t0, t1 in zip(times, times[1:])]}')
-        return ret
-
-
-    def _sample_per_node(self) -> Tensor:
-        """Per-node sampling preserving degree distribution."""
-        sampled_indices = []
-        for node in range(len(self.node_edge_starts)):
-            count = self.node_edge_counts[node]
-            if count == 0:
-                continue
-            start = self.node_edge_starts[node]
-            end = start + count
-            n_sample = self.max_edges_per_node
-            if self.proportional:
-                ratio = min(1.0, self.max_edges_per_node / count)
-                n_sample = max(1, max(int(count * ratio), self.max_edges_per_node))
-            if n_sample >= count: # take all edges
-                node_edges = self.sorted_edge_indices[start:end]
-            else:
-                node_edges = self.sorted_edge_indices[start:end]
-                perm = torch.randperm(count)[:n_sample]
-                node_edges = node_edges[perm]
-            sampled_indices.append(node_edges)
-        if sampled_indices:
-            _sampled_indices = torch.cat(sampled_indices)
-            ret = self.edge_index[:, _sampled_indices]
-        else:
-            ret = torch.empty((2, 0), dtype=self.edge_index.dtype)
-        return ret
 
 
 class GATBase(torch.nn.Module):
@@ -631,19 +315,18 @@ class ContrastiveGAT(GATBase):
     of positive and negative examples to learn node embeddings.
     """
     def __init__(self,
-                 negative_samples: int = 2, # should be 10?
+                 neg_samples_factor: int = 10, # should be 10?
                  temperature: float = 0.07,
                  **kw):
         """Initialize this ContrastiveGAT model.
 
         Args:
-            negative_samples: Number of negative samples per positive pair
-            temperature: Temperature for similarity scaling (higher = softer attention)
+            - neg_samples_factor: Number of negative samples per positive pair
+            - temperature: Temperature for similarity scaling (higher = softer attention)
         """
         super().__init__(**kw)
-        self.negative_samples = negative_samples
+        self.neg_samples_factor = neg_samples_factor
         self.temperature = temperature
-        self.edge_sampler: EdgeSampler|None = None
 
     @trace
     def batch_loss(self,
@@ -659,14 +342,16 @@ class ContrastiveGAT(GATBase):
         - pos_nodes: Positive sample node indices
         - neg_nodes: Negative sample node indices
 
-        Returns:
-            Batch loss value
+        Returns: Batch loss value
         """
         # Get embeddings for this batch
         anchor_embeds = embeddings[anchors]
         pos_embeds = embeddings[pos_nodes]
         n = anchor_embeds.size(0)
-        neg_embeds = embeddings[neg_nodes.view(-1)].view(n, self.negative_samples, -1)
+        #neg_embeds = embeddings[neg_nodes.view(-1)].view(n, self.neg_samples_factor, -1)
+        # get embeds in the right shape regardless of their actual size (i.e., if we didn't gen
+        # neg_samples_factor amount of them)
+        neg_embeds = embeddings[neg_nodes]
 
         # Compute similarities
         cos = torch.nn.CosineSimilarity(dim=1)
@@ -682,326 +367,51 @@ class ContrastiveGAT(GATBase):
         batch_loss = F.cross_entropy(all_sims, targets)
         #print(f'devices: {embeddings.device}, {anchor_embeds.device}, {pos_embeds.device}, {neg_embeds.device}')
         #print(f'{cos}, {pos_sims.device}, {neg_sims.device}, {all_sims.device}, {targets.device}, {batch_loss.device}')
-
         return batch_loss
-
-    @abstractmethod
-    def pos_pair_generator(self, cur_edges: Tensor, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
-        """Generates positive pairs of nodes for contrastive learning.
-
-        This should yield tuples of `(anchors, positive_nodes)`
-        """
-        raise NotImplementedError("Subclasses must implement pos_pair_generator()")
-
-    @trace
-    def neg_pair_generator(self,
-                           n_nodes: int,
-                           anchors: Tensor,
-                           pos_nodes: Tensor,
-                           edge_index: Tensor,
-                           shape: tuple[int, int],
-                           walks: Tensor|None = None) -> Tensor:
-        """Generate negative samples while filtering out invalid nodes.
-
-        Args:
-        - n_nodes: total number of nodes in graph
-        - anchors: Current batch anchor nodes to exclude
-        - pos_nodes: Current batch positive nodes to exclude
-        - edge_index: Graph edges to identify actual neighbors to exclude
-        - shape: Target shape (batch_size, negative_samples)
-        - walks: Optional tensor of current walks to exclude walk neighbors
-
-        Returns:
-        - Tensor of negative node indices with shape `shape`
-        """
-        batch_size, neg_samples = shape
-
-        # Build exclusion sets for each anchor
-        exclude_sets = []
-        for i, anchor in enumerate(anchors):
-            exclude = set([anchor.item(), pos_nodes[i].item()])
-            # Add graph neighbors
-            neighbors = edge_index[1][edge_index[0] == anchor]
-            exclude.update(neighbors.tolist())
-            # Add walk neighbors if provided
-            if walks is not None:
-                # Find walks containing this anchor and exclude those nodes
-                walk_mask = (walks == anchor).any(dim=1)
-                if walk_mask.any():
-                    walk_neighbors = walks[walk_mask].flatten()
-                    # Filter out invalid nodes
-                    valid_walk_neighbors = walk_neighbors[walk_neighbors != INVALID_NODE]
-                    exclude.update(valid_walk_neighbors.tolist())
-            exclude_sets.append(exclude)
-        # Sample negatives while avoiding exclusions
-        neg_nodes = torch.zeros((batch_size, neg_samples), dtype=torch.long)
-        for i in range(batch_size):
-            valid_nodes = [n for n in range(n_nodes) if n not in exclude_sets[i]]
-            if len(valid_nodes) >= neg_samples:
-                sampled = torch.tensor(RNG.choice(valid_nodes, neg_samples, replace=False))
-            else:
-                # Fallback: sample with replacement if not enough valid nodes
-                sampled = torch.tensor(RNG.choice(valid_nodes, neg_samples, replace=True))
-            neg_nodes[i] = sampled
-        assert neg_nodes.shape == shape
-        return neg_nodes
-
-    @trace
-    def cpu_neg_pair_generator(self,
-                               n_nodes: int,
-                               anchors: Tensor,
-                               pos_nodes: Tensor,
-                               edge_index: Tensor,
-                               shape: tuple[int, int],
-                               walks: Tensor|None = None) -> Tensor:
-        """Vectorized CPU-based negative sampling to reduce GPU memory usage.
-
-        This version uses vectorized numpy operations for better performance
-        compared to the previous loop-based approach.
-
-        Args:
-        - n_nodes: total number of nodes in graph
-        - anchors: Current batch anchor nodes to exclude
-        - pos_nodes: Current batch positive nodes to exclude
-        - edge_index: Graph edges to identify actual neighbors to exclude
-        - shape: Target shape (batch_size, negative_samples)
-        - walks: Optional tensor of current walks to exclude walk neighbors
-
-        Returns:
-        - Tensor of negative node indices with shape `shape`
-        """
-        batch_size, neg_samples = shape
-
-        # Convert to numpy for CPU processing
-        anchors_np = anchors.cpu().numpy()
-        pos_nodes_np = pos_nodes.cpu().numpy()
-        edge_index_np = edge_index.cpu().numpy()
-        walks_np = walks.cpu().numpy() if walks is not None else None
-
-        # Build global exclusion matrix (batch_size x n_nodes boolean mask)
-        exclude_mask = np.zeros((batch_size, n_nodes), dtype=bool)
-
-        # Exclude anchors and positives (vectorized)
-        exclude_mask[np.arange(batch_size), anchors_np] = True
-        exclude_mask[np.arange(batch_size), pos_nodes_np] = True
-
-        # Exclude neighbors (vectorized where possible)
-        for i, anchor in enumerate(anchors_np):
-            neighbors = edge_index_np[1][edge_index_np[0] == anchor]
-            if len(neighbors) > 0:
-                exclude_mask[i, neighbors] = True
-
-        # Exclude walk neighbors if provided
-        if walks_np is not None:
-            for i, anchor in enumerate(anchors_np):
-                walk_mask = (walks_np == anchor).any(axis=1)
-                if walk_mask.any():
-                    walk_neighbors = walks_np[walk_mask].flatten()
-                    valid_walk_neighbors = walk_neighbors[walk_neighbors != INVALID_NODE]
-                    if len(valid_walk_neighbors) > 0:
-                        exclude_mask[i, valid_walk_neighbors] = True
-
-        # Sample negatives for all anchors (vectorized where possible)
-        neg_nodes_np = np.zeros((batch_size, neg_samples), dtype=np.int64)
-        for i in range(batch_size):
-            valid_indices = np.where(~exclude_mask[i])[0]
-            if len(valid_indices) >= neg_samples:
-                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=False)
-            else:
-                # Fallback: sample with replacement if not enough valid nodes
-                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=True)
-
-        # Convert back to torch tensor only at the end
-        neg_nodes = torch.from_numpy(neg_nodes_np).long()
-        assert neg_nodes.shape == shape
-        return neg_nodes
 
     @trace
     def compute_loss(self,
+                     item: WorkItem,
                      x,
-                     edge_index,
-                     batch_size: int = BATCH_SIZE,
-                     sample_edges: int=10,
+                     gpu_batch_size: int = BATCH_SIZE,
                      use_checkpoint: bool = False):
         """Compute contrastive loss using pairs of nodes.
 
         Args:
         - x: Node features
         - edge_index: Graph connectivity
-        - batch_size: Number of pairs to process at once
+        - gpu_batch_size: Number of pairs to process at once
 
         Returns:
         - Average loss across all pairs
         """
-        logger.info(f'Computing contrastive loss with batch size {batch_size}, sample_edges {sample_edges}, use_checkpoint {use_checkpoint}')
+        logger.info(f'Computing contrastive loss with batch size {gpu_batch_size}, use_checkpoint {use_checkpoint}')
         # Get embeddings
-        if sample_edges > 0:
-            if not self.edge_sampler or self.edge_sampler.max_edges_per_node != sample_edges:
-                self.edge_sampler = EdgeSampler(edge_index, sample_edges)
-            cur_edges = self.edge_sampler.sample()
-        else:
-            cur_edges = edge_index
-        cur_edges = cur_edges.to(x.device)
-        logger.info(f'Got edges of shape {cur_edges.shape} vs {edge_index.shape}, {cur_edges.dtype} for loss computation')
+        cur_edges = item.cur_edges.to(x.device)
+        logger.info(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
         if use_checkpoint:
             embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
         else:
             embeddings = self.embedding_forward(x, cur_edges).cpu()
-        # accumulate loss in batches using pairs
+        # accumulate loss in batches using our precomputed work items
+        N = len(item.anchors)
         total_loss = 0
         total_pairs = 0
-        for anchors, pos_nodes in self.pos_pair_generator(cur_edges=cur_edges, batch_size=batch_size):
-            logger.info(f'  Processing batch with {len(anchors)} pairs')
-            # Generate negative samples
-            with torch.no_grad():
-                neg_nodes = self.cpu_neg_pair_generator(
-                    n_nodes=x.shape[0],
-                    anchors=anchors,
-                    pos_nodes=pos_nodes,
-                    edge_index=cur_edges,
-                    shape=(len(anchors), self.negative_samples)
-                )
+        for start in range(0, N, gpu_batch_size):
+            end = min(start + gpu_batch_size, N)
+            logger.debug(f'  Got {start}->{end}, {embeddings.shape}, {item.anchors[start:end].shape}, {item.pos_nodes[start:end].shape}, {item.neg_nodes[start:end].shape}: {item.anchors[start:end]}, {item.pos_nodes[start:end]}, {item.neg_nodes[start:end]}')
             # Process batch
-            logger.debug(f'  Got {embeddings.shape}, {anchors.shape}, {pos_nodes.shape}, {neg_nodes.shape}: {anchors}, {pos_nodes}, {neg_nodes}')
             batch_loss = self.batch_loss(
                 embeddings=embeddings,
-                anchors=anchors,
-                pos_nodes=pos_nodes,
-                neg_nodes=neg_nodes,
+                anchors=item.anchors[start:end],
+                pos_nodes=item.pos_nodes[start:end],
+                neg_nodes=item.neg_nodes[start:end],
             )
-
-            total_loss += batch_loss #TODO what type is this? tensor? int?
-            total_pairs += len(anchors)
-
+            total_loss += batch_loss
+            total_pairs += end - start
         if total_pairs == 0:
             raise ValueError("No valid pairs found!")
-        print(f'Total pairs: {total_pairs}, Total loss: {total_loss}')
-
         return total_loss / total_pairs
-
-
-class RandomWalkGAT(ContrastiveGAT):
-    """GAT model trained using random walk objectives.
-
-    Instead of node classification, this learns node embeddings such that nodes
-    appearing close together in random walks have similar embeddings.
-
-    Hence, this is a subclass of ContrastiveGAT, as we generate positive and negative node pairs
-    based on closeness within walks.
-    """
-    def __init__(self, walk_gen: WalkGenerator, walk_window: int = 5, **kw):
-        """Initialize this RandomWalkGAT model.
-
-        Args:
-        - walk_gen: A walk generator
-        - walk_window: Context window size for walks (how many nodes before/after to consider)
-        """
-        super().__init__(**kw)
-        self.walk_gen = walk_gen
-        self.walk_window = walk_window
-
-    @trace
-    def pos_pair_generator(self, cur_edges: Tensor, batch_size: int) -> Iterator[tuple[Tensor, Tensor]]:
-        """Generate walks on-demand and yield positive pairs.
-
-        This generates only as many walks as needed to produce a batch of positive pairs,
-        reducing memory usage compared to pre-generating all walks.
-
-        Args:
-        - cur_edges: Current set of sampled edges
-        - batch_size: Target number of positive pairs per batch
-
-        Yields:
-        - Tuples of (anchor_nodes, positive_nodes) tensors
-        """
-        logger.debug(f'Starting pos_pair_generator with batch_size={batch_size}, walk_window={self.walk_window}')
-        pairs_generated = 0
-        iteration = 0
-        while pairs_generated < batch_size:
-            iteration += 1
-            # Estimate how many walks we need for remaining pairs
-            # Because we filter out various pairs, generate a bunch more than we need
-            remaining_pairs = batch_size - pairs_generated
-            walks_needed = max(1, remaining_pairs)
-
-            # Generate a small batch of walks on-demand
-            logger.debug(f'Iteration {iteration}: Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), window {self.walk_window}')
-            batch_walks = self.walk_gen.gen_walks(walks_needed, cur_edges=cur_edges)
-            logger.debug(f'Generated batch_walks shape: {batch_walks.shape}, dtype: {batch_walks.dtype}: {batch_walks[:10]}')
-
-            # Convert to tensor and extract pairs
-            walks_tensor = torch.tensor(batch_walks)
-            valid_mask = walks_tensor != INVALID_NODE
-            walk_length = walks_tensor.shape[1]
-            logger.debug(f'walks_tensor shape: {walks_tensor.shape}, valid_mask shape: {valid_mask.shape}')
-            logger.debug(f'Total valid nodes in walks: {valid_mask.sum().item()}/{valid_mask.numel()}')
-
-            batch_anchors = []
-            batch_positives = []
-
-            # Extract pairs from these walks
-            for i in range(walk_length):
-                pos_mask = valid_mask[:, i].clone()
-                logger.debug(f'Position {i}: pos_mask has {pos_mask.sum().item()} valid nodes out of {len(pos_mask)}')
-                if not pos_mask.any():
-                    logger.debug(f'Position {i}: No valid nodes, skipping')
-                    continue
-
-                pos_walks = pos_mask.nonzero().squeeze(1)
-                if len(pos_walks.shape) == 0:
-                    pos_walks = pos_walks.unsqueeze(0)
-                logger.debug(f'Position {i}: Processing {len(pos_walks)} walks')
-
-                for walk_idx in pos_walks:
-                    # Get context window for this walk position
-                    start = max(0, i - self.walk_window)
-                    end = min(walk_length, i + self.walk_window + 1)
-                    context = walks_tensor[walk_idx, start:end]
-                    context_mask = valid_mask[walk_idx, start:end].clone()
-                    context_mask[i-start] = False  # Exclude anchor position
-
-                    logger.debug(f'Walk {walk_idx.item()}, pos {i}: context window [{start}:{end}], context={context.tolist()}, mask={context_mask.tolist()}')
-
-                    valid_context = context[context_mask]
-                    logger.debug(f'Walk {walk_idx.item()}, pos {i}: valid_context={valid_context.tolist() if len(valid_context) > 0 else "EMPTY"}')
-
-                    if len(valid_context) > 0:
-                        anchor_node = walks_tensor[walk_idx, i]
-                        logger.debug(f'Adding {len(valid_context)} pairs with anchor {anchor_node.item()}')
-                        batch_anchors.extend([anchor_node] * len(valid_context))
-                        batch_positives.extend(valid_context.tolist())
-
-                        # Check if we have enough pairs for this batch
-                        if len(batch_anchors) >= remaining_pairs:
-                            logger.debug(f'Reached target pairs ({len(batch_anchors)} >= {remaining_pairs}), breaking')
-                            break
-                    else:
-                        logger.debug(f'Walk {walk_idx.item()}, pos {i}: No valid context nodes')
-
-                if len(batch_anchors) >= remaining_pairs:
-                    logger.debug(f'Breaking from position loop, have {len(batch_anchors)} pairs')
-                    break
-
-            logger.debug(f'Iteration {iteration}: Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
-
-            # Yield pairs if we have any
-            if batch_anchors:
-                # Limit to exactly the number of pairs we need
-                n_pairs = min(len(batch_anchors), remaining_pairs)
-                logger.debug(f'Yielding {n_pairs} pairs (anchors: {batch_anchors[:3]}..., positives: {batch_positives[:3]}...)')
-                yield (
-                    torch.tensor(batch_anchors[:n_pairs]),
-                    torch.tensor(batch_positives[:n_pairs])
-                )
-                pairs_generated += n_pairs
-                logger.debug(f'Total pairs generated so far: {pairs_generated}/{batch_size}')
-            else:
-                logger.warning(f'Iteration {iteration}: No pairs generated from {walks_tensor.shape[0]} walks!')
-                # Prevent infinite loop if no pairs can be generated
-                if iteration > 10:
-                    logger.error(f'Breaking after {iteration} iterations with no pairs generated')
-                    break
-
 
 
 class GraphLearner:
@@ -1072,9 +482,7 @@ class GraphLearner:
         self.data.edge_index = self.data.edge_index.to('cpu') #TODO is this right?
         try:
             for epoch in pbar:
-                logger.debug('setting 0 grad')
                 optimizer.zero_grad()
-                logger.debug(f'computing loss for epoch {epoch}')
                 loss = loss_fn(model)
                 if 0:
                     for i, tensor in enumerate(list_gpu_tensors()):
@@ -1082,9 +490,7 @@ class GraphLearner:
                         if mem > 10:
                             print(f'  {i}: {tensor.size()} - {mem}MB - {tensor.dtype}')
                 losses.append(loss.item())
-                logger.debug(f'running backward')
                 loss.backward()
-                logger.debug(f'incrementing optimizer')
                 optimizer.step()
                 # Get current memory usage
                 memory['current'] = process.memory_info().rss / 1024 / 1024  # MB
@@ -1170,65 +576,6 @@ class GraphLearner:
             print(f'Classifier {name} accuracy: {acc:.4f}')
 
 
-@dataclass
-class WorkItem:
-    """A single work item for async processing."""
-    cur_edges: Tensor # The current edges to use
-    anchors: Tensor # Anchor nodes
-    pos_nodes: Tensor # Positive nodes
-    neg_nodes: Tensor # Negative nodes
-
-
-class RandomWalkGATAsync(RandomWalkGAT):
-    """Async version of RandomWalkGAT that separates out CPU and GPU work.
-
-    Even though we're inheriting from RandomWalkGAT, we override the `compute_loss` from ContrastiveGAT, since that's where the main control flow is.
-    """
-
-    @trace
-    def compute_loss(self,
-                     item: WorkItem,
-                     x,
-                     gpu_batch_size: int = BATCH_SIZE,
-                     use_checkpoint: bool = False):
-        """Compute contrastive loss using pairs of nodes.
-
-        Args:
-        - x: Node features
-        - edge_index: Graph connectivity
-        - gpu_batch_size: Number of pairs to process at once
-
-        Returns:
-        - Average loss across all pairs
-        """
-        logger.info(f'Computing contrastive loss with batch size {gpu_batch_size}, use_checkpoint {use_checkpoint}')
-        # Get embeddings
-        cur_edges = item.cur_edges.to(x.device)
-        logger.info(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
-        if use_checkpoint:
-            embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
-        else:
-            embeddings = self.embedding_forward(x, cur_edges).cpu()
-        # accumulate loss in batches using our precomputed work items
-        N = len(item.anchors)
-        total_loss = 0
-        total_pairs = 0
-        for start in range(0, N, gpu_batch_size):
-            end = min(start + gpu_batch_size, N)
-            logger.debug(f'  Got {start}->{end}, {embeddings.shape}, {item.anchors[start:end].shape}, {item.pos_nodes[start:end].shape}, {item.neg_nodes[start:end].shape}: {item.anchors[start:end]}, {item.pos_nodes[start:end]}, {item.neg_nodes[start:end]}')
-            # Process batch
-            batch_loss = self.batch_loss(
-                embeddings=embeddings,
-                anchors=item.anchors[start:end],
-                pos_nodes=item.pos_nodes[start:end],
-                neg_nodes=item.neg_nodes[start:end],
-            )
-            total_loss += batch_loss
-            total_pairs += end - start
-        if total_pairs == 0:
-            raise ValueError("No valid pairs found!")
-        return total_loss / total_pairs
-
 
 class GraphLearnerAsync(GraphLearner):
     """An async version of GraphLearner that separates out CPU and GPU work.
@@ -1244,6 +591,7 @@ class GraphLearnerAsync(GraphLearner):
                  n_jobs:int=6,
                  queue_size:int=5,
                  cpu_batch_size: int = BATCH_SIZE,
+                 walk_length: int=12,
                  sample_edges: int=10,
                  **kw):
         super().__init__(data, hidden_channels, heads, dropout, n_jobs, **kw)
@@ -1252,7 +600,9 @@ class GraphLearnerAsync(GraphLearner):
         self.sample_edges = sample_edges
         self.edge_sampler = EdgeSampler(data.edge_index, sample_edges)
         self.cpu_thread: Thread|None = None
-
+        # n_nodes, edge_index, walk length, max_edges_per_node
+        initargs = (data.num_nodes, data.edge_index.to('cpu').numpy(), walk_length, sample_edges)
+        self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=initargs)
 
     def start_cpu_thread(self, model):
         """The main CPU thread, start this in a separate thread.
@@ -1279,7 +629,7 @@ class GraphLearnerAsync(GraphLearner):
                         anchors=anchors,
                         pos_nodes=pos_nodes,
                         edge_index=cur_edges,
-                        shape=(len(anchors), model.negative_samples)
+                        shape=(len(anchors), model.neg_samples_factor)
                     )
                 # Accumulate into item
                 all_anchors.extend(anchors)
@@ -1346,17 +696,11 @@ class GraphLearnerAsync(GraphLearner):
         from these walks, and then randomly generated (and filtered) negative pairs are used for the
         contrastive learning setup.
         """
-        model = RandomWalkGATAsync(
+        model = ContrastiveGAT(
             in_channels=self.data.num_features,
             hidden_channels=self.hidden_channels,
             heads=self.heads,
             dropout=self.dropout,
-            walk_gen=WalkGenerator(
-                n_nodes=self.data.num_nodes,
-                edge_index=self.data.edge_index,
-                walk_length=walk_length,
-                n_jobs=self.n_jobs,
-            ),
         )
         losses = self.train_model(model, n_epochs=n_epochs, gpu_batch_size=gpu_batch_size)
         logger.info(f'Got {len(losses)} epochs of losses: {losses.tolist()}')
@@ -1461,7 +805,6 @@ def quick_test(data):
 
 LEARNERS = dict(
     node_classification=NodeClassificationGAT,
-    random_walk=RandomWalkGAT,
     contrastive=ContrastiveGAT,
 )
 
