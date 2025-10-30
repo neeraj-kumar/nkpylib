@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import gc
 import logging
+import sys
 import time
 
 from abc import abstractmethod
@@ -12,6 +13,7 @@ from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, Future
 from dataclasses import dataclass
+from hashlib import sha256
 from queue import Queue, Full, Empty
 from threading import Thread
 from typing import Callable, Sequence, Any, Iterator
@@ -53,7 +55,7 @@ INVALID_NODE = -1
 @dataclass
 class WorkItem:
     """A single work item for async processing."""
-    cur_edges: Tensor # The current edges to use
+    cur_edges: nparray2d # The current edges to use
     anchors: Tensor # Anchor nodes
     pos_nodes: Tensor # Positive nodes
     neg_nodes: Tensor # Negative nodes
@@ -153,7 +155,7 @@ class WalkGenerator:
 
         # Build adjacency matrix for fast neighbor lookup
         #edges = self.edge_index.cpu().numpy()
-        self._cached_edges = None
+        self._edge_hash = ''
         self._adj: np.ndarray|None = None
         self._maybe_rebuild_adj(edge_index)
 
@@ -162,14 +164,14 @@ class WalkGenerator:
         if edge_index is None:
             return
         # Only rebuild if edges changed
-        if self._cached_edges is None or not torch.equal(self._cached_edges, edge_index):
-            edges = edge_index.cpu().numpy()
-            self._adj = csr_matrix((np.ones(edges.shape[1]), (edges[0], edges[1])), shape=(self.N, self.N))
-            self._cached_edges = edge_index.clone()
-        import sys
+        new_hash = sha256(edge_index.tobytes()).hexdigest()
+        if not self._edge_hash or self._edge_hash != new_hash:
+            self._adj = csr_matrix((np.ones(edge_index.shape[1]), (edge_index[0], edge_index[1])),
+                                   shape=(self.N, self.N))
+            self._edge_hash = new_hash
         mem = sys.getsizeof(self._adj.data) + sys.getsizeof(self._adj.indptr) + sys.getsizeof(self._adj.indices)
         mb = lambda x: f'{x / 1024 / 1024:.2f}MB'
-        logger.info(f'Size of adj: {mb(mem)}, vs edges {mb(edges.nbytes)} vs global edges {mb(self.edge_index.nbytes)}')
+        logger.debug(f'Size of adj: {mb(mem)}, vs edges {mb(edge_index.nbytes)} vs global edges {mb(self.edge_index.nbytes)}')
 
     @trace
     def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
@@ -307,7 +309,7 @@ class EdgeSampler:
         times = [time.time()]
         n_nodes = max(self.edge_index.max().item() + 1, 1)
         times.append(time.time())
-        target_edges = min(n_edges, n_nodes * self.max_edges_per_node)
+        target_edges = min(n_edges, int(n_nodes * self.max_edges_per_node))
         pool = ProcessPoolExecutor(max_workers=6)
         times.append(time.time())
 
@@ -509,7 +511,7 @@ def neg_pair_generator(n_nodes: int,
 def cpu_neg_pair_generator(n_nodes: int,
                            anchors: Tensor,
                            pos_nodes: Tensor,
-                           edge_index: Tensor,
+                           edge_index: nparray2d,
                            shape: tuple[int, int],
                            walks: Tensor|None = None) -> Tensor:
     """Vectorized CPU-based negative sampling to reduce GPU memory usage.
@@ -533,7 +535,6 @@ def cpu_neg_pair_generator(n_nodes: int,
     # Convert to numpy for CPU processing
     anchors_np = anchors.cpu().numpy()
     pos_nodes_np = pos_nodes.cpu().numpy()
-    edge_index_np = edge_index.cpu().numpy()
     walks_np = walks.cpu().numpy() if walks is not None else None
 
     # Build global exclusion matrix (batch_size x n_nodes boolean mask)
@@ -545,7 +546,7 @@ def cpu_neg_pair_generator(n_nodes: int,
 
     # Exclude neighbors (vectorized where possible)
     for i, anchor in enumerate(anchors_np):
-        neighbors = edge_index_np[1][edge_index_np[0] == anchor]
+        neighbors = edge_index[1][edge_index[0] == anchor]
         if len(neighbors) > 0:
             exclude_mask[i, neighbors] = True
 

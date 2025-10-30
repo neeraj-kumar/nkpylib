@@ -165,7 +165,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, Future, as_completed
 from dataclasses import dataclass
 from queue import Queue, Full, Empty
-from threading import Thread
+from threading import Thread, Event
 from typing import Callable, Sequence, Any, Iterator
 
 import joblib # type: ignore
@@ -241,9 +241,11 @@ class GATBase(torch.nn.Module):
         embeddings for other tasks.
         """
         super().__init__()
-        self.conv1 = GATConv(in_channels, hidden_channels, heads=heads)
-        #self.conv2 = GATConv(hidden_channels * heads, out_channels, heads=1, concat=False) # concat=False for final layer
-        self.conv2 = GATConv(hidden_channels * heads, hidden_channels * heads, heads=1)
+        ModelCls = GATv2Conv if kw.get('v2', False) else GATConv
+        logger.info(f'Initializing model {ModelCls}')
+        self.conv1 = ModelCls(in_channels, hidden_channels, heads=heads)
+        #self.conv2 = ModelCls(hidden_channels * heads, out_channels, heads=1, concat=False) # concat=False for final layer
+        self.conv2 = ModelCls(hidden_channels * heads, hidden_channels * heads, heads=1)
         self.dropout = dropout
         self.process = psutil.Process()
 
@@ -382,7 +384,7 @@ class ContrastiveGAT(GATBase):
         """
         logger.info(f'Computing contrastive loss with batch size {gpu_batch_size}, use_checkpoint {use_checkpoint}')
         # Get embeddings
-        cur_edges = item.cur_edges.to(x.device)
+        cur_edges = torch.tensor(item.cur_edges).to(x.device)
         logger.info(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
         if use_checkpoint:
             embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
@@ -426,11 +428,12 @@ class GraphLearner:
                  hidden_channels:int=64,
                  heads:int=8,
                  dropout:float=0.6,
+                 v2:bool=False,
                  n_jobs:int=6,
                  queue_size:int=5,
                  cpu_batch_size: int=BATCH_SIZE,
                  walk_length: int=12,
-                 sample_edges: int=10,
+                 sample_edges: int=1,
                  walk_window: int=5,
                  neg_samples_factor: int=10,
                  do_async:bool=True,
@@ -453,12 +456,14 @@ class GraphLearner:
         self.hidden_channels = hidden_channels
         self.heads = heads
         self.dropout = dropout
+        self.v2 = v2
         self.n_jobs = n_jobs
         self.kw = kw
         self.queue: Queue[WorkItem] = Queue(maxsize=queue_size)
         self.cpu_batch_size = cpu_batch_size
         self.sample_edges = sample_edges
         self.cpu_thread: Thread|None = None
+        self.event = Event()
         self.do_async = do_async
         if do_async:
             # n_nodes, edge_index, walk length, max_edges_per_node
@@ -479,7 +484,7 @@ class GraphLearner:
         x = self.data.x
         # submit a bunch of jobs
         futures = [self.pool.submit(worker_one_step, self.cpu_batch_size) for _ in range(5)]
-        while True:
+        while not self.event.is_set():
             # pop a single finished job and add it to the queue
             for f in as_completed(futures):
                 item = f.result()
@@ -550,7 +555,13 @@ class GraphLearner:
                 raise
             logger.warning(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
             pbar.close()
-        return torch.tensor(losses)
+        if self.do_async and self.cpu_thread is not None:
+            self.event.set()
+            self.cpu_thread.join(timeout=1.0)
+            self.pool.shutdown(wait=True)
+        losses = torch.tensor(losses)
+        logger.info(f'Got final losses: {losses}')
+        return losses
 
     def train_node_classification(self, dataset, n_epochs:int=100):
         model = NodeClassificationGAT(
@@ -558,7 +569,7 @@ class GraphLearner:
                     hidden_channels=self.hidden_channels,
                     out_channels=dataset.num_classes,
                     heads=self.heads,
-                    v2=False,
+                    v2=self.v2,
                     dropout=0.6,
                 )
 
@@ -585,6 +596,7 @@ class GraphLearner:
             hidden_channels=self.hidden_channels,
             heads=self.heads,
             dropout=self.dropout,
+            v2=self.v2,
         )
         def loss_fn(model):
             #FIXME this is not right
@@ -752,8 +764,10 @@ def save_embeddings(model: torch.nn.Module,
     - output_flag: LMDB flag for opening
     - kwargs: Additional metadata to save in the database
     """
-    # Extract embeddings
-    embeddings = model.get_embeddings(data.x, data.edge_index).cpu().numpy()
+    # Extract embeddings (using cpu mode, since we're using the full data, which might overflow gpu)
+    cur_device = 'cpu'
+    model = model.to(cur_device)
+    embeddings = model.get_embeddings(data.x.to(cur_device), data.edge_index.to(cur_device)).cpu().numpy()
     logger.info(f'Got embeddings of shape {embeddings.shape}: {embeddings}')
 
     # Save to NumpyLmdb
@@ -789,10 +803,10 @@ def main():
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
     A('-c', '--hidden-channels', type=int, default=16, help='Hidden channels in GAT layers [64]')
-    A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
+    A('-H', '--heads', type=int, default=6, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
+    A('-e', '--n-epochs', type=int, default=5, help='Number of training epochs [200]')
     A('--cpu-batch-size', type=int, default=128, help=f'Batch size for CPU [{BATCH_SIZE}]')
     A('--gpu-batch-size', type=int, default=128, help=f'Batch size for GPU [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
@@ -830,6 +844,7 @@ def main():
         dropout=args.dropout,
         n_jobs=args.n_jobs,
         cpu_batch_size=args.cpu_batch_size,
+        v2=False,
     )
 
     # Train model
