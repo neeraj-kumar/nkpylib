@@ -432,11 +432,11 @@ class GraphLearner:
                  heads:int=8,
                  dropout:float=0.6,
                  v2:bool=False,
-                 n_jobs:int=6,
+                 n_jobs:int=12,
                  queue_size:int=5,
                  cpu_batch_size: int=BATCH_SIZE,
                  walk_length: int=12,
-                 sample_edges: int=15,
+                 sample_edges: int=10,
                  walk_window: int=5,
                  neg_samples_factor: int=10,
                  do_async:bool=True,
@@ -775,8 +775,11 @@ def save_embeddings(model: torch.nn.Module,
 
     # Save to NumpyLmdb
     with NumpyLmdb.open(output_path, flag=output_flag) as db:
+        to_update = {}
         for key, embedding in zip(data['keys'], embeddings):
-            db[key] = embedding
+            #db[key] = embedding
+            to_update[key] = embedding
+        db.update(to_update)
 
         # Save metadata
         db.md_set(db.global_key,
@@ -830,12 +833,12 @@ def main():
     A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
-    A('--hidden-channels', type=int, default=16, help='Hidden channels in GAT layers [64]')
-    A('-H', '--heads', type=int, default=6, help='Number of attention heads [8]')
+    A('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
+    A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
     A('-e', '--n-epochs', type=int, default=5, help='Number of training epochs [200]')
-    A('--cpu-batch-size', type=int, default=128, help=f'Batch size for CPU [{BATCH_SIZE}]')
+    A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
     A('--gpu-batch-size', type=int, default=128, help=f'Batch size for GPU [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     A('-j', '--n_jobs', type=int, default=6, help='Number of parallel jobs [6]')
