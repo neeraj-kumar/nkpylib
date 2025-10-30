@@ -35,7 +35,7 @@ from torch_geometric.transforms import NormalizeFeatures # type: ignore
 from torch_geometric.data import Data # type: ignore
 from tqdm import tqdm
 
-from nkpylib.ml.feature_set import (
+from nkpylib.ml.ml_types import (
     array1d,
     array2d,
     nparray1d,
@@ -48,11 +48,7 @@ logger = logging.getLogger(__name__)
 RNG = npr.default_rng(0)
 torch.manual_seed(0)
 
-@dataclass
-class WorkerObj:
-    """A container for data local to a process worker"""
-    walk_gen: WalkGenerator
-    edge_sampler: EdgeSampler
+INVALID_NODE = -1
 
 @dataclass
 class WorkItem:
@@ -62,13 +58,23 @@ class WorkItem:
     pos_nodes: Tensor # Positive nodes
     neg_nodes: Tensor # Negative nodes
 
+@dataclass
+class WorkerObj:
+    """A container for data local to a process worker"""
+    walk_gen: WalkGenerator
+    edge_sampler: EdgeSampler
+    walk_window: int
+    neg_samples_factor: int
+
 # global worker obj
-_worker_obj: WorkerObj = None
+_worker_obj: WorkerObj|None = None
 
 def initialize_worker(n_nodes: int,
-                      edge_index: ndarray2d,
+                      edge_index: nparray2d,
                       walk_length: int,
                       max_edges_per_node: int,
+                      walk_window: int,
+                      neg_samples_factor: int,
                       ):
     """Initialize the global worker object for the process."""
     global _worker_obj
@@ -86,12 +92,37 @@ def initialize_worker(n_nodes: int,
             proportional=True,
             global_sampling=True,
         )
-        _worker_obj = WorkerObj(walk_gen=walk_gen, edge_sampler=edge_sampler)
+        _worker_obj = WorkerObj(walk_gen=walk_gen,
+                                edge_sampler=edge_sampler,
+                                walk_window=walk_window,
+                                neg_samples_factor=neg_samples_factor)
 
 
-def worker_one_step():
+@trace
+def worker_one_step(n_pos: int) -> WorkItem:
     """Runs "one step" of processing in the worker process."""
     global _worker_obj
+    assert _worker_obj is not None
+    cur_edges = _worker_obj.edge_sampler.sample()
+    anchors, pos_nodes = pos_pair_generator(
+        cur_edges=cur_edges,
+        batch_size=n_pos,
+        walk_gen=_worker_obj.walk_gen,
+        walk_window=_worker_obj.walk_window,
+    )
+    neg_nodes = cpu_neg_pair_generator(
+        n_nodes=_worker_obj.walk_gen.N,
+        anchors=anchors,
+        pos_nodes=pos_nodes,
+        edge_index=cur_edges,
+        shape=(len(anchors), _worker_obj.neg_samples_factor),
+    )
+    return WorkItem(
+        cur_edges=cur_edges,
+        anchors=anchors,
+        pos_nodes=pos_nodes,
+        neg_nodes=neg_nodes,
+    )
 
 
 def gen_random(n_edges, size):
@@ -102,7 +133,7 @@ class WalkGenerator:
     """Generates random walks through a graph with stateful batch generation."""
     def __init__(self,
                  n_nodes: int,
-                 edge_index: Tensor,
+                 edge_index: nparray2d,
                  walk_length: int = 12,
                  n_jobs: int = 6):
         """Initialize walk generator with graph data and parameters.
@@ -115,7 +146,7 @@ class WalkGenerator:
         """
         self.N = n_nodes
         self.edge_index = edge_index
-        assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
+        assert len(edge_index.shape) == 2 and edge_index.shape[0] == 2, "edge_index must be of shape [2, num_edges]"
         self.walk_length = walk_length
         self.n_jobs = n_jobs
         self.current_index = 0
@@ -210,7 +241,7 @@ class WalkGenerator:
 class EdgeSampler:
     """Efficient edge sampling with caching for memory optimization."""
     def __init__(self,
-                 edge_index: ndarray2d,
+                 edge_index: nparray2d,
                  max_edges_per_node: int,
                  proportional: bool = True,
                  global_sampling: bool = True):
@@ -226,7 +257,7 @@ class EdgeSampler:
         self.edge_index = edge_index
         self.proportional = proportional
         self.global_sampling = global_sampling
-        assert edge_index.dim() == 2 and edge_index.size(0) == 2, "edge_index must be of shape [2, num_edges]"
+        assert len(edge_index.shape) == 2 and edge_index.shape[0] == 2, "edge_index must be of shape [2, num_edges]"
         # Cache the edge grouping (do once, reuse many times) - only needed for per-node sampling
         if not self.global_sampling:
             self._build_edge_groups()
@@ -253,7 +284,7 @@ class EdgeSampler:
             start_pos += count
 
     @trace
-    def sample(self) -> Tensor:
+    def sample(self) -> nparray2d:
         """Sample edges efficiently.
 
         Returns:
@@ -264,12 +295,12 @@ class EdgeSampler:
         else:
             return self._sample_per_node()
 
-    def _sample_global(self) -> Tensor:
+    def _sample_global(self) -> nparray2d:
         """Fast global random sampling of edges."""
         #TODO the most expensive part is the random call, so do that in parallel in batch
         n_edges = self.edge_index.shape[1]
         if n_edges == 0:
-            return torch.empty((2, 0), dtype=self.edge_index.dtype)
+            return torch.empty((2, 0), dtype=self.edge_index.dtype).numpy()
 
         # Calculate target number of edges based on max_edges_per_node
         # Estimate: if we have N nodes and want max_edges_per_node per node on average
@@ -295,7 +326,7 @@ class EdgeSampler:
         #print(f'All inds: {len(all_indices)}: {all_indices}')
         return ret
 
-    def _sample_per_node(self) -> Tensor:
+    def _sample_per_node(self) -> nparray2d:
         """Per-node sampling preserving degree distribution."""
         sampled_indices = []
         for node in range(len(self.node_edge_starts)):
@@ -319,11 +350,11 @@ class EdgeSampler:
             _sampled_indices = torch.cat(sampled_indices)
             ret = self.edge_index[:, _sampled_indices]
         else:
-            ret = torch.empty((2, 0), dtype=self.edge_index.dtype)
+            ret = torch.empty((2, 0), dtype=self.edge_index.dtype).numpy()
         return ret
 
 @trace
-def pos_pair_generator(cur_edges: Tensor, batch_size: int) -> tuple[Tensor, Tensor]:
+def pos_pair_generator(cur_edges: Tensor, batch_size: int, walk_gen: WalkGenerator, walk_window: int) -> tuple[Tensor, Tensor]:
     """Generate walks on-demand and yield positive pairs.
 
     This generates only as many walks as needed to produce a batch of positive pairs,
@@ -336,7 +367,7 @@ def pos_pair_generator(cur_edges: Tensor, batch_size: int) -> tuple[Tensor, Tens
     Returns:
     - `(anchor_nodes, positive_nodes)` tensors
     """
-    logger.debug(f'Starting pos_pair_generator with batch_size={batch_size}, walk_window={self.walk_window}')
+    logger.debug(f'Starting pos_pair_generator with batch_size={batch_size}, walk_window={walk_window}')
     pairs_generated = 0
     iteration = 0
     ret_anchors, ret_pos = [], []
@@ -348,8 +379,8 @@ def pos_pair_generator(cur_edges: Tensor, batch_size: int) -> tuple[Tensor, Tens
         walks_needed = max(1, remaining_pairs)
 
         # Generate a small batch of walks on-demand
-        logger.debug(f'Iteration {iteration}: Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), window {self.walk_window}')
-        batch_walks = self.walk_gen.gen_walks(walks_needed, cur_edges=cur_edges)
+        logger.debug(f'Iteration {iteration}: Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), window {walk_window}')
+        batch_walks = walk_gen.gen_walks(walks_needed, cur_edges=cur_edges)
         logger.debug(f'Generated batch_walks shape: {batch_walks.shape}, dtype: {batch_walks.dtype}: {batch_walks[:10]}')
 
         # Convert to tensor and extract pairs
@@ -377,8 +408,8 @@ def pos_pair_generator(cur_edges: Tensor, batch_size: int) -> tuple[Tensor, Tens
 
             for walk_idx in pos_walks:
                 # Get context window for this walk position
-                start = max(0, i - self.walk_window)
-                end = min(walk_length, i + self.walk_window + 1)
+                start = max(0, i - walk_window)
+                end = min(walk_length, i + walk_window + 1)
                 context = walks_tensor[walk_idx, start:end]
                 context_mask = valid_mask[walk_idx, start:end].clone()
                 context_mask[i-start] = False  # Exclude anchor position
@@ -400,14 +431,11 @@ def pos_pair_generator(cur_edges: Tensor, batch_size: int) -> tuple[Tensor, Tens
                         break
                 else:
                     logger.debug(f'Walk {walk_idx.item()}, pos {i}: No valid context nodes')
-
             if len(batch_anchors) >= remaining_pairs:
                 logger.debug(f'Breaking from position loop, have {len(batch_anchors)} pairs')
                 break
-
         logger.debug(f'Iteration {iteration}: Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
-
-        # Yield pairs if we have any
+        # Accumulate pairs if we have any
         if batch_anchors:
             # Limit to exactly the number of pairs we need
             n_pairs = min(len(batch_anchors), remaining_pairs)

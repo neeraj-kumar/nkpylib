@@ -162,7 +162,7 @@ import time
 from abc import abstractmethod
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
-from concurrent.futures import ProcessPoolExecutor, Future
+from concurrent.futures import ProcessPoolExecutor, Future, as_completed
 from dataclasses import dataclass
 from queue import Queue, Full, Empty
 from threading import Thread
@@ -202,8 +202,6 @@ RNG = npr.default_rng(0)
 torch.manual_seed(0)
 
 logger = logging.getLogger(__name__)
-
-INVALID_NODE = -1
 
 # default batch size
 BATCH_SIZE = 128
@@ -315,17 +313,14 @@ class ContrastiveGAT(GATBase):
     of positive and negative examples to learn node embeddings.
     """
     def __init__(self,
-                 neg_samples_factor: int = 10, # should be 10?
                  temperature: float = 0.07,
                  **kw):
         """Initialize this ContrastiveGAT model.
 
         Args:
-            - neg_samples_factor: Number of negative samples per positive pair
             - temperature: Temperature for similarity scaling (higher = softer attention)
         """
         super().__init__(**kw)
-        self.neg_samples_factor = neg_samples_factor
         self.temperature = temperature
 
     @trace
@@ -432,6 +427,13 @@ class GraphLearner:
                  heads:int=8,
                  dropout:float=0.6,
                  n_jobs:int=6,
+                 queue_size:int=5,
+                 cpu_batch_size: int=BATCH_SIZE,
+                 walk_length: int=12,
+                 sample_edges: int=10,
+                 walk_window: int=5,
+                 neg_samples_factor: int=10,
+                 do_async:bool=True,
                  **kw):
         """Initialize this learning with the given `data` and parameters.
 
@@ -453,6 +455,40 @@ class GraphLearner:
         self.dropout = dropout
         self.n_jobs = n_jobs
         self.kw = kw
+        self.queue: Queue[WorkItem] = Queue(maxsize=queue_size)
+        self.cpu_batch_size = cpu_batch_size
+        self.sample_edges = sample_edges
+        self.cpu_thread: Thread|None = None
+        self.do_async = do_async
+        if do_async:
+            # n_nodes, edge_index, walk length, max_edges_per_node
+            initargs = (data.num_nodes, data.edge_index.to('cpu').numpy(), walk_length, sample_edges, walk_window, neg_samples_factor)
+            self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=initargs)
+
+    def start_cpu_thread(self, model):
+        """The main CPU thread, start this in a separate thread.
+
+        This does:
+        - edge sampling
+        - positive pair generation
+        - negative pair generation
+
+        It puts filled-in `WorkItem`s into the queue for the main (gpu) thread to consume.
+        """
+        print("Starting CPU thread")
+        x = self.data.x
+        # submit a bunch of jobs
+        futures = [self.pool.submit(worker_one_step, self.cpu_batch_size) for _ in range(5)]
+        while True:
+            # pop a single finished job and add it to the queue
+            for f in as_completed(futures):
+                item = f.result()
+                futures.remove(f)
+                break
+            logger.info(f'Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}')
+            self.queue.put(item)
+            # submit another job
+            futures.append(self.pool.submit(worker_one_step, self.cpu_batch_size))
 
     def train_model(self,
                     model: torch.nn.Module,
@@ -470,20 +506,26 @@ class GraphLearner:
 
         Returns the list of loss values per epoch.
         """
-        batch_size = gpu_batch_size
         process = psutil.Process()
         memory: Counter[str] = Counter()
         memory['initial'] = process.memory_info().rss / 1024 / 1024  # MB
         model = model.to(self.device)
         model.train()
+        if self.do_async:
+            self.cpu_thread = Thread(target=self.start_cpu_thread, daemon=True, args=(model,) )
+            self.cpu_thread.start()
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
         pbar = tqdm(range(n_epochs), desc="Training Epochs")
         losses = []
-        self.data.edge_index = self.data.edge_index.to('cpu') #TODO is this right?
+        self.data.edge_index = self.data.edge_index.to('cpu')
         try:
             for epoch in pbar:
                 optimizer.zero_grad()
-                loss = loss_fn(model)
+                if self.do_async:
+                    item = self.queue.get()
+                    loss = model.compute_loss(item=item, x=self.data.x, gpu_batch_size=gpu_batch_size)
+                else:
+                    loss = loss_fn(model)
                 if 0:
                     for i, tensor in enumerate(list_gpu_tensors()):
                         mem = int(tensor.nbytes/1024/1024)
@@ -521,6 +563,7 @@ class GraphLearner:
                 )
 
         def loss_fn(model):
+            #FIXME this is not right
             out = model(self.data.x, self.data.edge_index)
             loss = F.cross_entropy(out[self.data.train_mask], self.data.y[self.data.train_mask])
             return loss
@@ -537,19 +580,14 @@ class GraphLearner:
         contrastive learning setup.
         """
         batch_size = gpu_batch_size
-        model = RandomWalkGAT(
+        model = ContrastiveGAT(
             in_channels=self.data.num_features,
             hidden_channels=self.hidden_channels,
             heads=self.heads,
             dropout=self.dropout,
-            walk_gen=WalkGenerator(
-                n_nodes=self.data.num_nodes,
-                edge_index=self.data.edge_index,
-                walk_length=walk_length,
-                n_jobs=self.n_jobs,
-            ),
         )
         def loss_fn(model):
+            #FIXME this is not right
             return model.compute_loss(self.data.x, self.data.edge_index, batch_size=batch_size)
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs, gpu_batch_size=batch_size)
@@ -574,137 +612,6 @@ class GraphLearner:
             model.fit(X_train, y_train)
             acc = model.score(X_test, y_test)
             print(f'Classifier {name} accuracy: {acc:.4f}')
-
-
-
-class GraphLearnerAsync(GraphLearner):
-    """An async version of GraphLearner that separates out CPU and GPU work.
-
-    This uses a queue to synchronize between the two kinds of work, with the CPU stuff running ahead
-    by a few epochs.
-    """
-    def __init__(self,
-                 data,
-                 hidden_channels:int=64,
-                 heads:int=8,
-                 dropout:float=0.6,
-                 n_jobs:int=6,
-                 queue_size:int=5,
-                 cpu_batch_size: int = BATCH_SIZE,
-                 walk_length: int=12,
-                 sample_edges: int=10,
-                 **kw):
-        super().__init__(data, hidden_channels, heads, dropout, n_jobs, **kw)
-        self.queue: Queue[WorkItem] = Queue(maxsize=queue_size)
-        self.cpu_batch_size = cpu_batch_size
-        self.sample_edges = sample_edges
-        self.edge_sampler = EdgeSampler(data.edge_index, sample_edges)
-        self.cpu_thread: Thread|None = None
-        # n_nodes, edge_index, walk length, max_edges_per_node
-        initargs = (data.num_nodes, data.edge_index.to('cpu').numpy(), walk_length, sample_edges)
-        self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=initargs)
-
-    def start_cpu_thread(self, model):
-        """The main CPU thread, start this in a separate thread.
-
-        This does:
-        - edge sampling
-        - positive pair generation
-        - negative pair generation
-
-        It puts filled-in `WorkItem`s into the queue for the main (gpu) thread to consume.
-        """
-        print("Starting CPU thread")
-        x = self.data.x
-        while True:
-            cur_edges = self.edge_sampler.sample()
-            all_anchors, all_pos_nodes, all_neg_nodes = [], [], []
-            t0 = time.time()
-            for anchors, pos_nodes in model.pos_pair_generator(cur_edges=cur_edges, batch_size=self.cpu_batch_size):
-                logger.info(f'  Processing batch with {len(anchors)} pairs')
-                # Generate negative samples
-                with torch.no_grad():
-                    neg_nodes = model.cpu_neg_pair_generator(
-                        n_nodes=x.shape[0],
-                        anchors=anchors,
-                        pos_nodes=pos_nodes,
-                        edge_index=cur_edges,
-                        shape=(len(anchors), model.neg_samples_factor)
-                    )
-                # Accumulate into item
-                all_anchors.extend(anchors)
-                all_pos_nodes.extend(pos_nodes)
-                all_neg_nodes.extend(neg_nodes)
-            assert all_anchors, "No anchors generated!"
-            item = WorkItem(
-                cur_edges=cur_edges,
-                anchors=torch.stack(all_anchors),
-                pos_nodes=torch.stack(all_pos_nodes),
-                neg_nodes=torch.stack(all_neg_nodes),
-            )
-            t1 = time.time()
-            logger.info(f'{t1-t0}s Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}')
-            self.queue.put(item)
-
-    def train_model(self,
-                    model: torch.nn.Module,
-                    n_epochs:int=200,
-                    gpu_batch_size:int=BATCH_SIZE) -> Tensor:
-        """Does actual model training in a loop.
-
-        This does some bookkeeping around memory usage, etc.
-
-        Args:
-        - model: The graph model to train
-        - loss_fn: A function that takes `(model)` and returns a loss tensor
-        - n_epochs: Number of training epochs to run
-
-        Returns the list of loss values per epoch.
-        """
-        # move model to gpu and set into training mode
-        model = model.to(self.device)
-        model.train()
-        # start cpu thread
-        self.cpu_thread = Thread(target=self.start_cpu_thread, daemon=True, args=(model,) )
-        self.cpu_thread.start()
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
-        pbar = tqdm(range(n_epochs), desc="Training Epochs")
-        losses = []
-        try:
-            for epoch in pbar:
-                optimizer.zero_grad()
-                item = self.queue.get()
-                logger.info(f'Computing loss for epoch {epoch} with item of {item.anchors.shape} anchors')
-                loss = model.compute_loss(item=item, x=self.data.x, gpu_batch_size=gpu_batch_size)
-                losses.append(loss.item())
-                loss.backward()
-                optimizer.step()
-                pbar.set_description(f'Epoch {epoch:03d}, Loss: {loss:.4f}')
-        except KeyboardInterrupt:
-            if epoch < 2:
-                logger.warning("Training interrupted at epoch {epoch}. Quitting.")
-                raise
-            logger.warning(f"\nTraining interrupted at epoch {epoch}. Returning model with {len(losses)} epochs of training.")
-            pbar.close()
-        return torch.tensor(losses)
-
-    def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE):
-        """Train a graph model using random walk objectives.
-
-        Pass in the `walk_length` to use for generating walks. This creates a `WalkGenerator` that
-        the model uses to generate walks on-demand during training. These positive pairs are sampled
-        from these walks, and then randomly generated (and filtered) negative pairs are used for the
-        contrastive learning setup.
-        """
-        model = ContrastiveGAT(
-            in_channels=self.data.num_features,
-            hidden_channels=self.hidden_channels,
-            heads=self.heads,
-            dropout=self.dropout,
-        )
-        losses = self.train_model(model, n_epochs=n_epochs, gpu_batch_size=gpu_batch_size)
-        logger.info(f'Got {len(losses)} epochs of losses: {losses.tolist()}')
-        return model
 
 
 def load_data(name):
@@ -806,6 +713,7 @@ def quick_test(data):
 LEARNERS = dict(
     node_classification=NodeClassificationGAT,
     contrastive=ContrastiveGAT,
+    random_walk=ContrastiveGAT,
 )
 
 def create_learner(learner_type: str, data: Data, **kwargs) -> GraphLearner:
@@ -820,9 +728,7 @@ def create_learner(learner_type: str, data: Data, **kwargs) -> GraphLearner:
     - Configured GraphLearner instance
     """
     assert learner_type in LEARNERS, f"Unknown learner type: {learner_type}"
-    #gl = GraphLearner(data, **kwargs) #FIXME
-    gl = GraphLearnerAsync(data, **kwargs) #FIXME
-
+    gl = GraphLearner(data, **kwargs)
     match learner_type:
         case 'node_classification':
             raise NotImplementedError('Node classification not implemented in this example')
