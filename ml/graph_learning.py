@@ -160,7 +160,7 @@ import logging
 import time
 
 from abc import abstractmethod
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, Future, as_completed
 from dataclasses import dataclass
@@ -174,6 +174,7 @@ import numpy.random as npr
 import psutil
 import torch
 import torch.nn.functional as F
+import yaml
 
 from scipy.sparse import csr_matrix
 from sklearn.svm import LinearSVC, SVC # type: ignore
@@ -198,6 +199,7 @@ from nkpylib.ml.feature_set import (
 from nkpylib.ml.ml_utils import trace, list_gpu_tensors
 from nkpylib.ml.graph_worker import initialize_worker, worker_one_step, WorkItem
 
+CFG: Namespace|None = None
 RNG = npr.default_rng(0)
 torch.manual_seed(0)
 
@@ -223,13 +225,14 @@ class GATBase(torch.nn.Module):
                  in_channels: int,
                  hidden_channels: int,
                  heads: int,
-                 dropout: float = 0.6,
+                 dropout: float,
                  **kw):
         """Initialize this GAT model.
 
         - in_channels: Number of input node features
         - hidden_channels: Size of hidden layer embeddings
         - heads: Number of attention heads per layer
+        - dropout: Dropout rate during training
 
         The model has two GATConv layers, each followed by ELU and dropout (during training).
 
@@ -433,7 +436,7 @@ class GraphLearner:
                  queue_size:int=5,
                  cpu_batch_size: int=BATCH_SIZE,
                  walk_length: int=12,
-                 sample_edges: int=1,
+                 sample_edges: int=15,
                  walk_window: int=5,
                  neg_samples_factor: int=10,
                  do_async:bool=True,
@@ -787,8 +790,33 @@ def save_embeddings(model: torch.nn.Module,
 
     logger.info(f"Saved {len(embeddings)} embeddings to {output_path}")
 
+def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
+    """This adds YAML config file parsing to a `parser`.
+
+    This does it by first creating a dummy parser that only takes -c/--configs arguments,
+    parsing it to get the config files, loading them, and then setting the defaults.
+
+    Finally, it runs the actual parser with the remaining args and returns the final args.
+    Note that you should NOT call parser.parse_args(), since this does that.
+    """
+    # First pass: get config files only
+    config_parser = ArgumentParser(add_help=False)
+    config_parser.add_argument('-c', '--configs', nargs='*', help='YAML config files')
+    config_args, remaining_args = config_parser.parse_known_args()
+    # Load configs and merge them
+    config_dict = {}
+    if config_args.configs:
+        for config_file in config_args.configs:
+            with open(config_file, 'r') as f:
+                file_config = yaml.safe_load(f)
+                config_dict.update(file_config)
+    # Now set defaults on the actual parser and then run it
+    parser.set_defaults(**config_dict)
+    args = parser.parse_args(remaining_args)
+    return args
 
 def main():
+    global CFG
     # create and setup arg parser
     parser = ArgumentParser(description='Graph Learning Driver')
     A = lambda *s, **kw: parser.add_argument(*s, **kw)
@@ -802,7 +830,7 @@ def main():
     A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
-    A('-c', '--hidden-channels', type=int, default=16, help='Hidden channels in GAT layers [64]')
+    A('--hidden-channels', type=int, default=16, help='Hidden channels in GAT layers [64]')
     A('-H', '--heads', type=int, default=6, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
@@ -811,8 +839,9 @@ def main():
     A('--gpu-batch-size', type=int, default=128, help=f'Batch size for GPU [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     A('-j', '--n_jobs', type=int, default=6, help='Number of parallel jobs [6]')
-    # 50k with checkpointing, about 10Gb gpu steady, but peaked earlier at 14
-    args = parser.parse_args()
+    # first load configs if any (they override defaults, but not command-line args)
+    #args = parser.parse_args()
+    CFG = args = add_yaml_config_parsing(parser)
     # load input graph
     data = torch.load(args.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
