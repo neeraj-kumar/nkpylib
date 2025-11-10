@@ -48,7 +48,7 @@ class ObjSearch(SearchImpl):
             return str(item.get(self.id_field, ''))
         return str(self.items.index(item))
 
-    async def async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+    async def _async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
         """Searches our list of `items` with given `cond`.
 
         Args:

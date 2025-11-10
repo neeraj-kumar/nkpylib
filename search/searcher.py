@@ -38,7 +38,6 @@ from typing import Sequence, Any, Callable, Generator
 
 import numpy as np
 
-
 logger = logging.getLogger(__name__)
 
 Array1D = list[float] | tuple[float] | np.ndarray
@@ -206,17 +205,28 @@ class SearchImpl(ABC):
         self.timing_times[label] += elapsed_time
         self.timing_counts[label] += 1
 
-    def search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+    def search(self, cond: SearchCond|str, n_results: int=15, **kw) -> list[SearchResult]:
         """Search for results matching the given `cond`.
+
+        The `cond` can be either a `SearchCond` object or a query string that is parsed.
 
         Returns a list of `SearchResult` objects.
         """
         return asyncio.run(self.async_search(cond, n_results=n_results, **kw))
 
     @abstractmethod
-    async def async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+    async def _async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+        """Asynchronous search implementation to be provided by subclasses."""
+        pass
+
+    async def async_search(self, cond: SearchCond|str, n_results: int=15, **kw) -> list[SearchResult]:
         """Search for results matching the given `cond`.
+
+        The `cond` can be either a `SearchCond` object or a query string that is parsed.
 
         Returns a list of `SearchResult` objects.
         """
-        raise NotImplementedError("Subclasses must implement search method")
+        from .parser import parse_query_into_cond
+        if isinstance(cond, str):
+            cond = parse_query_into_cond(cond)
+        return await self._async_search(cond, n_results=n_results, **kw)

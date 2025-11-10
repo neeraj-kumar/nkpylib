@@ -300,7 +300,7 @@ class FileGroup(metaclass=FileGroupMeta):
         """Return the path without the prefix or suffix"""
         dir, prefix, base, suffix = self.split_path(self.first)
         logger.debug(f'FileGroup __repr__ called with dir={dir}, prefix={prefix}, base={base}, suffix={suffix}')
-        return f'<{dir}{base}>'
+        return f'<{dir}/{base}>'
 
     def _load_data(self):
         """Load data data from our JSON file."""
