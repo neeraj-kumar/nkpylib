@@ -432,11 +432,11 @@ class GraphLearner:
                  heads:int=8,
                  dropout:float=0.6,
                  v2:bool=False,
-                 n_jobs:int=12,
+                 n_jobs:int=4,
                  queue_size:int=5,
                  cpu_batch_size: int=BATCH_SIZE,
                  walk_length: int=12,
-                 sample_edges: int=10,
+                 sample_edges: int=5,
                  walk_window: int=5,
                  neg_samples_factor: int=10,
                  do_async:bool=True,
@@ -561,7 +561,8 @@ class GraphLearner:
         if self.do_async and self.cpu_thread is not None:
             self.event.set()
             self.cpu_thread.join(timeout=1.0)
-            self.pool.shutdown(wait=True)
+            self.pool.shutdown(wait=False)
+            #TODO the pool doesn't seem to be shutting down properly?
         losses = torch.tensor(losses)
         logger.info(f'Got final losses: {losses}')
         return losses
@@ -837,11 +838,11 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=5, help='Number of training epochs [200]')
-    A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
+    A('-e', '--n-epochs', type=int, default=200, help='Number of training epochs [200]')
+    A('--cpu-batch-size', type=int, default=128, help=f'Batch size for CPU [{BATCH_SIZE}]')
     A('--gpu-batch-size', type=int, default=128, help=f'Batch size for GPU [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
-    A('-j', '--n_jobs', type=int, default=6, help='Number of parallel jobs [6]')
+    A('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
     # first load configs if any (they override defaults, but not command-line args)
     #args = parser.parse_args()
     CFG = args = add_yaml_config_parsing(parser)
