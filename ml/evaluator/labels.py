@@ -31,6 +31,7 @@ class LabelArrays:
     """Result from get_label_arrays method."""
     sub_keys: list[str]
     label_names: list[str]
+    label_counts: list[int]
     label_arrays: nparray2d
     sub_matrix: nparray2d
 
@@ -174,6 +175,7 @@ class Labels(ABC):
         It returns a `LabelArrays` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
+        - `label_counts` is a list of counts, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
           - Shape `(len(label_names), len(sub_keys))`
         - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
@@ -223,6 +225,7 @@ class NumericLabels(Labels):
         It returns a `LabelArrays` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
+        - `label_counts` is a list of counts, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
           - Shape `(len(label_names), len(sub_keys))`
         - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
@@ -238,6 +241,7 @@ class NumericLabels(Labels):
         return LabelArrays(
             sub_keys=sub_keys,
             label_names=label_names,
+            label_counts=[len(label_arrays[0])],
             label_arrays=label_arrays,
             sub_matrix=sub_matrix,
         )
@@ -444,18 +448,21 @@ class MulticlassBase(Labels):
         It returns a `LabelArrays` with the following fields:
         - `sub_keys` is the list of overlapping keys
         - `label_names` is a list of names, one for each row of `label_arrays`
+        - `label_counts` is a list of counts, one for each row of `label_arrays`
         - `label_arrays` is a 2d array of values corresponding to each name and the overlapping keys
           - Shape `(len(label_names), len(sub_keys))`
         - `sub_matrix` is the submatrix of `matrix` corresponding to the overlapping keys.
           - Shape `(len(sub_keys), matrix.shape[1])`
         """
         label_names = []
+        label_counts = []
         id_indices, sub_keys, sub_matrix = self._get_matching_matrix(keys, matrix)
         #TODO also add direct multiclass?
         # For each specific label value, create +1/-1 array
         label_arrays = []
         for label_name, ids in self.by_label().items():
             binary_array = np.array([1.0 if self.ids[i] in ids else -1.0 for i in id_indices])
+            label_counts.append(int(np.sum(binary_array == 1.0)))
             label_names.append(label_name)
             label_arrays.append(binary_array)
         label_arrays_np = np.array(label_arrays)
@@ -465,6 +472,7 @@ class MulticlassBase(Labels):
         return LabelArrays(
             sub_keys=sub_keys,
             label_names=label_names,
+            label_counts=label_counts,
             label_arrays=label_arrays_np,
             sub_matrix=sub_matrix,
         )

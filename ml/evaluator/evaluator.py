@@ -121,7 +121,7 @@ from sklearn.svm import LinearSVC, LinearSVR, SVC, SVR # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
-from nkpylib.ml.evaluator.evaluator_ops import Op, OpManager, OpResult, result_logger
+from nkpylib.ml.evaluator.evaluator_ops import Op, OpManager, result_logger
 from nkpylib.ml.evaluator.labels import parse_into_labels, Labels, MulticlassLabels, MultilabelLabels, NumericLabels
 from nkpylib.ml.feature_set import (
     FeatureSet,
@@ -255,6 +255,7 @@ class LabelArraysData:
     label_key: str
     sub_keys: list[str]
     label_names: list[str]
+    label_counts: list[int]
     label_arrays: nparray2d
     sub_matrix: nparray2d
 
@@ -313,6 +314,8 @@ class PredictionResult:
     n_classes: int | None
     predictions: nparray1d
     true_values: nparray1d
+    n_pos: int
+    n_total: int
 
 @dataclass
 class NeighborComparison:
@@ -409,7 +412,9 @@ class Warning:
 @dataclass
 class ClusterLabelAnalysis:
     """Result from ClusterLabelAnalysisOp."""
+    n_clusters: int
     cluster_labels: nparray1d
+    n_labels: int
     label_names: list[str]
     confusion_matrix: nparray2d
     cluster_purities: dict[int, float]
@@ -417,8 +422,10 @@ class ClusterLabelAnalysis:
     adjusted_rand_index: float
     normalized_mutual_info: float
     label_key: str
-    true_labels: nparray1d | None = None
-    true_labels_orig: nparray1d | None = None
+    true_labels: array1d
+    true_labels_orig: array1d
+    cluster_labels_remapped: array1d
+    cluster_confidences: array1d
 
 def train_and_predict(model, X_train, y_train, X_test):
     """Simple train and predict function for use in multiprocessing."""
@@ -528,7 +535,7 @@ class StartValidatorOp(Op):
     output_types = {"argparse"}
     is_intermediate = True
 
-    def _execute(self, inputs: dict[str, Any], **kwargs) -> OpResult:
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> dict[str, Any]:
         return inputs
 
 
@@ -539,7 +546,7 @@ class ParseTagsOp(Op):
     output_types = {'labels'}
     is_intermediate = True
 
-    def _execute(self, inputs: dict[str, Any], **kwargs) -> OpResult:
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> dict[str, Labels]:
         tag_path = inputs['argparse'].get('tag_path')
         if not tag_path:
             raise ValueError('No tag_path provided')
@@ -584,7 +591,7 @@ class LoadEmbeddingsOp(Op):
     is_intermediate = True
 
     #TODO return cartesian product of inputs as variants
-    def _execute(self, inputs: dict[str, Any], **kwargs) -> OpResult:
+    def _execute(self, inputs: dict[str, Any], **kwargs) -> FeatureSet:
         paths = inputs['argparse']['paths']
         return FeatureSet(paths, **kwargs)
 
@@ -602,7 +609,7 @@ class CheckDimensionsOp(Op):
     input_types = {"feature_set"}
     output_types = {"dimension_check_result"}
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> DimensionCheckResult:
         fs = inputs["feature_set"]
         dims: Counter[int] = Counter()
         for key, emb in fs.items():
@@ -628,7 +635,7 @@ class CheckNaNsOp(Op):
     input_types = {"feature_set"}
     output_types = {"nan_check_result"}
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> NaNCheckResult:
         fs = inputs["feature_set"]
         n_nans = 0
         nan_keys = []
@@ -661,7 +668,7 @@ class BasicChecksOp(Op):
     output_types = {"basic_checks_report"}
     run_mode = 'main'  # Changed from 'process' to avoid pool issues
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> BasicChecksReport:
         dim_result = inputs["dimension_check_result"]
         nan_result = inputs["nan_check_result"]
         errors = []
@@ -696,9 +703,13 @@ class NormalizeOp(Op):
     @classmethod
     def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
         """Returns different variants of this op based on normalization options."""
-        return None #FIXME
         ret = {}
         for normed, scale_mean, scale_std in product([True, False], repeat=3):
+            # skip certain combos
+            if normed:
+                continue
+            if scale_std and not scale_mean:
+                continue
             variant_name = f"normed:{int(normed)}_mean:{int(scale_mean)}_std:{int(scale_std)}"
             ret[variant_name] = {
                 "normed": normed,
@@ -713,7 +724,7 @@ class NormalizeOp(Op):
         self.scale_std = scale_std
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> NormalizedEmbeddings:
         fs, labels = inputs["feature_set"], inputs['labels']
         valid_keys = set()
         for label in labels.values():
@@ -751,8 +762,8 @@ class LabelOp(Op):
         ret = {}
         for key in labels:
             variant_name = f"label_key:{key}"
-            if 'actor' in key or 'actress' in key or 'director' in key:
-                ret[variant_name] = {"label_key": key}
+            #if 'actor' in key or 'actress' in key or 'director' in key:
+            ret[variant_name] = {"label_key": key}
             #if len(ret) > 3: break #FIXME temporary
         op_logger.info(f'Got {len(ret)} variants for {cls.name}: {labels}, {ret}')
         return ret
@@ -784,7 +795,7 @@ class GetLabelArraysOp(LabelOp):
     output_types = {"label_arrays_data"}
     is_intermediate = True
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> LabelArraysData:
         norm_emb = inputs["normalized_embeddings"]
         keys, matrix = norm_emb.keys, norm_emb.embeddings
         label = inputs["labels"][self.label_key]
@@ -794,6 +805,7 @@ class GetLabelArraysOp(LabelOp):
             label_key=self.label_key,
             sub_keys=result.sub_keys,
             label_names=result.label_names,
+            label_counts=result.label_counts,
             label_arrays=result.label_arrays,
             sub_matrix=result.sub_matrix,
         )
@@ -833,7 +845,7 @@ class GetLabelDistancesOp(LabelOp):
         self.perc_close = perc_close
         super().__init__(label_key=label_key, **kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> LabelDistancesData:
         label = inputs["labels"][self.label_key]
         norm_emb = inputs["normalized_embeddings"]
         keys, matrix = norm_emb.keys, norm_emb.embeddings
@@ -889,7 +901,7 @@ class GetEmbeddingDimsOp(Op):
         self.transform = transform
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> EmbeddingDimsData:
         label_data = inputs["label_arrays_data"]
         matrix = label_data.sub_matrix  # Already filtered to the right intersection
         dims = matrix.T  # Each row is one dimension across all samples
@@ -938,7 +950,7 @@ class GetEmbeddingDistancesOp(Op):
         self.metric = metric
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> EmbeddingDistancesData:
         norm_emb = inputs["normalized_embeddings"]
         label_data = inputs["label_distances"]
 
@@ -1005,7 +1017,7 @@ class GetNeighborsOp(Op):
         self.k = k
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> NeighborsData:
         # Determine which type of distance matrix we're using
         data = inputs['distances']
         op_logger.info(f'Computing neighbors, got data type {type(data)}, k={self.k}')
@@ -1076,26 +1088,32 @@ class GenPredictionTasksOp(Op):
     is_intermediate = True
 
     @classmethod
-    def get_variants(cls, inputs: dict[str, Any]) -> dict[str, Any]|None:
+    def get_variants(cls, inputs: dict[str, Any], max_per_label:int=15) -> dict[str, Any]|None:
         """Returns different variants based on label names in label_arrays_data."""
         label_data = inputs.get("label_arrays_data")
         if not label_data:
             return None
         variants = {}
         label_key = label_data.label_key
-        # Create one variant per label_name
-        for i, label_name in enumerate(label_data.label_names):
+        # Create one variant per label_name, only for upto `max_per_label` names
+        for i, (label_count, idx, label_name) in enumerate(sorted(
+                zip(label_data.label_counts, range(len(label_data.label_names)), label_data.label_names),
+                reverse=True)):
+            if i >= max_per_label:
+                break
             variant_name = f"label_key:{label_key}_label_name:{label_name}"
             variants[variant_name] = {
                 "label_key": label_key,
                 "label_name": label_name,
-                "label_index": i
+                "label_count": label_count,
+                "label_index": idx,
             }
         return variants
 
     def __init__(self,
                  label_key: str,
                  label_name: str,
+                 label_count: int,
                  label_index: int,
                  min_pos: int = 10,
                  max_tasks: int = 10,
@@ -1110,12 +1128,13 @@ class GenPredictionTasksOp(Op):
         """
         self.label_key = label_key
         self.label_name = label_name
+        self.label_count = label_count
         self.label_index = label_index
         self.min_pos = min_pos
         self.max_tasks = max_tasks
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> PredictionTasksData:
         label_data = inputs["label_arrays_data"]
         # Get the specific label array for this variant
         label_obj = label_data.label_obj
@@ -1131,22 +1150,16 @@ class GenPredictionTasksOp(Op):
             # Exp transformation
             tasks[f'{self.label_name}-regression-exp'] = (np.expm1(values - np.min(values) + 1.0), 'regression')
         else: # multiclass or multilabel
-            counts: Counter[str] = Counter()
             unique_values = set(label_array)
             if len(unique_values) == 2 and set(unique_values).issubset({-1.0, 1.0}): # binary labels
                 n_positive = np.sum(label_array > 0)
                 if n_positive >= self.min_pos:
                     key = f'{self.label_key}-binary-{self.label_name}'
                     tasks[key] = (label_array, 'classification')
-                    counts[key] = n_positive
-                # keep only the top `self.max_tasks` most common binary classes (by # positive)
-                for i, (key, _) in enumerate(counts.most_common()):
-                    if i < self.max_tasks:
-                        continue
-                    op_logger.debug(f'Deleting task {key} because {i} > {self.max_tasks}')
-                    del tasks[key]
             else: # multiclass
                 tasks[f'{self.label_name}-multiclass-orig'] = (label_array, 'classification')
+        # filter out tasks with non-finites in the label data
+        tasks = {k: (arr, t) for k, (arr, t) in tasks.items() if np.all(np.isfinite(arr))}
         return PredictionTasksData(
             label_key=self.label_key,
             tasks=tasks,
@@ -1254,7 +1267,7 @@ class RunPredictionOp(Op):
             case _:
                 raise ValueError(f"Unknown model type: {self.model_type}")
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> PredictionResult:
         task_data = inputs["prediction_tasks"]
         tasks = task_data.tasks
         assert self.task_name in tasks, f"PTask {self.task_name} not found in available tasks"
@@ -1303,7 +1316,9 @@ class RunPredictionOp(Op):
             score_type=score_type,
             n_classes=n_classes,
             predictions=np.array(all_preds),
-            true_values=np.array(all_true)
+            true_values=np.array(all_true),
+            n_pos=int(np.sum(np.array(all_true) > 0)),
+            n_total=len(all_true),
         )
 
     def analyze_results(self, results: Any, inputs: dict[str, Any], threshold = 0.7) -> dict[str, Any]:
@@ -1368,7 +1383,7 @@ class CompareNeighborsOp(Op):
         self.detailed = detailed
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> NeighborComparison:
         # Find which input is label neighbors and which is embedding neighbors
         neighbors_a, neighbors_b = inputs["neighbors_data_a"], inputs["neighbors_data_b"]
 
@@ -1484,7 +1499,7 @@ class CompareStatsOp(Op):
     output_types = {"stats_comparison"}
     run_mode = 'process'
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> StatsComparison:
         if 'many_array1d_a' in inputs:
             arrays_a = inputs['many_array1d_a']
         elif 'label_arrays_data' in inputs:
@@ -1616,6 +1631,13 @@ class RunClusteringOp(Op):
     def get_variants(cls, inputs: dict[str, Any], cluster_sizes=(5,20,100)) -> dict[str, Any]|None:
         variants: dict[str, dict[str, Any]] = {}
 
+        # get the number of true labels from the inputs if we can
+        if isinstance(inputs.get('distances'), LabelDistancesData):
+            true_labels = inputs["distances"].label_obj.get_cluster_labels(inputs["distances"].sub_keys)
+            n_true_labels = len(set(true_labels)) if true_labels is not None else None
+            if n_true_labels is not None:
+                cluster_sizes = list(cluster_sizes) + [n_true_labels]
+
         # Algorithms that work on raw embeddings
         if "normalized_embeddings" in inputs:
             #TODO when we generate multiple embeddings, this should incorporate those into
@@ -1667,7 +1689,7 @@ class RunClusteringOp(Op):
             case _:
                 raise ValueError(f"Unknown clustering algorithm: {self.algorithm}")
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> ClusteringResult:
         clusterer = self._get_clusterer()
 
         # Determine input data based on algorithm requirements
@@ -1867,7 +1889,7 @@ class ClusterLabelAnalysisOp(Op):
         self.algorithm = ''
         super().__init__(**kw)
 
-    def _execute(self, inputs: dict[str, Any]) -> OpResult:
+    def _execute(self, inputs: dict[str, Any]) -> ClusterLabelAnalysis:
         clustering_result = inputs["clustering_results"]
         label_data = inputs["label_arrays_data"]
         self.algorithm = clustering_result.algorithm
@@ -1914,18 +1936,51 @@ class ClusterLabelAnalysisOp(Op):
                 cluster_purities[int(cluster_id)] = float(purity)
                 dominant_labels[int(cluster_id)] = str(dominant_label)
 
+        cluster_labels_mapping, cluster_confidences = self.map_clusters_with_confidence(cluster_labels_clean, true_labels_subset)
+        cluster_labels_remapped = [cluster_labels_mapping.get(cl_id, 'unknown') for cl_id in cluster_labels_clean]
+        #print(f'Got mapping: {cluster_labels_mapping}, {cluster_labels_remapped}, {cluster_confidences}')
+
         return ClusterLabelAnalysis(
+            n_clusters=len(np.unique(cluster_labels_clean)),
             cluster_labels=cluster_labels_clean,
+            n_labels=len(np.unique(true_labels_clean)),
             true_labels=true_labels_clean,
             true_labels_orig=true_labels_subset,
+            cluster_labels_remapped=cluster_labels_remapped,
+            cluster_confidences=cluster_confidences,
             label_names=[label_data.label_names[0]],  # First label name
             label_key=label_key,
             confusion_matrix=conf_matrix,
             cluster_purities=cluster_purities,
             dominant_labels=dominant_labels,
             adjusted_rand_index=ari,
-            normalized_mutual_info=nmi
+            normalized_mutual_info=nmi,
         )
+
+    def map_clusters_with_confidence(self,
+                                     cluster_labels,
+                                     true_labels) -> tuple[dict[int, Any], dict[int, float]]:
+        """Does a "best fit" mapping of predicted `cluster_labels` to `true_labels`.
+
+        Returns a tuple of dicts:
+        - cluster_to_label: maps from cluster ID to most common true label
+        - cluster_confidences: maps from cluster ID to confidence (purity) of that mapping
+        """
+        cluster_to_label_mapping = {}
+        cluster_confidences = {}
+        for cluster_id in np.unique(cluster_labels):
+            if cluster_id == -1:
+                continue
+            cluster_mask = cluster_labels == cluster_id
+            cluster_true_labels = true_labels[cluster_mask]
+            unique_labels, counts = np.unique(cluster_true_labels, return_counts=True)
+            most_common_idx = np.argmax(counts)
+            most_common_label = unique_labels[most_common_idx]
+            # Confidence is the purity (fraction of cluster with most common label)
+            confidence = counts[most_common_idx] / len(cluster_true_labels)
+            cluster_to_label_mapping[cluster_id] = most_common_label
+            cluster_confidences[int(cluster_id)] = float(confidence)
+        return cluster_to_label_mapping, cluster_confidences
 
     def analyze_results(self, results: Any, inputs: dict[str, Any]) -> dict[str, Any]:
         """Analyze cluster-label correspondence and identify notable patterns."""
