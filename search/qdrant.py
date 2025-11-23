@@ -107,7 +107,7 @@ class QdrantSearch(SearchImpl):
         else:
             raise TypeError("Unsupported condition type")
 
-    async def async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
+    async def _async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
         """Does a search with given search conditions `cond`.
 
         Qdrant can do batch searches with arbitrary combinations of query embeddings and conditions.
