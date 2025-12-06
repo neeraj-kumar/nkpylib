@@ -515,7 +515,7 @@ class GraphLearner:
             # n_nodes, edge_index, walk length, max_edges_per_node
             initargs = (data.num_nodes, data.edge_index.to('cpu').numpy(), walk_length, sample_edges, walk_window, neg_samples_factor)
             self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=initargs)
-j
+
     def start_cpu_thread(self, model: torch.nn.Module) -> None:
         """The main CPU thread, start this in a separate thread.
 
