@@ -1216,15 +1216,15 @@ class RunPredictionOp(Op):
             if task_type == 'regression':
                 models = {
                     "ridge": {"model_type": PredictionAlgorithm.RIDGE},
-                    "rbf_svr": {"model_type": PredictionAlgorithm.RBF_SVR},
-                    "linear_svr": {"model_type": PredictionAlgorithm.LINEAR_SVR},
-                    "knn_reg": {"model_type": PredictionAlgorithm.KNN_REG}
+                    #"rbf_svr": {"model_type": PredictionAlgorithm.RBF_SVR},
+                    #"linear_svr": {"model_type": PredictionAlgorithm.LINEAR_SVR},
+                    #"knn_reg": {"model_type": PredictionAlgorithm.KNN_REG}
                 }
             else:  # classification
                 models = {
-                    "rbf_svm": {"model_type": PredictionAlgorithm.RBF_SVM},
+                    #"rbf_svm": {"model_type": PredictionAlgorithm.RBF_SVM},
                     "linear_svm": {"model_type": PredictionAlgorithm.LINEAR_SVM},
-                    "knn_cls": {"model_type": PredictionAlgorithm.KNN_CLS}
+                    #"knn_cls": {"model_type": PredictionAlgorithm.KNN_CLS}
                 }
             for model_name, model_params in models.items():
                 variant_name = f"label_key:{label_key}_label_name:{label_name}_task:{task_name}_model:{model_name}"
