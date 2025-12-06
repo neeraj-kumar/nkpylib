@@ -8,12 +8,14 @@ import os
 import tempfile
 
 from argparse import ArgumentParser
+from concurrent.futures import ProcessPoolExecutor
 from glob import glob
 from os.path import dirname, abspath, join
 from subprocess import run
 from typing import Any
 
 from objexplore import explore # type: ignore
+from tqdm import tqdm
 
 from nkpylib.ml.feature_set import JsonLmdb
 
@@ -69,6 +71,11 @@ def build_provenance_analysis(result_data: dict[str, Any], db: JsonLmdb):
         }
     return ret
 
+
+def make_output(rd: dict[str, Any], db_path: str) -> dict[str, Any]:
+    db = JsonLmdb.open(db_path)
+    return {**rd, 'analysis': build_provenance_analysis(rd, db=db)}
+
 def explore_results(db: JsonLmdb, **kw):
     """Uses visidata to explore the results database."""
     # get result keys ordered by end time
@@ -94,8 +101,17 @@ def explore_results(db: JsonLmdb, **kw):
     # value
     warnings.sort(key=lambda w: (w.get('label_key', ''), w.get('unit', ''), -w.get('score', 0), -w.get('value', 0)))
     # get full provenance analysis
-    for k, result_data in results.items():
-        results[k] = {**result_data, 'analysis': build_provenance_analysis(result_data, db=db)}
+    with ProcessPoolExecutor(max_workers=8) as pool:
+        futures = []
+        for k, result_data in (results.items()):
+            if result_data['op_name'] != 'run_prediction':
+                continue
+            #results[k] = {**result_data, 'analysis': build_provenance_analysis(result_data, db=db)}
+            futures.append((k, pool.submit(make_output, result_data, db_path=db.env.path())))
+            if len(futures) > 1000:
+                break
+        for k, future in tqdm(futures):
+            results[k] = future.result()
     logger.info(f'Exploring {len(results)} results')
     #explore(results, **kw)
     # write to a tempfile then run visidata on it
