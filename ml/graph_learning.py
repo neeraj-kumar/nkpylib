@@ -293,59 +293,84 @@ class GATBase(torch.nn.Module):
         """Worker function to generate a single work item for training."""
         pass
 
+    @trace
+    @abstractmethod
+    def compute_loss(self,
+                     item: WorkItem,
+                     x: Tensor,
+                     gpu_batch_size: int = BATCH_SIZE,
+                     use_checkpoint: bool = False):
+        """Compute loss for a given work item."""
+        pass
+
+
 class NodeClassificationGAT(GATBase):
     """GAT model for node classification tasks.
 
     """
-    def __init__(self, hidden_channels: int, heads: int, out_channels: int, **kw):
-        """
-        Initialize this NodeClassificationGAT model.
+    def __init__(self, hidden_channels: int, heads: int, task_config: dict, **kw):
+        """Initialize this model with a `task_config` defining classification tasks.
 
-        This adds a linear layer to the base model, which generates the final output.
+        The `task_config` is a dictionary mapping task names to one or more node classification
+        tasks, each containing at least:
+        - n_classes: Number of classes for this task
+        - type: 'multiclass' or 'multilabel'
+        - weight: Weight for this task in the overall loss [optional, default=1]
 
-        - out_channels: Size of output layer (e.g. number of classes)
+        This adds a linear layer to the base model for each task, which generates the final output.
+        During training, the model computes cross-entropy loss for each task and sums them up,
+        weighted by the specified weights.
 
         All other `kw` are passed to the base GAT model.
         """
         super().__init__(hidden_channels=hidden_channels, heads=heads, **kw)
-        self.lin = torch.nn.Linear(hidden_channels * heads, out_channels)
+        self.task_config = task_config
+        self.task_heads = nn.ModuleDict()
+        input_dims = hidden_channels * heads
+        for task_name, config in task_config.items():
+            self.task_heads[task_name] = torch.nn.Linear(input_dims, config['n_classes'])
 
-    def forward(self, x, edge_index):
-        """Runs the base model and then the final linear layer."""
+    def forward(self, x, edge_index) -> dict[str, Tensor]:
+        """Runs the base model and then the final linear layers (one per task).
+
+        Returns a dictionary mapping task names to output tensors. Each output tensor has length
+        [num_nodes, n_classes] for that task.
+        """
         x = super().forward(x, edge_index)
-        x = self.lin(F.elu(x))
-        return x
+        x = F.elu(x)
+        # apply each task head
+        outputs = {}
+        for task_name, head in self.task_heads.items():
+            outputs[task_name] = head(x)
+        return outputs
 
     @classmethod
     def worker_one_step(cls, batch_size: int) -> WorkItem:
         """Worker function to generate a single work item for training."""
         from nkpylib.ml.graph_worker import node_classification_one_step
         return node_classification_one_step(batch_size)
-    
-    def compute_loss(self, data, batch=None) -> Tensor:
+
+    def compute_loss(self,
+                     item: WorkItem,
+                     x: Tensor,
+                     gpu_batch_size: int = BATCH_SIZE):
         """Compute node classification loss.
-        
+
         For node classification, we can either:
         1. Use the full graph (batch=None) - traditional approach
         2. Use a subgraph batch for scalability (batch provided)
-        
+
         Args:
         - data: PyG Data object with full graph
         - batch: Optional batch data for mini-batch training
-        
+
         Returns:
         - Cross-entropy loss on training nodes
         """
-        if batch is None:
-            # Full graph training - traditional approach
-            out = self(data.x, data.edge_index)
-            return F.cross_entropy(out[data.train_mask], data.y[data.train_mask])
-        else:
-            # Mini-batch training on subgraph
-            # This would require batch to contain subgraph info
-            # For now, fall back to full graph
-            out = self(data.x, data.edge_index)
-            return F.cross_entropy(out[data.train_mask], data.y[data.train_mask])
+        cur_edges = torch.tensor(item.cur_edges).to(x.device)
+        logger.info(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
+        out = self.forward(x, cur_edges)
+        return F.cross_entropy(out[item.train_mask], item.labels[item.train_mask])
 
 
 class ContrastiveGAT(GATBase):
@@ -415,7 +440,7 @@ class ContrastiveGAT(GATBase):
     @trace
     def compute_loss(self,
                      item: WorkItem,
-                     x,
+                     x: Tensor,
                      gpu_batch_size: int = BATCH_SIZE,
                      use_checkpoint: bool = False):
         """Compute contrastive loss using pairs of nodes.
