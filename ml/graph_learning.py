@@ -321,6 +321,31 @@ class NodeClassificationGAT(GATBase):
         """Worker function to generate a single work item for training."""
         from nkpylib.ml.graph_worker import node_classification_one_step
         return node_classification_one_step(batch_size)
+    
+    def compute_loss(self, data, batch=None) -> Tensor:
+        """Compute node classification loss.
+        
+        For node classification, we can either:
+        1. Use the full graph (batch=None) - traditional approach
+        2. Use a subgraph batch for scalability (batch provided)
+        
+        Args:
+        - data: PyG Data object with full graph
+        - batch: Optional batch data for mini-batch training
+        
+        Returns:
+        - Cross-entropy loss on training nodes
+        """
+        if batch is None:
+            # Full graph training - traditional approach
+            out = self(data.x, data.edge_index)
+            return F.cross_entropy(out[data.train_mask], data.y[data.train_mask])
+        else:
+            # Mini-batch training on subgraph
+            # This would require batch to contain subgraph info
+            # For now, fall back to full graph
+            out = self(data.x, data.edge_index)
+            return F.cross_entropy(out[data.train_mask], data.y[data.train_mask])
 
 
 class ContrastiveGAT(GATBase):
