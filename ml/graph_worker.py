@@ -56,9 +56,11 @@ INVALID_NODE = -1
 class WorkItem:
     """A single work item for async processing."""
     cur_edges: nparray2d # The current edges to use
-    anchors: Tensor # Anchor nodes
-    pos_nodes: Tensor # Positive nodes
-    neg_nodes: Tensor # Negative nodes
+    anchors: Tensor=None # Anchor nodes
+    pos_nodes: Tensor=None # Positive nodes
+    neg_nodes: Tensor=None # Negative nodes
+    labels: dict[str, Tensor]=None # Labels for node classification
+    train_masks: dict[str, Tensor]=None # Train masks for node classification
 
 @dataclass
 class WorkerObj:
@@ -67,6 +69,7 @@ class WorkerObj:
     edge_sampler: EdgeSampler
     walk_window: int
     neg_samples_factor: int
+    task_config: dict
 
 # global worker obj
 _worker_obj: WorkerObj|None = None
@@ -77,6 +80,7 @@ def initialize_worker(n_nodes: int,
                       max_edges_per_node: int,
                       walk_window: int,
                       neg_samples_factor: int,
+                      task_config: dict,
                       ):
     """Initialize the global worker object for the process."""
     global _worker_obj
@@ -97,12 +101,16 @@ def initialize_worker(n_nodes: int,
         _worker_obj = WorkerObj(walk_gen=walk_gen,
                                 edge_sampler=edge_sampler,
                                 walk_window=walk_window,
-                                neg_samples_factor=neg_samples_factor)
+                                neg_samples_factor=neg_samples_factor,
+                                task_config=task_config)
 
 
 @trace
-def worker_one_step(n_pos: int) -> WorkItem:
-    """Runs "one step" of processing in the worker process."""
+def random_walk_worker_one_step(n_pos: int) -> WorkItem:
+    """Runs "one step" of processing in the worker process.
+
+    This version does it for random walk based sampling.
+    """
     global _worker_obj
     assert _worker_obj is not None
     cur_edges = _worker_obj.edge_sampler.sample()
@@ -124,6 +132,23 @@ def worker_one_step(n_pos: int) -> WorkItem:
         anchors=anchors,
         pos_nodes=pos_nodes,
         neg_nodes=neg_nodes,
+    )
+
+@trace
+def node_classification_one_step(n_pos: int) -> WorkItem:
+    """Runs "one step" of processing in the worker process.
+
+    This version does it for node classification based sampling.
+    """
+    global _worker_obj
+    assert _worker_obj is not None
+    cur_edges = _worker_obj.edge_sampler.sample()
+    labels = {task: cfg['labels'] for task, cfg in _worker_obj.task_config.items()}
+    train_masks = {task: cfg['train_mask'][cur_nodes] for task, cfg in _worker_obj.task_config.items()}
+    return WorkItem(
+        cur_edges=cur_edges,
+        labels=labels,
+        train_masks=train_masks,
     )
 
 

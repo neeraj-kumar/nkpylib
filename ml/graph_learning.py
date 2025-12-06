@@ -150,6 +150,27 @@ Let me explain how each parameter would likely affect the GAT model's accuracy:
  • Common architectures use 2-3 layers
  • Could add skip/residual connections to help with deeper architectures
 
+
+data.tasks = {
+    'genre': {
+        'labels': torch.tensor([0, 1, 2, ...]),
+        'type': 'multiclass',
+        'num_classes': 10,
+        'train_mask': torch.tensor([True, False, True, ...]),
+        'val_mask': torch.tensor([False, True, False, ...]),
+        'test_mask': torch.tensor([False, False, True, ...]),
+        'names': ['Action', 'Comedy', 'Drama', ...]
+    },
+    'actors': {
+        'labels': torch.tensor([[1, 0, 1, ...], [0, 1, 1, ...]]),  # Multi-hot
+        'type': 'multilabel',
+        'num_classes': 1000,
+        'train_mask': torch.tensor([True, False, True, ...]),
+        'val_mask': torch.tensor([False, True, False, ...]),
+        'test_mask': torch.tensor([False, False, True, ...]),
+        'names': ['George Clooney', 'Anne Hathaway', ...]
+    }
+}
 """
 
 from __future__ import annotations
@@ -353,32 +374,28 @@ class NodeClassificationGAT(GATBase):
 
     def top_k_loss(self, logits: Tensor, targets: Tensor, k: int = 5) -> Tensor:
         """Custom loss for top-k multilabel prediction.
-        
+
         Args:
         - logits: Model outputs [batch_size, num_classes]
-        - targets: Multi-hot encoded targets [batch_size, num_classes]  
+        - targets: Multi-hot encoded targets [batch_size, num_classes]
         - k: Number of top predictions to consider
-        
+
         Returns:
         - Binary cross-entropy loss computed only on top-k predictions
         """
         # Get top-k predictions
         _, top_k_indices = torch.topk(logits, k, dim=1)
-        
+
         # Create top-k mask
         top_k_mask = torch.zeros_like(logits)
         top_k_mask.scatter_(1, top_k_indices, 1.0)
-        
+
         # Only compute loss on top-k predictions
         masked_logits = logits * top_k_mask
         masked_targets = targets * top_k_mask
-        
         return F.binary_cross_entropy_with_logits(masked_logits, masked_targets)
 
-    def compute_loss(self,
-                     item: WorkItem,
-                     x: Tensor,
-                     gpu_batch_size: int = BATCH_SIZE) -> Tensor:
+    def compute_loss(self, item: WorkItem, x: Tensor, gpu_batch_size: int = BATCH_SIZE) -> Tensor:
         """Compute node classification loss for multiple tasks.
 
         Args:
@@ -393,28 +410,21 @@ class NodeClassificationGAT(GATBase):
         cur_edges = torch.tensor(item.cur_edges).to(x.device)
         logger.info(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
         outputs = self(x, cur_edges)
-        
         total_loss = 0.0
-        
         # Compute loss for each task
         for task_name, task_config in self.task_config.items():
             if task_name not in item.labels or task_name not in item.train_masks:
                 logger.warning(f'Task {task_name} missing from WorkItem, skipping')
                 continue
-                
             task_output = outputs[task_name]
             train_mask = item.train_masks[task_name]
             targets = item.labels[task_name]
             task_weight = task_config.get('weight', 1.0)
-            
-            # Apply train mask
             masked_output = task_output[train_mask]
             masked_targets = targets[train_mask]
-            
             if len(masked_targets) == 0:
                 logger.warning(f'No training samples for task {task_name}, skipping')
                 continue
-            
             # Compute task-specific loss
             match task_config['type']:
                 case 'multiclass':
@@ -426,10 +436,8 @@ class NodeClassificationGAT(GATBase):
                     task_loss = self.top_k_loss(masked_output, masked_targets, k=k)
                 case _:
                     raise ValueError(f"Unknown task type: {task_config['type']} for task {task_name}")
-            
             logger.debug(f'Task {task_name}: loss={task_loss:.4f}, weight={task_weight}')
             total_loss += task_weight * task_loss
-        
         return total_loss
 
 
