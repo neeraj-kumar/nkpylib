@@ -608,7 +608,7 @@ class GraphLearner:
         logger.info(f'Got final losses: {losses}')
         return losses
 
-    def train_node_classification(self, dataset, n_epochs:int=100) -> tuple[Model, Tensor]:
+    def train_node_classification(self, dataset, n_epochs:int=100) -> tuple[GATBase, Tensor]:
         """Trains a model using node classification as the criteria, returning `(model, losses)`."""
         model = NodeClassificationGAT(
                     in_channels=-1,#dataset.num_features,
@@ -628,7 +628,7 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model, losses
 
-    def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE) -> tuple[Model, Tensor]:
+    def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE) -> tuple[GATBase, Tensor]:
         """Train a graph model using random walk objectives, returning `(model, losses)`.
 
         Pass in the `walk_length` to use for generating walks. This creates a `WalkGenerator` that
