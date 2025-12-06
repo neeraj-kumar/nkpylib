@@ -287,6 +287,12 @@ class GATBase(torch.nn.Module):
         #print(f"{msg}: {mem:.2f}GB")
 
 
+    @classmethod
+    @abstractmethod
+    def worker_one_step(cls, batch_size: int) -> WorkItem:
+        """Worker function to generate a single work item for training."""
+        pass
+
 class NodeClassificationGAT(GATBase):
     """GAT model for node classification tasks.
 
@@ -310,6 +316,12 @@ class NodeClassificationGAT(GATBase):
         x = self.lin(F.elu(x))
         return x
 
+    @classmethod
+    def worker_one_step(cls, batch_size: int) -> WorkItem:
+        """Worker function to generate a single work item for training."""
+        from nkpylib.ml.graph_worker import node_classification_one_step
+        return node_classification_one_step(batch_size)
+
 
 class ContrastiveGAT(GATBase):
     """GAT model trained using contrastive learning.
@@ -327,6 +339,12 @@ class ContrastiveGAT(GATBase):
         """
         super().__init__(**kw)
         self.temperature = temperature
+
+    @classmethod
+    def worker_one_step(cls, batch_size: int) -> WorkItem:
+        """Worker function to generate a single work item for training."""
+        from nkpylib.ml.graph_worker import random_walk_worker_one_step
+        return random_walk_worker_one_step(batch_size)
 
     @trace
     def batch_loss(self,
@@ -472,21 +490,19 @@ class GraphLearner:
             # n_nodes, edge_index, walk length, max_edges_per_node
             initargs = (data.num_nodes, data.edge_index.to('cpu').numpy(), walk_length, sample_edges, walk_window, neg_samples_factor)
             self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=initargs)
-
-    def start_cpu_thread(self, model):
+j
+    def start_cpu_thread(self, model: torch.nn.Module) -> None:
         """The main CPU thread, start this in a separate thread.
 
-        This does:
-        - edge sampling
-        - positive pair generation
-        - negative pair generation
+        This calls the model's `worker_one_step` function which should return a single
+        work item. Note that we call this in parallel across multiple processes.
 
         It puts filled-in `WorkItem`s into the queue for the main (gpu) thread to consume.
         """
         print("Starting CPU thread")
         x = self.data.x
         # submit a bunch of jobs
-        futures = [self.pool.submit(worker_one_step, self.cpu_batch_size) for _ in range(5)]
+        futures = [self.pool.submit(model.worker_one_step, self.cpu_batch_size) for _ in range(5)]
         while not self.event.is_set():
             # pop a single finished job and add it to the queue
             for f in as_completed(futures):
@@ -496,7 +512,7 @@ class GraphLearner:
             logger.info(f'Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}')
             self.queue.put(item)
             # submit another job
-            futures.append(self.pool.submit(worker_one_step, self.cpu_batch_size))
+            futures.append(self.pool.submit(model.worker_one_step, self.cpu_batch_size))
 
     def train_model(self,
                     model: torch.nn.Module,
@@ -567,7 +583,8 @@ class GraphLearner:
         logger.info(f'Got final losses: {losses}')
         return losses
 
-    def train_node_classification(self, dataset, n_epochs:int=100):
+    def train_node_classification(self, dataset, n_epochs:int=100) -> tuple[Model, Tensor]:
+        """Trains a model using node classification as the criteria, returning `(model, losses)`."""
         model = NodeClassificationGAT(
                     in_channels=-1,#dataset.num_features,
                     hidden_channels=self.hidden_channels,
@@ -584,10 +601,10 @@ class GraphLearner:
             return loss
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
-        return model
+        return model, losses
 
-    def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE):
-        """Train a graph model using random walk objectives.
+    def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE) -> tuple[Model, Tensor]:
+        """Train a graph model using random walk objectives, returning `(model, losses)`.
 
         Pass in the `walk_length` to use for generating walks. This creates a `WalkGenerator` that
         the model uses to generate walks on-demand during training. These positive pairs are sampled
@@ -607,7 +624,7 @@ class GraphLearner:
             return model.compute_loss(self.data.x, self.data.edge_index, batch_size=batch_size)
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs, gpu_batch_size=batch_size)
-        return model
+        return model, losses
 
     def train_and_eval_cls(self, embs):
         """Train and evaluate a node classification model on given `embs`.
@@ -885,7 +902,7 @@ def main():
 
     match args.learner_type:
         case 'random_walk': # Generate walks and train
-            model = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
+            model, losses = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
         case '_':
             raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
 
