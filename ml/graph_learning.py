@@ -173,6 +173,7 @@ import numpy as np
 import numpy.random as npr
 import psutil
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 
@@ -350,27 +351,86 @@ class NodeClassificationGAT(GATBase):
         from nkpylib.ml.graph_worker import node_classification_one_step
         return node_classification_one_step(batch_size)
 
+    def top_k_loss(self, logits: Tensor, targets: Tensor, k: int = 5) -> Tensor:
+        """Custom loss for top-k multilabel prediction.
+        
+        Args:
+        - logits: Model outputs [batch_size, num_classes]
+        - targets: Multi-hot encoded targets [batch_size, num_classes]  
+        - k: Number of top predictions to consider
+        
+        Returns:
+        - Binary cross-entropy loss computed only on top-k predictions
+        """
+        # Get top-k predictions
+        _, top_k_indices = torch.topk(logits, k, dim=1)
+        
+        # Create top-k mask
+        top_k_mask = torch.zeros_like(logits)
+        top_k_mask.scatter_(1, top_k_indices, 1.0)
+        
+        # Only compute loss on top-k predictions
+        masked_logits = logits * top_k_mask
+        masked_targets = targets * top_k_mask
+        
+        return F.binary_cross_entropy_with_logits(masked_logits, masked_targets)
+
     def compute_loss(self,
                      item: WorkItem,
                      x: Tensor,
-                     gpu_batch_size: int = BATCH_SIZE):
-        """Compute node classification loss.
-
-        For node classification, we can either:
-        1. Use the full graph (batch=None) - traditional approach
-        2. Use a subgraph batch for scalability (batch provided)
+                     gpu_batch_size: int = BATCH_SIZE) -> Tensor:
+        """Compute node classification loss for multiple tasks.
 
         Args:
-        - data: PyG Data object with full graph
-        - batch: Optional batch data for mini-batch training
+        - item: WorkItem containing labels and train_masks dicts
+        - x: Node features tensor
+        - gpu_batch_size: Batch size for GPU processing (unused for node classification)
 
         Returns:
-        - Cross-entropy loss on training nodes
+        - Weighted sum of losses across all tasks
         """
+        # Get current edges and compute outputs
         cur_edges = torch.tensor(item.cur_edges).to(x.device)
         logger.info(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
-        out = self.forward(x, cur_edges)
-        return F.cross_entropy(out[item.train_mask], item.labels[item.train_mask])
+        outputs = self(x, cur_edges)
+        
+        total_loss = 0.0
+        
+        # Compute loss for each task
+        for task_name, task_config in self.task_config.items():
+            if task_name not in item.labels or task_name not in item.train_masks:
+                logger.warning(f'Task {task_name} missing from WorkItem, skipping')
+                continue
+                
+            task_output = outputs[task_name]
+            train_mask = item.train_masks[task_name]
+            targets = item.labels[task_name]
+            task_weight = task_config.get('weight', 1.0)
+            
+            # Apply train mask
+            masked_output = task_output[train_mask]
+            masked_targets = targets[train_mask]
+            
+            if len(masked_targets) == 0:
+                logger.warning(f'No training samples for task {task_name}, skipping')
+                continue
+            
+            # Compute task-specific loss
+            match task_config['type']:
+                case 'multiclass':
+                    task_loss = F.cross_entropy(masked_output, masked_targets)
+                case 'multilabel':
+                    task_loss = F.binary_cross_entropy_with_logits(masked_output, masked_targets.float())
+                case 'top_k':
+                    k = task_config.get('k', 5)
+                    task_loss = self.top_k_loss(masked_output, masked_targets, k=k)
+                case _:
+                    raise ValueError(f"Unknown task type: {task_config['type']} for task {task_name}")
+            
+            logger.debug(f'Task {task_name}: loss={task_loss:.4f}, weight={task_weight}')
+            total_loss += task_weight * task_loss
+        
+        return total_loss
 
 
 class ContrastiveGAT(GATBase):
