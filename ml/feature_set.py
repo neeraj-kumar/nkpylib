@@ -46,7 +46,38 @@ except Exception:
     CONSOLE_WIDTH = 120
 np.set_printoptions(suppress=True, linewidth=CONSOLE_WIDTH)
 
-class JsonLmdb(Lmdb):
+class PickleableLmdb(Lmdb):
+    """Adds pickling support to Lmdb databases.
+
+    This just adds __getstate__ and __setstate__ methods that store the path and flag, and reopen
+    the database on unpickling.
+    """
+    def fixme__getstate__(self) -> dict[str, Any]:
+        """Returns state of this suitable for pickling.
+
+        This just returns a dict with `path` and `flag`.
+        """
+        ret = dict(
+            path=self.env.path(),
+            flag=self.flag,
+            map_size=self.map_size,
+            mode=self.env.mode,
+        )
+        print(f'Pickling LMDB with state: {ret}')
+        sys.exit()
+        return ret
+
+    def fixme__setstate__(self, state: dict[str, Any]) -> None:
+        """Sets state of this from given `state` dict.
+
+        This simply reruns initialization with the given path and flag.
+        """
+        db = self.__class__.open(state['path'], state['flag'], map_size=state['map_size'])
+        self.env = db.env
+        self.autogrow = db.autogrow
+
+
+class JsonLmdb(PickleableLmdb):
     """Keys are utf-8 encoded strings, values are JSON-encoded objects as utf-8 encoded strings."""
     def _pre_key(self, key):
         return key.encode("utf-8")
@@ -61,7 +92,7 @@ class JsonLmdb(Lmdb):
         return json.loads(value.decode("utf-8"))
 
 
-class MetadataLmdb(Lmdb):
+class MetadataLmdb(PickleableLmdb):
     """Subclass of LMDB database that stores JSON metadata for each key inside a 2nd database.
 
     In the main database, the keys are utf-8 encoded strings, and the values are arbitrary objects.
