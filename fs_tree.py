@@ -278,7 +278,13 @@ class FileTree(Tree):
 
     def hash_function(self, keys: Iterable[str]) -> Iterable[str]:
         """Hashes given paths using our hash function"""
-        return [hash_path(os.path.join(self.root, key), hash_constructor=self.hash_constructor) for key in keys]
+        from multiprocessing.pool import Pool
+        if len(keys) > 10:
+            with Pool() as pool:
+                func = functools.partial(hash_path, hash_constructor=self.hash_constructor)
+                return pool.map(func, [os.path.join(self.root, key) for key in keys])
+        else:
+            return [hash_path(os.path.join(self.root, key), hash_constructor=self.hash_constructor) for key in keys]
 
     def get_file_listing(self, dir: str) -> list[str]:
         """Returns a list of all files (no dirs) in a directory, recursively."""
@@ -358,22 +364,6 @@ class ChromaTree(Tree):
         logger.info(f'Deleting {len(diffs)} ids: {[d.a for d in diffs]}')
         if not self.debug:
             self.col.delete(ids=[d.a for d in diffs])
-
-    def execute_move(self, diffs: list[Diff], other: Tree) -> None:
-        """Executes MOVE operations from given `diffs` going from `self` to `other`
-
-        Since chroma doesn't allow us to update ids, we have to do a copy followed by a delete.
-        """
-        self.execute_copy(diffs, other)
-        self.execute_delete(diffs, other)
-
-    def execute_copy(self, diffs: list[Diff], other: Tree) -> None:
-        """Executes COPY operations from given `diffs` going from `self` to `other`
-
-        Because some of the metadata keys are derived from the path (i.e., id), we just implement
-        this as doing an ADD, which will re-extract.
-        """
-        return self.execute_add(diffs, other)
 
 
 class AirtableTree(Tree):
