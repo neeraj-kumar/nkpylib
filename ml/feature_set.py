@@ -23,7 +23,7 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from nkpylib.ml.ml_types import nparray1d, nparray2d, array1d, array2d
-from nkpylib.ml.lmdb import PickleableLmdb, JsonLmdb, MetadataLmdb, NumpyLmdb
+from nkpylib.ml.nklmdb import PickleableLmdb, JsonLmdb, MetadataLmdb, NumpyLmdb
 
 logger = logging.getLogger(__name__)
 

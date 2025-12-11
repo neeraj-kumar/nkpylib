@@ -413,10 +413,11 @@ def embed_text(s: str,
     Models:
     - 'sentence': BAAI/bge-large-en-v1.5 [default]
     - 'clip': openai/clip-vit-large-patch14
+    - 'jina'
 
     Returns the raw json response (as a dict).
     """
-    from nkpylib.ml.feature_set import NumpyLmdb
+    from nkpylib.ml.nklmdb import NumpyLmdb
     db: NumpyLmdb|None = None
     hashed: str|None = None
     if lmdb_cache_path:

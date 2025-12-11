@@ -26,6 +26,7 @@ from tqdm import tqdm
 from nkpylib.ml.client import chunked, embed_image, embed_text
 from nkpylib.utils import specialize
 from nkpylib.thread_utils import CollectionUpdater
+from nkpylib.fs_tree import Tree
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +293,7 @@ class LmdbUpdater(CollectionUpdater):
     def __init__(self,
                  db_path: str,
                  init_fn: Callable,
-                 map_size: int=2e32,
+                 map_size: int=2**25,
                  n_procs: int=4,
                  **kw):
         """Initialize the updater with the given db_path and `init_fn` (to pick which flavor)
@@ -365,7 +366,108 @@ class LmdbUpdater(CollectionUpdater):
         self.futures = []
 
 
-def quick_test(path: str, n: int=3, **kw):
+class LmdbTree(Tree):
+    def __init__(self,
+                 path: str,
+                 add_func: Callable[[list[str], Tree], dict[dict[str, Any]]],
+                 prefix: str='',
+                 hash_key: str='hash',
+                 db_cls: type[NumpyLmdb]|type[JsonLmdb]=NumpyLmdb,
+                 debug: bool=False,
+                 **init_kw):
+        """Initialize this LMDB tree with db of type `db_cls` at the given `path`.
+
+        We open the db using the `db_cls.open` classmethod with mode 'c'. Any extra `init_kw` are
+        passed to that function. We currently allow for 2 types of db:
+        - NumpyLmdb: We assume the values are numpy arrays and other fields are stored in the
+          metadata
+        - JsonLmdb: We assume the values are JSON-serializable objects with all relevant fields.
+
+        The `add_func` is a function that takes a list of keys to add and the `other` Tree, and
+        returns a dict of dicts, mapping each key to a dict with the following fields:
+        - 'embedding': np.ndarray [only if db_cls is NumpyLmdb]
+        - 'metadata': dict of other metadata fields to store
+
+        This requires the db to have hashes in the metadata for items (possibly not all filled
+        out), stored under field `hash_key` (either in the metadata db for NumpyLmdb, or in the
+        main db for JsonLmdb).
+
+        If you set `debug` to True, then no changes will be made.
+        """
+        self.path = path
+        self.hash_key = hash_key
+        self.prefix = prefix
+        self.add_func = add_func
+        self.db_cls = db_cls
+        self.init_kw = init_kw
+        db = self.load_db()
+        self.debug = debug
+        keys = [key.replace(prefix, '', 1) for key in db.keys() if key.startswith(prefix)]
+        super().__init__(keys)
+
+    def load_db(self) -> JsonLmdb|NumpyLmdb:
+        """Returns a fresh LMDB database object for this tree."""
+        return self.db_cls.open(self.path, flag='c', **self.init_kw)
+
+    def hash_function(self, keys: Iterable[str]) -> Iterable[str]:
+        """Returns the hash values for the given `keys`"""
+        db = self.load_db()
+        if isinstance(self.db_cls, NumpyLmdb):
+            hashes = [db.md_get(self.prefix+key).get(self.hash_key) for key in keys]
+        elif isinstance(self.db_cls, JsonLmdb):
+            hashes = [db[self.prefix+key].get(self.hash_key, '') for key in keys]
+        else:
+            raise NotImplementedError(f'Unsupported db class {self.db_cls}')
+        return hashes
+
+    def execute_add(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes ADD operations from given `diffs` going from `self` to `other`.
+
+        This adds the given keys to chroma, including all relevant metadata.
+        """
+        assert self.add_func is not None
+        to_add = self.add_func([d.b for d in diffs], other)
+        db = self.load_db()
+        if isinstance(db, NumpyLmdb):
+            main_to_add = {}
+            md_to_add = {}
+            for key, item in to_add.items():
+                if 'embedding' in item:
+                    main_to_add[self.prefix+key] = item.pop('embedding')
+                if 'metadata' in item:
+                    md_to_add[self.prefix+key] = item.pop('metadata')
+            logger.info(f'Adding {len(main_to_add)} embeddings and {len(md_to_add)} metadata entries to {db}.')
+            if not self.debug:
+                if main_to_add:
+                    db.update(main_to_add)
+                if md_to_add:
+                    db.md_batch_set(md_to_add)
+                db.sync()
+        elif isinstance(db, JsonLmdb):
+            logger.info(f'Adding {len(to_add)} entries to {db}.')
+            if not self.debug:
+                db.update(to_add)
+                db.sync()
+
+    def execute_delete(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes DELETE operations from given `diffs` going from `self` to `other`
+
+        This deletes the list of keys from our db. If our db is a subclass of MetadataLmdb, we also
+        delete the metadata at those keys.
+        """
+        logger.info(f'Deleting {len(diffs)} ids: {[d.a for d in diffs]}')
+        db = self.load_db()
+        if not self.debug:
+            for d in diffs:
+                key = self.prefix + d.a
+                if key in db:
+                    del db[key]
+                if isinstance(db, MetadataLmdb) and key in db.md_db:
+                    db.md_delete(key)
+            db.sync()
+
+
+def quick_test(path: str, n: int=3, show_md=False, **kw):
     """Prints the first `n` embeddings from given `path` (assumed to be NumpyLmdb).
 
     We print information about the db and metadata to stderr, and then the first `n` entries to
@@ -389,7 +491,11 @@ def quick_test(path: str, n: int=3, **kw):
         print(f'  Got {n_md} metadata entries, global: {g}', file=sys.stderr)
     for key, value in db.items():
         val_s = ' '.join(f'{v:.4f}' for v in value)
-        print(f'{key}\t{val_s}')
+        s = f'{key}\t{val_s}'
+        if show_md:
+            md = db.md_get(key)
+            s += '\t' + ','.join(f'{k}={v}' for k, v in md.items())
+        print(s)
         num += 1
         if num >= n:
             break
