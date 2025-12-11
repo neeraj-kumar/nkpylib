@@ -408,6 +408,7 @@ class ImageTextEmbeddingModel(EmbeddingModel):
 
     async def _run(self, input: Any, **kw) -> dict:
         try:
+            #print(f'Running embedding model {self.model} on input: {input}')
             ret = await asyncio.to_thread(self.model, input) # no kw options at runtime
             if not isinstance(ret, np.ndarray):
                 ret = ret.numpy()
@@ -417,16 +418,43 @@ class ImageTextEmbeddingModel(EmbeddingModel):
             return {}
 
 @Singleton
-class ClipEmbeddingModel(ImageTextEmbeddingModel):
+class ClipTextEmbeddingModel(ImageTextEmbeddingModel):
+    """Model subclass for handling CLIP text embeddings."""
+    def __init__(self, model_name: str='', use_cache: bool=True, **kw):
+        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, **kw)
+
+    async def load_feature_funcs(self):
+        """Returns two functions: one for text features, one for image features."""
+        return load_clip()
+
+@Singleton
+class ClipImageEmbeddingModel(ImageTextEmbeddingModel):
     """Model subclass for handling CLIP text/image embeddings."""
+    def __init__(self, model_name: str='', use_cache: bool=True, **kw):
+        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, **kw)
+
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
         return load_clip()
 
 
 @Singleton
-class JinaEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for handling Jina text/image embeddings."""
+class JinaTextEmbeddingModel(ImageTextEmbeddingModel):
+    """Model subclass for handling Jina text embeddings."""
+    def __init__(self, model_name: str='', use_cache: bool=True, **kw):
+        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, **kw)
+
+    async def load_feature_funcs(self):
+        """Returns two functions: one for text features, one for image features."""
+        return load_jina()
+
+
+@Singleton
+class JinaImageEmbeddingModel(ImageTextEmbeddingModel):
+    """Model subclass for handling Jina image embeddings."""
+    def __init__(self, model_name: str='', use_cache: bool=True, **kw):
+        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, **kw)
+
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
         return load_jina()
@@ -525,8 +553,10 @@ class ExternalTranscriptionModel(TranscriptionModel):
 ALL_SINGLETON_MODELS = [
     ExternalChatModel,
     VLMModel,
-    ClipEmbeddingModel,
-    JinaEmbeddingModel,
+    ClipTextEmbeddingModel,
+    ClipImageEmbeddingModel,
+    JinaTextEmbeddingModel,
+    JinaImageEmbeddingModel,
     SentenceTransformerModel,
     ExternalEmbeddingModel,
     TextExtractionModel,
@@ -647,8 +677,8 @@ async def text_embeddings(req: TextEmbeddingRequest):
     """Generates embeddings for the given text using the given model."""
     req.model = _default(req.model)
     model_class_by_name = {
-        _default('clip'): lambda **kw: ClipEmbeddingModel(mode='text', **kw),
-        _default('jina'): lambda **kw: JinaEmbeddingModel(mode='text', **kw),
+        _default('clip'): lambda **kw: ClipTextEmbeddingModel(**kw),
+        _default('jina'): lambda **kw: JinaTextEmbeddingModel(**kw),
         _default('sentence'): SentenceTransformerModel,
     }
     ModelClass: Any = model_class_by_name.get(req.model, ExternalEmbeddingModel)
@@ -666,14 +696,13 @@ class ImageEmbeddingRequest(BaseRequest):
 async def image_embeddings(req: ImageEmbeddingRequest):
     """Generates embeddings for the given image url (or local path) using the given model."""
     req.model = _default(req.model)
-    match req.model:
-        case _default('clip'):
-            Cls = ClipEmbeddingModel
-        case _default('jina'):
-            Cls = JinaEmbeddingModel
-        case _:
-            raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
-    model = Cls(model_name=req.model, mode='image', use_cache=req.use_cache)
+    if req.model == _default('clip'):
+        Cls = ClipImageEmbeddingModel
+    elif req.model == _default('jina'):
+        Cls = JinaImageEmbeddingModel
+    else:
+        raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
+    model = Cls(model_name=req.model, use_cache=req.use_cache)
     ret = await model.run(input=req.url, caller=req.caller)
     return ret
 
