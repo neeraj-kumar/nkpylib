@@ -354,6 +354,7 @@ class Singleton:
 
         # Try fast path first
         instance = self._instances.get(key)
+        logger.debug(f'Singleton __call__ key={key} instance={instance}')
         if instance is not None:
             return instance
 
@@ -363,6 +364,7 @@ class Singleton:
             if instance is None:
                 instance = self._cls(*args, **kwargs)
                 self._instances[key] = instance
+        logger.debug(f'  loaded new instance={instance}')
         return instance
 
     async def __acall__(self, *args, **kwargs):
