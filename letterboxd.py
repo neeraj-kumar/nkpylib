@@ -162,14 +162,8 @@ class LetterboxdArchive:
         except KeyError:
             return default
 
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    parser = ArgumentParser(description=__doc__)
-    parser.add_argument("path", help="Path to the letterboxd archive")
-    args = parser.parse_args()
-    archive = LetterboxdArchive(args.path)
-    print(f'Read letterboxd archive with {len(archive)} entries')
+def list_main(archive: LetterboxdArchive, **kw) -> None:
+    """Simple driver to list movies in this archive"""
     # read our mementodb and get list of movies that we've seen
     from nkpylib.memento import MovieDB
     mdb = MovieDB()
@@ -184,3 +178,18 @@ if __name__ == "__main__":
         #print(f'got movie: {m} vs {matches}')
         print(f"Seen movie {f['title']} ({f.get('recommended by')})")
         i += 1
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    funcs = {fn.__name__: fn for fn in [list_main]}
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument("func", choices=funcs.keys(), help="Function to run")
+    parser.add_argument("path", nargs='?', default='/home/neeraj/dp/projects/movies/letterboxd/latest', help="Path to the letterboxd archive")
+    args = parser.parse_args()
+    archive = LetterboxdArchive(args.path)
+    print(f'Read letterboxd archive with {len(archive)} entries')
+    kw = vars(args)
+    kw.pop('func')
+    kw.pop('path')
+    args.func(archive, **kw)
