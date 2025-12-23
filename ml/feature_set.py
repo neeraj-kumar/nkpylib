@@ -27,6 +27,8 @@ from nkpylib.ml.nklmdb import PickleableLmdb, JsonLmdb, MetadataLmdb, NumpyLmdb
 
 logger = logging.getLogger(__name__)
 
+KeyT = TypeVar('KeyT')
+
 class FeatureSet(Mapping, Generic[KeyT]):
     """A set of features that you can do stuff with.
 
@@ -50,6 +52,9 @@ class FeatureSet(Mapping, Generic[KeyT]):
             self.n_dims = len(value)
             break
         self.cached: dict[str, Any] = dict()
+
+    def __repr__(self) -> str:
+        return f'FeatureSet<{len(self.inputs)} inputs, {len(self)} keys, {self.n_dims} dims>'
 
     def __getstate__(self) -> dict[str, Any]:
         """Returns state of this suitable for pickling.
