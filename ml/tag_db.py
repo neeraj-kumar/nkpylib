@@ -22,7 +22,7 @@ from os.path import abspath, join, dirname, exists
 from pony.orm import * # type: ignore
 from pony.orm.core import Entity, EntityMeta, SetInstance # type: ignore
 
-from nkpylib.pony import GetMixin, recursive_to_dict, sqlite_pragmas
+from nkpylib.nkpony import GetMixin, recursive_to_dict, sqlite_pragmas
 
 logger = logging.getLogger(__name__)
 

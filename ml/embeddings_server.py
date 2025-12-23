@@ -18,7 +18,7 @@ from tornado.web import RequestHandler
 
 from nkpylib.ml.tag_db import Tag, get_all_tags, init_tag_db
 from nkpylib.ml.feature_set import FeatureSet, NumpyLmdb, LmdbUpdater
-from nkpylib.pony import GetMixin, recursive_to_dict, sqlite_pragmas
+from nkpylib.nkpony import GetMixin, recursive_to_dict, sqlite_pragmas
 from nkpylib.utils import specialize
 from nkpylib.web_utils import (
     BaseHandler,
