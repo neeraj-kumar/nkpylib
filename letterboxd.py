@@ -21,6 +21,7 @@ from typing import Any, Iterator
 from tqdm import tqdm
 
 from movies.searcher import search_movies # type: ignore
+from nkpylib.thread_utils import JSONUpdater
 
 logger = logging.getLogger(__name__)
 
@@ -99,14 +100,9 @@ class LetterboxdArchive:
     def add_imdb_ids(self):
         """Adds imdb ids to the diary entries"""
         # read existing imdb ids
-        imdb_ids_path = join(dirname(self.path), 'imdb_ids.json')
-        try:
-            with open(imdb_ids_path) as f:
-                imdb_ids = json.load(f)
-                imdb_map = {row['letterboxd_uri']: row['imdb_id'] for row in imdb_ids if row.get('imdb_id') and row.get('letterboxd_uri')}
-        except FileNotFoundError:
-            imdb_ids = []
-            imdb_map = {}
+        updater = JSONUpdater(join(dirname(self.path), 'imdb_ids.json'))
+        updater.load_existing(as_dict=False)
+        imdb_map = {row['letterboxd_uri']: row['imdb_id'] for row in updater.data if row.get('imdb_id') and row.get('letterboxd_uri')}
         for entry in self.diary.values():
             entry['imdb_id'] = imdb_map.get(entry['Letterboxd URI'])
             self.diary_by_imdb_id.setdefault(entry['imdb_id'], []).append(entry)
@@ -131,14 +127,14 @@ class LetterboxdArchive:
                 logger.debug(f'For entry {entry}: {matches}')
                 entry['imdb_id'] = matches[0].id
                 self.diary_by_imdb_id.setdefault(entry['imdb_id'], []).append(entry)
-                imdb_ids.append(dict(title=entry['Name'], year=entry['Year'], letterboxd_uri=entry['Letterboxd URI'], imdb_id=entry['imdb_id']))
+                updater.add(id=None, obj=dict(title=entry['Name'],
+                                              year=entry['Year'],
+                                              letterboxd_uri=entry['Letterboxd URI'],
+                                              imdb_id=entry['imdb_id']))
         except Exception as e:
             logger.error(f'Error searching for movies: {e}')
             return
-        # save the new list of imdb ids to a temp file then rename
-        with open(imdb_ids_path+'.tmp', 'w') as f:
-            json.dump(imdb_ids, f, indent=2)
-        shutil.move(imdb_ids_path+'.tmp', imdb_ids_path)
+        updater.commit()
 
     def __iter__(self) -> Iterator[Entry]:
         """Iterates through all our diary entries (in chronological order)."""
