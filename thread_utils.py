@@ -10,8 +10,12 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import json
 import logging
 import os
+import shutil
+import sys
+import tempfile
 import threading
 import time
 import typing
@@ -239,10 +243,10 @@ class CollectionUpdater:
 
     Note that when the updater is deleted, it will automatically commit any remaining items, so you
     don't have to worry about the pesky "last commit" that is always annoying to deal with -- as
-    soon as this goes out-of-scope, it will commit. You can also just call commit() at the end of
-    your add loop.
+    soon as this goes out-of-scope (and garbage collected), it will commit. You can also just call
+    commit() at the end of your add loop.
 
-    The class also keeps track of all ids ever seen and whether have been committed or not via
+    The class also keeps track of all ids ever seen and whether they have been committed or not via
     `ids_seen`.
 
     It will also call the optional `post_commit_fn(list_of_ids_committed)` after each commit,
@@ -336,6 +340,101 @@ class CollectionUpdater:
         self.to_add['objects'].append(obj)
         self.ids_seen[id] = False
         self.maybe_commit()
+
+
+class JSONUpdater(CollectionUpdater):
+    """A CollectionUpdater specialized for JSON files.
+
+    This takes a JSON path as input and on first use, reads existing items from it. It then appends
+    new items to it as they are added via the `add()` method. If `id` is None-like, then it assumes
+    the underlying JSON object is a list, otherwise a dict keyed by id. Note that in the former case,
+    we create an id based on the length of the list at the time of addition.
+
+    When you commit, it writes out the entire JSON file again with the new items appended. This is
+    done to a tempfile (in the same dir as the original) and then renamed to avoid corruption.
+    """
+    def __init__(self,
+                 path: str,
+                 item_incr: int=100,
+                 time_incr: float=30.0,
+                 post_commit_fn: Callable[[list[str]], None]|None=None,
+                 debug: bool=False):
+        """Initializes the JSONUpdater with the given `path` and update frequencies.
+
+        - path: path to the JSON file to read/write
+        - item_incr: number of items to add before committing [default 100]. (Disabled if <= 0)
+        - time_incr: elapsed time to wait before committing [default 30.0]. (Disabled if <= 0)
+
+        Note that if both are specified, then whichever comes first triggers a commit.
+
+        You can optionally pass in a `post_commit_fn` to be called after each commit. It is called
+        with the list of ids that were just committed.
+
+        If you specify `debug=True`, then commit messages will be printed using logger.info()
+        """
+        self.path = path
+        self.data: list[Any]|dict[str, Any]|None = None
+        super().__init__(
+            add_fn=self._add_items,
+            item_incr=item_incr,
+            time_incr=time_incr,
+            post_commit_fn=post_commit_fn,
+            debug=debug,
+        )
+
+    def load_existing(self, as_dict: bool) -> None:
+        """Loads our existing data into self.data if it exists; else creates an empty list or dict.
+
+        You must specify whether the data is a dict (if as_dict=True) or a list.
+        """
+        if self.data is None:
+            return
+        try:
+            with open(self.path, 'r') as f:
+                self.data = json.load(f)
+        except Exception as e:
+            self.data = {} if as_dict else []
+        if isinstance(self.data, list):
+            existing_ids = [str(i) for i in range(len(self.data))]
+        elif isinstance(self.data, dict):
+            existing_ids = list(self.data.keys())
+        else:
+            raise ValueError(f'JSON file {self.path} must contain a list or dict at top level')
+        for id in existing_ids:
+            self.ids_seen[id] = True
+
+    def _add_items(self, batch: dict[str, list[Any]]) -> None:
+        """Adds the given batch of items to the JSON file."""
+        for id, obj in zip(batch['ids'], batch['objects']):
+            if isinstance(self.data, list):
+                self.data.append(obj)
+            elif isinstance(self.data, dict):
+                self.data[id] = obj
+            else:
+                raise ValueError(f'Data must be a list or dict, not {type(self.data)}')
+        # write out to a temp file and rename (overwriting existing)
+        dir = dirname(abspath(self.path))
+        with tempfile.NamedTemporaryFile('w', dir=dir, delete=False) as tf:
+            json.dump(self.data, tf, indent=2)
+            tempname = tf.name
+        shutil.move(tempname, self.path)
+
+    def add(self, id: str|None, obj: Any):
+        """Adds an `obj` to the updater.
+
+        If `id` is None-like, we assume the underlying JSON object is a list, otherwise a dict
+        keyed by id. Note that in the former case, we create an id based on the length of the list
+        at the time of addition.
+
+        If the update frequency is reached, it will commit the items to the collection.
+        """
+        as_dict = id is not None
+        self.load_existing(as_dict=as_dict)
+        if id is None:
+            assert isinstance(self.data, list), 'Data must be a list if id is None'
+            id = str(len(self.data))
+        super().add(id, obj)
+
 
 class Singleton:
     """A singleton implementation that hashes the args and kwargs to the init of a class"""
