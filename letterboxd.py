@@ -13,9 +13,12 @@ import re
 import shutil
 
 from argparse import ArgumentParser
+from collections import Counter
 from csv import DictReader
 from os.path import dirname, join, exists
 from typing import Any, Iterator
+
+from tqdm import tqdm
 
 from movies.searcher import search_movies # type: ignore
 
@@ -122,7 +125,7 @@ class LetterboxdArchive:
         try:
             ret = search_movies(queries, max_workers=1)
             # add new imdb ids to the diary, and to our list which we will save
-            for entry, matches in zip(to_search, ret):
+            for entry, matches in tqdm(zip(to_search, ret)):
                 if not matches:
                     continue
                 logger.debug(f'For entry {entry}: {matches}')
@@ -162,7 +165,7 @@ class LetterboxdArchive:
         except KeyError:
             return default
 
-def list_main(archive: LetterboxdArchive, **kw) -> None:
+def test_main(archive: LetterboxdArchive, **kw) -> None:
     """Simple driver to list movies in this archive"""
     # read our mementodb and get list of movies that we've seen
     from nkpylib.memento import MovieDB
@@ -179,10 +182,56 @@ def list_main(archive: LetterboxdArchive, **kw) -> None:
         print(f"Seen movie {f['title']} ({f.get('recommended by')})")
         i += 1
 
+def stats_main(archive: LetterboxdArchive, **kw) -> None:
+    """Simple driver to show my stats from this year about this archive.
+
+    This includes:
+    - number of movies watched
+    - number of new movies/re-watches
+    - number of movies per rating, subdivided by new vs re-watch
+    """
+    year = datetime.date.today().year
+    entries = [e for e in archive if e['Date'].year == year]
+    counts = Counter()
+    top_new = []
+    for e in entries:
+        #print(e)
+        counts['total'] += 1
+        stars = str(e.get('Rating', 0))
+        counts[f'stars={stars}'] += 1
+        is_new = e.get('Year', 0) >= year - 1
+        if is_new:
+            counts[f'New movie'] += 1
+            counts[f'New movie stars={stars}'] += 1
+        else:
+            counts[f'Old movie'] += 1
+            counts[f'Old movie stars={stars}'] += 1
+        if e.get('Rewatch'):
+            counts['rewatch'] += 1
+            counts[f'rewatch={stars}'] += 1
+        else:
+            counts['new'] += 1
+            counts[f'new={stars}'] += 1
+            if stars in ('4.5', '5.0'):
+                top_new.append(e)
+
+    print(f'Stats for year {year}:')
+    for key, count in counts.items():
+        if '=' not in key:
+            print(f'  {key}: {count}')
+    for key, count in sorted(counts.items()):
+        if '=' in key:
+            print(f'  {key}: {count}')
+    print('Top new 4.5+ star movies:')
+    for e in top_new:
+        print(f"  {e['Name']} ({e.get('Year', '')}): {e.get('Rating', '')}")
+
+
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    funcs = {fn.__name__: fn for fn in [list_main]}
+    funcs = {fn.__name__: fn for fn in [test_main, stats_main]}
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("func", choices=funcs.keys(), help="Function to run")
     parser.add_argument("path", nargs='?', default='/home/neeraj/dp/projects/movies/letterboxd/latest', help="Path to the letterboxd archive")
@@ -190,6 +239,6 @@ if __name__ == "__main__":
     archive = LetterboxdArchive(args.path)
     print(f'Read letterboxd archive with {len(archive)} entries')
     kw = vars(args)
-    kw.pop('func')
+    func = funcs[kw.pop('func')]
     kw.pop('path')
-    args.func(archive, **kw)
+    func(archive, **kw)

@@ -77,9 +77,12 @@ memento:
 	python3 memento.py
 
 ## tests out the letterboxd integration
-letterboxd:
-	python3 letterboxd.py list_main
-	#python3 letterboxd.py ~/dp/projects/movies/letterboxd/latest
+letterboxd-test:
+	python3 letterboxd.py test_main
+
+## prints out letterboxd stats for this year
+letterboxd-stats:
+	python3 letterboxd.py stats_main
 
 ## tests out the indent writer
 indent:
