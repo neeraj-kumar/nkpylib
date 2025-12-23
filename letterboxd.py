@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import re
-import shutil
 
 from argparse import ArgumentParser
 from collections import Counter
