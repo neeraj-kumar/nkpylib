@@ -11,6 +11,7 @@ import os
 import re
 import time
 
+from argparse import ArgumentParser
 from collections import Counter
 from typing import Any, Iterator, TypedDict
 
@@ -407,20 +408,24 @@ def migrate_food():
             except Exception:
                 pass
 
+def simple_test(**kw):
+    p = lambda x: print(json.dumps(x, indent=2))
+    r = get_libraries()
+    p(r)
+    info = get_library_info(r["movies"])
+    p(info)
+    entries = get_entries(r["movies"], library_info=info)
+    p(entries["entries"][:10])
+    serp = search_entries("tt0140352", r["movies"])
+    p(serp)
+
 
 if __name__ == "__main__":
-    p = lambda x: print(json.dumps(x, indent=2))
-    task = 'test-movies'
-    if task == 'simple-test':
-        r = get_libraries()
-        p(r)
-        info = get_library_info(r["movies"])
-        p(info)
-        entries = get_entries(r["movies"], library_info=info)
-        p(entries["entries"][:10])
-        serp = search_entries("tt0140352", r["movies"])
-        p(serp)
-    elif task == 'test-movies':
-        MovieDB.test()
-    elif task == 'migrate-food':
-        migrate_food()
+    parser = ArgumentParser(description="Memento Database Utilities")
+    test_movies = lambda **kw: MovieDB.test()
+    funcs = {f.__name__: f for f in [simple_test, test_movies, migrate_food]}
+    parser.add_argument("func", choices=funcs.keys(), help="Function to run")
+    args = parser.parse_args()
+    kw = vars(args)
+    func = funcs[kw.pop("func")]
+    func(**kw)
