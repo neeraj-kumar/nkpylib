@@ -213,7 +213,7 @@ class StateLogReader:
         return ret
 
     def __iter__(self):
-        return self
+        return iter(self.history)
 
     def cli_print_obj(self, obj, idx):
         """Prints an object for the CLI.
@@ -280,6 +280,12 @@ def web_main():
     kw = {}
     def post_parse_fn(args):
         reader = StateLogReader(args['data_path'])
+        last = ''
+        for row in reader:
+            if row['_name'] == 'active-active' and row.get('name') and row.get('name') != last:
+                print(row.get('name'))
+                last = row.get('name')
+            #break
         kw['reader'] = reader
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/state_logger.jsx',
