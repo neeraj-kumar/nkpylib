@@ -1,6 +1,47 @@
 """Basic feature classes and utilities.
 
-#TODO new description here
+## Core Concepts
+
+This library uses a template-based architecture for efficient feature engineering:
+
+**Templates**: Reusable feature configurations that define shared parameters across multiple feature instances. Templates act as factories that create feature instances with common settings, reducing memory usage and ensuring consistency.
+
+**Features**: Individual feature computors that return numpy arrays. Features can be simple (single values) or composite (combining multiple sub-features). All features implement a common interface with `get()` returning validated numpy arrays.
+
+**Composite Features**: Schema-driven features that combine multiple sub-features in a predefined structure. The schema defines what features are included and their order, enabling consistent feature vectors across instances.
+
+**Feature Maps**: Dictionary-like containers that map keys to feature vectors, providing a clean interface for batch feature computation.
+
+## Usage Patterns
+
+1. **Define templates** with shared parameters for feature types you'll use repeatedly
+2. **Create composite features** using schemas to define consistent feature structures  
+3. **Use feature maps** to organize and access features by key
+4. **Call `get()`** on any feature to obtain its numpy array representation
+
+## Class Details
+
+**Template**: Factory for creating feature instances with shared parameters. Tracks all instances created and provides schema information.
+
+**Feature**: Abstract base class defining the feature interface. Subclasses implement `_get()` to return numpy arrays.
+
+**CompositeFeature**: Schema-based feature that combines multiple sub-features. Subclasses define schemas using `define_schema()` and `add_schema()`.
+
+**ConstantFeature**: Returns constant values as numpy arrays.
+
+**EnumFeature**: Encodes categorical values using various encoding schemes (onehot, integer, binary, target, hash).
+
+**PairwiseMax**: Computes maximum similarity between two sets using a comparison function.
+
+**TimeContext**: Extracts temporal features from timestamps (day of week, hour, etc).
+
+**Recency**: Computes time differences between timestamps with optional log transformation.
+
+**MappingFeature**: Wraps dictionary-like objects as features.
+
+**FunctionFeature**: Wraps arbitrary functions as features.
+
+**FeatureMap**: Dictionary-like container mapping keys to feature vectors.
 
 This module provides classes and functions for working with features (in the ML sense):
 
