@@ -312,13 +312,13 @@ class Feature(ABC):
         return len(self.get())
 
     @abstractmethod
-    def _get(self) -> np.ndarray:
+    def _get(self, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array (implementation)"""
         raise NotImplementedError()
 
-    def get(self) -> np.ndarray:
+    def get(self, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array with validation."""
-        ret = self._get()
+        ret = self._get(*args, **kw)
         self.validate(ret, self)
         return ret
 
@@ -439,16 +439,25 @@ class CompositeFeature(Feature):
 
 class ConstantFeature(Feature):
     """A constant feature (could be many dims)"""
-    def __init__(self, values: int|float|Sequence[int|float], **kw):
+    def __init__(self, values: int|float|Sequence[int|float]=None, **kw):
         """Initializes the constant feature"""
         super().__init__(**kw)
-        if isinstance(values, (int, float)):
-            values = [values]
-        self.values = np.array(values)
+        if values is not None:
+            if isinstance(values, (int, float)):
+                values = [values]
+            self.values = np.array(values)
+        else:
+            self.values = None
 
-    def _get(self) -> np.ndarray:
+    def _get(self, values: int|float|Sequence[int|float]=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
-        return self.values
+        # Use provided values or fall back to stored ones
+        vals = values if values is not None else self.values
+        if vals is None:
+            raise ValueError("No values provided to ConstantFeature")
+        if isinstance(vals, (int, float)):
+            vals = [vals]
+        return np.array(vals)
 
 
 EnumT = TypeVar('EnumT', bound=Hashable)
@@ -463,15 +472,13 @@ class EnumFeature(Feature, Generic[EnumT]):
     - hash: Hash encoding to fixed number of bins
     """
     def __init__(self,
-                 value: EnumT,
                  enum_values: Sequence[EnumT] | Mapping[EnumT, float|int|Sequence[float]] | int,
                  encoding: str='onehot',
+                 value: EnumT=None,
                  **kw):
         """Initialize enum feature encoder.
 
         Args:
-        - value: The enum value to encode
-        - encoding: One of 'onehot', 'int', 'binary', 'target', 'hash'
         - enum_values:
           - if encoding is 'onehot', 'int', or 'binary', this is the list of all possible enum
             values, in the order to use for encoding
@@ -479,40 +486,45 @@ class EnumFeature(Feature, Generic[EnumT]):
             value can be a single number or an array of numbers (e.g. an embedding)
           - if encoding is 'hash', this is the number of number of hash bins to use.
             we use the built-in hash function and modulo to get a bin index.
-
-        We encode the value according to the specified encoding scheme immediately, storing only the
-        final numpy array. Note that if you are encoding multiple values of the same enum, you
-        should ensure that `enum_values` stays the same.
+        - encoding: One of 'onehot', 'int', 'binary', 'target', 'hash'
+        - value: The enum value to encode (can be provided here or in get())
         """
         super().__init__(**kw)
-        match encoding:
+        self.enum_values = enum_values
+        self.encoding = encoding
+        self.value = value
+
+    def _get(self, value: EnumT=None, *args, **kw) -> np.ndarray:
+        """Returns the encoded feature as a numpy array."""
+        # Use provided value or fall back to stored one
+        val = value if value is not None else self.value
+        if val is None:
+            raise ValueError("No value provided to EnumFeature")
+        
+        match self.encoding:
             case 'onehot':
-                idx = enum_values.index(value)
-                arr = np.zeros(len(enum_values))
+                idx = self.enum_values.index(val)
+                arr = np.zeros(len(self.enum_values))
                 arr[idx] = 1
-                self._encoded = arr
+                return arr
             case 'int':
-                self._encoded = np.array([enum_values.index(value)])
+                return np.array([self.enum_values.index(val)])
             case 'binary':
-                idx = enum_values.index(value)
-                n_bits = int(np.ceil(np.log2(len(enum_values))))
+                idx = self.enum_values.index(val)
+                n_bits = int(np.ceil(np.log2(len(self.enum_values))))
                 binary = format(idx, f'0{n_bits}b')
-                self._encoded = np.array([int(b) for b in binary])
+                return np.array([int(b) for b in binary])
             case 'target':
-                v = enum_values[value]
+                v = self.enum_values[val]
                 if isinstance(v, (int, float)):
                     v = [v]
-                self._encoded = np.array(v)
+                return np.array(v)
             case 'hash':
-                hash_val = hash(str(value))
-                bin_idx = hash_val % enum_values
-                arr = np.zeros(enum_values)
+                hash_val = hash(str(val))
+                bin_idx = hash_val % self.enum_values
+                arr = np.zeros(self.enum_values)
                 arr[bin_idx] = 1
-                self._encoded = arr
-
-    def _get(self) -> np.ndarray:
-        """Returns the encoded feature as a numpy array."""
-        return self._encoded
+                return arr
 
 
 T = TypeVar('T')
@@ -524,22 +536,28 @@ class PairwiseMax(Feature, Generic[T]):
     that returns a float, of which we take the maximum.
     """
     def __init__(self,
-                 keys1: Sequence[T],
-                 keys2: Sequence[T],
                  sim_func: Callable[[T, T], float],
                  default: float=-1.0,
+                 keys1: Sequence[T]=None,
+                 keys2: Sequence[T]=None,
                  **kw):
         super().__init__(**kw)
-        self.keys1 = keys1
-        self.keys2 = keys2
         self.sim_func = sim_func
         self.default = default
+        self.keys1 = keys1
+        self.keys2 = keys2
 
-    def _get(self) -> np.ndarray:
+    def _get(self, keys1: Sequence[T]=None, keys2: Sequence[T]=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
+        # Use provided keys or fall back to stored ones
+        k1 = keys1 if keys1 is not None else self.keys1
+        k2 = keys2 if keys2 is not None else self.keys2
+        if k1 is None or k2 is None:
+            raise ValueError("No keys provided to PairwiseMax")
+        
         try:
-            keys = [(k1, k2) for k1 in self.keys1 for k2 in self.keys2]
-            values = [self.sim_func(k1, k2) for k1, k2 in keys]
+            keys = [(key1, key2) for key1 in k1 for key2 in k2]
+            values = [self.sim_func(key1, key2) for key1, key2 in keys]
             if self.name.startswith('img_text_similarity') and max(values) > 0.4:
                 print(f"For {self.name} got keys and values: {[(k, v) for k,v in zip(keys, values) if v > 0.4]}")
             return np.array([max(values)])
@@ -553,28 +571,34 @@ class PairwiseMax(Feature, Generic[T]):
 
 class TimeContext(Feature):
     """Computes some features based on the time context"""
-    def __init__(self, ts: float|str, fields=['dow', 'hour'], **kw):
-        """Initializes the feature with a timestamp.
+    def __init__(self, fields=['dow', 'hour'], ts: float|str=None, **kw):
+        """Initializes the feature with field configuration.
 
         The types of fields that we populate are:
         - 'dow': day of week (0-6)
         - 'hour': hour of day (0-23)
         """
         super().__init__(**kw)
-        self.ts = parse_ts(ts)
         self.fields = fields
+        self.ts = parse_ts(ts) if ts is not None else None
         for field in fields:
             if field not in ['dow', 'hour']:
                 raise NotImplementedError(f"Unknown field {field}")
 
-    def _get(self) -> np.ndarray:
+    def _get(self, ts: float|str=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
+        # Use provided timestamp or fall back to stored one
+        timestamp = ts if ts is not None else self.ts
+        if timestamp is None:
+            raise ValueError("No timestamp provided to TimeContext")
+        
+        parsed_ts = parse_ts(timestamp)
         ret = []
         for field in self.fields:
             if field == 'dow':
-                ret.append(datetime.datetime.fromtimestamp(self.ts).weekday())
+                ret.append(datetime.datetime.fromtimestamp(parsed_ts).weekday())
             elif field == 'hour':
-                ret.append(datetime.datetime.fromtimestamp(self.ts).hour)
+                ret.append(datetime.datetime.fromtimestamp(parsed_ts).hour)
             else:
                 raise ValueError(f"Unknown field {field}")
         return np.array(ret)
@@ -582,7 +606,7 @@ class TimeContext(Feature):
 
 class Recency(Feature):
     """Computes the recency between two timestamps"""
-    def __init__(self, a: float|str, b: float|str, apply_log: bool=True, **kw):
+    def __init__(self, apply_log: bool=True, a: float|str=None, b: float|str=None, **kw):
         """The dates can either be as floats (epoch seconds) or as strings (ISO format).
 
         Note that this is NOT symmetric, we assume `a` is the more recent date.
@@ -592,16 +616,25 @@ class Recency(Feature):
         Internally we convert them to floats.
         """
         super().__init__(**kw)
-        self.a = parse_ts(a)
-        self.b = parse_ts(b)
         self.apply_log = apply_log
+        self.a = parse_ts(a) if a is not None else None
+        self.b = parse_ts(b) if b is not None else None
 
-    def _get(self) -> np.ndarray:
+    def _get(self, a: float|str=None, b: float|str=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
+        # Use provided timestamps or fall back to stored ones
+        ts_a = a if a is not None else self.a
+        ts_b = b if b is not None else self.b
+        if ts_a is None or ts_b is None:
+            raise ValueError("No timestamps provided to Recency")
+        
+        parsed_a = parse_ts(ts_a)
+        parsed_b = parse_ts(ts_b)
+        
         try:
-            ret = self.a - self.b
+            ret = parsed_a - parsed_b
         except Exception as e:
-            logger.error(f"{type(e)} Error with {self.a} - {self.b}: {e}")
+            logger.error(f"{type(e)} Error with {parsed_a} - {parsed_b}: {e}")
             raise
 
         if self.apply_log:
@@ -618,15 +651,20 @@ class MappingFeature(Feature, Generic[T]):
 
     The generic type T is the type of the key in the mapping.
     """
-    def __init__(self, d: Mapping, key: T, **kw):
+    def __init__(self, d: Mapping=None, key: T=None, **kw):
         """Initializes the feature with a mapping object `d` and a `key`."""
         super().__init__(**kw)
         self.d = d
         self.key = key
 
-    def _get(self) -> np.ndarray:
+    def _get(self, d: Mapping=None, key: T=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
-        return np.array(self.d[self.key])
+        # Use provided mapping/key or fall back to stored ones
+        mapping = d if d is not None else self.d
+        k = key if key is not None else self.key
+        if mapping is None or k is None:
+            raise ValueError("No mapping or key provided to MappingFeature")
+        return np.array(mapping[k])
 
 
 class FunctionFeature(Feature):
@@ -642,9 +680,12 @@ class FunctionFeature(Feature):
         self.func_args = func_args
         self.func_kwargs = func_kwargs
 
-    def _get(self) -> np.ndarray:
+    def _get(self, func_args: Sequence[Any]=None, func_kwargs: Mapping[str, Any]=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
-        return self.func(*self.func_args, **self.func_kwargs)
+        # Use provided args/kwargs or fall back to stored ones
+        f_args = func_args if func_args is not None else self.func_args
+        f_kwargs = func_kwargs if func_kwargs is not None else self.func_kwargs
+        return self.func(*f_args, **f_kwargs)
 
 
 def save_as_image(path: str, arr: np.ndarray, n_cols=100, cmap='viridis'):
