@@ -1,5 +1,7 @@
 """Basic feature classes and utilities.
 
+#TODO new description here
+
 This module provides classes and functions for working with features (in the ML sense):
 
 - Feature: Base class for all feature types, providing a common interface
@@ -212,6 +214,7 @@ class Template(Mapping):
         if jsonable:
             ret = make_jsonable(ret)
         return ret
+
 
 class Feature(ABC):
     """Base class for all features"""
@@ -733,8 +736,9 @@ class MovieFeature(CompositeFeature):
         # Job counts
         job_counts = Counter(tp.job_id.name for tp in m.people)
         for job, count in job_counts.items():
-            if job in self.SCHEMA:
-                self._set(f'num_{job}s', count)
+            key = f'num_{job}'
+            if key in self.SCHEMA:
+                self._set(key, count)
         # Financial features
         budget, revenue = self._extract_financials(m)
         self._set('tmdb_budget', budget)
@@ -754,3 +758,136 @@ class MovieFeature(CompositeFeature):
             self._set(f'{key}_emb', values=value)
         # Validate all features are set
         super().update()
+
+
+
+NO_TIMESTAMP = time.time() - (5*YEAR_SECS) # see if this messes up scaling
+
+AirtableRow = dict[str, Any]
+
+class FoodDishFeature(Feature):
+    all_dists: dict[tuple[str, str], float] | None  = None
+    text_col = load_chroma_db().get_collection('recipe-texts')
+    img_col = load_chroma_db().get_collection('recipe-images')
+    lock = Lock()
+
+    def __init__(self, fl_row: AirtableRow, dish_row: AirtableRow, **kw):
+        """Given a food log row and a dish row, initializes this feature"""
+        super().__init__(name=f"FoodDishFeature<{fl_row['ID']}, {dish_row['path']}>")
+        self.fl_row: Optional[AirtableRow] = None
+        self.dish_row: Optional[AirtableRow] = None
+        t0 = time.time()
+        self.update(fl_row, dish_row)
+        t1 = time.time()
+        #logger.info(f'Took {t1-t0:.4f}s to initialize {self.name}')
+
+    def photo_names(self, row: AirtableRow, field: str):
+        """Given an airtable row and a field with photos, returns unquoted filenames"""
+        return [unquote_plus(p['filename']) for p in row.get(field, [])]
+
+    def clip_similarity(self, key1: str, key2: str) -> float:
+        """Returns the similarity between the two clip embedding keys.
+
+        We precompute this the first time for all pairs and then store it as a dict from
+        (key1, key2) to similarity.
+        """
+        with self.__class__.lock:
+            if self.__class__.all_dists is None:
+                self.__class__.all_dists = {}
+                # first get food log photos (these are all source=mine)
+                resp = self.img_col.get(include=['metadatas', 'embeddings'], where={'source': 'mine'})
+                fl_keys = resp['ids']
+                fl_features = np.array(resp['embeddings'])
+                logger.info(f'Got food log photo {fl_features.shape} features in {self.img_col.name}')
+                # now get all photos
+                resp = self.img_col.get(include=['metadatas', 'embeddings'])
+                img_keys = resp['ids']
+                img_features = np.array(resp['embeddings'])
+                # now get all texts
+                resp = self.text_col.get(include=['metadatas', 'embeddings'])
+                text_keys = resp['ids']
+                text_features = np.array(resp['embeddings'])
+                # concat all ids and features for matching
+                match_keys = img_keys + text_keys
+                match_features = np.vstack([img_features, text_features])
+                logger.info(f'Got {match_features.shape} match features')
+                dists = cdist(fl_features, match_features, 'cosine')
+                for i, key1 in enumerate(fl_keys):
+                    for j, key2 in enumerate(match_keys):
+                        self.__class__.all_dists[key1, key2] = float(1 - dists[i, j])
+            try:
+                return self.__class__.all_dists[key1, key2]
+            except KeyError:
+                return -1.0
+
+    def update(self, fl_row: AirtableRow, dish_row: AirtableRow, **kw): # type: ignore
+        if fl_row == self.fl_row or dish_row == self.dish_row:
+            return
+        self.fl_row = fl_row
+        self.dish_row = dish_row
+        # get photos from fl (mine), dish (recipe), dish food log (mine)
+        fl_photos = [f"My cooking/{p.split('-', 1)[0]}/{p}" for p in self.photo_names(fl_row, 'Photos')]
+        hash = self.dish_row['sha256']
+        d_recipe_photos = [f"by_hash/{hash}/images/{p}" for p in self.photo_names(dish_row, 'recipe images')]
+        d_my_photos = []
+        # get all dish -> food log rows
+        matching_fls = []
+        for fl in dish_row.get('Food log', []):
+            d_my_photos.extend(self.photo_names(fl, 'Photos'))
+            matching_fls.append(fl)
+        # get latest dish -> food log row
+        latest_fl = None
+        if matching_fls:
+            latest_fl = max(matching_fls, key=lambda fl: fl['Date'])
+        # get all dish -> food log rows within last 2 weeks of our food log row
+        recent_fls = [fl for fl in matching_fls if parse_ts(fl['Date']) > (parse_ts(fl_row['Date']) - (14*DAY_SECS))]
+        text_keys = get_dish_text_fields(dish_row)
+        all_text_types = ['path', 'tags', 'site', 'recipe url', 'cuisines', 'diets', 'dish types', 'title', 'name']
+        text_features = [PairwiseMax(
+            name=f'img_text_similarity:{text_type}',
+            keys1=fl_photos,
+            keys2=[tk for tk in text_keys if tk.startswith(f'{text_type}:')],
+            sim_func=self.clip_similarity,
+            default=-1,
+        ) for text_type in all_text_types]
+        # setup our children
+        self.children = [
+            PairwiseMax(
+                name='recipe_img_similarity',
+                keys1=fl_photos,
+                keys2=d_recipe_photos,
+                sim_func=self.clip_similarity,
+                default=-1,
+            ),
+            PairwiseMax(
+                name='my_img_similarity',
+                keys1=fl_photos,
+                keys2=d_my_photos,
+                sim_func=self.clip_similarity,
+                default=-1,
+            ),
+            *text_features,
+            Recency(
+                name='added_recency',
+                a=fl_row['Date'],
+                b=dish_row.get('Recipe added', NO_TIMESTAMP),
+            ),
+            Recency(
+                name='comment_recency',
+                a=fl_row['Date'],
+                b=dish_row.get('last comment', NO_TIMESTAMP),
+            ),
+            Recency(
+                name='dish_last_fl_recency',
+                a=fl_row['Date'],
+                b=latest_fl.get('Date', NO_TIMESTAMP) if latest_fl else NO_TIMESTAMP,
+            ),
+            ConstantFeature(
+                name='dish_fl_counts',
+                values=(len(recent_fls), len(matching_fls)),
+            ),
+            TimeContext(
+                name='fl_time',
+                ts=fl_row['Date'],
+            ),
+        ]
