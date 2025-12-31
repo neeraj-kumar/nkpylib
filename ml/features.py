@@ -1,35 +1,75 @@
-"""Basic feature classes and utilities.
+"""Basic classes and utilities for ML features.
 
 ## Core Concepts
 
-This library uses a template-based architecture for efficient feature engineering:
+Ultimately, the goal is to have an object that takes in a set of inputs and outputs a numpy feature
+vector. One approach would be to have a Feature class define a `get()` method that takes in the
+inputs and computes the output ("functionally", i.e., without state). However, this can be
+inefficient if we have many features that share common parameters or configurations.
 
-**Templates**: Reusable feature configurations that define shared parameters across multiple feature instances. Templates act as factories that create feature instances with common settings, reducing memory usage and ensuring consistency.
+However, since features come in many different
 
-**Features**: Individual feature computors that return numpy arrays. Features can be simple (single values) or composite (combining multiple sub-features). All features implement a common interface with `get()` returning validated numpy arrays.
+However, given that features are often defined in families where there's a lot of
+commonalities between them, this library uses a template-based architecture for efficient feature
+computation.
 
-**Composite Features**: Schema-driven features that combine multiple sub-features in a predefined structure. The schema defines what features are included and their order, enabling consistent feature vectors across instances.
+**Templates**: Reusable feature configurations that define shared parameters across multiple feature
+instances. Templates act as factories that create feature instances with common settings, reducing
+memory usage and ensuring consistency.
 
-**Feature Maps**: Dictionary-like containers that map keys to feature vectors, providing a clean interface for batch feature computation.
+**Features**: Individual feature computors that return numpy arrays. Features can be simple (single
+values) or composite (combining multiple sub-features). All features implement a common interface
+with `get()` returning validated numpy arrays.
 
-## Usage Patterns
+**Composite Features**: Schema-driven features that combine multiple sub-features in a predefined
+structure. The schema defines what features are included and their order, enabling consistent
+feature vectors across instances.
+
+**Feature Maps**: Dictionary-like containers that map keys to feature vectors, providing a clean
+interface for batch feature computation.
+
+
+## Usage Pattern
 
 1. **Define templates** with shared parameters for feature types you'll use repeatedly
-2. **Create composite features** using schemas to define consistent feature structures  
+2. **Create composite features** using schemas to define consistent feature structures
+  - You will typically have a single top-level composite feature that contains all sub-features for
+    your task. You might also have other composite features nested within it.
 3. **Use feature maps** to organize and access features by key
 4. **Call `get()`** on any feature to obtain its numpy array representation
 
+
 ## Class Details
 
-**Template**: Factory for creating feature instances with shared parameters. Tracks all instances created and provides schema information.
+**Template**: Factory for creating feature instances with shared parameters. Tracks all instances
+created. Initialize with the feature class and all shared parameters as keyword arguments. Then you
+can call `create()` to make new feature instances, optionally with additional instance-specific
+parameters.
 
-**Feature**: Abstract base class defining the feature interface. Subclasses implement `_get()` to return numpy arrays.
+**Feature**: Abstract base class defining the feature interface. Subclasses implement `_get()` to
+return numpy arrays. The public interface is to call `get()`, which also performs validation (and
+optional caching, in subclasses). Features can have names and access attributes from their
+templates if not found in the instance. They can also be updated via `update()`.
 
-**CompositeFeature**: Schema-based feature that combines multiple sub-features. Subclasses define schemas using `define_schema()` and `add_schema()`.
+**CompositeFeature**: Schema-based feature that combines multiple sub-features. A schema is an
+`OrderedDict` of fields mapped to `Template` instances, stored in the class variable `SCHEMA`. Each
+subclass must have a `define_schema()` method that populates the `SCHEMA` by adding feature
+templates. For convenience (and some validation), rather than adding to `SCHEMA` directly,
+subclasses can call the `add_schema()` method to add individual templates to the schema.
+
+During initialization, the composite feature pre-allocates space for all schema features. To
+populate the sub-features, you call the `_set()` method with the name of the schema field and any
+arguments needed to create the feature from the corresponding template. After setting all features,
+call `update()` to ensure that all schema features have been initialized, using any provided
+defaults.
+
+Finally, call `get()` (as with all Features) to get the final feature vector, which concatenates the
+results from all child features.
 
 **ConstantFeature**: Returns constant values as numpy arrays.
 
-**EnumFeature**: Encodes categorical values using various encoding schemes (onehot, integer, binary, target, hash).
+**EnumFeature**: Encodes categorical values using various encoding schemes (onehot, integer, binary,
+target, hash).
 
 **PairwiseMax**: Computes maximum similarity between two sets using a comparison function.
 
@@ -43,35 +83,9 @@ This library uses a template-based architecture for efficient feature engineerin
 
 **FeatureMap**: Dictionary-like container mapping keys to feature vectors.
 
-This module provides classes and functions for working with features (in the ML sense):
-
-- Feature: Base class for all feature types, providing a common interface
-- ConstantFeature: A feature that returns constant values
-- PairwiseMax: Computes maximum similarity between two sets using a comparison function
-- TimeContext: Extracts temporal features from timestamps
-- Recency: Computes time differences between pairs of timestamps
-- MappingFeature: Wraps dictionary-like objects as features
-- FunctionFeature: Wraps arbitrary functions as features
-- FeatureMap: A mapping interface to a collection of features
-
-Features can be combined, transformed, and used as inputs to machine learning models.
-The module handles proper typing, validation, and efficient computation of features.
 
 For groups of features put together, as well as storage and retrieval, see feature_set.py
 
-
-
-
-    A Feature instance represents one logical feature, but can be many dimensions.
-
-    This class provides a common interface for working with features that can be:
-    - Single values or arrays
-    - Computed on demand or cached
-    - Combined hierarchically (via children features)
-
-    Attributes:
-    - name (str): Name of the feature, defaults to class name
-    - children (list[Feature]): Child features that get concatenated with this one
 
     Methods implemented here:
     - get(): Returns the feature as a numpy array, and validates it.
@@ -345,6 +359,7 @@ class CompositeFeature(Feature):
         provide `default`, a dict of kwargs to pass to the template when creating the feature during
         update().
         """
+        assert name not in cls.SCHEMA
         cls.SCHEMA[name] = template
         if default is not None:
             cls.DEFAULTS[name] = default
