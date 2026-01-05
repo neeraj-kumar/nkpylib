@@ -99,3 +99,7 @@ copy-chroma:
 aranet:
 	python3 aranet.py aranet.json
 	#python3 -m cProfile -s tottime aranet.py
+
+## tests out the tumblr wrapper
+tumblr:
+	@python3 tumblr.py
