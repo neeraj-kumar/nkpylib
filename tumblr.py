@@ -19,12 +19,26 @@ def tumblr_req(endpoint, **kw):
     print(f'  Resp cookies: {resp.cookies}')
     return resp
 
-def like_post(post_id, reblog_key):
+def like_post(post_id, reblog_key, csrf):
     data = {
         'id': post_id,
         'reblog_key': reblog_key,
     }
-    req = tumblr_req('api/v2/user/like', method='POST', json=data)
+    headers = {
+        "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
+        "Accept-Language": "en-us", # Language preference
+        "Content-Type": "application/json; charset=utf8", # The server expects JSON UTF‑8 payload
+        "X-Version": "redpop/3/0//redpop/", # A proprietary version header used by Tumblr’s front‑end code
+        "X-CSRF": csrf, # CSRF token that must be sent with the request
+        # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Alt-Used": "www.tumblr.com", # Tell the server we are coming from the same origin page
+        "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
+        "Referrer": "https://www.tumblr.com/vsemily" # Referrer – the page that linked to the API call
+    }
+    req = tumblr_req('api/v2/user/like', method='POST', headers=headers, json=data)
     obj = req.json()
     print(f'liked post {post_id}: {obj}')
     return obj
@@ -42,10 +56,11 @@ def get_blog_content(blog_name):
     except Exception as e:
         print(req.text[:100])
         raise Exception(f'Failed to parse initial state JSON: {e}')
+    csrf = obj["csrfToken"]
     #print(json.dumps(obj, indent=2))
     posts = obj['PeeprRoute']['initialTimeline']['objects']
     posts = [p for p in posts if p['objectType'] == 'post']
-    return posts
+    return csrf, posts
 
 
 if __name__ == '__main__':
@@ -54,7 +69,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     with open(args.config, 'r') as f:
         COOKIES = json.load(f)
-    posts = get_blog_content('virgomoon')
+    csrf, posts = get_blog_content('virgomoon')
     for i, p in enumerate(posts):
         content = p['content'] or p['trail'][0]['content']
         print(f'\nPost {i}: {p["id"]} (reblog key: {p["reblogKey"]})')
@@ -73,4 +88,4 @@ if __name__ == '__main__':
                     print(f'  unknown content type: {c["type"]}')
         if i == 3:
             print('Liking this post...')
-            like_post(p['id'], p['reblogKey'])
+            like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
