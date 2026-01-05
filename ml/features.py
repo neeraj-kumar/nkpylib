@@ -1,16 +1,16 @@
 """Basic classes and utilities for ML features.
 
 ## Core Concepts
-
 Ultimately, the goal is to have an object that takes in a set of inputs and outputs a numpy feature
-vector. One approach would be to have a Feature class define a `get()` method that takes in the
-inputs and computes the output ("functionally", i.e., without state). However, this can be
-inefficient if we have many features that share common parameters or configurations.
+vector, in a functional way (i.e., the same set of inputs yields the same output feature vector). In
+many cases, you might need some bit of configuration to determine how to compute the features. So
+the general pattern is:
 
-However, since features come in many different
+    f = Feature(config)
+    all_vectors = [f.get(input) for input in inputs]
 
-However, given that features are often defined in families where there's a lot of
-commonalities between them, this library uses a template-based architecture for efficient feature
+To make this easier in the common case where lots of features are quite similar, varying only in
+some config parameters, this library uses a template-based architecture for efficient feature
 computation.
 
 **Templates**: Reusable feature configurations that define shared parameters across multiple feature
@@ -329,10 +329,6 @@ class Feature(ABC):
         except Exception as e:
             assert False, f"{type(e)} with feature {feat}: value {arr}"
 
-    def update(self, **kw):
-        """Updates the feature - override in subclasses as needed."""
-        pass
-
 
 class CompositeFeature(Feature):
     """Feature with children, defined via schema."""
@@ -398,7 +394,7 @@ class CompositeFeature(Feature):
         """Returns the length of the feature"""
         return sum(len(c) for c in self.children)
 
-    def _get(self) -> np.ndarray:
+    def _get(self, *args, **kw) -> np.ndarray:
         """Composite features concatenate children."""
         arrays = [c.get() for c in self.children]
         for child, arr in zip(self.children, arrays):
