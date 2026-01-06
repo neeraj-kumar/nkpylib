@@ -69,10 +69,15 @@ def dl_image(url: ImageT, out_path: str='') -> str:
     def get_out_path(ext: str) -> str:
         """Gets the output path with given ext"""
         nonlocal out_path
-        ext = ext.lstrip('.')
         if not out_path:
+            ext = ext.lstrip('.')
             with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as f:
                 out_path = f.name
+        try:
+            os.makedirs(dirname(out_path), exist_ok=True)
+            print(f'Created directory {dirname(out_path)}')
+        except Exception:
+            pass
         return out_path
 
     if isinstance(url, str):
@@ -80,6 +85,7 @@ def dl_image(url: ImageT, out_path: str='') -> str:
             return url
         ext = url.split('.')[-1]
         out_path = get_out_path(ext)
+        #TODO should we be using requests here (for proper user agent)?
         urlretrieve(img, out_path)
     elif isinstance(url, Image.Image):
         out_path = get_out_path('png')
