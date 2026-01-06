@@ -1,9 +1,11 @@
 """A tumblr API that goes through the web"""
 
 import json
+import os
 import sys
 
 from argparse import ArgumentParser
+from os.path import exists, dirname, join
 from urllib.parse import urlencode
 
 import requests
@@ -11,6 +13,7 @@ import requests
 from pyquery import PyQuery as pq
 
 from nkpylib.web_utils import make_request
+from nkpylib.ml.faces import dl_image
 
 CONFIG = {}
 IMAGES_DIR = 'cache/tumblr/'
@@ -20,6 +23,8 @@ J = lambda obj: json.dumps(obj, indent=2)
 def tumblr_req(endpoint, **kw):
     url = endpoint if 'tumblr.com' in endpoint else f'https://www.tumblr.com/{endpoint}'
     resp = make_request(url, cookies=CONFIG['cookies'], **kw)
+    with open('last_tumblr_response.html', 'w') as f:
+        f.write(resp.text)
     print(f'  Resp cookies: {resp.cookies}')
     return resp
 
@@ -156,7 +161,7 @@ def get_blog_archive(blog_name, n_posts=20):
             break
     return (posts, total)
 
-def get_post_images(p, max_images=1, max_width=300, dir=IMAGES_DIR):
+def get_post_images(p, max_images=1, max_width=400, dir=IMAGES_DIR):
     """Downloads the post image (if we don't already have it) to `dir`.
 
     If the post contains multiple images, we get the first `max_images` of them.
@@ -185,7 +190,34 @@ def get_post_images(p, max_images=1, max_width=300, dir=IMAGES_DIR):
     Also note that you have to set your accept header to images only, otherwise it will get an html
     wrapper around the image.
     """
-    
+    images = []
+    content = p['content'] or p['trail'][0]['content']
+    for c in content:
+        if c['type'] != 'image':
+            return
+        for m in c['media']:
+            if 'mediaKey' in m:
+                mk = m['mediaKey']
+            else:
+                mk = m['url'].split('/')[3]
+            if m['width'] <= max_width:
+                img_url = m['url'].replace('.pnj', '.png')
+                ext = img_url.split('.')[-1]
+                img_path = join(dir, f'{mk}.{ext}')
+                if not exists(img_path):
+                    print(f'downloading image {img_url} -> {img_path}')
+                    r = make_request(img_url, headers={'Accept': 'image/avif,image/webp,image/apng,image/*'})
+                    try:
+                        os.makedirs(dirname(img_path), exist_ok=True)
+                    except Exception as e:
+                        pass
+                    with open(img_path, 'wb') as f:
+                        f.write(r.content)
+                images.append(img_path)
+                break
+        if len(images) >= max_images:
+            return images
+    return images
 
 
 if __name__ == '__main__':
@@ -196,7 +228,8 @@ if __name__ == '__main__':
         CONFIG = json.load(f)
     csrf = ''
     csrf, posts = get_blog_content('virgomoon')
-    posts, total = get_blog_archive('animentality')
+    #posts, total = get_blog_archive('animentality')
+    posts, total = get_blog_archive('maureen2musings')
     for i, p in enumerate(posts):
         content = p['content'] or p['trail'][0]['content']
         print(f'\nPost {i}: {p["id"]} (reblog key: {p["reblogKey"]}), tags: {p.get("tags", [])}')
@@ -216,3 +249,6 @@ if __name__ == '__main__':
         if i == 500:
             print('Liking this post...')
             like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
+        if i <= 20:
+            imgs = get_post_images(p, max_images=2)
+            print(f'  DLed: {imgs}')
