@@ -13,6 +13,7 @@ from pyquery import PyQuery as pq
 from nkpylib.web_utils import make_request
 
 CONFIG = {}
+IMAGES_DIR = 'cache/tumblr/'
 
 J = lambda obj: json.dumps(obj, indent=2)
 
@@ -52,20 +53,25 @@ COMMON_HEADERS = {
     "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
 }
 
-def like_post(post_id, reblog_key, csrf):
+def like_post(post_id, reblog_key, csrf=''):
     data = {
         'id': post_id,
         'reblog_key': reblog_key,
     }
-    headers = {
-        "X-CSRF": csrf, # CSRF token that must be sent with the request
-        # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
-        #"Alt-Used": "www.tumblr.com", # Tell the server we are coming from the same origin page
-        #"Referrer": "https://www.tumblr.com/vsemily", # Referrer – the page that linked to the API call
-        **COMMON_HEADERS
-    }
-    resp = tumblr_req('api/v2/user/like', method='POST', headers=headers, json=data)
-    obj = resp.json()
+    if csrf: # you need a valid csrf key from a page (doesn't matter which, as long as it's recent)
+        headers = {
+            "X-CSRF": csrf, # CSRF token that must be sent with the request
+            # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
+            #"Alt-Used": "www.tumblr.com", # Tell the server we are coming from the same origin page
+            #"Referrer": "https://www.tumblr.com/vsemily", # Referrer – the page that linked to the API call
+            **COMMON_HEADERS
+        }
+        resp = tumblr_req('api/v2/user/like', method='POST', headers=headers, json=data)
+        obj = resp.json()
+    else: # TODO this requires Oauth access, not just api key
+        endpoint = f'user/like'
+        #print(endpoint)
+        obj = tumblr_api_req(endpoint, method='POST', json=data)
     print(f'liked post {post_id}: {obj}')
     return obj
 
@@ -87,7 +93,7 @@ def get_blog_content(blog_name):
     posts = [p for p in posts if p['objectType'] == 'post']
     return csrf, posts
 
-def get_blog_archive(blog_name):
+def get_blog_archive(blog_name, n_posts=20):
     """The archive is accessible via API, using the following curl command:
 
     curl 'https://api.tumblr.com/v2/blog/vsemily/posts?fields%5Bblogs%5D=%3Fadvertiser_name%2C%3Favatar%2C%3Fblog_view_url%2C%3Fcan_be_booped%2C%3Fcan_be_followed%2C%3Fcan_show_badges%2C%3Fdescription_npf%2C%3Ffollowed%2C%3Fis_adult%2C%3Fis_member%2Cname%2C%3Fprimary%2C%3Ftheme%2C%3Ftitle%2C%3Ftumblrmart_accessories%2Curl%2C%3Fuuid%2C%3Fask%2C%3Fcan_submit%2C%3Fcan_subscribe%2C%3Fis_blocked_from_primary%2C%3Fis_blogless_advertiser%2C%3Fis_password_protected%2C%3Fshare_following%2C%3Fshare_likes%2C%3Fsubscribed%2C%3Fupdated%2C%3Ffirst_post_timestamp%2C%3Fposts%2C%3Fdescription%2C%3Ftop_tags_all&npf=true&reblog_info=true&context=archive'
@@ -125,20 +131,61 @@ def get_blog_archive(blog_name):
         description='?description',
         top_tags_all='?top_tags_all',
     )
-    params = {
-        #'fields[blogs]': ','.join(query_fields.values()),
-        'npf': 'true',
-        'reblog_info': 'true',
-        'context': 'archive',
-        #'offset': '50',
-    }
-    # url encode the params into the endpoint
-    endpoint = f'blog/{blog_name}/posts?{urlencode(params)}'
-    #print(endpoint)
-    obj = tumblr_api_req(endpoint)
-    print(J(obj))
-    sys.exit()
+    offset = 0
+    posts = []
+    total = 0
+    while offset < n_posts:
+        params = {
+            #'fields[blogs]': ','.join(query_fields.values()),
+            'npf': 'true',
+            'reblog_info': 'true',
+            'context': 'archive',
+            'offset': f'{offset}',
+        }
+        # url encode the params into the endpoint
+        endpoint = f'blog/{blog_name}/posts?{urlencode(params)}'
+        #print(endpoint)
+        obj = tumblr_api_req(endpoint)
+        if obj['meta']['status'] != 200:
+            raise Exception(f'Failed to fetch blog archive: {obj["meta"]}')
+        batch = obj['response']['posts'] or []
+        posts.extend(batch)
+        total = obj['response']['totalPosts']
+        offset += 20
+        if not batch or not obj.get('links', []):
+            break
+    return (posts, total)
 
+def get_post_images(p, max_images=1, max_width=300, dir=IMAGES_DIR):
+    """Downloads the post image (if we don't already have it) to `dir`.
+
+    If the post contains multiple images, we get the first `max_images` of them.
+    For each image, we select the best quality version that is less than or equal to `max_width`
+    pixels wide.
+
+    Image content blocks look like this:
+    {
+        "type": "image",
+        "media": [
+            {
+                "url": "https://64.media.tumblr.com/...",
+                "mediaKey": "abc123...",
+                "width": 1280,
+                "height": 720,
+                ...
+            },
+            ...
+        ],
+        ...
+    }
+
+    Images might end with .pnj, which is a page rather than the image itself, so we should replace
+    that with .png
+
+    Also note that you have to set your accept header to images only, otherwise it will get an html
+    wrapper around the image.
+    """
+    
 
 
 if __name__ == '__main__':
@@ -147,11 +194,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     with open(args.config, 'r') as f:
         CONFIG = json.load(f)
-    #csrf, posts = get_blog_content('virgomoon')
-    csrf, posts = get_blog_archive('vsemily')
+    csrf = ''
+    csrf, posts = get_blog_content('virgomoon')
+    posts, total = get_blog_archive('animentality')
     for i, p in enumerate(posts):
         content = p['content'] or p['trail'][0]['content']
-        print(f'\nPost {i}: {p["id"]} (reblog key: {p["reblogKey"]})')
+        print(f'\nPost {i}: {p["id"]} (reblog key: {p["reblogKey"]}), tags: {p.get("tags", [])}')
         for c in content:
             match c['type']:
                 case 'image':
@@ -165,6 +213,6 @@ if __name__ == '__main__':
                     print(f'  text: {c["text"]}')
                 case _:
                     print(f'  unknown content type: {c["type"]}')
-        if i == 3:
+        if i == 500:
             print('Liking this post...')
             like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
