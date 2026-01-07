@@ -1,4 +1,17 @@
-"""A tumblr API that goes through the web"""
+"""A tumblr API that goes through the web.
+
+
+def batch_extract_embeddings(inputs: list,
+                             db_path: str,
+                             embedding_type: str='text',
+                             flag: str='c',
+                             model: str|None=None,
+                             batch_size=200,
+                             md_func: Callable[[str, Any], dict]|None=None,
+                             **kw) -> int:
+
+"""
+
 
 import json
 import os
@@ -42,6 +55,8 @@ def tumblr_api_req(endpoint, **kw):
     except Exception as e:
         print(resp.text)
         raise Exception(f'Failed to fetch endpoint {endpoint}: {e}')
+    with open('last_tumblr_api_response.json', 'w') as f:
+        json.dump(obj, f, indent=2)
     return obj
 
 
@@ -194,20 +209,22 @@ def get_post_images(p, max_images=1, max_width=400, dir=IMAGES_DIR):
     images = []
     content = p['content'] or p['trail'][0]['content']
     for c in content:
-        if c['type'] != 'image':
+        if c['type'] not in ('image', 'video'):
             return
-        for m in c['media']:
+        media = [c['media']] if isinstance(c['media'], dict) else c['media']
+        #TODO get filmstrip and posters for videos?
+        for m in media:
             if 'mediaKey' in m:
                 mk = m['mediaKey']
             else:
-                mk = m['url'].split('/')[3]
-            if m['width'] <= max_width:
+                mk = m['url'].split('/')[3].rsplit('.', 1)[0]
+            if m['width'] <= max_width or c['type'] == 'video':
                 img_url = m['url'].replace('.pnj', '.png')
                 ext = img_url.split('.')[-1]
                 img_path = join(dir, f'{mk}.{ext}')
                 if not exists(img_path):
                     print(f'downloading image {img_url} -> {img_path}')
-                    r = make_request(img_url, headers={'Accept': 'image/avif,image/webp,image/apng,image/*'})
+                    r = make_request(img_url, headers={'Accept': 'image/avif,image/webp,image/apng,image/*,video/*'})
                     try:
                         os.makedirs(dirname(img_path), exist_ok=True)
                     except Exception as e:
@@ -220,14 +237,10 @@ def get_post_images(p, max_images=1, max_width=400, dir=IMAGES_DIR):
             return images
     return images
 
-def simple_test(**kw):
-    csrf = ''
-    csrf, posts = get_blog_content('virgomoon')
-    #posts, total = get_blog_archive('animentality')
-    #posts, total = get_blog_archive('maureen2musings')
+def process_posts(posts):
     for i, p in enumerate(posts):
         content = p['content'] or p['trail'][0]['content']
-        print(f'\nPost {i}: {p["id"]} (reblog key: {p["reblogKey"]}), tags: {p.get("tags", [])}')
+        print(f'\nPost {i}: {p["id"]} (reblog key: {p["reblogKey"]}), tags: {p.get("tags", [])[:5]}')
         for c in content:
             match c['type']:
                 case 'image':
@@ -237,16 +250,38 @@ def simple_test(**kw):
                     else:
                         mk = m['url'].split('/')[3]
                     print(f'  image: {mk}')
+                case 'video':
+                    m = c['media']
+                    mk = m['url'].split('/')[3]
+                    print(f'  video: {mk}')
                 case 'text':
                     print(f'  text: {c["text"]}')
+                case 'link':
+                    print(f'  link: {c["displayUrl"]}')
                 case _:
                     print(f'  unknown content type: {c["type"]}')
         if i == 500:
             print('Liking this post...')
             like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
-        if i <= 20:
+        if i <= 200:
             imgs = get_post_images(p, max_images=2)
-            print(f'  DLed: {imgs}')
+            #print(f'  DLed: {imgs}')
+
+def simple_test(**kw):
+    csrf = ''
+    csrf, posts = get_blog_content('virgomoon')
+    #posts, total = get_blog_archive('animentality')
+    #posts, total = get_blog_archive('maureen2musings')
+    process_posts(posts)
+
+def update_blogs(**kw):
+    global CONFIG
+    blogs = CONFIG['blogs']
+    for i, name in enumerate(blogs):
+        print(f'\nProcessing blog {i}/{len(blogs)}: {name}')
+        posts, total = get_blog_archive(name)
+        process_posts(posts)
+        #break
 
 def extract_md(**kw):
     pass
@@ -257,7 +292,7 @@ if __name__ == '__main__':
         with open(config, 'r') as f:
             CONFIG = json.load(f)
 
-    cli_runner([simple_test],
+    cli_runner([simple_test, update_blogs, extract_md],
                pre_func=parse_config,
                config=dict(default='.tumblr_config.json', help='Path to the tumblr config json file'))
     if 0:
