@@ -1,5 +1,8 @@
 *.py[co]
 
+# json config files (starting with .)
+.*.json
+
 # temp/data files
 og.json
 napa.html
@@ -7,6 +10,12 @@ parrots.html
 search?q=parrots
 convert.html
 lafeber.html
+archive*
+386.png
+last_tumblr_response.html
+test.html
+test.json
+vs.json
 
 # cache
 cache
