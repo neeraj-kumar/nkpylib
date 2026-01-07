@@ -12,6 +12,7 @@ import requests
 
 from pyquery import PyQuery as pq
 
+from nkpylib.script_utils import cli_runner
 from nkpylib.web_utils import make_request
 from nkpylib.ml.faces import dl_image
 
@@ -219,17 +220,11 @@ def get_post_images(p, max_images=1, max_width=400, dir=IMAGES_DIR):
             return images
     return images
 
-
-if __name__ == '__main__':
-    parser = ArgumentParser(description='Tumblr API Wrapper (web-based)')
-    parser.add_argument('-c', '--config', default='.tumblr_config.json', help='Path to the tumblr config json file')
-    args = parser.parse_args()
-    with open(args.config, 'r') as f:
-        CONFIG = json.load(f)
+def simple_test(**kw):
     csrf = ''
     csrf, posts = get_blog_content('virgomoon')
     #posts, total = get_blog_archive('animentality')
-    posts, total = get_blog_archive('maureen2musings')
+    #posts, total = get_blog_archive('maureen2musings')
     for i, p in enumerate(posts):
         content = p['content'] or p['trail'][0]['content']
         print(f'\nPost {i}: {p["id"]} (reblog key: {p["reblogKey"]}), tags: {p.get("tags", [])}')
@@ -252,3 +247,22 @@ if __name__ == '__main__':
         if i <= 20:
             imgs = get_post_images(p, max_images=2)
             print(f'  DLed: {imgs}')
+
+def extract_md(**kw):
+    pass
+
+if __name__ == '__main__':
+    def parse_config(config, **kw):
+        global CONFIG
+        with open(config, 'r') as f:
+            CONFIG = json.load(f)
+
+    cli_runner([simple_test],
+               pre_func=parse_config,
+               config=dict(default='.tumblr_config.json', help='Path to the tumblr config json file'))
+    if 0:
+        parser = ArgumentParser(description='Tumblr API Wrapper (web-based)')
+        parser.add_argument('-c', '--config', default='.tumblr_config.json', help='Path to the tumblr config json file')
+        args = parser.parse_args()
+        with open(args.config, 'r') as f:
+            CONFIG = json.load(f)

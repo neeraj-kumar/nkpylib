@@ -12,6 +12,7 @@ from nkpylib.utils import specialize
 def cli_runner(func_list: list[Callable[..., Any]],
                description='',
                add_arbitrary=True,
+               pre_func: Callable[..., Any]|None=None,
                **kw) -> Any:
     """Runs one of a given list of functions from the command line.
 
@@ -30,6 +31,9 @@ def cli_runner(func_list: list[Callable[..., Any]],
     open flag' would create -f and --flag arguments, with help text 'set open flag'.
 
     For positional arguments, use the dict form of kw, and set the 'positional' key to True.
+
+    If you provide a `pre_func`, that function is called with the parsed arguments (as **kwargs)
+    prior to running the selected function. This can be used to set up logging, etc.
 
     This finally runs the selected function with the given arguments and returns the result.
     """
@@ -67,5 +71,7 @@ def cli_runner(func_list: list[Callable[..., Any]],
         key, value = keyvalue.split('=', 1)
         value = specialize(value)
         kwargs[key] = value
+    if pre_func:
+        pre_func(**kwargs)
     func = funcs[kwargs.pop('func')]
     return func(**kwargs) # type: ignore[operator]
