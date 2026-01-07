@@ -500,38 +500,51 @@ def quick_test(path: str, n: int=3, show_md=False, **kw):
         if num >= n:
             break
 
-def extract_embeddings(path: str, embedding_type: str='text', flag: str='c', model: str|None=None, batch_size=20, **kw):
-    """Does embedding feature extraction with given `model`.
+def batch_extract_embeddings(inputs: list,
+                             db_path: str,
+                             embedding_type: str='text',
+                             flag: str='c',
+                             model: str|None=None,
+                             batch_size=200,
+                             md_func: Callable[[str, Any], dict]|None=None,
+                             **kw) -> int:
+    """Core function for batch extracting embeddings to an LMDB.
 
-    Reads inputs from stdin (one per line) and writes the embeddings to the given `path`.
-    These are determined by `embedding_type` (either 'image' or 'text').
+    This uses the LmdbUpdater to parallelize the extraction and writing of embeddings to the LMDB at
+    `db_path`, in batches of `batch_size`. The `embedding_type` is either 'text' or 'image',
+    determining which embedding to use. By default, for text we use model 'qwen_emb', and for image
+    we use 'clip'. You can override this by specifying the `model` argument.
 
-    If 'image', then we use the image path as the key. If text, then we assume it's tab-separated
-    columns, with key as first one and text to embed as second.
+    If the `embedding_type` is 'image', the list of `inputs` should be a list of image paths, which
+    are also used as the keys. If text, then the inputs should have 2 elements each, the key and the
+    text.
+
+    You can optionally provide a `md_func` that takes a `(key, value)` pair and returns a dict of
+    metadata to write alongside the embedding.
+
+    We return the number of new embeddings written to the database.
     """
     default_models = dict(image='clip', text='qwen_emb')
     assert embedding_type in default_models
     model = model or default_models[embedding_type]
-    db = NumpyLmdb.open(path, flag=flag)
-    inputs = []
-    for line in sys.stdin:
-        input = line.strip()
+    # filter inputs to only those not already in the db
+    def filter_func(row):
         if embedding_type == 'text':
-            parts = input.split('\t', 1)
-            assert len(parts) == 2
-            key, text = parts
-            if key in db:
-                continue
-            inputs.append(parts)
+            key, _text = row
         else:
-            if input in db:
-                continue
-            inputs.append(input)
+            key = row
+        return key not in db
+
+    inputs = list(filter(filter_func, inputs))
+    db = NumpyLmdb.open(db_path, flag=flag)
     print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}, {len(inputs)} new inputs to process: {inputs[:3]}.')
+    dtype = db.dtype
+    del db
+    updater = LmdbUpdater(db_path, NumpyLmdb.open, n_procs=4, batch_size=batch_size)
     num = 0
     # create a progress bar we can manually move
     bar = tqdm(total=len(inputs), desc=f'Extracting {embedding_type} features using {model}', unit='input')
-    # interleave reading files from stdin and processing them, in batches
+    # process inputs in batches
     for batch in chunked(inputs, batch_size):
         if not batch:
             continue
@@ -550,14 +563,40 @@ def extract_embeddings(path: str, embedding_type: str='text', flag: str='c', mod
                     key, _text = input
                 else:
                     key = input
-                db[key] = np.array(emb, dtype=db.dtype)
+                #db[key] = np.array(emb, dtype=db.dtype)
+                to_add = dict(embedding=np.array(emb, dtype=dtype))
+                if md_func is not None:
+                    to_add['metadata'] = md_func(key, input)
+                updater.add(key, **to_add)
                 num += 1
                 bar.update(1)
             except Exception as e:
                 logger.error(f'Error extracting {input}: {e}', exc_info=True)
-        db.sync()
-    db.sync()
-    print(f'Wrote {num} items to {db.path}.')
+    updater.commit()
+    return num
+
+def extract_embeddings(path: str, embedding_type: str='text', **kw):
+    """Does embedding feature extraction with given `model`.
+
+    Reads inputs from stdin (one per line) and writes the embeddings to the given `path`.
+    These are determined by `embedding_type` (either 'image' or 'text').
+
+    If 'image', then we use the image path as the key. If text, then we assume it's tab-separated
+    columns, with key as first one and text to embed as second.
+    """
+    # parse inputs from stdin
+    inputs = []
+    for line in sys.stdin:
+        input = line.strip()
+        if embedding_type == 'text':
+            parts = input.split('\t', 1)
+            assert len(parts) == 2
+            key, text = parts
+            inputs.append(parts)
+        else:
+            inputs.append(input)
+    num = batch_extract_embeddings(inputs, db_path=path, embedding_type=embedding_type, **kw)
+    print(f'Wrote {num} items to {path}.')
 
 
 if __name__ == '__main__':
