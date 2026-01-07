@@ -327,17 +327,19 @@ class ExternalChatModel(ChatModel):
             model = self.model_name.split('/', 1)[-1]
         else:
             model = self.model_name
-        messages = input
-        # if we have a single string -> map to a single user message
-        if isinstance(messages, str):
-            messages = [('user', messages)]
-        # map list of Msg tuples to list of dicts
         kw = kw or {}
-        fix_msg = lambda m: {'role': m[0], 'content': m[1]} if isinstance(m, tuple) else m
-        kw['messages'] = [fix_msg(m) for m in messages]
+        kw['messages'] = process_messages(input)
         ret = await call_external(endpoint='/chat/completions', provider_name=kw.pop('provider', ''), model=model, **kw)
         return self.postprocess(input, ret, **kw)
 
+def process_messages(messages: list[Msg]) -> list[dict]:
+    """Processes a list of Msg tuples into the format expected by the API."""
+    # if we have a single string -> map to a single user message
+    if isinstance(messages, str):
+        messages = [('user', messages)]
+    # map list of Msg tuples to list of dicts
+    fix_msg = lambda m: {'role': m[0], 'content': m[1]} if isinstance(m, tuple) else m
+    return [fix_msg(m) for m in messages]
 
 @Singleton
 class VLMModel(ChatModel):
@@ -348,14 +350,13 @@ class VLMModel(ChatModel):
 
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running VLM model: {self.model_name} on input: {input} with kw {kw}')
-        image, prompts = input
-        if isinstance(prompts, str):
-            prompts = [('user', prompts)]
-        assert is_instance_of_type(prompts, list[Msg]), f"Prompts should be of type {list[Msg]}, actually: {prompts}"
-        kw['messages'] = [{'role': role, 'content': text} for role, text in prompts]
+        image, messages = input
+        kw = kw or {}
+        kw['messages'] = process_messages(messages)
         if not image.startswith('http') and not image.startswith('data:'):
             with open(image, 'rb') as f:
                 image = data_url_from_file(f)
+        # add the image to the first user message
         for msg in kw['messages']:
             if msg['role'] == 'user':
                 cur_text = msg['content']
@@ -648,15 +649,17 @@ async def chat_completion(req: ChatRequest):
 # setup fastapi VLM endpoint
 class VLMRequest(BaseRequest):
     image: str # path/url/image directly?
-    messages: str|list[Msg]
+    messages: str|list[Msg]|list[dict[str,str]]
     model: str='vlm' # this will get mapped based on DEFAULT_MODELS['vlm']
     max_tokens: int=0
+
 
 @app.post("/v1/vlm")
 async def vlm(req: VLMRequest):
     """Generates VLM chat response for the given image and messages using the given model."""
     # note that we don't need to look up the default model, since it's always external
     model = VLMModel(model_name=req.model, use_cache=req.use_cache)
+    logger.debug(f'Running VLM model {req.model} on image {req.image} and messages {req.messages}')
     ret = await model.run(
         input=(req.image, req.messages),
         max_tokens=req.max_tokens,
