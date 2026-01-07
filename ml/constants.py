@@ -51,7 +51,8 @@ DEFAULT_MODELS = dict(
     # faster llama3 for chat
     chat=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     # generic vlm model for vision+language tasks
-    vlm=ModelConfig('meta-llama/Llama-3.2-90B-Vision-Instruct', max_tokens=131072),
+    vlm=ModelConfig('zai-org/GLM-4.6V', max_tokens=131072),
+    oldvlm=ModelConfig('meta-llama/Llama-3.2-90B-Vision-Instruct', max_tokens=131072),
     # model for better vlm performance on extracting doc data
     docimage=ModelConfig('accounts/fireworks/models/qwen2-vl-72b-instruct', max_tokens=32768),
     # a fast model for text tasks
@@ -59,7 +60,8 @@ DEFAULT_MODELS = dict(
     # a good model for manipulating json
     json=ModelConfig('Qwen/Qwen2.5-72B-Instruct', max_tokens=32768),
     # a good model for manipulating html (llama3)
-    html=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
+    html=ModelConfig('moonshotai/Kimi-K2-Instruct-0905', max_tokens=262144),
+    oldhtml=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
     # nomic is a good model for text embeddings
     nomic=ModelConfig('nomic-ai/nomic-embed-text-v1.5'),
     # suitable for generating code
