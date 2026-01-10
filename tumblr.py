@@ -33,7 +33,8 @@ from nkpylib.ml.nkcollections import Collection, init_sql_db
 
 CONFIG = {}
 IMAGES_DIR = 'cache/tumblr/'
-DB_PATH = 'tumblr_collection.sqlite'
+SQLITE_PATH = 'db/tumblr/tumblr_collection.sqlite'
+LMDB_PATH = 'db/tumblr/tumblr_embeddings.lmdb'
 
 J = lambda obj: json.dumps(obj, indent=2)
 
@@ -398,7 +399,7 @@ if __name__ == '__main__':
         global CONFIG
         with open(config, 'r') as f:
             CONFIG = json.load(f)
-        init_sql_db(DB_PATH)
+        init_sql_db(SQLITE_PATH)
 
     cli_runner([simple_test, update_blogs],
                pre_func=parse_config,
