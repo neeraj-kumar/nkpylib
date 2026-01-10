@@ -71,3 +71,7 @@ gat:
 ## trains movie embeddings
 train:
 	@python3 graph_learning.py ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb
+
+## run nk collections
+cols:
+	python3 nkcollections.py
