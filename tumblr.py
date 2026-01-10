@@ -16,9 +16,10 @@ def batch_extract_embeddings(inputs: list,
 import json
 import os
 import sys
+import time
 
 from argparse import ArgumentParser
-from os.path import exists, dirname, join
+from os.path import exists, dirname, join, abspath
 from urllib.parse import urlencode
 
 import requests
@@ -28,10 +29,11 @@ from pyquery import PyQuery as pq
 
 from nkpylib.script_utils import cli_runner
 from nkpylib.web_utils import make_request
-from nkpylib.ml.nkcollections import Collection
+from nkpylib.ml.nkcollections import Collection, init_sql_db
 
 CONFIG = {}
 IMAGES_DIR = 'cache/tumblr/'
+DB_PATH = 'tumblr_collections.db'
 
 J = lambda obj: json.dumps(obj, indent=2)
 
@@ -238,6 +240,82 @@ def get_post_images(p, max_images=1, max_width=400, dir=IMAGES_DIR):
             return images
     return images
 
+@db_session
+def create_collection_from_posts(blog_name: str, posts: list[dict]) -> None:
+    """Creates Collection rows from tumblr posts"""
+    
+    for post in posts:
+        # Create the main post collection entry
+        post_collection = Collection(
+            source='tumblr',
+            stype='blog', 
+            otype='post',
+            url=f"https://{blog_name}.tumblr.com/post/{post['id']}",
+            ts=post.get('timestamp', int(time.time())),
+            md=dict(
+                post_id=post['id'],
+                reblog_key=post['reblogKey'],
+                tags=post.get('tags', []),
+                blog_name=blog_name,
+                note_count=post.get('noteCount', 0),
+                summary=post.get('summary', ''),
+            )
+        )
+        
+        # Get content from either direct content or trail
+        content = post['content'] or (post['trail'][0]['content'] if post.get('trail') else [])
+        
+        # Create child collections for each content block
+        for content_block in content:
+            content_type = content_block['type']
+            
+            # Determine URL and metadata based on content type using match statement
+            match content_type:
+                case 'image':
+                    media = content_block['media'][0] if isinstance(content_block['media'], list) else content_block['media']
+                    url = media['url'].replace('.pnj', '.png')
+                    md = dict(
+                        width=media.get('width'),
+                        height=media.get('height'),
+                        media_key=media.get('mediaKey', media['url'].split('/')[3].rsplit('.', 1)[0])
+                    )
+                case 'video':
+                    media = content_block['media']
+                    url = media['url']
+                    md = dict(
+                        width=media.get('width'),
+                        height=media.get('height'),
+                        media_key=media['url'].split('/')[3]
+                    )
+                case 'text':
+                    url = f"https://{blog_name}.tumblr.com/post/{post['id']}#text"
+                    md = dict(
+                        text=content_block.get('text', ''),
+                        subtype=content_block.get('subtype', 'paragraph')
+                    )
+                case 'link':
+                    url = content_block.get('url', content_block.get('displayUrl', ''))
+                    md = dict(
+                        display_url=content_block.get('displayUrl', ''),
+                        title=content_block.get('title', ''),
+                        description=content_block.get('description', '')
+                    )
+                case _:
+                    # For other content types
+                    url = f"https://{blog_name}.tumblr.com/post/{post['id']}#{content_type}"
+                    md = content_block
+            
+            # Create child collection
+            Collection(
+                source='tumblr',
+                stype='blog',
+                otype=content_type,
+                url=url,
+                ts=post.get('timestamp', int(time.time())),
+                md=md,
+                parent=post_collection
+            )
+
 def process_posts(posts):
     for i, p in enumerate(posts):
         content = p['content'] or p['trail'][0]['content']
@@ -275,12 +353,15 @@ def simple_test(**kw):
     #posts, total = get_blog_archive('maureen2musings')
     process_posts(posts)
 
+@db_session
 def update_blogs(**kw):
     global CONFIG
     blogs = CONFIG['blogs']
     for i, name in enumerate(blogs):
         print(f'\nProcessing blog {i}/{len(blogs)}: {name}')
         posts, total = get_blog_archive(name)
+        create_collection_from_posts(name, posts)
+        print(f'Created {len(posts)} post collections for {name}')
         process_posts(posts)
         #break
 
@@ -292,6 +373,8 @@ if __name__ == '__main__':
         global CONFIG
         with open(config, 'r') as f:
             CONFIG = json.load(f)
+        # Initialize the database
+        init_sql_db(DB_PATH)
 
     cli_runner([simple_test, update_blogs, extract_md],
                pre_func=parse_config,
