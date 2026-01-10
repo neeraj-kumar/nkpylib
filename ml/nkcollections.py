@@ -12,7 +12,7 @@ import time
 
 from argparse import ArgumentParser
 from collections import defaultdict
-from os.path import join, dirname
+from os.path import abspath, join, dirname
 from pprint import pprint
 from queue import Queue, Empty
 from threading import Thread
@@ -21,11 +21,38 @@ import termcolor
 import tornado.web
 
 from tornado.web import RequestHandler
+from pony.orm import * # type: ignore
+from pony.orm.core import Entity, EntityMeta, SetInstance # type: ignore
 
+from nkpylib.nkpony import sqlite_pragmas, GetMixin
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server
 
 logger = logging.getLogger(__name__)
+
+sql_db = Database()
+
+class Collection(sql_db.Entity, GetMixin):
+    id = PrimaryKey(int, auto=True)
+    source = Required(str)
+    stype = Required(str)
+    otype = Required(str, index=True)
+    url = Required(str)
+    parent = Optional('Collection', reverse='children')
+    ts = Required(int, default=lambda: time.time(), index=True)
+    added_ts = Required(int, default=lambda: int(time.time()))
+    md = Optional(Json)
+    children = Set('Collection', reverse='parent')
+    composite_index(source, stype, otype)
+
+def init_sql_db(path: str) -> Database:
+    """Initializes the sqlite database at the given `path`"""
+    for func in sqlite_pragmas:
+        sql_db.on_connect(provider='sqlite')(func)
+    sql_db.bind('sqlite', abspath(path), create_db=True)
+    #set_sql_debug(True)
+    sql_db.generate_mapping(create_tables=True)
+    return sql_db
 
 
 class GetHandler(BaseHandler):
