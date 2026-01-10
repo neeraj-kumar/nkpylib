@@ -53,7 +53,7 @@ class PickleableLmdb(Lmdb):
             map_size=self.map_size,
             mode=self.env.mode,
         )
-        print(f'Pickling LMDB with state: {ret}')
+        logger.info(f'Pickling LMDB with state: {ret}')
         sys.exit()
         return ret
 
@@ -302,8 +302,8 @@ class LmdbUpdater(CollectionUpdater):
 
         All other `kw` are passed to the CollectionUpdater constructor.
         """
-        self.pool = ProcessPoolExecutor(max_workers=n_procs, initializer=self.init_worker, initargs=(db_path, init_fn, map_size))
         super().__init__(add_fn=self._add_fn, **kw)
+        self.pool = ProcessPoolExecutor(max_workers=n_procs, initializer=self.init_worker, initargs=(db_path, init_fn, map_size))
         self.futures = []
 
     @staticmethod
@@ -311,7 +311,7 @@ class LmdbUpdater(CollectionUpdater):
         """Initializes a worker process with the given db_path and init_fn."""
         global db, my_id
         my_id = os.getpid()
-        print(f'In child {my_id}: initializing db at {db_path} with {init_fn} and map_size {map_size}', flush=True)
+        logger.info(f'In child {my_id}: initializing db at {db_path} with {init_fn} and map_size {map_size}', flush=True)
         db = init_fn(db_path, flag='c', map_size=map_size, autogrow=False)
 
     def add(self, id: str, embedding=None, metadata=None):
@@ -360,7 +360,7 @@ class LmdbUpdater(CollectionUpdater):
 
     def sync(self):
         """Makes sure all pending writes are done."""
-        print(f'Calling sync')
+        logger.info(f'Calling sync')
         for f in self.futures:
             f.result()
         self.futures = []
@@ -507,6 +507,8 @@ def batch_extract_embeddings(inputs: list,
                              model: str|None=None,
                              batch_size=200,
                              md_func: Callable[[str, Any], dict]|None=None,
+                             skip_existing: bool=True,
+                             use_cache: bool=False,
                              **kw) -> int:
     """Core function for batch extracting embeddings to an LMDB.
 
@@ -515,11 +517,10 @@ def batch_extract_embeddings(inputs: list,
     determining which embedding to use. By default, for text we use model 'qwen_emb', and for image
     we use 'clip'. You can override this by specifying the `model` argument.
 
-    If the `embedding_type` is 'image', the list of `inputs` should be a list of image paths, which
-    are also used as the keys. If text, then the inputs should have 2 elements each, the key and the
-    text.
+    If the `embedding_type` is text, then the inputs should have 2 elements each, the key and the
+    text. If 'image', then they can either have a single string element each (the path, which will also be used as the key), or (key, path).
 
-    You can optionally provide a `md_func` that takes a `(key, value)` pair and returns a dict of
+    You can optionally provide a `md_func` that takes a `(key, input)` pair and returns a dict of
     metadata to write alongside the embedding.
 
     We return the number of new embeddings written to the database.
@@ -527,20 +528,23 @@ def batch_extract_embeddings(inputs: list,
     default_models = dict(image='clip', text='qwen_emb')
     assert embedding_type in default_models
     model = model or default_models[embedding_type]
-    # filter inputs to only those not already in the db
+    # convert inputs to (key, object) for images
+    if embedding_type == 'image':
+        inputs = [((inp, inp) if isinstance(inp, str) else inp) for inp in inputs]
+    db = NumpyLmdb.open(db_path, flag=flag)
+    logger.info(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}, {len(inputs)} new inputs to process: {inputs[:3]}.')
+    dtype = db.dtype
+    # filter inputs to only those not already in the db (if skip_existing)
     def filter_func(row):
-        if embedding_type == 'text':
-            key, _text = row
-        else:
-            key = row
-        return key not in db
+        if not skip_existing:
+            return True
+        return row[0] not in db
 
     inputs = list(filter(filter_func, inputs))
-    db = NumpyLmdb.open(db_path, flag=flag)
-    print(f'Got {len(db)} keys in db {db.path} with dtype {db.dtype} and flag {flag}, {len(inputs)} new inputs to process: {inputs[:3]}.')
-    dtype = db.dtype
     del db
-    updater = LmdbUpdater(db_path, NumpyLmdb.open, n_procs=4, batch_size=batch_size)
+    if not inputs:
+        return 0
+    updater = LmdbUpdater(db_path, NumpyLmdb.open, n_procs=4)
     num = 0
     # create a progress bar we can manually move
     bar = tqdm(total=len(inputs), desc=f'Extracting {embedding_type} features using {model}', unit='input')
@@ -550,23 +554,23 @@ def batch_extract_embeddings(inputs: list,
             continue
         if embedding_type == 'text':
             keys, texts = zip(*batch)
-            futures = embed_text.batch_futures(list(texts), model=model, use_cache=False)
+            futures = embed_text.batch_futures(list(texts), model=model, use_cache=use_cache)
         elif embedding_type == 'image':
-            futures = embed_image.batch_futures([abspath(input) for input in batch], model=model, use_cache=False)
+            keys, paths = zip(*batch)
+            futures = embed_image.batch_futures([abspath(path) for path in paths], model=model, use_cache=use_cache)
+        else:
+            raise ValueError(f'Unsupported embedding_type: {embedding_type}')
         for input, future in zip(batch, futures):
+            key, obj = input
             try:
                 emb = future.result()
                 if emb is None:
                     logger.warning(f'No embedding for {input}')
                     continue
-                if embedding_type == 'text':
-                    key, _text = input
-                else:
-                    key = input
                 #db[key] = np.array(emb, dtype=db.dtype)
                 to_add = dict(embedding=np.array(emb, dtype=dtype))
                 if md_func is not None:
-                    to_add['metadata'] = md_func(key, input)
+                    to_add['metadata'] = md_func(key, obj)
                 updater.add(key, **to_add)
                 num += 1
                 bar.update(1)
