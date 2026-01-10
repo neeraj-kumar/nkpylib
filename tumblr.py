@@ -1,19 +1,9 @@
 """A tumblr API that goes through the web.
 
 
-def batch_extract_embeddings(inputs: list,
-                             db_path: str,
-                             embedding_type: str='text',
-                             flag: str='c',
-                             model: str|None=None,
-                             batch_size=200,
-                             md_func: Callable[[str, Any], dict]|None=None,
-                             **kw) -> int:
-
 """
-
-
 import json
+import logging
 import os
 import sys
 import time
@@ -31,8 +21,10 @@ from nkpylib.script_utils import cli_runner
 from nkpylib.web_utils import make_request
 from nkpylib.ml.nkcollections import Collection, init_sql_db
 
+logger = logging.getLogger(__name__)
+
 CONFIG = {}
-IMAGES_DIR = 'cache/tumblr/'
+IMAGES_DIR = 'db/tumblr/images/'
 SQLITE_PATH = 'db/tumblr/tumblr_collection.sqlite'
 LMDB_PATH = 'db/tumblr/tumblr_embeddings.lmdb'
 
@@ -181,66 +173,6 @@ def get_blog_archive(blog_name, n_posts=20):
             break
     return (posts, total)
 
-def get_post_images(p, max_images=1, max_width=400, dir=IMAGES_DIR):
-    """Downloads the post image (if we don't already have it) to `dir`.
-
-    If the post contains multiple images, we get the first `max_images` of them.
-    For each image, we select the best quality version that is less than or equal to `max_width`
-    pixels wide.
-
-    Image content blocks look like this:
-    {
-        "type": "image",
-        "media": [
-            {
-                "url": "https://64.media.tumblr.com/...",
-                "mediaKey": "abc123...",
-                "width": 1280,
-                "height": 720,
-                ...
-            },
-            ...
-        ],
-        ...
-    }
-
-    Images might end with .pnj, which is a page rather than the image itself, so we should replace
-    that with .png
-
-    Also note that you have to set your accept header to images only, otherwise it will get an html
-    wrapper around the image.
-    """
-    images = []
-    content = p['content'] or p['trail'][0]['content']
-    for c in content:
-        if c['type'] not in ('image', 'video'):
-            return
-        media = [c['media']] if isinstance(c['media'], dict) else c['media']
-        #TODO get filmstrip and posters for videos?
-        for m in media:
-            if 'mediaKey' in m:
-                mk = m['mediaKey']
-            else:
-                mk = m['url'].split('/')[3].rsplit('.', 1)[0]
-            if m['width'] <= max_width or c['type'] == 'video':
-                img_url = m['url'].replace('.pnj', '.png')
-                ext = img_url.split('.')[-1]
-                img_path = join(dir, f'{mk}.{ext}')
-                if not exists(img_path):
-                    print(f'downloading image {img_url} -> {img_path}')
-                    r = make_request(img_url, headers={'Accept': 'image/avif,image/webp,image/apng,image/*,video/*'})
-                    try:
-                        os.makedirs(dirname(img_path), exist_ok=True)
-                    except Exception as e:
-                        pass
-                    with open(img_path, 'wb') as f:
-                        f.write(r.content)
-                images.append(img_path)
-                break
-        if len(images) >= max_images:
-            return images
-    return images
-
 @db_session
 def create_collection_from_posts(blog_name: str, posts: list[dict]) -> list[Collection]:
     """Creates `Collection` rows from tumblr posts"""
@@ -369,10 +301,6 @@ def process_posts(posts):
         if i == 500:
             print('Liking this post...')
             like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
-        if i <= 200:
-            #imgs = get_post_images(p, max_images=2)
-            #print(f'  DLed: {imgs}')
-            pass
 
 def simple_test(**kw):
     csrf = ''
@@ -386,15 +314,18 @@ def update_blogs(**kw):
     global CONFIG
     blogs = CONFIG['blogs']
     for i, name in enumerate(blogs):
+        continue
         print(f'\nProcessing blog {i}/{len(blogs)}: {name}')
         posts, total = get_blog_archive(name)
         cols = create_collection_from_posts(name, posts)
         print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
         #process_posts(posts)
         #break
+    Collection.update_embeddings(lmdb_path=LMDB_PATH, images_dir=IMAGES_DIR, use_cache=True)
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
     def parse_config(config, **kw):
         global CONFIG
         with open(config, 'r') as f:
