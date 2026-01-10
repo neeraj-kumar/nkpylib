@@ -127,4 +127,3 @@ def recursive_to_dict(obj, _has_iterated=False, **kwargs):
             del obj[deletable_key]
 
     return obj
-
