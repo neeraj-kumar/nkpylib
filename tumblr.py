@@ -23,11 +23,12 @@ from urllib.parse import urlencode
 
 import requests
 
+from pony.orm import db_session, select
 from pyquery import PyQuery as pq
 
 from nkpylib.script_utils import cli_runner
 from nkpylib.web_utils import make_request
-from nkpylib.ml.faces import dl_image
+from nkpylib.ml.nkcollections import Collection
 
 CONFIG = {}
 IMAGES_DIR = 'cache/tumblr/'
