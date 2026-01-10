@@ -102,4 +102,4 @@ aranet:
 
 ## tests out the tumblr wrapper
 tumblr:
-	@python3 tumblr.py simple_test
+	@python3 tumblr.py update_blogs

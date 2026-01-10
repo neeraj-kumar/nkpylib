@@ -33,7 +33,7 @@ from nkpylib.ml.nkcollections import Collection, init_sql_db
 
 CONFIG = {}
 IMAGES_DIR = 'cache/tumblr/'
-DB_PATH = 'tumblr_collections.db'
+DB_PATH = 'tumblr_collection.sqlite'
 
 J = lambda obj: json.dumps(obj, indent=2)
 
@@ -241,80 +241,106 @@ def get_post_images(p, max_images=1, max_width=400, dir=IMAGES_DIR):
     return images
 
 @db_session
-def create_collection_from_posts(blog_name: str, posts: list[dict]) -> None:
-    """Creates Collection rows from tumblr posts"""
-    
+def create_collection_from_posts(blog_name: str, posts: list[dict]) -> list[Collection]:
+    """Creates `Collection` rows from tumblr posts"""
+    #def upsert(cls, get_kw: dict[str, Any], **set_kw: Any) -> Entity:
+    ret = []
     for post in posts:
         # Create the main post collection entry
-        post_collection = Collection(
-            source='tumblr',
-            stype='blog', 
-            otype='post',
-            url=f"https://{blog_name}.tumblr.com/post/{post['id']}",
+        pc = Collection.upsert(get_kw=dict(
+                source='tumblr',
+                stype='blog',
+                otype='post',
+                url=post['postUrl']
+            ),
             ts=post.get('timestamp', int(time.time())),
             md=dict(
                 post_id=post['id'],
                 reblog_key=post['reblogKey'],
                 tags=post.get('tags', []),
                 blog_name=blog_name,
-                note_count=post.get('noteCount', 0),
+                n_notes=post.get('noteCount', 0),
+                n_likes=post.get('likeCount', 0),
+                n_reblogs=post.get('reblogCount', 0),
                 summary=post.get('summary', ''),
+                original_type=post.get('originalType', ''),
+                reblogged_from=post.get('rebloggedFromUrl', ''),
             )
         )
-        
+        ret.append(pc)
         # Get content from either direct content or trail
         content = post['content'] or (post['trail'][0]['content'] if post.get('trail') else [])
-        
         # Create child collections for each content block
-        for content_block in content:
-            content_type = content_block['type']
-            
-            # Determine URL and metadata based on content type using match statement
+        for i, c in enumerate(content):
+            content_type = c['type']
             match content_type:
                 case 'image':
-                    media = content_block['media'][0] if isinstance(content_block['media'], list) else content_block['media']
+                    media = c['media'][0] if isinstance(c['media'], list) else c['media']
                     url = media['url'].replace('.pnj', '.png')
                     md = dict(
-                        width=media.get('width'),
-                        height=media.get('height'),
+                        w=media.get('width'),
+                        h=media.get('height'),
                         media_key=media.get('mediaKey', media['url'].split('/')[3].rsplit('.', 1)[0])
                     )
                 case 'video':
-                    media = content_block['media']
+                    media = c.get('media', c)
                     url = media['url']
                     md = dict(
-                        width=media.get('width'),
-                        height=media.get('height'),
-                        media_key=media['url'].split('/')[3]
+                        w=media.get('width'),
+                        h=media.get('height'),
+                        media_key=media['url'].split('/')[3],
+                        provider=c.get('provider', ''),
                     )
                 case 'text':
-                    url = f"https://{blog_name}.tumblr.com/post/{post['id']}#text"
+                    url = f"{pc.url}#text_{i}"
                     md = dict(
-                        text=content_block.get('text', ''),
-                        subtype=content_block.get('subtype', 'paragraph')
+                        text=c.get('text', ''),
                     )
                 case 'link':
-                    url = content_block.get('url', content_block.get('displayUrl', ''))
+                    url = c.get('url', c.get('displayUrl', ''))
                     md = dict(
-                        display_url=content_block.get('displayUrl', ''),
-                        title=content_block.get('title', ''),
-                        description=content_block.get('description', '')
+                        display_url=c.get('displayUrl', ''),
+                        title=c.get('title', ''),
+                        description=c.get('description', '')
                     )
                 case _:
                     # For other content types
-                    url = f"https://{blog_name}.tumblr.com/post/{post['id']}#{content_type}"
-                    md = content_block
-            
-            # Create child collection
-            Collection(
-                source='tumblr',
-                stype='blog',
-                otype=content_type,
-                url=url,
+                    url = f"{pc.url}#{content_type}_{i}"
+                    md = c
+            # Create child collection object
+            cc = Collection.upsert(get_kw=dict(
+                    source=pc.source,
+                    stype=pc.stype,
+                    otype=content_type,
+                    url=url,
+                ),
                 ts=post.get('timestamp', int(time.time())),
                 md=md,
-                parent=post_collection
+                parent=pc
             )
+            ret.append(cc)
+            # if it was a video, also add the poster as a separate image collection
+            if content_type == 'video' and 'poster' in c:
+                poster = c['poster'][0]
+                poster_url = poster['url'].replace('.pnj', '.png')
+                poster_md = dict(
+                    w=poster.get('width'),
+                    h=poster.get('height'),
+                    media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
+                    poster_for=cc.id,
+                )
+                pcc = Collection.upsert(get_kw=dict(
+                        source=pc.source,
+                        stype=pc.stype,
+                        otype='image',
+                        url=poster_url,
+                    ),
+                    ts=post.get('timestamp', int(time.time())),
+                    md=poster_md,
+                    parent=pc,
+                )
+                ret.append(pcc)
+    return ret
 
 def process_posts(posts):
     for i, p in enumerate(posts):
@@ -343,8 +369,9 @@ def process_posts(posts):
             print('Liking this post...')
             like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
         if i <= 200:
-            imgs = get_post_images(p, max_images=2)
+            #imgs = get_post_images(p, max_images=2)
             #print(f'  DLed: {imgs}')
+            pass
 
 def simple_test(**kw):
     csrf = ''
@@ -360,23 +387,20 @@ def update_blogs(**kw):
     for i, name in enumerate(blogs):
         print(f'\nProcessing blog {i}/{len(blogs)}: {name}')
         posts, total = get_blog_archive(name)
-        create_collection_from_posts(name, posts)
-        print(f'Created {len(posts)} post collections for {name}')
-        process_posts(posts)
+        cols = create_collection_from_posts(name, posts)
+        print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
+        #process_posts(posts)
         #break
 
-def extract_md(**kw):
-    pass
 
 if __name__ == '__main__':
     def parse_config(config, **kw):
         global CONFIG
         with open(config, 'r') as f:
             CONFIG = json.load(f)
-        # Initialize the database
         init_sql_db(DB_PATH)
 
-    cli_runner([simple_test, update_blogs, extract_md],
+    cli_runner([simple_test, update_blogs],
                pre_func=parse_config,
                config=dict(default='.tumblr_config.json', help='Path to the tumblr config json file'))
     if 0:
