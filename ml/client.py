@@ -266,7 +266,8 @@ def single_call(endpoint: str, model:Optional[str]=None, **kw) -> ResponseT:
 def llm_final_func(resp):
     """Final function for LLM responses to return the text of the first choice."""
     if 'choices' not in resp:
-        resp.pop('prompts')
+        resp.pop('prompts', None)
+        resp.pop('messages', None)
         resp.pop('timing')
         raise ValueError(f"Invalid response from LLM server: {resp}")
     if not resp['choices']:
