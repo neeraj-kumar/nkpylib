@@ -33,6 +33,7 @@ from pony.orm import (
 ) # type: ignore
 
 from nkpylib.nkpony import sqlite_pragmas, GetMixin
+from nkpylib.ml.client import call_vlm
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request
@@ -85,7 +86,7 @@ class Collection(sql_db.Entity, GetMixin):
         # first do text rows
         rows = cls.select(lambda c: c.otype == 'text')
         logger.info(f'Updating embeddings for upto {rows.count()} text rows: {rows[:5]}...')
-        inputs = [(str(c.id), c.md['text']) for c in rows if c.md and 'text' in c.md]
+        inputs = [(f'{c.id}:text', c.md['text']) for c in rows if c.md and 'text' in c.md]
         def md_func(key, input):
             return dict(embedding_ts=int(time.time()))
 
@@ -95,16 +96,35 @@ class Collection(sql_db.Entity, GetMixin):
         rows = cls.select(lambda c: c.otype == 'image')
         logger.info(f'Updating embeddings for upto {rows.count()} image rows: {rows[:5]}...')
         inputs = []
+        vlm_prompt = 'briefly describe this image'
+        futures = {}
         for c in rows:
             url = c.url
             ext = url.split('.')[-1]
-            key = c.md.get('media_key', c.id)
-            path = abspath(join(images_dir, f'{key}.{ext}'))
+            mk = c.md.get('media_key', c.id)
+            path = abspath(join(images_dir, f'{mk}.{ext}'))
             downloaded = maybe_dl(url, path)
-            inputs.append((str(c.id), path))
-        n_image = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='image', md_func=md_func)
+            key = f'{c.id}:image'
+            inputs.append((key, path))
+            # start computing text description for this image
+            futures[key] = call_vlm.single_future((path, vlm_prompt), model='fastvlm')
+        descriptions = {}
+        def md_func(key, input):
+            # wait for description
+            descriptions[key.split(':')[0]+':text'] = desc = futures[key].result()
+            return dict(embedding_ts=int(time.time()), desc=desc)
+
+        n_image = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='image', md_func=md_func, **kw)
         logger.info(f'  Updated embeddings for {n_image} image rows')
-        return n_text + n_image
+        # finally, add embeddings for the descriptions
+        inputs = list(descriptions.items())
+        logger.info(f'Updating embeddings for upto {len(inputs)} image descs: {inputs[:3]}')
+        def md_func(key, input):
+            return dict(embedding_ts=int(time.time()), desc=input)
+
+        n_descs = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
+        logger.info(f'  Updated embeddings for {n_descs} image descs')
+        return n_text + n_image + n_descs
 
 
 def init_sql_db(path: str) -> Database:
