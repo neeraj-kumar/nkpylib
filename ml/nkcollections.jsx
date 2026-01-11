@@ -15,6 +15,7 @@ const STYLES = `
   border: 1px solid #ccc;
   padding: 5px;
   margin: 5px;
+  text-align: center;
 }
 
 .object.post {
@@ -55,6 +56,7 @@ const Obj = ({id, otype, url, md, togglePos, score, ...props}) => {
           <img src={url} alt={`Image ${id}`} />
         </div>
       )}
+      <p>ID: {id}</p>
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}

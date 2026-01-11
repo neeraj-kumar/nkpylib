@@ -126,9 +126,10 @@ class FeatureSet(Mapping, Generic[KeyT]):
         all keys).
         """
         if keys is None:
-            cache_kw = dict(normed=normed, scale_mean=scale_mean, scale_std=scale_std)
-            if self.cached and all(self.cached[k] == v for k, v in cache_kw.items()):
-                return self.cached['keys'], self.cached['embs']
+            if 0:
+                cache_kw = dict(normed=normed, scale_mean=scale_mean, scale_std=scale_std)
+                if self.cached and all(self.cached[k] == v for k, v in cache_kw.items()):
+                    return self.cached['keys'], self.cached['embs']
             _keys, _embs = zip(*list(self.items()))
             keys = list(_keys)
             embs = np.vstack(_embs)

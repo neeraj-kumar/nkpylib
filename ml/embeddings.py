@@ -29,6 +29,7 @@ from typing import Any, Sequence, Generic, TypeVar, Hashable
 
 import numpy as np
 
+from scipy.spatial.distance import cdist
 from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import TruncatedSVD # type: ignore
@@ -113,6 +114,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         pos: Any
         if method == 'nn': # queries must not be estimator
             if queries[0] in self:
+                logger.debug(f'{len(queries)} Pos: {queries}')
                 _pos = np.array([i for i, k in enumerate(keys) if k in queries])
                 pos = embs[_pos]
             else:
@@ -146,18 +148,39 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
         return ret
 
-    def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='cosine', all_keys=None, **kw):
+    def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='l2', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores."""
         nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric)
-        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=True)
+        #keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=True)
+        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=False, scale_mean=False, scale_std=False)
+        logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         nn.fit(embs)
         scores, indices = nn.kneighbors(pos, min(n_neighbors, len(keys)), return_distance=True)
         # aggregate scores for each index over all queries
         score_by_index: Counter = Counter()
         for i, s in zip(indices, scores):
             for j, k in zip(i, s): # for each query, add the score to the index
-                score_by_index[j] += k
+                score_by_index[j] += (1 - k)
         ret = [(score, keys[idx]) for idx, score in score_by_index.most_common()]
+        return ret
+
+    def simple_nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='cosine', all_keys=None, **kw):
+        """Runs nearest neighbors with given `pos` embeddings, aggregating scores.
+
+        This version uses cdist directly.
+        """
+        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=False)
+        logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
+        scores = cdist(pos, embs, metric=metric)
+        logger.debug(f'got scores: {scores.shape}: {scores}')
+        # aggregate scores for each index over all queries
+        score_by_index: Counter = Counter()
+        for row in scores:
+            for j, s in enumerate(row):
+                score_by_index[j] += 1 - s
+        logger.debug(f'got score by index: {score_by_index.most_common(10)}')
+        ret = [(score, keys[idx]) for idx, score in score_by_index.most_common()]
+        logger.debug(f'got final ret: {ret[:10]}')
         return ret
 
     def make_classifier(self,
