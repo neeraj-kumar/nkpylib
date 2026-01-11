@@ -52,6 +52,8 @@ DEFAULT_MODELS = dict(
     chat=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     # generic vlm model for vision+language tasks
     vlm=ModelConfig('zai-org/GLM-4.6V', max_tokens=131072),
+    # faster/cheaper vlm
+    fastvlm=ModelConfig('google/gemma-3-4b-it', max_tokens=131072),
     oldvlm=ModelConfig('meta-llama/Llama-3.2-90B-Vision-Instruct', max_tokens=131072),
     # model for better vlm performance on extracting doc data
     docimage=ModelConfig('accounts/fireworks/models/qwen2-vl-72b-instruct', max_tokens=32768),
