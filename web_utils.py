@@ -582,7 +582,7 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
                          make_app: Callable[[], Application]=lambda: Application(),
                          default_port: int=8000,
                          post_parse_fn: Callable[[dict],None]|None=None,
-                         on_start: Callable[[Application],None]|None=None,
+                         on_start: Callable[[Application, argparse.Namespace],None]|None=None,
                          ) -> None:
     """Creates a web server and runs it.
 
@@ -593,8 +593,9 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
 
     You can also set a `post_parse_fn` which is called with the `args` object after arg parsing.
 
-    You can also pass in an `on_start` function which is called with the application instance
-    once the server is started, which is useful for doing any initialization, but delayed.
+    You can also pass in an `on_start` function which is called with the application instance and
+    the parsed args, once the server is started, which is useful for doing any initialization, but
+    delayed.
 
     We also setup logging.
     """
@@ -610,7 +611,7 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
     app = make_app()
     app.listen(args.port)
     if on_start:
-        IOLoop.current().add_callback(lambda: on_start(app))
+        IOLoop.current().add_callback(lambda: on_start(app, args))
     IOLoop.current().start()
 
 def simple_react_tornado_server(jsx_path: str,
@@ -621,7 +622,7 @@ def simple_react_tornado_server(jsx_path: str,
                                 data_dir: str|None='.',
                                 static_path: str='/static',
                                 css_filename: str='app.css',
-                                on_start: Callable[[Application],None]|None=None,
+                                on_start: Callable[[Application, argparse.Namespace],None]|None=None,
                                 **kw):
     """Call this to start a tornado server to serve a single page react app from.
 
@@ -638,8 +639,8 @@ def simple_react_tornado_server(jsx_path: str,
     regexps), 2nd element is the handler class, and 3rd (optional) one is params. This is useful for
     having an API.
 
-    You can also pass a function `on_start` which is called with the application instance
-    once the server is started, which is useful for doing any initialization, but delayed.
+    You can also pass a function `on_start` which is called with the application instance and parsed
+    args, once the server is started, which is useful for doing any initialization, but delayed.
 
     Any **kw you pass in are stored as instance variables on the application class. Your handlers
     can access these via `self.application.<varname>`.

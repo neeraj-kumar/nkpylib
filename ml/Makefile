@@ -74,4 +74,4 @@ train:
 
 ## run nk collections
 cols:
-	python3 nkcollections.py
+	python3 nkcollections.py db/tumblr/{tumblr_collection.sqlite,tumblr_embeddings.lmdb}

@@ -16,6 +16,7 @@ from os.path import abspath, exists, join, dirname
 from pprint import pprint
 from queue import Queue, Empty
 from threading import Thread
+from functools import cache
 
 import termcolor
 import tornado.web
@@ -30,9 +31,10 @@ from pony.orm import (
     PrimaryKey,
     Required,
     Set,
+    select,
 ) # type: ignore
 
-from nkpylib.nkpony import sqlite_pragmas, GetMixin
+from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.ml.client import call_vlm
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings
 from nkpylib.stringutils import parse_num_spec
@@ -136,26 +138,54 @@ def init_sql_db(path: str) -> Database:
     sql_db.generate_mapping(create_tables=True)
     return sql_db
 
+class MyBaseHandler(BaseHandler):
+    @property
+    def sql_db(self) -> Database:
+        return self.application.sql_db
 
-class GetHandler(BaseHandler):
+    @property
+    def lmdb(self) -> NumpyLmdb:
+        return self.application.lmdb
+
+    @property
+    @cache
+    def all_otypes(self) -> list[str]:
+        with db_session:
+            otypes = list(select(r.otype for r in Collection))
+            return otypes
+
+class GetHandler(MyBaseHandler):
     def get(self, indices):
-        msg = f'hello'
-        self.write(dict(msg=msg, indices=indices))
+        otypes = self.get_argument('otypes', ','.join(self.all_otypes)).split(',')
+        ids = parse_num_spec(indices)
+        # select from the Collection table where ids in ids
+        with db_session:
+            rows = {r.id: recursive_to_dict(r) for r in Collection.select(lambda c: c.id in ids and (c.otype in otypes))}
+            msg = f'hello'
+        self.write(dict(msg=msg,
+                        indices=indices,
+                        rows=rows))
 
 def web_main():
     # load the data file from first arg
     parser = ArgumentParser(description="NK collections main")
-    #parser.add_argument('data_path', help="The path to the data file")
+    parser.add_argument('sqlite_path', help="The path to the sqlite database")
+    parser.add_argument('lmdb_path', help="The path to the lmdb database")
     kw = {}
     def post_parse_fn(args):
-        pass
+        print(f'Got args {args}')
+
+    def on_start(app, args):
+        app.sql_db = init_sql_db(args.sqlite_path)
+        app.lmdb = NumpyLmdb.open(args.lmdb_path, flag='r')
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/nkcollections.jsx',
                                 port=12555,
                                 more_handlers=[(r'/get/(.*)', GetHandler)],
                                 parser=parser,
                                 post_parse_fn=post_parse_fn,
-                                more_kw=kw)
+                                more_kw=kw,
+                                on_start=on_start)
 
 
 if __name__ == '__main__':
