@@ -311,7 +311,7 @@ class LmdbUpdater(CollectionUpdater):
         """Initializes a worker process with the given db_path and init_fn."""
         global db, my_id
         my_id = os.getpid()
-        logger.info(f'In child {my_id}: initializing db at {db_path} with {init_fn} and map_size {map_size}', flush=True)
+        logger.info(f'In child {my_id}: initializing db at {db_path} with {init_fn} and map_size {map_size}')
         db = init_fn(db_path, flag='c', map_size=map_size, autogrow=False)
 
     def add(self, id: str, embedding=None, metadata=None):
@@ -467,12 +467,17 @@ class LmdbTree(Tree):
             db.sync()
 
 
-def quick_test(path: str, n: int=3, show_md=False, **kw):
+def quick_test(path: str, n: int=3, cols: int=-1, show_md:bool=False, q:str='', **kw):
     """Prints the first `n` embeddings from given `path` (assumed to be NumpyLmdb).
 
     We print information about the db and metadata to stderr, and then the first `n` entries to
     stdout, with key followed by tab followed by space-separated values, for ease of
     parsing/manipulating downstream.
+
+    Params:
+    - 'cols': if a positive integer, limit the number of columns printed per embedding.
+    - 'show_md': if True, prints the metadata for each entry.
+    - 'q': if given, searches for the given str within keys and only prints those that match.
     """
     db = NumpyLmdb.open(path)
     num = 0
@@ -490,7 +495,9 @@ def quick_test(path: str, n: int=3, show_md=False, **kw):
         g = db.md_db.get(db.global_key, None)
         print(f'  Got {n_md} metadata entries, global: {g}', file=sys.stderr)
     for key, value in db.items():
-        val_s = ' '.join(f'{v:.4f}' for v in value)
+        if q and q not in key:
+            continue
+        val_s = ' '.join(f'{v:.4f}' for v in value[:cols])
         s = f'{key}\t{val_s}'
         if show_md:
             md = db.md_get(key)
