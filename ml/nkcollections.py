@@ -34,9 +34,10 @@ from pony.orm import (
     select,
 ) # type: ignore
 
-from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.ml.client import call_vlm
+from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings
+from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request
 
@@ -148,6 +149,10 @@ class MyBaseHandler(BaseHandler):
         return self.application.lmdb
 
     @property
+    def embs(self) -> Embeddings:
+        return self.application.embs
+
+    @property
     @cache
     def all_otypes(self) -> list[str]:
         with db_session:
@@ -166,6 +171,27 @@ class GetHandler(MyBaseHandler):
                         indices=indices,
                         rows=rows))
 
+class ClassifyHandler(MyBaseHandler):
+    def post(self):
+        # get pos from json argument
+        data = json.loads(self.request.body)
+        pos = data.get('pos', [])
+        # for now, we use the first pos to set the otype to search over
+        with db_session:
+            otype = Collection[pos[0]].otype
+        pos = [f'{p}:{otype}' for p in pos]
+        all_keys = [k for k in self.embs if k.endswith(f':{otype}')]
+        print(f'ClassifyHandler got pos={pos}, {otype}, {len(all_keys)} total keys: {all_keys[:5]}...')
+         # get similar from embs
+        ret = self.embs.similar(pos, all_keys=all_keys, method='nn')
+        print(f'Got ret {ret}')
+        scores, curIds = zip(*ret)
+        curIds = [p.split(':')[0] for p in curIds]
+         # for each pos, get the row from the Collection table
+        self.write(dict(pos=pos,
+                        scores={id: score for id, score in zip(curIds, scores)},
+                        curIds=curIds))
+
 def web_main():
     # load the data file from first arg
     parser = ArgumentParser(description="NK collections main")
@@ -177,11 +203,17 @@ def web_main():
 
     def on_start(app, args):
         app.sql_db = init_sql_db(args.sqlite_path)
-        app.lmdb = NumpyLmdb.open(args.lmdb_path, flag='r')
+        #app.lmdb = NumpyLmdb.open(args.lmdb_path, flag='r')
+        app.embs = Embeddings([args.lmdb_path])
+
+    more_handlers = [
+        (r'/get/(.*)', GetHandler),
+        (r'/classify', ClassifyHandler),
+    ]
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/nkcollections.jsx',
                                 port=12555,
-                                more_handlers=[(r'/get/(.*)', GetHandler)],
+                                more_handlers=more_handlers,
                                 parser=parser,
                                 post_parse_fn=post_parse_fn,
                                 more_kw=kw,
@@ -189,5 +221,5 @@ def web_main():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
     web_main()

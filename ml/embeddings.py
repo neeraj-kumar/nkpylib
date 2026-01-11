@@ -43,6 +43,8 @@ from nkpylib.ml.feature_set import (
     array1d,
     array2d,
     FeatureSet,
+)
+from nkpylib.ml.nklmdb import (
     JsonLmdb,
     LmdbUpdater,
     MetadataLmdb,
@@ -53,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 KeyT = TypeVar('KeyT')
 
-class FeatureSetOperations(FeatureSet, Generic[KeyT]):
+class Embeddings(FeatureSet, Generic[KeyT]):
     """A set of features that you can do stuff with."""
     def cluster(self, n_clusters=-1, method='kmeans', **kwargs) -> list[list[KeyT]]:
         """Clusters our embeddings.
@@ -87,12 +89,17 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
                 n_neg: int=1000,
                 method: str='rbf',
                 min_score: float=-0.1,
+                all_keys: list[KeyT]|None=None,
                 **kw) -> list[tuple[float, KeyT]]:
         """Returns the most similar keys and scores to the given `queries`.
 
-        This is a wrapper on top of `nearest_neighbors()` and `make_classifier()`.
+        This is a wrapper on top of `nearest_neighbors()` (method='nn') and `make_classifier()`
+        (method='rbf').
 
         The queries can either be keys from this class, or embedding vectors.
+
+        You can set the "universe" of keys to search over using `all_keys`. By default, we search
+        over all keys in this class.
 
         Returns (score, key) tuples in descending order of score.
         """
@@ -102,7 +109,7 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
             if queries[0] in self:
                 assert all(q in self for q in queries), f'All queries must be in the embeddings.'
         #TODO normalize queries if not in dataset
-        keys, embs = self.get_keys_embeddings(normed=True, scale_mean=False, scale_std=True)
+        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=True)
         pos: Any
         if method == 'nn': # queries must not be estimator
             if queries[0] in self:
@@ -110,7 +117,7 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
                 pos = embs[_pos]
             else:
                 pos = queries
-            _ret = self.nearest_neighbors(pos, n_neighbors=n_neg, **kw)
+            _ret = self.nearest_neighbors(pos, n_neighbors=n_neg, all_keys=all_keys, **kw)
         else:
             if isinstance(queries, BaseEstimator):
                 clf = queries
@@ -119,7 +126,7 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
                 if queries[0] in self:
                     pos = [i for i, k in enumerate(keys) if k in queries]
                     neg = [i for i in range(len(keys)) if i not in pos]
-                    neg = random.sample(neg, n_neg)
+                    neg = random.sample(neg, min(len(neg), n_neg))
                     X = embs[pos + neg]
                 else:
                     # at this point, we know queries is a 2d array
@@ -139,12 +146,12 @@ class FeatureSetOperations(FeatureSet, Generic[KeyT]):
             ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
         return ret
 
-    def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='cosine', **kw):
+    def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='cosine', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores."""
         nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric)
-        keys, embs = self.get_keys_embeddings(normed=True, scale_mean=False, scale_std=True)
+        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=True)
         nn.fit(embs)
-        scores, indices = nn.kneighbors(pos, n_neighbors, return_distance=True)
+        scores, indices = nn.kneighbors(pos, min(n_neighbors, len(keys)), return_distance=True)
         # aggregate scores for each index over all queries
         score_by_index: Counter = Counter()
         for i, s in zip(indices, scores):

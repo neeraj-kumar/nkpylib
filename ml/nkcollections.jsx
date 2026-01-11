@@ -75,8 +75,8 @@ const App = () => {
     const styleEl = document.createElement('style');
     styleEl.innerHTML = STYLES;
     document.head.appendChild(styleEl);
-    // fetch events from the server
-    fetch('/get/0-100?otypes=text,image')
+    // fetch objects from the server
+    fetch('/get/0-1000?otypes=text,image')
       .then((response) => response.json())
       .then((data) => {
         console.log('got data', data);
@@ -104,6 +104,9 @@ const App = () => {
   // function to call classification, whenever pos changes
   React.useEffect(() => {
     if (pos.length === 0) {
+      // reset curIds to all ids and scores to empty
+      setCurIds(Object.keys(rowById));
+      setScores({});
       return;
     }
     console.log('calling classify for pos', pos);
@@ -118,13 +121,15 @@ const App = () => {
       .then((data) => {
         console.log('got classify data', data);
         // update curIds and scores
-        setCurIds(data.curIds);
-        setScores(data.scores);
+        if (data.curIds && data.scores){
+          setCurIds(data.curIds);
+          setScores(data.scores);
+        }
       });
   }, [pos]);
 
   const funcs = { togglePos };
-  console.log('rowById', rowById, curIds, pos);
+  console.log('rowById', rowById, curIds, pos, scores);
 
   return (
   <div>
