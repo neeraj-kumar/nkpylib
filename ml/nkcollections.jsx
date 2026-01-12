@@ -151,29 +151,34 @@ const App = () => {
   const searchTimeoutRef = React.useRef(null);
   const filterTimeoutRef = React.useRef(null);
 
-  // Debounced search handler
-  const debouncedUpdateSearchStr = React.useCallback((value) => {
-    setSearchStr(value);
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    searchTimeoutRef.current = setTimeout(() => {
-      console.log('Search triggered after 5 seconds:', value);
-      // TODO: implement actual search functionality here
-    }, 5000);
+  // Generic debounced function factory
+  const createDebouncedUpdater = React.useCallback((setter, timeoutRef, onTrigger, delay = 5000) => {
+    return (value) => {
+      setter(value);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => onTrigger(value), delay);
+    };
   }, []);
 
-  // Debounced filter handler
-  const debouncedUpdateFilterStr = React.useCallback((value) => {
-    setFilterStr(value);
-    if (filterTimeoutRef.current) {
-      clearTimeout(filterTimeoutRef.current);
+  const debouncedUpdateSearchStr = createDebouncedUpdater(
+    setSearchStr, 
+    searchTimeoutRef, 
+    (value) => {
+      console.log('Search triggered after 5 seconds:', value);
+      // TODO: implement actual search functionality here
     }
-    filterTimeoutRef.current = setTimeout(() => {
+  );
+
+  const debouncedUpdateFilterStr = createDebouncedUpdater(
+    setFilterStr, 
+    filterTimeoutRef, 
+    (value) => {
       console.log('Filter triggered after 5 seconds:', value);
       // TODO: implement actual filter functionality here
-    }, 5000);
-  }, []);
+    }
+  );
   React.useEffect(() => {
     document.title = 'NK Collections';
     // insert styles
