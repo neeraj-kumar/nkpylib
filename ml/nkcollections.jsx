@@ -1,3 +1,5 @@
+const DEBOUNCE_MS = 2000;
+
 const STYLES = `
 
 .labeled {
@@ -152,7 +154,7 @@ const App = () => {
   const filterTimeoutRef = React.useRef(null);
 
   // Generic debounced function factory
-  const createDebouncedUpdater = React.useCallback((setter, timeoutRef, onTrigger, delay = 5000) => {
+  const createDebouncedUpdater = React.useCallback((setter, timeoutRef, onTrigger, delay = DEBOUNCE_MS) => {
     return (value) => {
       setter(value);
       if (timeoutRef.current) {
@@ -162,23 +164,16 @@ const App = () => {
     };
   }, []);
 
-  const debouncedUpdateSearchStr = createDebouncedUpdater(
-    setSearchStr, 
-    searchTimeoutRef, 
-    (value) => {
-      console.log('Search triggered after 5 seconds:', value);
-      // TODO: implement actual search functionality here
-    }
-  );
+  const doSearch = React.useCallback((value) => {
+    console.log('searching for', value, filterStr, searchStr);
+  }, []);
 
-  const debouncedUpdateFilterStr = createDebouncedUpdater(
-    setFilterStr, 
-    filterTimeoutRef, 
-    (value) => {
-      console.log('Filter triggered after 5 seconds:', value);
-      // TODO: implement actual filter functionality here
-    }
-  );
+  const doFilter = React.useCallback((value) => {
+    console.log('filtering for', value, filterStr, searchStr);
+  }, []);
+
+  const updateSearchStr = createDebouncedUpdater(setSearchStr, searchTimeoutRef, doSearch);
+  const updateFilterStr = createDebouncedUpdater(setFilterStr, filterTimeoutRef, doFilter);
   React.useEffect(() => {
     document.title = 'NK Collections';
     // insert styles
@@ -243,7 +238,8 @@ const App = () => {
       });
   }, [pos]);
 
-  const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds, filterStr, updateFilterStr: debouncedUpdateFilterStr, searchStr, updateSearchStr: debouncedUpdateSearchStr};
+  const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
+    filterStr, updateFilterStr, searchStr, updateSearchStr};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
