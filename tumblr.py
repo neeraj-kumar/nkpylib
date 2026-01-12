@@ -5,10 +5,13 @@
 import json
 import logging
 import os
+import random
+import shutil
 import sys
 import time
 
 from argparse import ArgumentParser
+from datetime import datetime
 from os.path import exists, dirname, join, abspath
 from urllib.parse import urlencode
 
@@ -30,12 +33,38 @@ LMDB_PATH = 'db/tumblr/tumblr_embeddings.lmdb'
 
 J = lambda obj: json.dumps(obj, indent=2)
 
+COMMON_HEADERS = {
+    "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
+    #"Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "en-us", # Language preference
+    "Content-Type": "application/json; charset=utf8", # The server expects JSON UTF‑8 payload
+    "X-Version": "redpop/3/0//redpop/", # A proprietary version header used by Tumblr’s front‑end code
+    # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin", # or same-site for api calls?
+    "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
+}
+
 def tumblr_req(endpoint, **kw):
     url = endpoint if 'tumblr.com' in endpoint else f'https://www.tumblr.com/{endpoint}'
-    resp = make_request(url, cookies=CONFIG['cookies'], **kw)
+    headers = {
+        "Authorization": f'Bearer {CONFIG["api_token"]}',
+        **COMMON_HEADERS
+    }
+    #print(url)
+    #print(CONFIG['cookies'], headers, kw)
+    resp = make_request(url, cookies=CONFIG['cookies'], headers=headers, **kw)
+    print(f'  Resp cookies: {resp.cookies}')
+    if resp.status_code != 200:
+        logger.warning(f'Error {resp.status_code} from Tumblr: {resp.text}')
+        sys.exit()
+    try:
+        shutil.copy2('last_tumblr_response.html', 'last_tumblr_response_prev.html')
+    except Exception:
+        pass
     with open('last_tumblr_response.html', 'w') as f:
         f.write(resp.text)
-    print(f'  Resp cookies: {resp.cookies}')
     return resp
 
 def tumblr_api_req(endpoint, **kw):
@@ -56,19 +85,6 @@ def tumblr_api_req(endpoint, **kw):
     return obj
 
 
-
-COMMON_HEADERS = {
-    "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
-    #"Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "en-us", # Language preference
-    "Content-Type": "application/json; charset=utf8", # The server expects JSON UTF‑8 payload
-    "X-Version": "redpop/3/0//redpop/", # A proprietary version header used by Tumblr’s front‑end code
-    # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin", # or same-site for api calls?
-    "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
-}
 
 def like_post(post_id, reblog_key, csrf=''):
     data = {
@@ -218,11 +234,16 @@ def create_collection_from_posts(blog_name: str, posts: list[dict]) -> list[Coll
                 case 'video':
                     media = c.get('media', c)
                     url = media['url']
+                    poster = c['poster'][0]
+                    poster_url = poster['url'].replace('.pnj', '.png')
+                    poster_media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
                     md = dict(
                         w=media.get('width'),
                         h=media.get('height'),
                         media_key=media['url'].split('/')[3],
                         provider=c.get('provider', ''),
+                        poster_url=poster_url,
+                        poster_media_key=poster_media_key,
                     )
                 case 'text':
                     url = f"{pc.url}#text_{i}"
@@ -254,12 +275,10 @@ def create_collection_from_posts(blog_name: str, posts: list[dict]) -> list[Coll
             ret.append(cc)
             # if it was a video, also add the poster as a separate image collection
             if content_type == 'video' and 'poster' in c:
-                poster = c['poster'][0]
-                poster_url = poster['url'].replace('.pnj', '.png')
                 poster_md = dict(
                     w=poster.get('width'),
                     h=poster.get('height'),
-                    media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
+                    media_key=poster_media_key,
                     poster_for=cc.id,
                 )
                 pcc = Collection.upsert(get_kw=dict(
@@ -304,23 +323,33 @@ def process_posts(posts):
 
 def simple_test(**kw):
     csrf = ''
-    csrf, posts = get_blog_content('virgomoon')
+    while 1:
+        #csrf, posts = get_blog_content('virgomoon')
+        s = tumblr_req('https://www.tumblr.com/api/v2/user/counts?unread=true&inbox=true&unread_messages=true&blog_notification_counts=true&private_group_blog_unread_post_counts=true&unread_community_counts=true&unread_mod_queue_counts=true')
+        #s = tumblr_api_req('user/counts?unread=true&inbox=true&unread_messages=true&blog_notification_counts=true&private_group_blog_unread_post_counts=true&unread_community_counts=true&unread_mod_queue_counts=true')
+        print(s)
+        print(s.content)
+        #print(f'{datetime.today()}: {csrf}')
+        time.sleep(60 + random.random()*60)
     #posts, total = get_blog_archive('animentality')
     #posts, total = get_blog_archive('maureen2musings')
-    process_posts(posts)
+    #process_posts(posts)
 
 @db_session
 def update_blogs(**kw):
     global CONFIG
     blogs = CONFIG['blogs']
     for i, name in enumerate(blogs):
-        continue
-        print(f'\nProcessing blog {i}/{len(blogs)}: {name}')
-        posts, total = get_blog_archive(name)
-        cols = create_collection_from_posts(name, posts)
-        print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
-        #process_posts(posts)
-        #break
+        print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
+        try:
+            posts, total = get_blog_archive(name)
+            cols = create_collection_from_posts(name, posts)
+            print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
+            #process_posts(posts)
+            #break
+        except Exception as e:
+            logger.warning(f'Failed to process blog {name}: {e}')
+            continue
     Collection.update_embeddings(lmdb_path=LMDB_PATH, images_dir=IMAGES_DIR, use_cache=True)
 
 
