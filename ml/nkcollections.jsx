@@ -78,7 +78,7 @@ const Obj = ({id, otype, url, md, togglePos, score, ...props}) => {
   );
 }
 
-const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, ...props}) => {
+const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, filterStr, setFilterStr, searchStr, setSearchStr, ...props}) => {
   return (
     <div className="controls">
       <div className="control randomize-btn">
@@ -93,6 +93,22 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, ...props}) => 
             return shuffled;
           });
         }}>Randomize</button>
+      </div>
+      <div className="control text-fields">
+        <input
+          type="text"
+          placeholder="Filter..."
+          value={filterStr}
+          onChange={(e) => setFilterStr(e.target.value)}
+          style={{marginRight: '10px'}}
+        />
+        <input
+          type="text"
+          placeholder="Search..."
+          value={searchStr}
+          onChange={(e) => setSearchStr(e.target.value)}
+          style={{marginRight: '10px'}}
+        />
       </div>
       <div className="control otype-filters">
       {allOtypes.map((otype) => (
@@ -126,6 +142,8 @@ const App = () => {
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
+  const [filterStr, setFilterStr] = React.useState('');
+  const [searchStr, setSearchStr] = React.useState('');
   React.useEffect(() => {
     document.title = 'NK Collections';
     // insert styles
@@ -190,7 +208,7 @@ const App = () => {
       });
   }, [pos]);
 
-  const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds};
+  const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds, filterStr, setFilterStr, searchStr, setSearchStr};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
