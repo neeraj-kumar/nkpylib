@@ -146,22 +146,11 @@ const App = () => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
-  
-  // Create debounced callbacks for search and filter
-  const updateSearchStr = React.useCallback((value) => {
-    setSearchStr(value);
-    // TODO: implement actual search functionality after 5 second delay
-  }, []);
-  
-  const updateFilterStr = React.useCallback((value) => {
-    setFilterStr(value);
-    // TODO: implement actual filter functionality after 5 second delay
-  }, []);
-  
+
   // Debounce timers
   const searchTimeoutRef = React.useRef(null);
   const filterTimeoutRef = React.useRef(null);
-  
+
   // Debounced search handler
   const debouncedUpdateSearchStr = React.useCallback((value) => {
     setSearchStr(value);
@@ -173,7 +162,7 @@ const App = () => {
       // TODO: implement actual search functionality here
     }, 5000);
   }, []);
-  
+
   // Debounced filter handler
   const debouncedUpdateFilterStr = React.useCallback((value) => {
     setFilterStr(value);
