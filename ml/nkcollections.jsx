@@ -149,9 +149,22 @@ const App = () => {
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
 
+  // Refs to access current values in debounced callbacks
+  const filterStrRef = React.useRef(filterStr);
+  const searchStrRef = React.useRef(searchStr);
+
   // Debounce timers
   const searchTimeoutRef = React.useRef(null);
   const filterTimeoutRef = React.useRef(null);
+
+  // Update refs when state changes
+  React.useEffect(() => {
+    filterStrRef.current = filterStr;
+  }, [filterStr]);
+
+  React.useEffect(() => {
+    searchStrRef.current = searchStr;
+  }, [searchStr]);
 
   // Generic debounced function factory
   const createDebouncedUpdater = React.useCallback((setter, timeoutRef, onTrigger, delay = DEBOUNCE_MS) => {
@@ -165,11 +178,11 @@ const App = () => {
   }, []);
 
   const doSearch = React.useCallback((value) => {
-    console.log('searching for', value, filterStr, searchStr);
+    console.log('searching for', value, filterStrRef.current, searchStrRef.current);
   }, []);
 
   const doFilter = React.useCallback((value) => {
-    console.log('filtering for', value, filterStr, searchStr);
+    console.log('filtering for', value, filterStrRef.current, searchStrRef.current);
   }, []);
 
   const updateSearchStr = createDebouncedUpdater(setSearchStr, searchTimeoutRef, doSearch);
