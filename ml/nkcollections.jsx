@@ -82,7 +82,7 @@ const Obj = ({id, otype, url, md, togglePos, score, ...props}) => {
   );
 }
 
-const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, filterStr, setFilterStr, searchStr, setSearchStr, ...props}) => {
+const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, filterStr, updateFilterStr, searchStr, updateSearchStr, ...props}) => {
   return (
     <div className="controls">
       <div className="control randomize-btn">
@@ -103,13 +103,13 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, filterStr, set
           type="text"
           placeholder="Filter..."
           value={filterStr}
-          onChange={(e) => setFilterStr(e.target.value)}
+          onChange={(e) => updateFilterStr(e.target.value)}
         />
         <input
           type="text"
           placeholder="Search..."
           value={searchStr}
-          onChange={(e) => setSearchStr(e.target.value)}
+          onChange={(e) => updateSearchStr(e.target.value)}
         />
       </div>
       <div className="control otype-filters">
@@ -146,6 +146,45 @@ const App = () => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
+  
+  // Create debounced callbacks for search and filter
+  const updateSearchStr = React.useCallback((value) => {
+    setSearchStr(value);
+    // TODO: implement actual search functionality after 5 second delay
+  }, []);
+  
+  const updateFilterStr = React.useCallback((value) => {
+    setFilterStr(value);
+    // TODO: implement actual filter functionality after 5 second delay
+  }, []);
+  
+  // Debounce timers
+  const searchTimeoutRef = React.useRef(null);
+  const filterTimeoutRef = React.useRef(null);
+  
+  // Debounced search handler
+  const debouncedUpdateSearchStr = React.useCallback((value) => {
+    setSearchStr(value);
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(() => {
+      console.log('Search triggered after 5 seconds:', value);
+      // TODO: implement actual search functionality here
+    }, 5000);
+  }, []);
+  
+  // Debounced filter handler
+  const debouncedUpdateFilterStr = React.useCallback((value) => {
+    setFilterStr(value);
+    if (filterTimeoutRef.current) {
+      clearTimeout(filterTimeoutRef.current);
+    }
+    filterTimeoutRef.current = setTimeout(() => {
+      console.log('Filter triggered after 5 seconds:', value);
+      // TODO: implement actual filter functionality here
+    }, 5000);
+  }, []);
   React.useEffect(() => {
     document.title = 'NK Collections';
     // insert styles
@@ -210,7 +249,7 @@ const App = () => {
       });
   }, [pos]);
 
-  const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds, filterStr, setFilterStr, searchStr, setSearchStr};
+  const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds, filterStr, updateFilterStr: debouncedUpdateFilterStr, searchStr, updateSearchStr: debouncedUpdateSearchStr};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
