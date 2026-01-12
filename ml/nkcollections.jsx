@@ -15,6 +15,10 @@ const STYLES = `
   margin-right: 10px;
 }
 
+.text-fields input {
+  margin-right: 10px;
+}
+
 .object {
   border: 1px solid #ccc;
   padding: 5px;
@@ -100,14 +104,12 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, filterStr, set
           placeholder="Filter..."
           value={filterStr}
           onChange={(e) => setFilterStr(e.target.value)}
-          style={{marginRight: '10px'}}
         />
         <input
           type="text"
           placeholder="Search..."
           value={searchStr}
           onChange={(e) => setSearchStr(e.target.value)}
-          style={{marginRight: '10px'}}
         />
       </div>
       <div className="control otype-filters">
