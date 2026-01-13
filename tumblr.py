@@ -86,108 +86,86 @@ def tumblr_api_req(endpoint, **kw):
 
 
 
+    def like_post(self, post_id: str, reblog_key: str, csrf: str = '') -> dict:
+        """Like a post by ID and reblog key"""
+        data = dict(
+            id=post_id,
+            reblog_key=reblog_key,
+        )
+        if csrf: # you need a valid csrf key from a page (doesn't matter which, as long as it's recent)
+            headers = {
+                "X-CSRF": csrf, # CSRF token that must be sent with the request
+                **self.COMMON_HEADERS
+            }
+            resp = self.tumblr_req('api/v2/user/like', method='POST', headers=headers, json=data)
+            obj = resp.json()
+        else: # TODO this requires Oauth access, not just api key
+            endpoint = 'user/like'
+            obj = self.tumblr_api_req(endpoint, method='POST', json=data)
+        print(f'liked post {post_id}: {obj}')
+        return obj
+
+    def get_blog_content(self, blog_name: str) -> tuple[str, list[dict]]:
+        """Get blog content from the web interface"""
+        resp = self.tumblr_req(blog_name)
+        if resp.status_code != 200:
+            raise Exception(f'Failed to fetch blog content: {resp.status_code}')
+        doc = pq(resp.text)
+        # find the script tag with the initial state
+        state = doc('script#___INITIAL_STATE___').text()
+        try:
+            obj = json.loads(state)
+        except Exception as e:
+            print(resp.text[:100])
+            raise Exception(f'Failed to parse initial state JSON: {e}')
+        csrf = obj["csrfToken"]
+        posts = obj['PeeprRoute']['initialTimeline']['objects']
+        posts = [p for p in posts if p['objectType'] == 'post']
+        return csrf, posts
+
+    def get_blog_archive(self, blog_name: str, n_posts: int = 20) -> tuple[list[dict], int]:
+        """Get blog archive via API
+        
+        The archive is accessible via API, using the following curl command:
+        curl 'https://api.tumblr.com/v2/blog/vsemily/posts?fields%5Bblogs%5D=%3Fadvertiser_name%2C%3Favatar%2C%3Fblog_view_url%2C%3Fcan_be_booped%2C%3Fcan_be_followed%2C%3Fcan_show_badges%2C%3Fdescription_npf%2C%3Ffollowed%2C%3Fis_adult%2C%3Fis_member%2Cname%2C%3Fprimary%2C%3Ftheme%2C%3Ftitle%2C%3Ftumblrmart_accessories%2Curl%2C%3Fuuid%2C%3Fask%2C%3Fcan_submit%2C%3Fcan_subscribe%2C%3Fis_blocked_from_primary%2C%3Fis_blogless_advertiser%2C%3Fis_password_protected%2C%3Fshare_following%2C%3Fshare_likes%2C%3Fsubscribed%2C%3Fupdated%2C%3Ffirst_post_timestamp%2C%3Fposts%2C%3Fdescription%2C%3Ftop_tags_all&npf=true&reblog_info=true&context=archive'
+        """
+        offset = 0
+        posts = []
+        total = 0
+        while offset < n_posts:
+            params = dict(
+                npf='true',
+                reblog_info='true',
+                context='archive',
+                offset=str(offset),
+            )
+            endpoint = f'blog/{blog_name}/posts?{urlencode(params)}'
+            obj = self.tumblr_api_req(endpoint)
+            if obj['meta']['status'] != 200:
+                raise Exception(f'Failed to fetch blog archive: {obj["meta"]}')
+            batch = obj['response']['posts'] or []
+            posts.extend(batch)
+            total = obj['response']['totalPosts']
+            offset += 20
+            if not batch or not obj.get('links', []):
+                break
+        return (posts, total)
+
+
 def like_post(post_id, reblog_key, csrf=''):
-    data = {
-        'id': post_id,
-        'reblog_key': reblog_key,
-    }
-    if csrf: # you need a valid csrf key from a page (doesn't matter which, as long as it's recent)
-        headers = {
-            "X-CSRF": csrf, # CSRF token that must be sent with the request
-            # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
-            #"Alt-Used": "www.tumblr.com", # Tell the server we are coming from the same origin page
-            #"Referrer": "https://www.tumblr.com/vsemily", # Referrer – the page that linked to the API call
-            **COMMON_HEADERS
-        }
-        resp = tumblr_req('api/v2/user/like', method='POST', headers=headers, json=data)
-        obj = resp.json()
-    else: # TODO this requires Oauth access, not just api key
-        endpoint = f'user/like'
-        #print(endpoint)
-        obj = tumblr_api_req(endpoint, method='POST', json=data)
-    print(f'liked post {post_id}: {obj}')
-    return obj
+    """Legacy function - use Tumblr.like_post instead"""
+    tumblr = Tumblr(CONFIG)
+    return tumblr.like_post(post_id, reblog_key, csrf)
 
 def get_blog_content(blog_name):
-    resp = tumblr_req(blog_name)
-    if resp.status_code != 200:
-        raise Exception(f'Failed to fetch blog content: {resp.status_code}')
-    doc = pq(resp.text)
-    # find the script tag with the initial state
-    state = doc('script#___INITIAL_STATE___').text()
-    try:
-        obj = json.loads(state)
-    except Exception as e:
-        print(resp.text[:100])
-        raise Exception(f'Failed to parse initial state JSON: {e}')
-    csrf = obj["csrfToken"]
-    #print(json.dumps(obj, indent=2))
-    posts = obj['PeeprRoute']['initialTimeline']['objects']
-    posts = [p for p in posts if p['objectType'] == 'post']
-    return csrf, posts
+    """Legacy function - use Tumblr.get_blog_content instead"""
+    tumblr = Tumblr(CONFIG)
+    return tumblr.get_blog_content(blog_name)
 
 def get_blog_archive(blog_name, n_posts=20):
-    """The archive is accessible via API, using the following curl command:
-
-    curl 'https://api.tumblr.com/v2/blog/vsemily/posts?fields%5Bblogs%5D=%3Fadvertiser_name%2C%3Favatar%2C%3Fblog_view_url%2C%3Fcan_be_booped%2C%3Fcan_be_followed%2C%3Fcan_show_badges%2C%3Fdescription_npf%2C%3Ffollowed%2C%3Fis_adult%2C%3Fis_member%2Cname%2C%3Fprimary%2C%3Ftheme%2C%3Ftitle%2C%3Ftumblrmart_accessories%2Curl%2C%3Fuuid%2C%3Fask%2C%3Fcan_submit%2C%3Fcan_subscribe%2C%3Fis_blocked_from_primary%2C%3Fis_blogless_advertiser%2C%3Fis_password_protected%2C%3Fshare_following%2C%3Fshare_likes%2C%3Fsubscribed%2C%3Fupdated%2C%3Ffirst_post_timestamp%2C%3Fposts%2C%3Fdescription%2C%3Ftop_tags_all&npf=true&reblog_info=true&context=archive'
-    """
-    query_fields = dict(
-        advertiser_name='?advertiser_name',
-        avatar='?avatar',
-        blog_view_url='?blog_view_url',
-        can_be_booped='?can_be_booped',
-        can_be_followed='?can_be_followed',
-        can_show_badges='?can_show_badges',
-        description_npf='?description_npf',
-        followed='?followed',
-        is_adult='?is_adult',
-        is_member='?is_member',
-        name='name',
-        primary='?primary',
-        theme='?theme',
-        title='?title',
-        tumblrmart_accessories='tumblrmart_accessories',
-        url='url',
-        uuid='?uuid',
-        ask='?ask',
-        can_submit='?can_submit',
-        can_subscribe='?can_subscribe',
-        is_blocked_from_primary='?is_blocked_from_primary',
-        is_blogless_advertiser='?is_blogless_advertiser',
-        is_password_protected='?is_password_protected',
-        share_following='?share_following',
-        share_likes='?share_likes',
-        subscribed='?subscribed',
-        updated='?updated',
-        first_post_timestamp='?first_post_timestamp',
-        posts='?posts',
-        description='?description',
-        top_tags_all='?top_tags_all',
-    )
-    offset = 0
-    posts = []
-    total = 0
-    while offset < n_posts:
-        params = {
-            #'fields[blogs]': ','.join(query_fields.values()),
-            'npf': 'true',
-            'reblog_info': 'true',
-            'context': 'archive',
-            'offset': f'{offset}',
-        }
-        # url encode the params into the endpoint
-        endpoint = f'blog/{blog_name}/posts?{urlencode(params)}'
-        #print(endpoint)
-        obj = tumblr_api_req(endpoint)
-        if obj['meta']['status'] != 200:
-            raise Exception(f'Failed to fetch blog archive: {obj["meta"]}')
-        batch = obj['response']['posts'] or []
-        posts.extend(batch)
-        total = obj['response']['totalPosts']
-        offset += 20
-        if not batch or not obj.get('links', []):
-            break
-    return (posts, total)
+    """Legacy function - use Tumblr.get_blog_archive instead"""
+    tumblr = Tumblr(CONFIG)
+    return tumblr.get_blog_archive(blog_name, n_posts)
 
 @db_session
 def create_collection_from_posts(blog_name: str, posts: list[dict]) -> list[Collection]:
@@ -322,33 +300,25 @@ def process_posts(posts):
             like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
 
 def simple_test(**kw):
+    tumblr = Tumblr(CONFIG)
     csrf = ''
     while 1:
-        csrf, posts = get_blog_content('virgomoon')
-        #s = tumblr_req('https://www.tumblr.com/api/v2/user/counts?unread=true&inbox=true&unread_messages=true&blog_notification_counts=true&private_group_blog_unread_post_counts=true&unread_community_counts=true&unread_mod_queue_counts=true')
-        #s = tumblr_api_req('user/counts?unread=true&inbox=true&unread_messages=true&blog_notification_counts=true&private_group_blog_unread_post_counts=true&unread_community_counts=true&unread_mod_queue_counts=true')
+        csrf, posts = tumblr.get_blog_content('virgomoon')
         print(f'{csrf}: {len(posts)} posts: {json.dumps(posts, indent=2)[:500]}...')
-        print(s)
-        print(s.content)
         break
-        #print(f'{datetime.today()}: {csrf}')
         time.sleep(60 + random.random()*60)
-    #posts, total = get_blog_archive('animentality')
-    #posts, total = get_blog_archive('maureen2musings')
-    #process_posts(posts)
 
 @db_session
 def update_blogs(**kw):
     global CONFIG
+    tumblr = Tumblr(CONFIG)
     blogs = CONFIG['blogs']
     for i, name in enumerate(blogs):
         print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
         try:
-            posts, total = get_blog_archive(name)
+            posts, total = tumblr.get_blog_archive(name)
             cols = create_collection_from_posts(name, posts)
             print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
-            #process_posts(posts)
-            #break
         except Exception as e:
             logger.warning(f'Failed to process blog {name}: {e}')
             continue
