@@ -95,6 +95,12 @@ class Collection(sql_db.Entity, GetMixin):
 
         n_text = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
         logger.info(f'  Updated embeddings for {n_text} text rows')
+        # now do links
+        rows = cls.select(lambda c: c.otype == 'link')
+        logger.info(f'Updating embeddings for upto {rows.count()} link rows: {rows[:5]}...')
+        inputs = [(f'{c.id}:text', f"{c.md['title']}: {c.url}") for c in rows if c.md and 'title' in c.md]
+        n_text = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
+        logger.info(f'  Updated embeddings for {n_text} text rows')
         # now do image rows. first we have to download them.
         rows = cls.select(lambda c: c.otype == 'image')
         logger.info(f'Updating embeddings for upto {rows.count()} image rows: {rows[:5]}...')
@@ -167,9 +173,7 @@ class GetHandler(MyBaseHandler):
         with db_session:
             rows = {r.id: recursive_to_dict(r) for r in Collection.select(lambda c: c.id in ids and (c.otype in otypes))}
             msg = f'hello'
-        self.write(dict(msg=msg,
-                        indices=indices,
-                        rows=rows))
+        self.write(dict(msg=msg, indices=indices, rows=rows, allOtypes=self.all_otypes))
 
 class ClassifyHandler(MyBaseHandler):
     def post(self):

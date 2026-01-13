@@ -179,10 +179,12 @@ const App = () => {
 
   const doSearch = React.useCallback((value) => {
     console.log('searching for', value, filterStrRef.current, searchStrRef.current);
+    //TODO implement
   }, []);
 
   const doFilter = React.useCallback((value) => {
     console.log('filtering for', value, filterStrRef.current, searchStrRef.current);
+    //TODO implement
   }, []);
 
   const updateSearchStr = createDebouncedUpdater(setSearchStr, searchTimeoutRef, doSearch);
