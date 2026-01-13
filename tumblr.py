@@ -21,32 +21,81 @@ from pony.orm import db_session, select
 from pyquery import PyQuery as pq
 
 from nkpylib.script_utils import cli_runner
+from nkpylib.stringutils import save_json
 from nkpylib.web_utils import make_request
 from nkpylib.ml.nkcollections import Collection, init_sql_db
 
 logger = logging.getLogger(__name__)
 
-CONFIG = {}
 IMAGES_DIR = 'db/tumblr/images/'
 SQLITE_PATH = 'db/tumblr/tumblr_collection.sqlite'
 LMDB_PATH = 'db/tumblr/tumblr_embeddings.lmdb'
 
 J = lambda obj: json.dumps(obj, indent=2)
 
-COMMON_HEADERS = {
-    "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
-    #"Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "en-us", # Language preference
-    "Content-Type": "application/json; charset=utf8", # The server expects JSON UTF‑8 payload
-    "X-Version": "redpop/3/0//redpop/", # A proprietary version header used by Tumblr’s front‑end code
-    # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin", # or same-site for api calls?
-    "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
-}
+class Tumblr:
+    COMMON_HEADERS = {
+        "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
+        #"Accept-Encoding": "gzip, deflate, br, zstd",
+        "Accept-Language": "en-us", # Language preference
+        "Content-Type": "application/json; charset=utf8", # The server expects JSON UTF‑8 payload
+        "X-Version": "redpop/3/0//redpop/", # A proprietary version header used by Tumblr’s front‑end code
+        # CORS‑related fetch metadata – keep them even though they are not used by `requests` directly.
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin", # or same-site for api calls?
+        "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
+    }
 
-    def tumblr_req(self, endpoint: str, **kw):
+    def __init__(self, config_path: str):
+        """Initializes the Tumblr API wrapper.
+
+        Expects a config JSON file with at least:
+        {
+            "api_token": "your_api_token_here",
+            "cookies": {
+                "cookie_name": "cookie_value",
+                ...
+            }
+        }
+        """
+        self.config_path = config_path
+        with open(config_path, 'r') as f:
+            self.config = json.load(f)
+        logger.info(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
+        self.csrf = ''
+        init_sql_db(SQLITE_PATH)
+
+    @property
+    def api_token(self) -> str:
+        """Returns the API token from the config."""
+        return self.config['api_token']
+
+    @property
+    def cookies(self) -> dict[str, str]:
+        """Returns the cookies from the config."""
+        return self.config.get('cookies', {})
+
+    def update_config(self, **kw):
+        """Updates the config with new values.
+
+        Any keys with '.' in them are treated as nested keys.
+        This also updates the config file on disk.
+        """
+        logger.info(f'Updating our config at {self.config_path}: {kw}')
+        for key, value in kw.items():
+            parts = key.split('.')
+            cur = self.config
+            for part in parts[:-1]:
+                if part not in cur:
+                    cur[part] = {}
+                cur = cur[part]
+            cur[parts[-1]] = value
+        os.rename(self.config_path, self.config_path + '.bak')
+        with open(self.config_path, 'w') as f:
+            json.dump(self.config, f, indent=2)
+
+    def make_web_req(self, endpoint: str, **kw):
         """Make a request to the Tumblr web interface"""
         url = endpoint if 'tumblr.com' in endpoint else f'https://www.tumblr.com/{endpoint}'
         headers = {
@@ -54,7 +103,11 @@ COMMON_HEADERS = {
             **self.COMMON_HEADERS
         }
         resp = make_request(url, cookies=self.cookies, headers=headers, **kw)
-        print(f'  Resp cookies: {resp.cookies}')
+        if resp.cookies:
+            logger.info(f'  Resp cookies: {resp.cookies}')
+            # update the 'sid' cookie in our config
+            if 'sid' in resp.cookies:
+                self.update_config(**{'cookies.sid': resp.cookies['sid']})
         if resp.status_code != 200:
             logger.warning(f'Error {resp.status_code} from Tumblr: {resp.text}')
             sys.exit()
@@ -66,7 +119,7 @@ COMMON_HEADERS = {
             f.write(resp.text)
         return resp
 
-    def tumblr_api_req(self, endpoint: str, **kw):
+    def make_api_req(self, endpoint: str, **kw):
         """Make a request to the Tumblr API"""
         headers = {
             "Authorization": f'Bearer {self.api_token}',
@@ -83,28 +136,34 @@ COMMON_HEADERS = {
             json.dump(obj, f, indent=2)
         return obj
 
-    def like_post(self, post_id: str, reblog_key: str, csrf: str = '') -> dict:
+    def like_post(self, post_id: str, reblog_key: str) -> dict:
         """Like a post by ID and reblog key"""
         data = dict(
             id=post_id,
             reblog_key=reblog_key,
         )
-        if csrf: # you need a valid csrf key from a page (doesn't matter which, as long as it's recent)
+        if self.csrf: # you need a valid csrf key from a page (doesn't matter which, as long as it's recent)
             headers = {
-                "X-CSRF": csrf, # CSRF token that must be sent with the request
+                "X-CSRF": self.csrf,
                 **self.COMMON_HEADERS
             }
-            resp = self.tumblr_req('api/v2/user/like', method='POST', headers=headers, json=data)
+            resp = self.make_web_req('api/v2/user/like', method='POST', headers=headers, json=data)
             obj = resp.json()
         else: # TODO this requires Oauth access, not just api key
             endpoint = 'user/like'
-            obj = self.tumblr_api_req(endpoint, method='POST', json=data)
+            obj = self.make_api_req(endpoint, method='POST', json=data)
         print(f'liked post {post_id}: {obj}')
         return obj
 
-    def get_blog_content(self, blog_name: str) -> tuple[str, list[dict]]:
+    def get_dashboard(self) -> list[dict]:
+        """Returns our "dashboard". Useful for updating the csrf"""
+        resp = self.make_web_req('')
+        print(resp.text)
+
+
+    def get_blog_content(self, blog_name: str) -> list[dict]:
         """Get blog content from the web interface"""
-        resp = self.tumblr_req(blog_name)
+        resp = self.make_web_req(blog_name)
         if resp.status_code != 200:
             raise Exception(f'Failed to fetch blog content: {resp.status_code}')
         doc = pq(resp.text)
@@ -115,16 +174,19 @@ COMMON_HEADERS = {
         except Exception as e:
             print(resp.text[:100])
             raise Exception(f'Failed to parse initial state JSON: {e}')
-        csrf = obj["csrfToken"]
+        self.csrf = obj["csrfToken"]
         posts = obj['PeeprRoute']['initialTimeline']['objects']
         posts = [p for p in posts if p['objectType'] == 'post']
-        return csrf, posts
+        return posts
 
     def get_blog_archive(self, blog_name: str, n_posts: int = 20) -> tuple[list[dict], int]:
-        """Get blog archive via API
-        
+        """Get blog archive via API.
+
         The archive is accessible via API, using the following curl command:
         curl 'https://api.tumblr.com/v2/blog/vsemily/posts?fields%5Bblogs%5D=%3Fadvertiser_name%2C%3Favatar%2C%3Fblog_view_url%2C%3Fcan_be_booped%2C%3Fcan_be_followed%2C%3Fcan_show_badges%2C%3Fdescription_npf%2C%3Ffollowed%2C%3Fis_adult%2C%3Fis_member%2Cname%2C%3Fprimary%2C%3Ftheme%2C%3Ftitle%2C%3Ftumblrmart_accessories%2Curl%2C%3Fuuid%2C%3Fask%2C%3Fcan_submit%2C%3Fcan_subscribe%2C%3Fis_blocked_from_primary%2C%3Fis_blogless_advertiser%2C%3Fis_password_protected%2C%3Fshare_following%2C%3Fshare_likes%2C%3Fsubscribed%2C%3Fupdated%2C%3Ffirst_post_timestamp%2C%3Fposts%2C%3Fdescription%2C%3Ftop_tags_all&npf=true&reblog_info=true&context=archive'
+
+        Note that some blogs don't allow access to the archive, so you must get it via the web
+        interface.
         """
         offset = 0
         posts = []
@@ -137,7 +199,7 @@ COMMON_HEADERS = {
                 offset=str(offset),
             )
             endpoint = f'blog/{blog_name}/posts?{urlencode(params)}'
-            obj = self.tumblr_api_req(endpoint)
+            obj = self.make_api_req(endpoint)
             if obj['meta']['status'] != 200:
                 raise Exception(f'Failed to fetch blog archive: {obj["meta"]}')
             batch = obj['response']['posts'] or []
@@ -149,28 +211,17 @@ COMMON_HEADERS = {
         return (posts, total)
 
 
-
-
-
-def like_post(post_id, reblog_key, csrf=''):
-    """Legacy function - use Tumblr.like_post instead"""
-    tumblr = Tumblr(CONFIG)
-    return tumblr.like_post(post_id, reblog_key, csrf)
-
-def get_blog_content(blog_name):
-    """Legacy function - use Tumblr.get_blog_content instead"""
-    tumblr = Tumblr(CONFIG)
-    return tumblr.get_blog_content(blog_name)
-
-def get_blog_archive(blog_name, n_posts=20):
-    """Legacy function - use Tumblr.get_blog_archive instead"""
-    tumblr = Tumblr(CONFIG)
-    return tumblr.get_blog_archive(blog_name, n_posts)
-
 @db_session
-def create_collection_from_posts(blog_name: str, posts: list[dict]) -> list[Collection]:
-    """Creates `Collection` rows from tumblr posts"""
-    #def upsert(cls, get_kw: dict[str, Any], **set_kw: Any) -> Entity:
+def create_collection_from_posts(posts: list[dict], **kw) -> list[Collection]:
+    """Creates `Collection` rows from tumblr posts.
+
+    This creates separate rows (with appropriate types) for each:
+    - post
+    - image/video/text/link content block within the post
+    - for videos: another row for the poster image of that video
+
+    Any additional `kw` are added to the metadata of each 'post' row.
+    """
     ret = []
     for post in posts:
         # Create the main post collection entry
@@ -185,13 +236,13 @@ def create_collection_from_posts(blog_name: str, posts: list[dict]) -> list[Coll
                 post_id=post['id'],
                 reblog_key=post['reblogKey'],
                 tags=post.get('tags', []),
-                blog_name=blog_name,
                 n_notes=post.get('noteCount', 0),
                 n_likes=post.get('likeCount', 0),
                 n_reblogs=post.get('reblogCount', 0),
                 summary=post.get('summary', ''),
                 original_type=post.get('originalType', ''),
                 reblogged_from=post.get('rebloggedFromUrl', ''),
+                **kw
             )
         )
         ret.append(pc)
@@ -299,25 +350,25 @@ def process_posts(posts):
             print('Liking this post...')
             like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
 
-def simple_test(**kw):
-    tumblr = Tumblr(CONFIG)
-    csrf = ''
+def simple_test(config_path: str, **kw):
+    tumblr = Tumblr(config_path)
     while 1:
-        csrf, posts = tumblr.get_blog_content('virgomoon')
-        print(f'{csrf}: {len(posts)} posts: {json.dumps(posts, indent=2)[:500]}...')
+        tumblr.get_dashboard()
+        sys.exit()
+        posts = tumblr.get_blog_content('virgomoon')
+        print(f'{tumblr.csrf}: {len(posts)} posts: {json.dumps(posts, indent=2)[:500]}...')
         break
         time.sleep(60 + random.random()*60)
 
 @db_session
-def update_blogs(**kw):
-    global CONFIG
-    tumblr = Tumblr(CONFIG)
-    blogs = CONFIG['blogs']
+def update_blogs(config_path: str, **kw):
+    tumblr = Tumblr(config_path)
+    blogs = tumblr.config['blogs']
     for i, name in enumerate(blogs):
         print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
         try:
             posts, total = tumblr.get_blog_archive(name)
-            cols = create_collection_from_posts(name, posts)
+            cols = create_collection_from_posts(posts, blog_name=name)
             print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
         except Exception as e:
             logger.warning(f'Failed to process blog {name}: {e}')
@@ -327,18 +378,5 @@ def update_blogs(**kw):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    def parse_config(config, **kw):
-        global CONFIG
-        with open(config, 'r') as f:
-            CONFIG = json.load(f)
-        init_sql_db(SQLITE_PATH)
-
     cli_runner([simple_test, update_blogs],
-               pre_func=parse_config,
-               config=dict(default='.tumblr_config.json', help='Path to the tumblr config json file'))
-    if 0:
-        parser = ArgumentParser(description='Tumblr API Wrapper (web-based)')
-        parser.add_argument('-c', '--config', default='.tumblr_config.json', help='Path to the tumblr config json file')
-        args = parser.parse_args()
-        with open(args.config, 'r') as f:
-            CONFIG = json.load(f)
+               config_path=dict(default='.tumblr_config.json', help='Path to the tumblr config json file'))
