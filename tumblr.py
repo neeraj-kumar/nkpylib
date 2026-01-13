@@ -324,11 +324,13 @@ def process_posts(posts):
 def simple_test(**kw):
     csrf = ''
     while 1:
-        #csrf, posts = get_blog_content('virgomoon')
-        s = tumblr_req('https://www.tumblr.com/api/v2/user/counts?unread=true&inbox=true&unread_messages=true&blog_notification_counts=true&private_group_blog_unread_post_counts=true&unread_community_counts=true&unread_mod_queue_counts=true')
+        csrf, posts = get_blog_content('virgomoon')
+        #s = tumblr_req('https://www.tumblr.com/api/v2/user/counts?unread=true&inbox=true&unread_messages=true&blog_notification_counts=true&private_group_blog_unread_post_counts=true&unread_community_counts=true&unread_mod_queue_counts=true')
         #s = tumblr_api_req('user/counts?unread=true&inbox=true&unread_messages=true&blog_notification_counts=true&private_group_blog_unread_post_counts=true&unread_community_counts=true&unread_mod_queue_counts=true')
+        print(f'{csrf}: {len(posts)} posts: {json.dumps(posts, indent=2)[:500]}...')
         print(s)
         print(s.content)
+        break
         #print(f'{datetime.today()}: {csrf}')
         time.sleep(60 + random.random()*60)
     #posts, total = get_blog_archive('animentality')
