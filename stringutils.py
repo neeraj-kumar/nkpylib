@@ -951,30 +951,26 @@ def saveandrename(fname, func, retfile=1, infork=0, mode='wb'):
         os._exit(0)
 
 
-def savejson(data, fname, delay=60, lastsave=[0], savebackups=1):
+def save_json(data, fname, delay=60, last_save=[0], save_backups=True):
     """Safe save function, which optionally makes backups if elapsed time has exceed delay.
     This is "safe" in that it writes to a temp file, then atomically renames to target fname when done.
-    It uses a closure on lastsave[0] to determine when the last time we made a backup was.
+    It uses a closure on last_save[0] to determine when the last time we made a backup was.
     """
     t1 = time.time()
-    if time.time()-lastsave[0] > delay:
+    if time.time()-last_save[0] > delay:
         try:
-            if savebackups:
+            if save_backups:
                 copy2(fname, '%s.bak-%d' % (fname, time.time()))
-            lastsave[0] = time.time()
+            last_save[0] = time.time()
         except Exception:
             pass
     tmpname = fname + '.tmp-%d' % (time.time())
-    kw = {}
-    if json.__name__ == 'ujson':
-        kw = dict(encode_html_chars=False, ensure_ascii=False)
-    else:
-        kw = dict(sort_keys=1, indent=2)
     try:
         os.makedirs(os.path.dirname(tmpname))
     except OSError:
         pass
-    json.dump(data, open(tmpname, 'wb'), **kw)
+    with open(tmpname, 'w') as f:
+        json.dump(data, f, indent=2)
     os.rename(tmpname, fname)
 
 def readLinesOfVals(fname, convfunc=lambda vals, fields: vals, prefunc=lambda l: l, func=lambda d: d, dlm=' ', offset=0, maxlines=-1, onlyheaders=0):
