@@ -534,6 +534,8 @@ def batch_extract_embeddings(inputs: list,
 
     We return the number of new embeddings written to the database.
     """
+    if not inputs:
+        return 0
     default_models = dict(image='clip', text='qwen_emb')
     assert embedding_type in default_models
     model = model or default_models[embedding_type]
