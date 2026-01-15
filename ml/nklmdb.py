@@ -479,6 +479,8 @@ def quick_test(path: str, n: int=3, cols: int=-1, show_md:bool=False, q:str='', 
     - 'show_md': if True, prints the metadata for each entry.
     - 'q': if given, searches for the given str within keys and only prints those that match.
     """
+    if not isinstance(q, str):
+        q = str(q)
     db = NumpyLmdb.open(path)
     num = 0
     MB = 1024*1024
