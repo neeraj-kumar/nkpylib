@@ -62,17 +62,17 @@ def maybe_dl(url: str, path: str) -> bool:
         f.write(r.content)
     return True
 
-class Collection(sql_db.Entity, GetMixin):
+class Item(sql_db.Entity, GetMixin):
     id = PrimaryKey(int, auto=True)
     source = Required(str)
     stype = Required(str)
     otype = Required(str, index=True)
     url = Required(str)
-    parent = Optional('Collection', reverse='children')
+    parent = Optional('Item', reverse='children')
     ts = Required(int, default=lambda: time.time(), index=True)
     added_ts = Required(int, default=lambda: int(time.time()))
     md = Optional(Json)
-    children = Set('Collection', reverse='parent')
+    children = Set('Item', reverse='parent')
     composite_index(source, stype, otype)
 
     @classmethod
@@ -162,16 +162,16 @@ class MyBaseHandler(BaseHandler):
     @cache
     def all_otypes(self) -> list[str]:
         with db_session:
-            otypes = list(select(r.otype for r in Collection))
+            otypes = list(select(r.otype for r in Item))
             return otypes
 
 class GetHandler(MyBaseHandler):
     def get(self, indices):
         otypes = self.get_argument('otypes', ','.join(self.all_otypes)).split(',')
         ids = parse_num_spec(indices)
-        # select from the Collection table where ids in ids
+        # select from the Item table where ids in ids
         with db_session:
-            rows = {r.id: recursive_to_dict(r) for r in Collection.select(lambda c: c.id in ids and (c.otype in otypes))}
+            rows = {r.id: recursive_to_dict(r) for r in Item.select(lambda c: c.id in ids and (c.otype in otypes))}
             msg = f'hello'
         self.write(dict(msg=msg, indices=indices, rows=rows, allOtypes=self.all_otypes))
 
@@ -182,7 +182,7 @@ class ClassifyHandler(MyBaseHandler):
         pos = data.get('pos', [])
         # for now, we use the first pos to set the otype to search over
         with db_session:
-            otype = Collection[pos[0]].otype
+            otype = Item[pos[0]].otype
         pos = [f'{p}:{otype}' for p in pos]
         all_keys = [k for k in self.embs if k.endswith(f':{otype}')]
         print(f'ClassifyHandler got pos={pos}, {otype}, {len(all_keys)} total keys: {all_keys[:5]}...')
@@ -191,7 +191,6 @@ class ClassifyHandler(MyBaseHandler):
         print(f'Got ret {ret}')
         scores, curIds = zip(*ret)
         curIds = [p.split(':')[0] for p in curIds]
-         # for each pos, get the row from the Collection table
         self.write(dict(pos=pos,
                         scores={id: score for id, score in zip(curIds, scores)},
                         curIds=curIds))

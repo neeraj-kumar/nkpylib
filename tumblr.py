@@ -2,6 +2,9 @@
 
 
 """
+
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -23,7 +26,7 @@ from pyquery import PyQuery as pq
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
 from nkpylib.web_utils import make_request
-from nkpylib.ml.nkcollections import Collection, init_sql_db
+from nkpylib.ml.nkcollections import Item, init_sql_db
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +167,6 @@ class Tumblr:
     def get_blog_content(self, blog_name: str) -> list[dict]:
         """Get blog content from the web interface"""
         resp = self.make_web_req(blog_name)
-        if resp.status_code != 200:
-            raise Exception(f'Failed to fetch blog content: {resp.status_code}')
         doc = pq(resp.text)
         # find the script tag with the initial state
         state = doc('script#___INITIAL_STATE___').text()
@@ -212,8 +213,8 @@ class Tumblr:
 
 
 @db_session
-def create_collection_from_posts(posts: list[dict], **kw) -> list[Collection]:
-    """Creates `Collection` rows from tumblr posts.
+def create_collection_from_posts(posts: list[dict], **kw) -> list[Item]:
+    """Creates `Item` rows from tumblr posts.
 
     This creates separate rows (with appropriate types) for each:
     - post
@@ -225,7 +226,7 @@ def create_collection_from_posts(posts: list[dict], **kw) -> list[Collection]:
     ret = []
     for post in posts:
         # Create the main post collection entry
-        pc = Collection.upsert(get_kw=dict(
+        pc = Item.upsert(get_kw=dict(
                 source='tumblr',
                 stype='blog',
                 otype='post',
@@ -291,7 +292,7 @@ def create_collection_from_posts(posts: list[dict], **kw) -> list[Collection]:
                     url = f"{pc.url}#{content_type}_{i}"
                     md = c
             # Create child collection object
-            cc = Collection.upsert(get_kw=dict(
+            cc = Item.upsert(get_kw=dict(
                     source=pc.source,
                     stype=pc.stype,
                     otype=content_type,
@@ -310,7 +311,7 @@ def create_collection_from_posts(posts: list[dict], **kw) -> list[Collection]:
                     media_key=poster_media_key,
                     poster_for=cc.id,
                 )
-                pcc = Collection.upsert(get_kw=dict(
+                pcc = Item.upsert(get_kw=dict(
                         source=pc.source,
                         stype=pc.stype,
                         otype='image',
@@ -373,7 +374,7 @@ def update_blogs(config_path: str, **kw):
         except Exception as e:
             logger.warning(f'Failed to process blog {name}: {e}')
             continue
-    Collection.update_embeddings(lmdb_path=LMDB_PATH, images_dir=IMAGES_DIR, use_cache=True)
+    Item.update_embeddings(lmdb_path=LMDB_PATH, images_dir=IMAGES_DIR, use_cache=True)
 
 
 if __name__ == '__main__':
