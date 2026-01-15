@@ -659,7 +659,7 @@ async def vlm(req: VLMRequest):
     """Generates VLM chat response for the given image and messages using the given model."""
     # note that we don't need to look up the default model, since it's always external
     model = VLMModel(model_name=req.model, use_cache=req.use_cache)
-    logger.debug(f'Running VLM model {req.model} on image {req.image} and messages {req.messages}')
+    print(f'Running VLM model {req.model} on image {req.image} and messages {req.messages}')
     ret = await model.run(
         input=(req.image, req.messages),
         max_tokens=req.max_tokens,
