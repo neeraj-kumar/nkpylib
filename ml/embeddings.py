@@ -159,8 +159,11 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         # aggregate scores for each index over all queries
         score_by_index: Counter = Counter()
         for i, s in zip(indices, scores):
-            for j, k in zip(i, s): # for each query, add the score to the index
-                score_by_index[j] += (1 - k)
+            for j, k in zip(i, s): # for each query, take the best score
+                cur = 1 - k
+                if j not in score_by_index:
+                    score_by_index[j] = cur
+                score_by_index[j] = max(score_by_index[j], cur)
         ret = [(score, keys[idx]) for idx, score in score_by_index.most_common()]
         return ret
 
