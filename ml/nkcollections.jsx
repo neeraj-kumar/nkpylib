@@ -54,7 +54,7 @@ const STYLES = `
 }
 `;
 
-const Obj = ({id, otype, url, md, togglePos, score, ...props}) => {
+const Obj = ({id, otype, url, md, togglePos, score, liked, toggleLiked, ...props}) => {
   //console.log('Obj', id, otype, score, props);
   return (
     <div id={`id-${id}`} className={`object ${otype}`} onClick={() => togglePos(id)}>
@@ -80,6 +80,21 @@ const Obj = ({id, otype, url, md, togglePos, score, ...props}) => {
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
+      <div 
+        className="heart-icon" 
+        onClick={(e) => {
+          e.stopPropagation();
+          toggleLiked(id);
+        }}
+        style={{
+          cursor: 'pointer',
+          fontSize: '20px',
+          color: liked ? 'red' : '#ccc',
+          userSelect: 'none'
+        }}
+      >
+        ♥
+      </div>
     </div>
   );
 }
@@ -148,6 +163,7 @@ const App = () => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
+  const [liked, setLiked] = React.useState({});
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -226,6 +242,14 @@ const App = () => {
     });
   });
 
+  // toggles the liked state for the given id
+  const toggleLiked = React.useCallback((id) => {
+    setLiked((liked) => ({
+      ...liked,
+      [id]: !liked[id]
+    }));
+  }, []);
+
   // function to call classification, whenever pos changes
   React.useEffect(() => {
     if (pos.length === 0) {
@@ -254,7 +278,7 @@ const App = () => {
   }, [pos]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
-    filterStr, updateFilterStr, searchStr, updateSearchStr};
+    filterStr, updateFilterStr, searchStr, updateSearchStr, toggleLiked};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
@@ -263,11 +287,11 @@ const App = () => {
     <h3>Collections</h3>
     <h4>Labeled</h4>
     <div className="labeled">
-      {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
+      {pos.map((id) => <Obj key={id} liked={liked[id]} {...funcs} {...rowById[id]} />)}
     </div>
     <Controls {...funcs} />
     <div className="objects">
-      {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
+      {ids.map((id) => <Obj key={id} score={scores[id]} liked={liked[id]} {...funcs} {...rowById[id]} />)}
     </div>
   </div>
   );
