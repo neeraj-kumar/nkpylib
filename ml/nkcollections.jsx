@@ -21,6 +21,10 @@ const STYLES = `
   margin-right: 10px;
 }
 
+.filter-input, .search-input {
+  display: none;
+}
+
 .object {
   border: 1px solid #ccc;
   padding: 5px;
@@ -54,8 +58,9 @@ const STYLES = `
 }
 `;
 
-const Obj = ({id, otype, url, md, togglePos, score, liked, toggleLiked, ...props}) => {
+const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, ...props}) => {
   //console.log('Obj', id, otype, score, props);
+  const liked = Boolean(rels.like);
   return (
     <div id={`id-${id}`} className={`object ${otype}`} onClick={() => togglePos(id)}>
       {otype === 'text' && (
@@ -80,11 +85,11 @@ const Obj = ({id, otype, url, md, togglePos, score, liked, toggleLiked, ...props
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
-      <div 
-        className="heart-icon" 
+      <div
+        className="heart-icon"
         onClick={(e) => {
           e.stopPropagation();
-          toggleLiked(id);
+          setLiked(id, !liked);
         }}
         style={{
           cursor: 'pointer',
@@ -99,31 +104,38 @@ const Obj = ({id, otype, url, md, togglePos, score, liked, toggleLiked, ...props
   );
 }
 
-const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, filterStr, updateFilterStr, searchStr, updateSearchStr, ...props}) => {
+const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
+  sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
+  ...props}) => {
+  // add a "return" key handler for the source input
+  const keyHandler = (e) => {
+    if (e.key === 'Enter') {
+      doSource();
+    }
+  }
   return (
     <div className="controls">
-      <div className="control randomize-btn">
-        <button onClick={() => {
-          // shuffle curIds
-          setCurIds((curIds) => {
-            const shuffled = [...curIds];
-            for (let i = shuffled.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-            }
-            return shuffled;
-          });
-        }}>Randomize</button>
-      </div>
       <div className="control text-fields">
         <input
           type="text"
+          className="source-input"
+          placeholder="Source..."
+          value={sourceStr}
+          onChange={(e) => setSourceStr(e.target.value)}
+          onKeyDown={keyHandler}
+          size="80"
+        />
+        <button onClick={() => doSource()}>Set Source</button>
+        <input
+          type="text"
+          className="filter-input"
           placeholder="Filter..."
           value={filterStr}
           onChange={(e) => updateFilterStr(e.target.value)}
         />
         <input
           type="text"
+          className="search-input"
           placeholder="Search..."
           value={searchStr}
           onChange={(e) => updateSearchStr(e.target.value)}
@@ -149,6 +161,19 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, filterStr, upd
         </label>
       ))}
       </div>
+      <div className="control randomize-btn">
+        <button onClick={() => {
+          // shuffle curIds
+          setCurIds((curIds) => {
+            const shuffled = [...curIds];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+          });
+        }}>Randomize</button>
+      </div>
     </div>
   );
 }
@@ -163,7 +188,7 @@ const App = () => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
-  const [liked, setLiked] = React.useState({});
+  const [sourceStr, setSourceStr] = React.useState('');
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -213,23 +238,29 @@ const App = () => {
     document.head.appendChild(styleEl);
   }, []);
 
+  const updateData = React.useCallback((data, resetData=false) => {
+    console.log('got data', data);
+    if (resetData) {
+      setRowById({});
+    }
+    // use immer to update rowById
+    setRowById((rowById) => immer.produce(rowById, (draft) => {
+      Object.entries(data.rows).forEach(([id, row]) => {
+        row.rels = row.rels || {};
+        draft[id] = row;
+      });
+    }));
+    setCurIds(Object.keys(data.rows));
+    setAllOtypes(data.allOtypes);
+  }, [setRowById, setCurIds, setAllOtypes]);
+
   // fetch data when otypes changes
   React.useEffect(() => {
     // fetch objects from the server
     fetch(`/get/0-1000?otypes=${curOtypes.join(',')}`)
       .then((response) => response.json())
-      .then((data) => {
-        console.log('got data', data);
-        // use immer to update rowById
-        setRowById(immer.produce(rowById, (draft) => {
-          Object.entries(data.rows).forEach(([id, row]) => {
-            draft[id] = row;
-          });
-        }));
-        setCurIds(Object.keys(data.rows));
-        setAllOtypes(data.allOtypes);
-      });
-  }, []);
+      .then(updateData);
+  }, [updateData]);
 
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
@@ -242,13 +273,30 @@ const App = () => {
     });
   });
 
-  // toggles the liked state for the given id
-  const toggleLiked = React.useCallback((id) => {
-    setLiked((liked) => ({
-      ...liked,
-      [id]: !liked[id]
-    }));
-  }, []);
+  const setLiked = React.useCallback((id, likedState) => {
+    console.log('setting liked for', id, likedState);
+    // send to server
+    fetch('/action', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({id, action:(likedState ? 'like': 'unlike')}),
+    });
+    // update rowById
+    setRowById((rowById) => {
+      return immer.produce(rowById, (draft) => {
+        if (!draft[id]) return;
+        if (likedState) {
+          // set like to current ts (seconds since epoch)
+          draft[id].rels.like = Math.floor(Date.now() / 1000);
+        } else {
+          // delete like from rels (if it exists)
+          delete draft[id].rels.like;
+        }
+      });
+    });
+  }, [setRowById]);
 
   // function to call classification, whenever pos changes
   React.useEffect(() => {
@@ -277,8 +325,20 @@ const App = () => {
       });
   }, [pos]);
 
+  const doSource = React.useCallback(() => {
+    console.log('updating source with', sourceStr);
+    fetch('/source', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({url: sourceStr}),
+    }).then((response) => response.json()).then((data) => updateData(data, true));
+  }, [sourceStr]);
+
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
-    filterStr, updateFilterStr, searchStr, updateSearchStr, toggleLiked};
+    sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
+    setLiked};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
@@ -287,11 +347,11 @@ const App = () => {
     <h3>Collections</h3>
     <h4>Labeled</h4>
     <div className="labeled">
-      {pos.map((id) => <Obj key={id} liked={liked[id]} {...funcs} {...rowById[id]} />)}
+      {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
     </div>
     <Controls {...funcs} />
     <div className="objects">
-      {ids.map((id) => <Obj key={id} score={scores[id]} liked={liked[id]} {...funcs} {...rowById[id]} />)}
+      {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
     </div>
   </div>
   );
