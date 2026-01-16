@@ -46,12 +46,16 @@ class FeatureSet(Mapping, Generic[KeyT]):
         self.dtype = dtype
         self.inputs = [NumpyLmdb.open(inp, flag='r', dtype=dtype) if isinstance(inp, str) else inp
                        for inp in inputs]
+        self.cached: dict[str, Any] = dict()
+        self.reload_keys()
+
+    def reload_keys(self) -> None:
+        """Reloads our keys"""
         self._keys = self.get_keys()
         self.n_dims = 0
         for key, value in self.items():
             self.n_dims = len(value)
             break
-        self.cached: dict[str, Any] = dict()
 
     def __repr__(self) -> str:
         return f'FeatureSet<{len(self.inputs)} inputs, {len(self)} keys, {self.n_dims} dims>'
