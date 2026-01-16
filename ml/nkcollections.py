@@ -19,6 +19,7 @@ from queue import Queue, Empty
 from threading import Thread
 from typing import Any
 
+import pony.orm.core
 import termcolor
 import tornado.web
 
@@ -104,6 +105,7 @@ class Item(sql_db.Entity, GetMixin):
                           ids: list[int]|None=None,
                           vlm_prompt: str|None='briefly describe this image',
                           sys_prompt: str|None=None,
+                          vlm_model: str='fastvlm',
                           **kw) -> int:
         """Updates the embeddings for all relevant rows in our table.
 
@@ -121,6 +123,10 @@ class Item(sql_db.Entity, GetMixin):
 
         We return the number of embeddings updated.
         """
+        #FIXME this can be quite slow right now
+        #FIXME this is rather complicated
+        #FIXME we want this to be async-friendly, as well as batchable/resumable
+        #FIXME we also maybe want this to run periodically and automatically?
         db = NumpyLmdb.open(lmdb_path, flag='r')
         #TODO filter by ids
         def postprocess_rows(rows):
@@ -154,11 +160,10 @@ class Item(sql_db.Entity, GetMixin):
             inputs = []
             futures = {}
             descriptions = {}
-            #FIXME done is a mess
             done = {}
             for c in rows:
                 url = c.url
-                ext = url.split('.')[-1]
+                ext = c.md.get('ext', url.split('.')[-1])
                 mk = c.md.get('media_key', c.id)
                 path = abspath(join(images_dir, f'{mk}.{ext}'))
                 downloaded = maybe_dl(url, path)
@@ -172,11 +177,8 @@ class Item(sql_db.Entity, GetMixin):
                             messages = [dict(role='system', content=sys_prompt), dict(role='user', content=vlm_prompt)]
                         else:
                             messages = vlm_prompt
-                        with open(path, 'rb') as f:
-                            image_data = data_url_from_file(f)
-                        print(f'Calling VLM for image description for key={key}, path={path}, image_data[:30]')
-                        futures[key] = call_vlm.single_future((image_data, messages), model='fastvlm')
-                        #futures[key] = call_vlm.single_future((path, messages), model='fastvlm')
+                        logger.debug(f'Calling VLM for image description for key={key}, path={path}, image_data[:30]')
+                        futures[key] = call_vlm.single_future((path, messages), model=vlm_model)
 
                     else: # we already have the desc
                         done[desc_key] = desc['desc']
@@ -225,17 +227,20 @@ def init_sql_db(path: str) -> Database:
         os.makedirs(dirname(path), exist_ok=True)
     except Exception as e:
         pass
-    sql_db.bind('sqlite', path, create_db=True)
-    #set_sql_debug(True)
-    sql_db.generate_mapping(create_tables=True)
-    # add an initial row for 'me'
-    with db_session:
-        Item.upsert(get_kw=dict(
-            source='me',
-            stype='user',
-            otype='user',
-            url='me'
-        ))
+    try:
+        sql_db.bind('sqlite', path, create_db=True)
+        #set_sql_debug(True)
+        sql_db.generate_mapping(create_tables=True)
+        # add an initial row for 'me'
+        with db_session:
+            Item.upsert(get_kw=dict(
+                source='me',
+                stype='user',
+                otype='user',
+                url='me'
+            ))
+    except pony.orm.core.BindingError:
+        pass
     return sql_db
 
 
@@ -372,13 +377,15 @@ def web_main(port: int=12555):
     parser = ArgumentParser(description="NK collections main")
     parser.add_argument('sqlite_path', help="The path to the sqlite database")
     parser.add_argument('lmdb_path', help="The path to the lmdb database")
+    #FIXME add images dir and make it accessible via a static path
     kw = {}
     def post_parse_fn(args):
         print(f'Got args {args}')
 
     def on_start(app, args):
         app.sql_db = init_sql_db(args.sqlite_path)
-        #app.lmdb = NumpyLmdb.open(args.lmdb_path, flag='r')
+        temp = NumpyLmdb.open(args.lmdb_path, flag='c')
+        del temp
         app.embs = Embeddings([args.lmdb_path])
 
     more_handlers = [
