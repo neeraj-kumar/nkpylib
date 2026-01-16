@@ -142,8 +142,11 @@ class Tumblr:
             "Authorization": f'Bearer {self.api_token}',
             **self.COMMON_HEADERS
         }
-        url = f'https://api.tumblr.com/v2/{endpoint}'
-        resp = make_request(url, headers=headers, **kw)
+        if endpoint.startswith('http'):
+            url = endpoint
+        else:
+            url = f'https://api.tumblr.com/v2/{endpoint}'
+        resp = make_request(url, headers=headers, cookies=self.cookies, **kw)
         try:
             obj = resp.json()
         except Exception as e:
@@ -151,7 +154,9 @@ class Tumblr:
             raise Exception(f'Failed to fetch endpoint {endpoint}: {e}')
         with open(join(self.DIR, 'last_tumblr_api_response.json'), 'w') as f:
             json.dump(obj, f, indent=2)
-        return obj
+        if obj['meta']['status'] != 200:
+            raise Exception(f'Failed to fetch {url}: {obj["meta"]}')
+        return obj['response']
 
     def like_post(self, post_id: str, reblog_key: str) -> dict:
         """Like a post by ID and reblog key"""
@@ -220,9 +225,6 @@ class Tumblr:
             )
             endpoint = f'blog/{blog_name}/posts?{urlencode(params)}'
             obj = self.make_api_req(endpoint)
-            if obj['meta']['status'] != 200:
-                raise Exception(f'Failed to fetch blog archive: {obj["meta"]}')
-            obj = obj['response']
             batch = obj['posts'] or []
             posts.extend(batch)
             total = obj['totalPosts']
@@ -249,6 +251,11 @@ class Tumblr:
                                    ids=[c.id for c in cols],
                                    use_cache=True)
 
+    def get_likes(self):
+        """Returns our likes"""
+        #https://www.tumblr.com/api/v2/user/likes?fields[blogs]=?advertiser_name,?avatar,?blog_view_url,?can_be_booped,?can_be_followed,?can_show_badges,?description_npf,?followed,?is_adult,?is_member,name,?primary,?theme,?title,?tumblrmart_accessories,url,?uuid&limit=21&reblog_info=true
+        obj = self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
+        print(J(obj)[:500])
 
 @db_session
 def create_collection_from_posts(posts: list[dict], **kw) -> list[Entity]:
@@ -394,6 +401,8 @@ def simple_test(config_path: str, **kw):
     name = 'vsemily'
     while 1:
         tumblr.get_dashboard()
+        tumblr.get_likes()
+        sys.exit()
         #posts = tumblr.get_blog_content(name)
         posts, total = tumblr.get_blog_archive(name, 30)
         print(f'{tumblr.csrf}: {len(posts)} posts: {J(posts)[:500]}...')
