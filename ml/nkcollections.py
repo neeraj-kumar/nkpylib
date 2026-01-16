@@ -372,11 +372,18 @@ class ClassifyHandler(MyBaseHandler):
                         scores={id: score for id, score in zip(curIds, scores)},
                         curIds=curIds))
 
-def web_main(port: int=12555):
+def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
     # load the data file from first arg
     parser = ArgumentParser(description="NK collections main")
-    parser.add_argument('sqlite_path', help="The path to the sqlite database")
-    parser.add_argument('lmdb_path', help="The path to the lmdb database")
+    if sqlite_path:
+        parser.add_argument('--sqlite_path', default=sqlite_path, help="The path to the sqlite database")
+    else:
+        parser.add_argument('sqlite_path', help="The path to the sqlite database")
+    if lmdb_path:
+        parser.add_argument('--lmdb_path', default=lmdb_path, help="The path to the lmdb database")
+    else:
+        parser.add_argument('lmdb_path', help="The path to the lmdb database")
+    parser.add_argument('ignore', nargs='*', help="Ignore extra args")
     #FIXME add images dir and make it accessible via a static path
     kw = {}
     def post_parse_fn(args):

@@ -111,4 +111,4 @@ twitter-archive:
 
 ## runs collections with the twitter archive
 twitter-serve:
-	@python3 ml/nkcollections.py db/twitter/{twitter_collection.sqlite,twitter_embeddings.lmdb}
+	@python3 twitter.py web

@@ -143,7 +143,11 @@ def read_archive(path: str='db/twitter/20260116-0028.json', **kw):
     twitter = Twitter()
     items = twitter.create_collection_from_archive(path, **kw)
 
+def web(**kw):
+    """Runs the collections web interface."""
+    print(f'got kw: {kw}')
+    return web_main(sqlite_path=Twitter.SQLITE_PATH, lmdb_path=Twitter.LMDB_PATH)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([read_archive, web_main])
+    cli_runner([read_archive, web])
