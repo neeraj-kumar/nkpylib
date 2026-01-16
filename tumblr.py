@@ -20,8 +20,8 @@ from urllib.parse import urlencode
 
 import requests
 
-from pony.orm import db_session, select
-from pyquery import PyQuery as pq
+from pony.orm import db_session, select, Entity
+from pyquery import PyQuery as pq # type: ignore
 
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
@@ -30,13 +30,14 @@ from nkpylib.ml.nkcollections import Item, init_sql_db
 
 logger = logging.getLogger(__name__)
 
-IMAGES_DIR = 'db/tumblr/images/'
-SQLITE_PATH = 'db/tumblr/tumblr_collection.sqlite'
-LMDB_PATH = 'db/tumblr/tumblr_embeddings.lmdb'
-
 J = lambda obj: json.dumps(obj, indent=2)
 
 class Tumblr:
+    dir = 'db/tumblr/'
+    IMAGES_DIR = join(Tumblr.dir, 'images/')
+    SQLITE_PATH = join(Tumblr.dir, 'tumblr_collection.sqlite')
+    LMDB_PATH = join(Tumblr.dir, 'tumblr_embeddings.lmdb')
+
     COMMON_HEADERS = {
         "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
         #"Accept-Encoding": "gzip, deflate, br, zstd",
@@ -67,7 +68,7 @@ class Tumblr:
             self.config = json.load(f)
         logger.info(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
         self.csrf = ''
-        init_sql_db(SQLITE_PATH)
+        init_sql_db(self.SQLITE_PATH)
 
     @property
     def api_token(self) -> str:
@@ -114,11 +115,12 @@ class Tumblr:
         if resp.status_code != 200:
             logger.warning(f'Error {resp.status_code} from Tumblr: {resp.text}')
             sys.exit()
+        resp_path = join(self.dir, 'last_tumblr_response.html')
         try:
-            shutil.copy2('last_tumblr_response.html', 'last_tumblr_response_prev.html')
+            shutil.copy2(resp_path, resp_path.replace('.html', '_prev.html'))
         except Exception:
             pass
-        with open('last_tumblr_response.html', 'w') as f:
+        with open(resp_path, 'w') as f:
             f.write(resp.text)
         return resp
 
@@ -135,7 +137,7 @@ class Tumblr:
         except Exception as e:
             print(resp.text)
             raise Exception(f'Failed to fetch endpoint {endpoint}: {e}')
-        with open('last_tumblr_api_response.json', 'w') as f:
+        with open(join(self.dir, 'last_tumblr_api_response.json'), 'w') as f:
             json.dump(obj, f, indent=2)
         return obj
 
@@ -190,7 +192,7 @@ class Tumblr:
         interface.
         """
         offset = 0
-        posts = []
+        posts: list[dict] = []
         total = 0
         while offset < n_posts:
             params = dict(
@@ -211,9 +213,26 @@ class Tumblr:
                 break
         return (posts, total)
 
+    def update_blogs(self):
+        blogs = self.config['blogs']
+        for i, name in enumerate(blogs):
+            print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
+            try:
+                posts, total = self.get_blog_archive(name)
+                cols = create_collection_from_posts(posts, blog_name=name)
+                print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
+            except Exception as e:
+                logger.warning(f'Failed to process blog {name}: {e}')
+                continue
+        with db_session:
+            Item.update_embeddings(lmdb_path=self.LMDB_PATH,
+                                   images_dir=self.IMAGES_DIR,
+                                   ids=[c.id for c in cols],
+                                   use_cache=True)
+
 
 @db_session
-def create_collection_from_posts(posts: list[dict], **kw) -> list[Item]:
+def create_collection_from_posts(posts: list[dict], **kw) -> list[Entity]:
     """Creates `Item` rows from tumblr posts.
 
     This creates separate rows (with appropriate types) for each:
@@ -364,17 +383,7 @@ def simple_test(config_path: str, **kw):
 @db_session
 def update_blogs(config_path: str, **kw):
     tumblr = Tumblr(config_path)
-    blogs = tumblr.config['blogs']
-    for i, name in enumerate(blogs):
-        print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
-        try:
-            posts, total = tumblr.get_blog_archive(name)
-            cols = create_collection_from_posts(posts, blog_name=name)
-            print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
-        except Exception as e:
-            logger.warning(f'Failed to process blog {name}: {e}')
-            continue
-    Item.update_embeddings(lmdb_path=LMDB_PATH, images_dir=IMAGES_DIR, use_cache=True)
+    tumblr.update_blogs()
 
 
 if __name__ == '__main__':
