@@ -25,7 +25,7 @@ from tqdm import tqdm
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
 from nkpylib.web_utils import make_request
-from nkpylib.ml.nkcollections import Item, init_sql_db, Source
+from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,9 @@ class Twitter(Source):
 
         """
         with open(path) as f:
-            tweets = json.load(f)['objs']
+            tweets = [t for t in json.load(f)['objs'] if '/status/' in t['url']]
+        # sort tweets by ts
+        tweets.sort(key=lambda t: t.get('iso_ts', ''))
         md_fields = 'handle display_name likes replies reposts views'.split()
         ret = []
         for i, t in tqdm(enumerate(tweets)):
@@ -81,11 +83,6 @@ class Twitter(Source):
             get_kw = dict(
                 url=t['url'],
             )
-            if 0:
-                print(f'get_kw: {get_kw}')
-                it = Item.get(url=t['url'])
-                print(f'item: {it}')
-            # see if item already exists
             if Item.get(**get_kw):
                 continue
             set_kw = dict(
@@ -93,10 +90,9 @@ class Twitter(Source):
                 stype='blog',
                 otype='post',
                 name=t['id'],
-                md={t[field] for field in md_fields if field in t},
+                ts=datetime.fromisoformat(t['iso_ts'].replace('Z', '+00:00')).timestamp(),
+                md={field: t[field] for field in md_fields if field in t},
             )
-            if 'iso_ts' in t:
-                set_kw['ts'] = datetime.fromisoformat(t['iso_ts'].replace('Z', '+00:00')).timestamp()
             item = Item(**get_kw, **set_kw)
             ret.append(item)
             # add text item
@@ -117,10 +113,25 @@ class Twitter(Source):
                 ret.append(t_item)
             # add images
             for j, im in enumerate(t.get('image_urls', [])):
+                mk = im.split('/')[-1]
+                md = dict()
+                # image urls come in a few formats
+                if '.' in mk: # has extension, so use it directly
+                    mk, ext = mk.rsplit('.', 1)
+                    md = dict(media_key=mk, ext=ext)
+                elif 'format=' in mk: # no extension, but has format (ext)
+                    mk, params = mk.split('?', 1)
+                    params = dict([p.split('=') for p in params.split('&')])
+                    params['ext'] = params.pop('format')
+                    md = dict(media_key=mk, **params)
+                else:
+                    logger.warning(f'Unknown image url format: {im}')
+                    continue
                 im_item = Item(
                     otype='image',
                     url=im,
                     name=f"image {j+1} from {t['id']}",
+                    md=md,
                     **child_kw
                 )
                 ret.append(im_item)
@@ -135,4 +146,4 @@ def read_archive(path: str='db/twitter/20260116-0028.json', **kw):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([read_archive])
+    cli_runner([read_archive, web_main])
