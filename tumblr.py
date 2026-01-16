@@ -20,7 +20,8 @@ from urllib.parse import urlencode
 
 import requests
 
-from pony.orm import db_session, select, Entity
+from pony.orm import db_session, select
+from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 
 from nkpylib.script_utils import cli_runner
@@ -33,10 +34,10 @@ logger = logging.getLogger(__name__)
 J = lambda obj: json.dumps(obj, indent=2)
 
 class Tumblr:
-    dir = 'db/tumblr/'
-    IMAGES_DIR = join(Tumblr.dir, 'images/')
-    SQLITE_PATH = join(Tumblr.dir, 'tumblr_collection.sqlite')
-    LMDB_PATH = join(Tumblr.dir, 'tumblr_embeddings.lmdb')
+    DIR = 'db/tumblr/'
+    IMAGES_DIR = join(DIR, 'images/')
+    SQLITE_PATH = join(DIR, 'tumblr_collection.sqlite')
+    LMDB_PATH = join(DIR, 'tumblr_embeddings.lmdb')
 
     COMMON_HEADERS = {
         "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
@@ -99,9 +100,10 @@ class Tumblr:
         with open(self.config_path, 'w') as f:
             json.dump(self.config, f, indent=2)
 
-    def make_web_req(self, endpoint: str, **kw):
+    def make_web_req(self, endpoint: str, **kw) -> dict:
         """Make a request to the Tumblr web interface"""
         url = endpoint if 'tumblr.com' in endpoint else f'https://www.tumblr.com/{endpoint}'
+        print(f'Hitting url: {url}')
         headers = {
             "Authorization": f'Bearer {self.api_token}',
             **self.COMMON_HEADERS
@@ -113,16 +115,26 @@ class Tumblr:
             if 'sid' in resp.cookies:
                 self.update_config(**{'cookies.sid': resp.cookies['sid']})
         if resp.status_code != 200:
-            logger.warning(f'Error {resp.status_code} from Tumblr: {resp.text}')
+            logger.warning(f'Error {resp.status_code} from Tumblr: {resp.text[:500]}')
             sys.exit()
-        resp_path = join(self.dir, 'last_tumblr_response.html')
+        resp_path = join(self.DIR, 'last_tumblr_response.html')
         try:
             shutil.copy2(resp_path, resp_path.replace('.html', '_prev.html'))
         except Exception:
             pass
         with open(resp_path, 'w') as f:
             f.write(resp.text)
-        return resp
+        doc = pq(resp.text)
+        # find the script tag with the initial state
+        state = doc('script#___INITIAL_STATE___').text()
+        try:
+            obj = json.loads(state)
+        except Exception as e:
+            logger.warning(f'Failed to parse initial state JSON: {e}: {resp.text[:100]}')
+            raise ValueError(f'Failed to parse initial state JSON: {e}')
+        if 'csrfToken' in obj:
+            self.csrf = obj["csrfToken"]
+        return obj
 
     def make_api_req(self, endpoint: str, **kw):
         """Make a request to the Tumblr API"""
@@ -137,7 +149,7 @@ class Tumblr:
         except Exception as e:
             print(resp.text)
             raise Exception(f'Failed to fetch endpoint {endpoint}: {e}')
-        with open(join(self.dir, 'last_tumblr_api_response.json'), 'w') as f:
+        with open(join(self.DIR, 'last_tumblr_api_response.json'), 'w') as f:
             json.dump(obj, f, indent=2)
         return obj
 
@@ -162,31 +174,36 @@ class Tumblr:
 
     def get_dashboard(self) -> list[dict]:
         """Returns our "dashboard". Useful for updating the csrf"""
-        resp = self.make_web_req('')
-        print(resp.text)
+        obj = self.make_web_req('')
+        print(J(obj)[:500])
 
+    def get_blog_content(self, blog_name: str, n_posts: int=20) -> list[dict]:
+        """Get blog content from the web interface.
 
-    def get_blog_content(self, blog_name: str) -> list[dict]:
-        """Get blog content from the web interface"""
-        resp = self.make_web_req(blog_name)
-        doc = pq(resp.text)
-        # find the script tag with the initial state
-        state = doc('script#___INITIAL_STATE___').text()
-        try:
-            obj = json.loads(state)
-        except Exception as e:
-            print(resp.text[:100])
-            raise Exception(f'Failed to parse initial state JSON: {e}')
-        self.csrf = obj["csrfToken"]
-        posts = obj['PeeprRoute']['initialTimeline']['objects']
-        posts = [p for p in posts if p['objectType'] == 'post']
-        return posts
+        You can either fetch it from blog_name.tumblr.com, in which case you can use /page/N, but
+        then it doesn't have the JSON object in the source code (hence you have to parse the html),
+        or you can go to tumblr.com/blog_name, which does have the json, but then pagination works
+        differently.
+
+        """
+        ret: list[dict] = []
+        page = 1
+        while len(ret) < n_posts:
+            endpoint = f'{blog_name}/page/{page}'
+            endpoint = f'https://{blog_name}.tumblr.com/page/{page}'
+            endpoint = blog_name
+            try:
+                obj = self.make_web_req(endpoint)
+            except ValueError:
+                break
+            posts = obj['PeeprRoute']['initialTimeline']['objects']
+            posts = [p for p in posts if p['objectType'] == 'post']
+            ret.extend(posts)
+            break # because we're using the parseable version
+        return ret
 
     def get_blog_archive(self, blog_name: str, n_posts: int = 20) -> tuple[list[dict], int]:
         """Get blog archive via API.
-
-        The archive is accessible via API, using the following curl command:
-        curl 'https://api.tumblr.com/v2/blog/vsemily/posts?fields%5Bblogs%5D=%3Fadvertiser_name%2C%3Favatar%2C%3Fblog_view_url%2C%3Fcan_be_booped%2C%3Fcan_be_followed%2C%3Fcan_show_badges%2C%3Fdescription_npf%2C%3Ffollowed%2C%3Fis_adult%2C%3Fis_member%2Cname%2C%3Fprimary%2C%3Ftheme%2C%3Ftitle%2C%3Ftumblrmart_accessories%2Curl%2C%3Fuuid%2C%3Fask%2C%3Fcan_submit%2C%3Fcan_subscribe%2C%3Fis_blocked_from_primary%2C%3Fis_blogless_advertiser%2C%3Fis_password_protected%2C%3Fshare_following%2C%3Fshare_likes%2C%3Fsubscribed%2C%3Fupdated%2C%3Ffirst_post_timestamp%2C%3Fposts%2C%3Fdescription%2C%3Ftop_tags_all&npf=true&reblog_info=true&context=archive'
 
         Note that some blogs don't allow access to the archive, so you must get it via the web
         interface.
@@ -205,10 +222,12 @@ class Tumblr:
             obj = self.make_api_req(endpoint)
             if obj['meta']['status'] != 200:
                 raise Exception(f'Failed to fetch blog archive: {obj["meta"]}')
-            batch = obj['response']['posts'] or []
+            obj = obj['response']
+            batch = obj['posts'] or []
             posts.extend(batch)
-            total = obj['response']['totalPosts']
+            total = obj['totalPosts']
             offset += 20
+            logger.debug(f'Got offset {offset}, {n_posts}, {len(batch)}, {total}, {obj.get("links")}')
             if not batch or not obj.get('links', []):
                 break
         return (posts, total)
@@ -372,11 +391,13 @@ def process_posts(posts):
 
 def simple_test(config_path: str, **kw):
     tumblr = Tumblr(config_path)
+    name = 'vsemily'
     while 1:
         tumblr.get_dashboard()
+        #posts = tumblr.get_blog_content(name)
+        posts, total = tumblr.get_blog_archive(name, 30)
+        print(f'{tumblr.csrf}: {len(posts)} posts: {J(posts)[:500]}...')
         sys.exit()
-        posts = tumblr.get_blog_content('virgomoon')
-        print(f'{tumblr.csrf}: {len(posts)} posts: {json.dumps(posts, indent=2)[:500]}...')
         break
         time.sleep(60 + random.random()*60)
 
