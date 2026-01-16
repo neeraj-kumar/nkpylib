@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 J = lambda obj: json.dumps(obj, indent=2)
 
 class Tumblr:
+    NAME = 'tumblr'
     DIR = 'db/tumblr/'
     IMAGES_DIR = join(DIR, 'images/')
     SQLITE_PATH = join(DIR, 'tumblr_collection.sqlite')
@@ -64,12 +65,12 @@ class Tumblr:
             }
         }
         """
+        super().__init__(sqlite_path=self.SQLITE_PATH)
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = json.load(f)
         logger.info(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
         self.csrf = ''
-        init_sql_db(self.SQLITE_PATH)
 
     @property
     def api_token(self) -> str:

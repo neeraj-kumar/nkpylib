@@ -70,8 +70,8 @@ class Item(sql_db.Entity, GetMixin):
     source = Required(str)
     stype = Required(str)
     otype = Required(str, index=True)
-    composite_index(source, stype, otype)
-    url = Required(str)
+    url = Required(str, index=True)
+    composite_index(source, stype, otype, url)
     name = Optional(str, index=True)
     parent = Optional('Item', reverse='children')
     # time of the actual item
@@ -244,6 +244,10 @@ class Source:
 
     Implement can_parse() and parse() methods if you want to handle custom inputs.
     """
+    def __init__(self, sqlite_path: str, **kw):
+        self.sqlite_path = sqlite_path
+        init_sql_db(sqlite_path)
+
     @classmethod
     def can_parse(cls, url: str) -> bool:
         """Returns if this source can parse the given url"""
