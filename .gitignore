@@ -1,7 +1,7 @@
 *.py[co]
 
 # json config files (starting with .)
-.*.json
+.*.json*
 
 # temp/data files
 og.json
