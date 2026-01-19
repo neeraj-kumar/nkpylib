@@ -93,31 +93,55 @@ const STYLES = `
   font-size: 0.8em;
   color: #555;
 }
+
+/* Twitter-specific styles */
+.source-twitter.otype-post {
+  border-left: 4px solid #1da1f2;
+}
+
+.twitter-handle {
+  font-weight: bold;
+  color: #1da1f2;
+}
+
+.twitter-display-name {
+  color: #333;
+  margin-bottom: 5px;
+}
+
+.twitter-stats {
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 5px;
+}
+
+/* Tumblr-specific styles */
+.source-tumblr.otype-post {
+  border-left: 4px solid #00cf35;
+}
+
+.tumblr-tags {
+  font-size: 0.8em;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.tumblr-stats {
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 5px;
+}
 `;
 
-const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, source, ...props}) => {
-  //console.log('Obj', id, otype, score, props);
-  const liked = Boolean(rels.like);
+// Source-specific content renderers for posts only
+const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
   return (
-    <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`} onClick={() => togglePos(id)}>
-      {otype === 'text' && (
-        <div className="content">{md.text}</div>
-      )}
-      {otype === 'link' && (
-        <div className="content"><a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a></div>
-      )}
-      {otype === 'image' && (
-        <div className="content">
-          <img src={url} alt={`Image ${id}`} />
-        </div>
-      )}
-      {otype === 'video' && (
-        <div className="content">
-          <a href={url} target="_blank" rel="noreferrer">
-            <img src={md.poster_url} alt={`Video ${id} poster`} />
-          </a>
-        </div>
-      )}
+    <>
+      <div className="twitter-handle">@{md.handle}</div>
+      <div className="twitter-display-name">{md.display_name}</div>
+      <div className="twitter-stats">
+        {md.likes} ♥ {md.reposts} ↻ {md.replies} 💬 {md.views} 👁
+      </div>
       <p className="score">ID: {id}</p>
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
@@ -137,6 +161,107 @@ const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, source, ...p
       >
         ♥
       </div>
+    </>
+  );
+};
+
+const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
+  return (
+    <>
+      <div className="tumblr-tags">#{md.tags?.slice(0, 3).join(' #')}</div>
+      <div className="tumblr-stats">
+        {md.n_notes} notes • {md.n_likes} ♥ • {md.n_reblogs} ↻
+      </div>
+      <p className="score">ID: {id}</p>
+      {score !== undefined && (
+        <div className="score">Score: {score.toFixed(3)}</div>
+      )}
+      <div
+        className="heart-icon"
+        onClick={(e) => {
+          e.stopPropagation();
+          setLiked(id, !liked);
+        }}
+        style={{
+          cursor: 'pointer',
+          fontSize: '20px',
+          color: liked ? 'red' : '#ccc',
+          userSelect: 'none'
+        }}
+      >
+        ♥
+      </div>
+    </>
+  );
+};
+
+// Factory for source-specific post content
+const getPostContentRenderer = (source) => {
+  const renderers = {
+    twitter: TwitterPostContent,
+    tumblr: TumblrPostContent,
+  };
+  return renderers[source];
+};
+
+const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, source, ...props}) => {
+  //console.log('Obj', id, otype, score, props);
+  const liked = Boolean(rels.like);
+  const PostContentRenderer = getPostContentRenderer(source);
+  
+  return (
+    <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`} onClick={() => togglePos(id)}>
+      {otype === 'post' && PostContentRenderer ? (
+        <PostContentRenderer 
+          id={id} 
+          otype={otype} 
+          url={url} 
+          md={md} 
+          score={score} 
+          liked={liked} 
+          setLiked={setLiked}
+        />
+      ) : (
+        <>
+          {otype === 'text' && (
+            <div className="content">{md.text}</div>
+          )}
+          {otype === 'link' && (
+            <div className="content"><a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a></div>
+          )}
+          {otype === 'image' && (
+            <div className="content">
+              <img src={url} alt={`Image ${id}`} />
+            </div>
+          )}
+          {otype === 'video' && (
+            <div className="content">
+              <a href={url} target="_blank" rel="noreferrer">
+                <img src={md.poster_url} alt={`Video ${id} poster`} />
+              </a>
+            </div>
+          )}
+          <p className="score">ID: {id}</p>
+          {score !== undefined && (
+            <div className="score">Score: {score.toFixed(3)}</div>
+          )}
+          <div
+            className="heart-icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLiked(id, !liked);
+            }}
+            style={{
+              cursor: 'pointer',
+              fontSize: '20px',
+              color: liked ? 'red' : '#ccc',
+              userSelect: 'none'
+            }}
+          >
+            ♥
+          </div>
+        </>
+      )}
     </div>
   );
 }
