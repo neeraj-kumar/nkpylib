@@ -21,8 +21,17 @@
  *
  * - Twitter: We have posts, text, and image objects for now. The url on a post is the tweet url,
  *   while on images it's to the image thumbnail. Metadata:
- *   - 
- *   - 
+ *   - Posts: handle, display_name, likes, replies, reposts, views
+ *   - Text: text (the tweet content)
+ *   - Images: media_key, ext (file extension), format, name (size info like "360x360")
+ *
+ * - Tumblr: We have posts and various content blocks (text, image, video, link). The url on a post
+ *   is the tumblr post URL, while content blocks have fragment URLs or direct media URLs. Metadata:
+ *   - Posts: post_id, reblog_key, tags, n_notes, n_likes, n_reblogs, summary, original_type, reblogged_from
+ *   - Text: text (the text content)
+ *   - Images: w (width), h (height), media_key
+ *   - Videos: w, h, media_key, provider, poster_url, poster_media_key
+ *   - Links: display_url, title, description
 
 const DEBOUNCE_MS = 2000;
 
