@@ -310,9 +310,14 @@ class Source:
 
     Implement can_parse() and parse() methods if you want to handle custom inputs.
     """
-    def __init__(self, sqlite_path: str, **kw):
+    _registry = {}  # Class variable to maintain map from names to Source classes
+    
+    def __init__(self, name: str, sqlite_path: str, **kw):
+        self.name = name
         self.sqlite_path = sqlite_path
         init_sql_db(sqlite_path)
+        # Register this instance's class in the registry
+        Source._registry[name] = self.__class__
 
     @classmethod
     def can_parse(cls, url: str) -> bool:

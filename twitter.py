@@ -67,7 +67,7 @@ class Twitter(Source):
 
     def __init__(self, **kw):
         """Initializes twitter source."""
-        super().__init__(sqlite_path=self.SQLITE_PATH)
+        super().__init__(name=self.NAME, sqlite_path=self.SQLITE_PATH)
 
     @db_session
     def create_collection_from_archive(self, path: str, **kw) -> list[Entity]:

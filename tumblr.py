@@ -65,7 +65,7 @@ class Tumblr(Source):
             }
         }
         """
-        super().__init__(sqlite_path=self.SQLITE_PATH)
+        super().__init__(name=self.NAME, sqlite_path=self.SQLITE_PATH)
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = json.load(f)
