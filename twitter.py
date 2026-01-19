@@ -50,10 +50,11 @@ from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
+from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main, J
+from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
 from nkpylib.web_utils import make_request
-from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main, assemble_posts, J
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,22 @@ class Twitter(Source):
     def __init__(self, **kw):
         """Initializes twitter source."""
         super().__init__(name=self.NAME, sqlite_path=self.SQLITE_PATH)
+
+
+    @classmethod
+    def assemble_post(cls, post, children) -> dict:
+        """Assemble a complete Twitter post with text and images"""
+        post_data = recursive_to_dict(post)
+
+        # Find text and images
+        text_items = [c for c in children if c.otype == 'text']
+        image_items = [c for c in children if c.otype == 'image']
+
+        post_data['content'] = dict(
+            text=text_items[0].md['text'] if text_items else '',
+            images=[recursive_to_dict(img) for img in image_items]
+        )
+        return post_data
 
     @db_session
     def create_collection_from_archive(self, path: str, **kw) -> list[Entity]:
@@ -182,7 +199,7 @@ def test(**kw):
     init_sql_db(Twitter.SQLITE_PATH)
     with db_session:
         posts = Item.select(lambda i: i.source == Twitter.NAME and i.otype == 'post' and i.id > 40000)
-        assembled = assemble_posts(posts[:10])
+        assembled = Twitter.assemble_posts(posts[:10])
     print(J(assembled))
 
 if __name__ == '__main__':

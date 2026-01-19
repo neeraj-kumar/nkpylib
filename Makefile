@@ -105,6 +105,10 @@ tumblr:
 	@python3 tumblr.py simple_test
 	@#python3 tumblr.py update_blogs
 
+## does twitter tests
+twitter-test:
+	@python3 twitter.py test
+
 ## reads twitter archive
 twitter-archive:
 	@python3 twitter.py read_archive

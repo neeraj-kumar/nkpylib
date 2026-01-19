@@ -159,6 +159,22 @@ class Tumblr(Source):
             raise Exception(f'Failed to fetch {url}: {obj["meta"]}')
         return obj['response']
 
+    @classmethod
+    def assemble_post(cls, post, children) -> dict:
+        """Assemble a complete Tumblr post with all content blocks"""
+        post_data = recursive_to_dict(post)
+        # Group children by type, maintaining order
+        content_blocks = []
+        for child in sorted(children, key=lambda c: c.id):
+            content_blocks.append(dict(
+                type=child.otype,
+                data=recursive_to_dict(child)
+            ))
+        post_data['content_blocks'] = content_blocks
+        return post_data
+
+
+
     def like_post(self, post_id: str, reblog_key: str) -> dict:
         """Like a post by ID and reblog key"""
         data = dict(
