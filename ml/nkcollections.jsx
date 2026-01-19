@@ -1,3 +1,29 @@
+/* NK Collections React App
+ *
+ * Each collection item contains:
+ * - id: unique int identifier
+ * - source: the source platform (e.g., twitter, tumblr, etc)
+ * - stype: this is just 'blog' for now, can ignore
+ * - otype: ("object type") one of: post (an entire post), text, link, image, video
+ * - url: URL of the object (if applicable)
+ * - name: name of the object (if applicable)
+ * - parent: id of the parent object (if applicable). For example, if a post contains some text and
+ *   2 images, then the text and images objects will have the post's id as their parent.
+ * - ts: timestamp of the item on the original platform (seconds since epoch)
+ * - added_ts: timestamp of when the item was added to this Collection
+ * - explored_ts: timestamp of when the item was last explored/expanded (if ever)
+ * - seen_ts: timestamp of when the item was last seen by me (if ever)
+ * - embed_ts: timestamp of when the item was last embedded (if ever)
+ * - md: json metadata object (see below)
+ *
+ *
+ * For different types of sources we have different metadata:
+ *
+ * - Twitter: We have posts, text, and image objects for now. The url on a post is the tweet url,
+ *   while on images it's to the image thumbnail. Metadata:
+ *   - 
+ *   - 
+
 const DEBOUNCE_MS = 2000;
 
 const STYLES = `
@@ -118,7 +144,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
       <div className="control text-fields">
         <input
           type="text"
-          className="source-input"
+          className="src-input"
           placeholder="Source..."
           value={sourceStr}
           onChange={(e) => setSourceStr(e.target.value)}
