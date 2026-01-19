@@ -204,7 +204,8 @@ const getPostContentRenderer = (source) => {
   return renderers[source];
 };
 
-const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, source, ...props}) => {
+const Obj = (props) => {
+  const {id, otype, url, md, togglePos, score, rels, setLiked, source} = props;
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
   const PostContentRenderer = getPostContentRenderer(source);
@@ -213,13 +214,8 @@ const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, source, ...p
     <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`} onClick={() => togglePos(id)}>
       {otype === 'post' && PostContentRenderer ? (
         <PostContentRenderer 
-          id={id} 
-          otype={otype} 
-          url={url} 
-          md={md} 
-          score={score} 
-          liked={liked} 
-          setLiked={setLiked}
+          {...props}
+          liked={liked}
         />
       ) : (
         <>
