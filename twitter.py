@@ -1,4 +1,32 @@
-"""Twitter wrapper"""
+"""Twitter wrapper
+
+
+To convert user ids to usernames, use the following:
+
+https://www.postel.app/twitter-user-id-converter
+
+curl 'https://www.postel.app/api/twitter-user-id-converter/convert' \
+  --compressed \
+  -X POST \
+  -H 'User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0' \
+  -H 'Accept: */*' \
+  -H 'Accept-Language: en-US,en;q=0.5' \
+  -H 'Accept-Encoding: gzip, deflate, br, zstd' \
+  -H 'Content-Type: application/json' \
+  -H 'Referer: https://www.postel.app/twitter-user-id-converter' \
+  -H 'sentry-trace: 75cc6122221c4f48a89b1c36c079676e-aeaeba6415e4b41d-0' \
+  -H 'baggage: sentry-environment=production,sentry-public_key=97303b17ebf99a7ba23abea0fe383b93,sentry-trace_id=75cc6122221c4f48a89b1c36c079676e,sentry-org_id=4509984483246080,sentry-sampled=false,sentry-sample_rand=0.9587772993856623,sentry-sample_rate=0.1' \
+  -H 'Origin: https://www.postel.app' \
+  -H 'DNT: 1' \
+  -H 'Sec-Fetch-Dest: empty' \
+  -H 'Sec-Fetch-Mode: cors' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  -H 'Connection: keep-alive' \
+  -H 'Priority: u=0' \
+  -H 'TE: trailers' \
+  --data-raw '{"input":"459846693"}'
+
+"""
 
 from __future__ import annotations
 
@@ -136,6 +164,7 @@ class Twitter(Source):
                 )
                 ret.append(im_item)
         logging.info(f'Created {len(ret)} items from archive {path}')
+        Item.update_embeddings(lmdb_path=self.LMDB_PATH, images_dir=self.IMAGES_DIR)
         return ret
 
 def read_archive(path: str='db/twitter/20260116-0028.json', **kw):
