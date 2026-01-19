@@ -53,7 +53,7 @@ from tqdm import tqdm
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
 from nkpylib.web_utils import make_request
-from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main
+from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main, assemble_posts, J
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +177,14 @@ def web(**kw):
     print(f'got kw: {kw}')
     return web_main(sqlite_path=Twitter.SQLITE_PATH, lmdb_path=Twitter.LMDB_PATH)
 
+def test(**kw):
+    """Tests out the twitter source."""
+    init_sql_db(Twitter.SQLITE_PATH)
+    with db_session:
+        posts = Item.select(lambda i: i.source == Twitter.NAME and i.otype == 'post' and i.id > 40000)
+        assembled = assemble_posts(posts[:10])
+    print(J(assembled))
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([read_archive, web])
+    cli_runner([test, read_archive, web])

@@ -48,6 +48,9 @@ logger = logging.getLogger(__name__)
 
 sql_db = Database()
 
+J = lambda obj: json.dumps(obj, indent=2)
+
+
 def maybe_dl(url: str, path: str) -> bool:
     """Downloads the given url to the given dir if it doesn't already exist there (and is not empty).
 
@@ -207,26 +210,24 @@ class Item(sql_db.Entity, GetMixin):
         return n_text + n_image + n_descs
 
 
-def assemble_twitter_post(post, children):
+def assemble_twitter_post(post, children) -> dict:
     """Assemble a complete Twitter post with text and images"""
     post_data = recursive_to_dict(post)
-    
+
     # Find text and images
     text_items = [c for c in children if c.otype == 'text']
     image_items = [c for c in children if c.otype == 'image']
-    
+
     post_data['content'] = dict(
         text=text_items[0].md['text'] if text_items else '',
         images=[recursive_to_dict(img) for img in image_items]
     )
-    
     return post_data
 
 
-def assemble_tumblr_post(post, children):
+def assemble_tumblr_post(post, children) -> dict:
     """Assemble a complete Tumblr post with all content blocks"""
     post_data = recursive_to_dict(post)
-    
     # Group children by type, maintaining order
     content_blocks = []
     for child in sorted(children, key=lambda c: c.id):
@@ -234,7 +235,6 @@ def assemble_tumblr_post(post, children):
             type=child.otype,
             data=recursive_to_dict(child)
         ))
-    
     post_data['content_blocks'] = content_blocks
     return post_data
 
@@ -248,27 +248,23 @@ POST_ASSEMBLERS = dict(
 
 def assemble_posts(posts: list[Item]) -> list[dict]:
     """Assemble complete posts with their children content.
-    
+
     Takes a list of post Items and returns a list of assembled post dictionaries
     with their children content nested appropriately based on source type.
     """
     assembled_posts = []
-    
+
     for post in posts:
         # Get all children of this post
         children = list(post.children.select())
-        
         # Get the appropriate assembler function
         assembler = POST_ASSEMBLERS.get(post.source)
-        
         if assembler:
             assembled_post = assembler(post, children)
         else:
             # Fallback to basic dict conversion
             assembled_post = recursive_to_dict(post)
-        
         assembled_posts.append(assembled_post)
-    
     return assembled_posts
 
 
