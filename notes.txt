@@ -708,3 +708,1782 @@ done some hopefully effective filtering. I also
 want to be doing, splitting,
 
 Transcribed by https://otter.ai
+
+
+
+Collections 1 - Jan 5, 2026
+---------------------------
+Okay, so I want to look at
+
+Tumblr and what I can do with my wrapper. So I think what is my preferred browsing routine? It's
+
+I think what I want to
+
+be able to do is go to a blog i i
+
+see either
+
+the archive or, I guess, the post, but I can kind of scroll through them. The point is I want to get their posts,
+
+and then I want to filter the posts by
+
+by things I've seen before.
+
+Now, seen is a tricky thing, because
+
+what is seen,
+
+I guess the way to maybe solve this is on the client side. So but let's assume for the moment, we have a database of posts that are seen, and so now
+
+we don't want to show the stuff that's seen,
+
+and instead we want to,
+
+yeah, so I guess we just want to filter those things out.
+
+And so now we have the unseen posts. And so that's one thing we want to do. The second thing we want to do is make it easy to
+
+filter these things.
+
+Sorry, not filter like you.
+
+And so if we so, I want
+
+to have some UI next to images or on, maybe overlaid on images to like it. I also probably want to have something to view that image in detail. And so what does viewing it in detail mean? I
+
+I guess I want to look at
+
+the reblogs.
+
+And for the reblogs,
+
+there's always a from and a to, and I want to aggregate, well, I want to filter those out based on blogs I've already been to. Again, it's a question of what been to means. And
+
+then I also probably want to aggregate i
+
+i also probably want to aggregate the reblog, so if it's been reblogged,
+
+you know, from
+
+a particular source 10 times and another source five times. Even if the second source appears first, I'm going to reorder them.
+
+And so I think in terms of
+
+counting, you sorry, counting whether or not something is seen.
+
+Obviously, if a photo is liked
+
+or if a blog is followed, then they're definitely seen.
+
+If I've clicked the detail on an
+
+image. Then that's seen.
+
+And then
+
+if what else I if I
+
+it's a foreign image on the JavaScript side, what I should do is if,
+
+let's see if I'm viewing this on mobile. I don't have a mouse, and so I can't do hover, but I guess I can just say if it's been visible on screen for X number of seconds, then it's seen. And you know, maybe I turn that knob, make that not tunable. And so
+
+anyways, I'll talk about the data model later.
+
+So I think that makes sense. And then for a blog.
+
+What do I have for blogs?
+
+I guess if I've
+
+been to the page
+
+and been active on it for some number of seconds, or activities measured by scrolling, then it's seen. And so just as a note for future, I probably want to keep track of exactly how long I did stuff, maybe even what I did,
+
+this is probably too heavy duty to put in the database,
+
+like as separate records that I can join on, because I don't need that level of detail. But it's probably something I aggregate on the client side and then send as a big batch, and it just adds it to some sort of like JSON field or something or the other, just to keep things simple on the back end, database side. So I think those are the basic operations. Now, I think the other thing is, given a blog's post, I would like to reorder them to show the most promising things first. And so here,
+
+what I'll need is a
+
+what I need is some sort of image model that
+
+I want, an image model that can Take
+
+these images and
+
+extract embeddings from them, and then I Want to train a model.
+
+And so I think one, one
+
+way of doing this is to say
+
+I can use my likes as positive signal. And, you know, maybe I can weight things based on recency. So I definitely will need, like, an easy to access recent likes thing, and then I probably want something to like, retrain my classifier,
+
+or I can do, like, the exemplar SVM thing,
+
+it's how Does that look? So I get the images from i
+
+i get the images
+
+from my blog,
+
+and then i i for those images, I extract the features, the embeddings,
+
+and then I reorder them, or not, so maybe have a switch in the UI,
+
+and then Maybe I do some sort of plus minus thing.
+
+So what would that look like?
+
+I can't really be dragging because it's on mobile. Okay, so
+
+let's say I want to see
+
+images more related to
+
+particular ones each
+
+so that's interesting question, because,
+
+because I have regular
+
+I have chronological ordering just a default. I have my kind of preference based ranking. But, you know, let's say I set my preference based ranking to be some sort of frequency thing, or, I guess, recency. It's not exactly a frequency component here. There's like an impulse or frequency based on what I've liked. But anyway, so there's like a recency component. And so I guess I can tune. I have one slider, which is my recency slider, to say how much to pay emphasis to the recency in the ranking. So this becomes much easier with the exemplar SVM approach, where
+
+I can
+
+anyway, the implementation doesn't matter, right? So, so I have these images, I re rank them. I
+
+and so now the question is,
+
+if you select, you know, a handful of images from the page, you
+
+how should that work? And So
+
+one possibility is to rank the
+
+I mean, I guess the simplest thing is to literally take distance to the plus images and
+
+just use that to reorder the Images. I
+
+The alternative or one alternative is to you.
+
+So I think the other alternatives are what to do in the
+
+what to do with negatives, and so you can get negatives in a few ways. I could random sample from the page, but if it's a high quality page, then most images are actually probably going
+
+to be positive, and so
+
+that doesn't necessarily help. And so then the alternative is to look at other images I've seen
+
+in the past,
+
+images that I've seen but not
+
+liked as my pool of negatives.
+
+And then the question is, well, if I'm doing that, should I be including some positives as well? And so then there's a ranking, there's a weighting I can apply to the currently selected positive images and I previously liked. And that weight could be zero for the previous images, in which case I'm just using the new one. Or it could be,
+
+you know, not zero.
+
+And so if it's not zero.
+
+Then what?
+
+Yes, I guess I place some weight. Then
+
+there's a question of how frequently I retrain,
+
+if it is training in fact that I'm doing, or basically, how often do I update my classifier? And maybe the classifier is, you know, in some sense, not really a classifier, second example or so, yeah, But whatever.
+
+So, okay, I think that's one piece. I um,
+
+so I think the other thing is,
+
+based on my classification scores, I might want to assign an overall quality to the blog.
+
+And this can be done the simplest, just to take the average score. So given n images or n posts, have to think about posts with multiple images, but so given n posts, and let's say a total score of y and it's y over n is the average score per post, which, you know I could try to normalize, or Not, maybe I'll just learn what these scores are like.
+
+And so here I probably want to show
+
+like on the page,
+
+like total score y divided by n equals, you know, Z or whatever the other thing is on each image or by each image. And maybe you want to show
+
+like the score, so maybe like
+
+my overall classifier score, which is what I'm using to compute these scores, as well as the Current Score, which depends on
+
+the current plus minus i
+
+i guess for overall score, I also need to think about what my recency setting is that, and
+
+I guess It is whatever
+
+it is, I Just use that.
+
+And so now i
+
+Uh oh. So I think one thing to think about
+
+is what happens with
+
+like, how much of this do I really want to code?
+
+If maybe I don't actually want to code all of it. And so where can I use the original pages? And what role does Grease Monkey have? It's, after all, originally, so it's Grease Monkey, and I need to first check if, like, Grease Monkey works on Firefox at all mobile, because we know it doesn't run on Chrome Mobile. And so for Chrome Mobile, everything has to be done. I have to write code for everything, which is annoying, but would be nice. But in Firefox, if I can run this monkey, then I can simplify a lot of this. And so then I should think about, you know, does it make sense to run this like,
+
+like, on demand, and it's gonna do some stuff.
+
+Yeah, on mobile, I guess what it means is, I I think
+
+it works kind of like my
+
+NK base, where
+
+the NK base
+
+in that periodically, I kind of
+
+see what's on the page, extract all the relevant things and send them to the server. Then server assign scores or rear ends or whatever. Also I add whatever UI I need to and run stuff that way.
+
+I'm also wondering how much of this is needed.
+
+I guess on the visual side, let's assume I'm at my original thing. So on the visual side, I probably want to have a way to
+
+visually denote when
+
+something's been seen. So both for posts and for
+
+both for posts and for blogs. For post, I can put a border because I probably want, like a transparent border to begin with, and then
+
+I color it like blue
+
+or something border when it's seen.
+
+And so then there is a question of, like,
+
+maybe I don't remove scene things, I just mark them so there's no confusion.
+
+I also probably will want an unlike the way I have a like,
+
+so just something to think about. I.
+
+Transcribed by https://otter.ai
+
+
+
+
+Collections 2 - Jan 13, 2026
+----------------------------
+
+Okay, so this is about collections and the Tumblr collection wrapper, specifically, I now have the ability to get updated session IDs, which I think unlocks the full web experience. And so one thing I would like to do, just as a matter of cleanup, is take the create collections from posts method and integrate it into the Tumblr class. I think I don't know if every single bit of it needs to be in the class, but I think a lot of it should be, in particular, all the manipulation around kind of taking posts and the relative and the relevant fields inside it, extracting them, getting the media key for images, all of that kind of stuff should go in, like in the
+
+in the Tumblr class, like maybe, as you know, sub methods so that's one kind of bit of housekeeping, because I think it's going to be reused, actually, so in terms of getting updated things. Oh, so the other thing is getting a CSRF code, so now that I can get session IDs, I just need to fetch a page. And so if I don't have an active page to fetch, I think a safe thing to hit will be the dashboard. And so then if I get the dashboard, I can get the updated CSRF code. By the way, that logic should also go in the class as like a foundational thing. I think I was in the process, maybe, of actually, of actually redoing the web fetch method, the first one in the class to automatically get the CSRF if it's there, and update the class variable. So that way, you know, I'll just have that. And so then, now that I'll have the CSRF at all times, and the ability to get nuance if I need them,
+
+I can also,
+
+oh, maybe I should make an update CSRF method that simply, you know, like, fetches The dashboard and does it and then the future, if you know, there's some better way of updating the CSR, if I can do that. So, okay, so that's one thing. Oh, I guess this is probably not going to be the case, but I should just check if I fetch any other page, or if I fetch anything from the web API, or, sorry, not the web API, the API API, if I get a CSRF token there ever, if I do, then I should update it. But if not, then obviously not.
+
+Okay. So
+
+now, if I think back to
+
+like, my let's call it super archive view, actually, if I step back like, what is my
+
+overall goal?
+
+So I think my overall goal is to have high quality posts, and just for the sake of, I don't know, argument, or for ease of talking about it, let's just assume we're talking about images for the moment. So I want to have high quality images, so I guess on all the sides, so on Twitter and Tumblr, they have like this infinite feed kind of thing. And so what does that mean? Well, it's,
+
+it's a feed, so you get, like, one batch of posts, and then as you scroll, it populates the next batch
+
+and so on. So,
+
+so that's one unit
+
+is kind of a batch of posts, and then the feed itself can be coming from a few sources. So on Twitter, you can get a feed from a particular account. You can get it from your like your feed. I guess on Twitter, it's now the FYP, the for you page. And then in my case, I have my list that I've created, the high priority list. And so that's another feed. And then similarly, on Tumblr, there's my dashboard, which is a feed, although I think that feed is filtered in various ways already. I mean, obviously it's ranked, but I think more than that, it's also filtered, and so it doesn't have a bunch of the posts I actually care about. And then there's kind of feeds per blog. So I think those are basically the two types of feeds. And
+
+this is, of course, leaving aside likes and follows and so on, on both on both things, both sides. So okay, if I have these sources of feeds, how do I want? What kind of behavior do I want? And so I think that's actually not super easy, maybe because I want to be ranking the post right from sort of Best to Worst based on whatever my current criteria or classifiers are like. So because the problem is like, if I get one batch and I rank it, now it's reordered, and now I get the next batch, if I reorder all of them, then it's it's going to be mixed in together, and I won't see which things I've kind of looked at and which I haven't
+
+so, so Okay, well, I guess the easy answer is,
+
+Each batch stays separate and it's not modified After. After. I get the next batch. And so again, using images as example, we get a batch of images. They're ranked according to my current classifier, or whatever. And then, let's say I put a horizontal rule as a marker, visual marker, separating that batch from the next one. And so now, when I get the next batch, it stays below the horizontal rule. And so if i i can reorder or re rank things. And you know, I guess it could affect the upper the previous batch or batches, but it also doesn't have to, I mean, it can. I can just, you know, I've seen what's come before, and so, so, yeah, I think that feels good,
+
+right? So I have the batch, and then,
+
+you know, maybe there's some optimizations where, like, the RE ranking can happen on the server as I fetch the batch, but that's something I can think about more. You know, that's an optimization, not a critical piece. So that gives me, I so that gives me kind of a over all picture of things, and then what else for each image or post I want to be able to like or unlike it. I want to be able to view the post in detail.
+
+I maybe want to have a button to go to the
+
+blog that post came from.
+
+I mean, I guess I could have it be generic and have it show the blog that it came from. This is obviously most relevant if I'm coming from my overall feed or dashboard, rather than from,
+
+rather than from a blog, because it doesn't make any sense to go from a blog to itself. But again, that's an optimization, so, yeah. So maybe I want to have this button to go to a blog.
+
+Oh, and then I want to have button to, sort
+
+like, use that as an exemplar, so, like, some sort of plus button. And so I have these things. I maybe want
+
+stats. I certainly
+
+don't want to have to make another call to get it. So if the post stats, like number of likes and retweets or whatever is available, then I want to have that visible. You know, assuming I can make the UI work with this, I guess I'm imagining like an on display where n is a small number like two or three, because, again, this is a lot of it is for the phone. And so on the phone, there's limited screen real estate, and with images, I probably can't see more than that. I mean, with text, it should just be one, one column. But okay, so, yeah, so if I have, like, let's say, two columns, I don't know if there's enough space to show everything. Potentially, I could show stuff only if I hover over it, although, again, on the phone, you can't really do hover. You have to kind of click. So okay, so I have these buttons,
+
+so I guess I need to. I um,
+
+again, using Kumar as my example, I need to check if the
+
+post is already liked or not. And so
+
+I guess ideally,
+
+the API may already if it's liked or not, but there's a chance it might not, and so in that case, I might need to consult my list of existing likes and check if it's
+
+and that might be tricky.
+
+On the other hand, this is maybe a place where my ml could be useful in that
+
+if I look at what
+
+so again for images, if I compare the embeddings to my existing embeddings, because people often post the same image like completely from scratch, rather than retweeting it. And so then, you know, it wouldn't be liked, but I might have liked that exact image before. So So that's Yeah, so I want to get the current light status, and I want to show it. And then here I think the UX pattern is word, it's I show the heart.
+
+And then if, if
+
+it's already liked, should be filled in. If it's not, it should just be an outline. And when I click it, it should toggle.
+
+And so again, it's like an optimization.
+
+I think the visual feedback should be immediate, whether or not it actually goes through. And, you know, the back end, I could actually queue these things up to post at some other point. I know already I'm using make request which does a per site delay of one second by default. So I think that should help in like not flooding the server with too many things. So I
+
+So okay, so I'll do that,
+
+right. So now I have this view
+
+with which is sort of similar to like the archive view on Tumblr, where I get a batch of posts. I can see the lights, I can like things. So Okay, let's talk about the back end for a second here.
+
+Right now I only have these collection rows,
+
+and so now we need another table, something like interactions or relationships or something or the other. I um, so in particular, so likes on both sides are at the level of the post, not the image or text. We'll come back to that in a second.
+
+And so for
+
+for a post
+
+which has a row, I want to have
+
+some sort of thing with interactions
+
+and so, you know, I could retweet it, but
+
+I don't really retweet I don't care about that.
+
+I do care about like
+
+and so I guess given a post,
+
+I guess, given a post,
+
+I want to be able to
+
+see whether it's liked or not, and so actually, the easiest would be adding a column directly in The collections table which is liked, which is just just a Boolean, or, you know, it could be a timestamp. Maybe timestamp is nice. Did that just say when it was liked?
+
+Now, one thing I'm just thinking
+
+about is retweets. So
+
+I yeah, it might be nice.
+
+So I think on Twitter, if someone retweets a post,
+
+the post URL is the exact same, and
+
+so in fact, you can't tell the retweet unless you see it on a feed.
+
+But in Tumblr, retweets or read tumbles or reposts or whatever they call them are, they get a totally new ID, because, in any case, IDs on Tumblr are, I think, blog name and then an ID. And so if you're retweeting it on your blog, then now it has your blog name and a tweet ID. And even if you retweet from yourself, I think it still gets a new ID. And so it would be good to be able to tie these posts together. So I guess what will happen right now is that the tweets will just get they'll just be separate rows
+
+and so
+
+And so right now we have parent and children, but that's really for different types of items, O types, as I call them. So like the image in a post is a child of the post, but
+
+this is also a type of relationship, but
+
+a different type of relationship. And so what do we want to say here? We want to say
+
+posts a and b are related
+
+by the fact that
+
+a was a retweet of B,
+
+and, you know, ideally at a given time
+
+and so on again on Twitter,
+
+we don't necessarily have separate IDs so, but we
+
+still like to be able to keep track of who did what.
+
+So I guess it's
+
+sort of been clear to me that I need something like, I need like a table keeping track of blogs or people or accounts, whatever you want to call them. Now I could create a separate one, or I could create it within collection.
+
+So if it's within collection, what does that mean?
+
+Well, I think one potential problem is that, you know, the natural thing would be for a post to be a child of the account.
+
+But it's not actually clear. I mean, that
+
+is, well, I don't know, maybe it's fine.
+
+Oh, one other thing is, I think the collection
+
+schema should include some sort of name field,
+
+name or title or text. I don't know what makes the most sense. And then something should go in there that makes sense. So, you know, maybe for the text field, it's like the summary
+
+or something, I don't know.
+
+But then if I have a name field, then for an account
+
+actually, you know, maybe this is
+
+not so bad.
+
+So yeah, if I do have accounts in this collections table,
+
+you know, account have a URL, they
+
+obviously have a name. Well, there's a display name, and then there's, like, the URL name,
+
+so I should keep track
+
+of both of those. And
+
+then, if I index on
+
+the like children field, then the lookup should hopefully be fast.
+
+Okay, so where am I with this? Oh, yeah. So I was talking about retweets,
+
+and also where light should go. So
+
+for retweets,
+
+okay, so in the Tumblr case where they have separate IDs, they're just separate rows in the table, but I want to be able to say that
+
+you know they're the same post,
+
+and so I'll get to how I actually know that In a second. But in terms of the schema, what do we have? So we have, really a set
+
+of posts which are the same post, and so
+
+ideally, I guess I don't want to be,
+
+I mean the schema wise, I think the simple thing is to create a table which has, at a minimum, kind of it has a pair. So let's just call them A and B. So you could say, like, post a and post B are linked with some relationship, which, this case could be a retweet and then at a given time stamp. So that's kind of the easy way of doing it, but Well, in conceptually, actually, that's what's happening. Because you're not retweeting a set you're retweeting a specific post,
+
+so that is actually the right thing.
+
+So I them.
+
+So maybe this interactions table does make sense, right? So it's basically a,
+
+b, which
+
+are foreign keys into the collections table,
+
+retweets and
+
+then, like, what is the action taken? Which can be a string for now and then a timestamp, which is a timestamp is actually done, and then a fetch timestamp, which is when I added it to my database. Actually. This maybe solves the Twitter problem nicely, which is if user A retweets a post
+
+x, then x, then
+
+if users and posts are both in the same table, then this foreign key thing is straightforward, because you can just have
+
+user A as The first column
+
+in the interactions and then user B, sorry, not user B, post x as a second column.
+
+So actually, that works quite nicely.
+
+So maybe I should do that. And so then the question is, if I'm doing this, well, a few questions. One is, how do I get the whole set and maybe, well,
+
+what am I actually looking for?
+
+I guess I want the transitive closure of likes.
+
+So if,
+
+if I have liked tweet or post X, I want to know all the other posts that therefore I also like. And actually, then there's an interesting question about if I like a post and it has, you know, four images and one piece of text in it, I kind of like those images and and or text, but with some probability. And so there's like a derived like that I should figure out. But anyways, that's for future.
+
+So okay, so that's one problem I need to deal with.
+
+The other problem I need to deal with is,
+
+where am I storing my own likes?
+
+And it feels like it should go in this
+
+table, perhaps the interactions table.
+
+I don't have a strong reason for it,
+
+but anyways, you know, and maybe this actually will make more sense once I maybe know, maybe this will make more sense once I figure out how I'm going to populate my list of likes and follows.
+
+Okay, that's it for now. I.
+
+Transcribed by https://otter.ai
+
+
+
+Collections 3 - Jan 14, 2026
+----------------------------
+
+Neeraj, okay, so continuing where we were, we have,
+
+we want to be able to determine quickly
+
+if a post that I've liked is is
+
+in a given post set?
+
+I don't have a good answer for this, but maybe it's a problem we can refer to later. Okay, now I want to think for a second about followers and my followers and likes or follows and gets no followers.
+
+So what does that look like?
+
+So leaving aside the mechanics of how we get that information, I guess if I have one row in the main items table, formerly called collections. So I have an item for myself where the source I could even just call it me. The important thing is just that we get an ID there. So then in my interactions table, or, I guess maybe I'm calling it relations, or just RDL, so the REL table, we have source and I me, which is me,
+
+and a target, which is the
+
+particular post,
+
+or the user, which is a particular follow. I mean an account. Again, both are just rows from the items table, and
+
+then action is like or follow,
+
+and then timestamps, if I have them. And so I guess one thing is we will need those posts or accounts to be in the items table if they're not there already, and you know, if I'm crawling my follows or my likes for the first time, they might not be So that's something I'll have to take into account. You You
+
+okay, so I guess sex and follows are pretty straightforward, but I was thinking
+
+on the UX side, actually, what ideally I'd like to do is kind
+
+of Not open so many tabs when I'm browsing so
+
+currently I
+
+the behavior is something like this.
+
+I start from some feed,
+
+whether it's an individual
+
+blog or my dashboard,
+
+and given a post
+
+I like, well, I guess, a couple
+
+levels so if I really like it, I can just like it, just click like, and that's that.
+
+But then if it's an exception post, then I'll open up the post and
+
+look at who retweeted it, and then
+
+click on those accounts,
+
+like some handful of them to open and explore. And
+
+then what I'm looking for is accounts that have good content,
+
+sort of a higher ratio of good content.
+
+And as I end up with all these open tabs, because I'm opening stuff faster than I can look through it.
+
+And so what I want is I
+
+I say, I was gonna say something, which I'll get back to, but actually, it just struck me that maybe what I really just want is a good feed. I don't necessarily care where it comes from. That's not true. I think we do want good accounts to follow,
+
+but maybe this summer, in pursuing this
+
+version of the idea.
+
+So I guess, like right now I'm doing something
+
+kind of manually or explicitly, because there's no other option with the current Twitter UI, which is like, expanding out, exploring the search space. I
+
+Yes, and so,
+
+if I, if I were to do that under the hood, so
+
+how would that look like, right? So I start browsing from a feed. So let's say it's my own, like dashboard or list of followers, or for you page or list, whatever. So I get a bunch of posts, and now,
+
+from each post, I get a list of accounts.
+
+And so the thing is, these accounts can come so I mean,
+
+each post, I literally have one or two accounts, which it's like, the person who posted it, maybe the person who reblogged it or retweeted it. And then I don't know how much information is in the feed, maybe not that much, but certainly there's like, a detailed page. And so given
+
+the Detail page,
+
+I can get a list of other accounts and that liked or retweeted that tweet or that post,
+
+and so what.
+
+And then you know, given each of those, I can do something with that, with each account, which is get their feed and look at their posts.
+
+And so, what do I want to do? I think what I want to do is,
+
+every time I get a post, I want to
+
+rank that post using my classifier, and then I
+
+and then for Every
+
+so I think there's a back and forth kind of expectation customization
+
+framework and apply here, which is
+
+every host
+
+I can score directly, And then given a feed, I can score that feed. And so what does that scoring look like? Well, it's some sort of
+
+average, or maybe rolling average, of the scores
+
+I've seen from that feed. So feed meaning I count here, for example. And so there's some bookkeeping that's important, which is, how do I
+
+how do I keep track of what I've
+
+seen and counted for a given account? Well,
+
+it's actually one interesting thing is that
+
+currently, I was thinking of having,
+
+if I have an account in my items table, and if I have an account in that table, and then I also have a post by that account, then marking the post as A child of that account. But that's a relation, and maybe it should instead be in the relations table. And where I'm going with this is that if all the relations are in the relations table, then hopefully,
+
+by definition, I've seen all the
+
+Like every
+
+interaction an account has with the post is logged in that table,
+
+right? And so where I'm going with this is then
+
+to compute the score
+
+for that account. I can do a simple join
+
+from the REL table
+
+to the Scores Table, and I'll talk about that in a second.
+
+To get an account score, or rather, I should say current account score. So just to
+
+dive in one level deeper,
+
+so if I have account X and they've, let's say retweeted posts, A, B and C. Then in the row table, I have rows which are x, comma, a, x, comma, b and x, comma, C, all with action reblog and and with the timestamp. And so then I can and
+
+so I have scores for X, Y and Z somewhere.
+
+And so now I can say, and
+
+basically this is doing like a matrix multiply,
+
+right? So I have
+
+a coefficient per reblog, which is, you know, it can be one for a flat thing, or it can be some sort of exponentially decayed thing based on the timestamp of the reblog. So if you reblogged something five years ago, that's not so interesting. Oh, by the way, people can reblog the same thing multiple times, so I should certainly allow for duplicates, but that does make I should just be careful about what things I can consider to be idempotent. In particular, I think a source, a target and an original timestamp,
+
+like that, triplet is
+
+sort of the
+
+unique factor.
+
+Yes, anyway. So this is basically a matrix
+
+multiply where
+
+I have coefficients.
+
+So it's like a x equals b. And so what is x, x is my vector, of course, for all posts.
+
+And then what is
+
+A, A is for every every user has a row
+
+in the matrix, A
+
+and this matrix, this row is of the length of number of posts, and it has a coefficient per post, and that coefficient is going to be zero for most things, right? So in practice, I may not actually do it like this, because it's inefficient, but just theoretically, I have a coefficient per post and in each row, and so the size of the A matrix is number of users, which I'll call u by the number of posts which I'll call P. So it's u by P. The x vector is number of posts by one, so P x1 and so when you take the product, you get UX p times px one, so you get a UX one output, which is the
+
+score per per user.
+
+And you know, it should be normalized accordingly, whatever the right thing is.
+
+And then I can take all sort
+
+of shortcuts where, like any I only consider posts up to a certain history, so I don't go back too far, although I might or might not want that depends on what kind of thing I'm looking for, you know, if it's like
+
+anyways, so,
+
+so conceptually, I Think that's roughly what I want to have happen.
+
+I and so,
+
+coming back to kind of how this thing should work in the background, I have a pool, let's call it of posts, and this pool is what is
+
+this pool like? So I have a pool of posts which I've currently gotten. And,
+
+you know, for each post
+
+I want to be, I want to be computing their scores.
+
+And so what does that mean, actually, right? So, because, actually what I have is embeddings. So I have embeddings.
+
+So I have embeddings per post that I'm computing. Now they take a little bit of time to compute. So, you know, there might need to be a queue or something here, and then, given
+
+the embeddings, I have a Current
+
+classifier, and so that I can run that classifier on the embeddings to get a score, and in fact, it might have more than one current classifier, or there might be, might be a parametrized classifier, or parametrized inputs on the classifier. So I think I was talking earlier about I think
+
+I was talking earlier about,
+
+like, how much to wait,
+
+how much to decay based on time.
+
+And so in this case, it's a different thing I'm talking about. I'm talking about, if my trading signal is what I've liked, then for like, I have the time step of when I liked something, and so I can weight that like appropriately. And so anyways, given the different weights, I end up with different classifiers. So anyway, so my point is just, I should plan for having multiple classifiers active at any given point in time, and so I want to run these classifiers on the post embeddings, so the post embeddings stay static, so that doesn't need to change. I
+
+So, okay, so what do we have so and then, given a post or given a set of posts, we have an immediate pool of users, which is who who tweeted them and who retweeted them, if that's in the original kind of feed, and we have their stats, we might have their stats, so like number of retweets or number of likes,
+
+and so given those
+
+things, we can choose, so now we have a pool of users. And so given those things, we can choose, kind of
+
+what to explore.
+
+And so given a list of posts, we can choose to expand the post, ie, to get its list of detailed list of likes and retweet likers and retweeters. So the accounts, basically to get more accounts, right, and so given,
+
+given,
+
+and then, given a list of accounts, we can compute their scores based on the current set of information we know about that account. And so given a list of accounts, we can choose to like expand that account, you get their list of posts. So
+
+we want to get the accounts list of posts, because ultimately, well, a that's giving us more posts, and then we can rank those posts and so on. But then also the hope is that given a post, we are given a bunch of posts that we then score, we can get,
+
+we can get an updated score for the account.
+
+And so now, at any given so let's say we have scoring running in the background, right? So given a current snapshot of the database, we want to be scoring stuff, right? And so posts are easy because those are just one time, or well, the embeddings are one time. Actually, this also becomes a prioritization problem, which is, sorry, so let me back up the at a high level, we want to have essentially some sort of priority key system that is deciding what kind of actions to take next, and so and so. It breaks down into a few different like sub components. One is so roughly what are the main sub components? So we have scoring posts that we know about scoring users, that we know about getting more posts from users or getting more users from posts. So those are the four actions, four sub i mean four types of actions. There might be multiple ways of doing some of these in particular. Yeah. Anyways, those sorry.
+
+And so those are the four types of actions. And so, I mean, one thing we could do is kind of have a separate parity queue for each one
+
+and whatever criteria we need,
+
+or we could combine
+
+two or more even all of them into a single parity queue.
+
+My guess is that,
+
+given that we don't want crawling to go too fast, anyways, my guess is that posts will take some time. I mean, scoring posts, I think, is straightforward, like we just score them directly, in whatever order we get them. Maybe it doesn't matter, right? I guess at this point, maybe we should think about,
+
+we should think about where things live. So
+
+in particular, we have scores.
+
+Now the thing is, the classifiers
+
+we're training are we
+
+probably want at least some of them to be somewhat longer lived,
+
+just so we have a history maybe.
+
+I mean, I know we can kind of regenerate it whenever,
+
+but I guess for a post,
+
+when we score it we want.
+
+So scoring a post
+
+that score is also sort of temporary, because it's dependent on the current classifier. So core.
+
+So that score is also temporary,
+
+and in particular, given that, like a dumbass, I again picked SQLite to store this data. I don't know if it should be going in there, so another possibility is storing it in in an lmdb. And so what does this mean? So I mean conceptually or schematically. I think this is very straightforward. We have posts which are in our items table, and we have accounts which are also in our items table, and we want to get a score on each and there's some metadata for that scoring, such as when it was computed, what it was computed on, what version of classifier, or classifiers, what kind of weighting was used, blah, blah, blah. And when we're fetching things, we might want
+
+to filter by some of those,
+
+or maybe not. Maybe we just want the latest.
+
+I mean, I do think in the future, and probably far future, given my track record with things, it might be helpful to have a history of scoring per at least per account, right? Because, for a post given the score history over time, that doesn't really tell us much, but for an account given the score history based on using one post, versus using 10 posts, versus using 100 posts, can tell us something about the dynamics of things, and maybe guides us in the future for how to pick stuff. Okay, I'm running out of time on this, so I'll continue on the next one. I.
+
+Transcribed by https://otter.ai
+
+
+
+Collections 4 - Jan 14, 2026
+----------------------------
+
+Okay, so continuing on the collections stuff in particular, talking about scoring of posts and accounts. So let's say we keep things extremely simple, and we we store stuff in lmdb. And the way we store it is, we say,
+
+we keep stuff in lmdb,
+
+and what We store is
+
+indexed by
+
+the host or account ID.
+
+And the value that we're storing
+
+is just the score.
+
+Yes, yeah.
+
+And so we store just the value, let's say, Sorry, just the score is the value. And then, you know, in the metadata and omdb, we store all the other stuff that we need. And so then,
+
+whenever we
+
+recompute, we just overwrite these things.
+
+And potentially we could keep some history if we need, but I don't know, maybe the history and whatever is overkill, I killed. So that seems fine. I think we can just do that easily. And you know, this scores lmdb separate from the embeddings lmdb. So hopefully that keeps stuff clean, both conceptually, but also hopefully efficiency wise, or performance wise, we don't pay a penalty for modifying the same thing, plus the scores. One, as we've talked about, is like semi temporary, as opposed to embeddings, one which is much more permanent. So, okay, so coming back to kind of our four components so we have scoring posts, scoring users, getting more posts from users, and getting more users from posts. And so for scoring posts, we should just do them as they come in with our current pool of classifiers given users. So here, I think it's scoring users. I think we need to think about the underlying mechanics, because my instinct is to just score users as they come in as well, right? So? So we have some sort of queue, priority queue, of users. I
+
+And so given each
+
+user, we need to do this join
+
+or conceptual join of
+
+their posts
+
+to get like the posts that they've interacted with from the REL table, get the coefficients, get the scores from the posts, and Then take this effectively dot product. So that is, I
+
+so I guess this is where infrastructure plays some role, because now we have the relative SQL. Sorry, we have the relations in SQL, but we have the scores in lmdb, and so we can sort of directly do a join, but that's fine, maybe directly doing the join is slow anyways, and so,
+
+so. Guess. We need to get a list of so we need to get the RELs. We need to compute the coefficients. And we need to get the we need
+
+to get the post scores and then do the dot product. I think there's probably some efficiencies I can do by batching like groups of users together, things like that. But even implementing the simple version, I think will be fine initially,
+
+and okay so.
+
+And then once we compute these account scores, we put them in the scores lmdb, you
+
+Oh. One thought that I had is, I wonder if it makes sense, given that I'll be running this for a while, then maybe, you know, turning it off or pausing it, or fixing it, is I wonder if I want to have some idea of like a world clock, which starts and stops when it's running, and I measure some time stamps based on that.
+
+And so the reason for this is, then,
+
+you know, the easiest way to compute exponential decay is just based on time elapsed. But if there's been starting or stopping, then time elapsed doesn't actually mean the same thing, but this world clock thing, I think, also makes other things tricky. So, you know, maybe not. Okay. So I think we've sort of covered scoring both post scoring as well as account scoring. And so now we get to the more the meteor ones, in particular, expanding posts into user new users and expanding users
+
+into new posts. And so,
+
+what do those look like?
+
+And so given a bunch of posts,
+
+I guess one thing is,
+
+we need to keep track of whether we expanded that post or not,
+
+and if so, when
+
+maybe this can. I
+
+don't know if this should go in Rails.
+
+It's not really a relation exactly,
+
+but it is post specific.
+
+I mean, one thing is, we could put it in the metadata, in the main items table for post can it, although we would, I think, like to expand, sorry,
+
+indexed by this. And so it should be its own.
+
+It should be its own column that not a JSON subfield that we can expand. Oh, sorry, that we can search on in SQL.
+
+And so, okay, let's say we have a like, explore
+
+timestamp or something like that, associated with every item, and we index on that. And so that way we know, you know if or when last a post or a user was like explored
+
+and so mechanically, What is the what is the way of expanding a a post. So given a post, expanding, it means getting its list of
+
+really tweets and
+
+likes, if we have them.
+
+So, okay, do.
+
+Exercise.
+
+And so given a point in time,
+
+we make the appropriate API call. It might be API. It might be via the web. Conceptually, it's an API where we get details for that post, this might have patronation, so we probably want to keep track of how many pages we went down and whether that was All of them at the time you
+
+hi Ella cinch, yeah, so whether it was all of them, and,
+
+you know, we just
+
+added each interaction to the routes table,
+
+you know, and with our normal Upsert logic.
+
+So as I mentioned above, it's
+
+we have source, target and timestamp as the indexing triple. It's like the primary key. Actually, so
+
+I think that makes sense. And then
+
+The harder question is the priority part, which is, we have a bunch of unexpanded posts, Which one, which do we choose to expand? And so
+
+this feels straightforward.
+
+This should just be whichever posts are currently highest scored, because that's what we care about, right? Is we want other high quality posts.
+
+I'll talk about diversity in a little bit.
+
+Okay, so I think that,
+
+oh, actually, maybe one other thing to think about is we actually have two conceptually different types of scores for a post, we have this score as computed via classifiers, and then we have actual signal, which is whether or not I actually like that post. Actually, we also have a third type of signal, which is how many users that I follow also liked or retweeted that post.
+
+So
+
+I mean that latter one is like much more
+
+abstracted away
+
+and then given a post, I need to know whether I've seen it.
+
+Oh, yeah. So this is also something
+
+that I need
+
+to index by. So this should also go in the main table, which is like scene timestamp, like, when was it seen by me last? And, you know, for posts, it's probably going to be, it's going to be null at first, and then it's going to be whatever, whenever it was seen. I mean, I guess, you know, I might run into it again. So actually, never mind it's, I think it makes sense to have the timestamp. So maybe I have some upper level, like a more ad hoc scoring on top of my scores, which is some combination of the classifier score, whether or not I liked it as a huge bump, and then maybe some sort of like well. So I think the interesting thing is, if I liked it, but I. If the classifier did not score it highly, should I expand it or not expand it?
+
+And I guess that's not very clear to me.
+
+But then also, same thing for my followers, right? So a follower, so if a lot of accounts that I follow liked it, then is that good or bad? And then you can make an argument for it being bad, which is, when we expand the post, we're going to get a bunch of users who I would do. No, I like. And so I guess there's some sort of like expected value thing happening here, which is, what is the expected value of opening that post? And that's probably something I need to sit down with pen and paper to model out. My guess is also not worth thinking about at this stage. I and so actually, now that we've talked about this, I feel like the scoring, sorry, the prioritization of which accounts to explore, it's also maybe straightforward, maybe not, but it's, you know, some combination of the
+
+current computed account score
+
+and sort of how much and or how recently that account was explored. I it.
+
+The other thing I'm wondering is, actually, I don't know what kind of volume I'm going to be dealing with, so maybe all this prioritization stuff is not particularly helpful. I can just do all of it
+
+anyways. I should just keep that in mind as I'm implementing stuff,
+
+and maybe only actually add complexity when I need to.
+
+That being said, I do think it's helpful to have these run in separate threads, not processes, probably, although, maybe, yeah, I.
+
+Transcribed by https://otter.ai
+
+
+
+Collections 5 - Jan 17, 2026
+----------------------------
+Okay, so
+
+it's really expanding the set of use cases or things I want to be able to do with my collections, stuff, which, on the one hand, is good, it means that maybe there is some general applicability to what I've been thinking. But on the other hand, I think also makes things tricky, because it might actually be a couple different projects that might require different decisions, particularly in terms of infrastructure, and certainly in terms of UX. The other thing is that I think the quality of the matching is not great right now, I'm evaluating it based on just some cursory since I have a simple version that kind of works with images against images, and kind of works with text against text. So just looking at that, it the results don't look super great, like some things that should be ranked higher or not, and vice versa. And I suspect part of it might have to do with the fact that I'm using simple nearest neighbors right now because the SVM based one is currently not working, which I think I should fix. Actually, maybe that's one of the first things I should fix, just to see what the difference in quality is like.
+
+So I think
+
+that's concerning.
+
+And, you know, I think
+
+probably the biggest component of that is the embeddings
+
+and but yet I don't know
+
+what the alternatives are.
+
+I mean for images, I'm using clip which is the standard, but it's been around for maybe seven or eight years at this point.
+
+So it's certainly old.
+
+And yet, I think when I looked around
+
+under a year ago, maybe six months ago, for alternatives, there wasn't much out there that were kind of joint image slash slash text embeddings and so I think the alternatives are like the one that I saw that I even have sort of working is Jinnah, j, i n, a, I think I was Using v2 multimodal embeddings. I think now they're actually recommending people switch to Geno v3 or maybe even v4 which is a truly multimodal embedding I think it handles other types of things as well, but I don't think I've tried it, so I don't know what it's like. That being said, I'm not using clip for text, because clip has very severe length restrictions on text. And so if I'm not using it for text anyways, then you know I should, I should consider non text compatible image embeddings, of which there should be some. But again, on at least a cursory search, I didn't find anything. The thing that immediately comes to mind is looking for like the best or near best, image classification and or segmentation or detection algorithms or models and then constructing embeddings out of them. But I don't know how easy it is to do that. And, you know, I think clip already does that right, because it's clip VI, t, which is a vision transformer. Again, it's an old, older model. But on the other hand, I don't know how much improvement there's been in those models. And in particular, I don't know if the underlying data sets have really improved since whatever they use for like ImageNet stuff, which is ImageNet, and I don't know how much they've expanded it mentioned ad, or if there's other things that they're using in addition to that. So anyways, these are all things I think, to look at further down the line,
+
+maybe not immediately. So that's
+
+one thing, I think the summary of what I just talked about is
+
+figure out, or get the SVM based, plus minus working, and see what that looks like before I do other stuff in terms of UI. I think a couple things immediately. One is I should put in the size, kind of constraints on the page just to make it look usable on both on web and on mobile. I think
+
+the the bigger components
+
+of making it usable, first and foremost, just kind of size of images,
+
+I think I should try my column
+
+approach, where
+
+I have a
+
+numeric input field that says number of columns of images or things, and then that's what I set it to. And then using like the CSS Grid System, maybe I don't quite understand how it works, but it seems like it should work for this and then. So that's number one. Number two is dealing with the plus minus part. So rather than clicking on the image to do it, there should be a button for that, a button that's either plus or, I guess minus just means not positive. So, so I should change that, so that way, when you click on the image or the text, it either goes to the original or, you know, does something else, but, but actually, speaking of which, I think it's good to have, like, a button bar next to each or in each object. So the button bar would have buttons to, like, go to the original source, or view it in high quality, like get full size, or, you know, maybe even a button that looks at my local version and that looks at the web version of images.
+
+So anyway, so I should make the button bar,
+
+and then the other thing is dealing with, like the panel at the top that has the currently labeled items. And you know, one of the things I notice is that as I scroll down, as I scroll down, I it's hard to kind of see what's currently labeled. And so I wonder if having so maybe the currently labeled should be, first of all, much smaller in size. And secondly, maybe it should be in a sticky frame, so that way when you scroll down, you can still see it. And maybe on the web, not on mobile, on the web, it could be, like, on the right kind of away from the main thing. Actually, it doesn't matter. I mean, there's so much real estate on the web that there's less of a concern there,
+
+because I think just having the plain sticky version will be fine.
+
+So okay, so I think those are some of the immediate UX changes. The other thing is dealing with kind of filtering and or sorting options. So one thing is that it's often hard to find kind of
+
+the things I would want to find
+
+to kind of do plus minus with and so, you know,
+
+One thing that comes to mind immediately is,
+
+is having like a search or sort kind of variable, which, you know, I've created and I'm temporarily hiding. But I do wonder what that would do. But I think UX wise, it's a little tricky thinking about how that overlaps or doesn't with kind of the plus minus based search, because those you know are basically searches themselves.
+
+And so this maybe goes into the use cases. And
+
+so it kind of depends what, what I want to do right, and what the plus minus is being used for. Like, I'm actually starting to feel that plus, the basic plus minus they currently have, it. It's not actually what I want to be doing. I think what I want to be doing is like training classifiers and running them under the hood. But they're not, they're not exposed kind of as nakedly as they currently are, because that's not the useful thing. So maybe this is a good time to talk about the the kind of use cases. So on the one hand, we have things like things that focus on images. And so for example, if we get all the images from a blog, and I just want to,
+
+and I just want to sort those images based on the ones I'm most likely to like, then that is probably classifier that's running under the hood that's trained on some sort of positive examples ahead of time. And then, you know, within that list, maybe there's some other things I can do with it, but it's not clear if I need to do anything else. I mean, it does seem like in that use case, maybe it might be nice to have a text search bar just to search for a
+
+couple of things.
+
+And so, so, you know, like, let's say there's a bunch of images, and I want the black and white ones, right? And so, you know, that might be part of my training examples, but at the moment, I specifically want the black and white ones. And so given the ranking based on my classifier, I might want to kind of augment it with a search for black and white. But how is the search implemented? Well, actually, I guess there's two ways, since I'm generating image descriptions, it can be the it can be like a more direct text search on the text of the embeddings
+
+of The descriptions. Or it could be
+
+an embedding space search.
+
+So if it's the former, then just a simple filter will do, right because it's binary, and so then I can take my existing ranking from my main classifier and just filter stuff. But if I do the embedding space search, then that's its own, you know, search with scoring. And so now I have to figure out how to combine those scores.
+
+So anyway, something to think about.
+
+But I think at least that use case is clear, and then I can, you know, like stuff to add it to my future classifier.
+
+So okay, so I think that is clear.
+
+So, oh, by the way, this is sort of its own big topic, but I just want to mention it here while I'm thinking of it. The way I currently deal with like adding a blog on the fly is via the source field. And so what currently happens is you add like a URL of a blog. So like tumblr.com/you,
+
+know, my blog name,
+
+and we will crawl some number of posts from that blog, add them to our database, start
+
+embedding extraction. And then,
+
+I mean currently, we just run the full embedding extraction before we redirect
+
+to the get IDs function,
+
+and then we return the IDs, but In
+
+but then on the front end, I think I you
+
+so on the front end, I think there are different actions I can do that will reset my both my current list of ids and or the dictionary which holds for each ID all its metadata, and so I think I need to be much more careful with how this works,
+
+potentially even
+
+altering the flow
+
+So that instead,
+
+maybe it's a front end that stores the
+
+kind of search parameters that
+
+adding a custom blog returns, right? So if adding a custom blog returns like a source field and a parent field, then maybe those need to be stored on the front end, not separately, maybe just as a combined like source parameters, dict, and then the front end. Then, you know, keeps track of it, and then makes requests to the back end appropriately.
+
+So I do think that might be the right way to go.
+
+The other thing is, and again,
+
+this is a whole separate topic, but the embedding extraction should we should not wait for that to finish before we return.
+
+I did a check, I think adding
+
+all the entries to the
+
+SQL database is very fast, so we should just do that, and then we should kick off the embedding extraction, but not wait for it. And so
+
+what does this mean on the front end?
+
+So on the front end we currently,
+
+well, we're currently hot linking the images,
+
+and we just have the text, because that's in the SQL database, and so we should be able to see everything immediately. But then in terms of doing plus minus or ranking, or, you know, using applying my classifier to it, that won't work on all of them until we have them, and so we should be kind of kicking off the sorry, so I think We need some sort of streaming or polling thing
+
+on the front end to kind of do that so,
+
+so I should figure out how that works. I looked into server side events, which seems like the simpler option compared to WebSockets, but it's one direction only. So I think the way that works is the front end makes a request to a given URL on their endpoint on the back end, and the back end just decides for that endpoint that we're going to enable server side events. And so the front end knows that and has a handler accordingly. So I think that seems fine, like I could convert, essentially, my get
+
+endpoint into a SSE one. But
+
+then there's other questions about, what do we actually do on the front end as we're kind of waiting for these results to come in. The other thing is, you know, this is getting back more to the kind of overall product or use case question. But like, what do we what do we do with, like, in the case of a blog where I just want to auto rank it, how is that all set up? And so I guess I need to think through that. I mean, one option is that based on the source, right? So if the source was a Tumblr blog, then we just say, by default, oh, what we want to do is classify these based on my classifier, or we maintain some list of current classifier, or classifiers that the back end maybe automatically trains, or maybe it's kicked off to train, and then the Front End knows what that list is, keeps it up to date, and then you can click those buttons on the front end. So that's one thing. Again, this is kind of its own topic, but related to stuff I've talked about, maybe, maybe I should think more generally about what it means to have multiple classifiers active. So I gave the example earlier of like rank blog images.
+
+So yeah, yeah. So with the example of the blog images, we're going to be applying the main,
+
+my main classifier,
+
+but then I might want to augment that with a search for, like, black and white images. And so that combination, I mean, that case, it's just two things, but this might be a more general thing. And so, you know, there's a few different ways of doing it at a high level, it's just, I
+
+So at a high level, the two main ways of doing it are one, combining classification results after you have classification scores from each classifier separately. And you know, there's various different ways of doing it in terms of score normalization, like I currently just take raw scores, but I could normalize them in some way, and maybe Z scores if I have the ability to compute those. Or, you know, things like
+
+taking the using the ranks instead.
+
+So I think, anyways, there's various options there. Or it's like combining the training data for the classifiers with some weighting presumably, and then training a new classifier based on that and running that so anyways, many things to think about, but there might be something productive there, or generally useful for Future stuff. So a
+
+Yeah, so there might be generally useful stuff to think about.
+
+So what else so, I think, for the
+
+single blog use case, I think this makes sense.
+
+But actually, speaking of that, one kind of related use case, if I want to call it that, is that currently everything's being added to the same database, and so by default, I end up showing like all the things that have ever been called, which is a huge number. And obviously I can paginate, although I don't have that implemented yet, that's easy to know if I can paginate, but the question is, really there should be some better options for filtering on the front end. And maybe this goes nicely with my idea earlier to send the source parameters to the front end and the front end mix queries accordingly, because then, given all the items I could kind of construct like, let's say parent is one thing, right? So I might want you know all the things that come from a certain blog. I might want all the things that you know match some other criteria. So maybe that's one way to kind of filter and organize on the front end. Okay, so I'm kind of running out of time on this one, so I'll continue on a future one. Bye, for now, bye.
+
+Transcribed by https://otter.ai
+
+
+
+Collections 6 - Jan 17, 2026
+----------------------------
+Okay, so now let's think about
+
+a different use case.
+
+And so this one
+
+is filtering or organizing my Twitter feed. And so the
+
+interesting things here are that
+
+there's images and text, and so I need to figure out how to deal with them. And in fact, they're kind of often relevant to each other. There's also the problem of quotes, which is quite frequent. And so many things are, in fact, interesting only because they are quotes.
+
+So I should see how that works,
+
+by the way, as a kind of tangent, but I think it's worth putting down
+
+on my front end,
+
+I probably want to display stuff differently based on what it is, and so maybe the easiest way to do that is to add a source and potentially the S type values to the class names, And then write CSS rules for the class names appropriately. And in fact, not just CSS, but also the JavaScript, because I need to basically take whatever metadata I have for that object which is different. So things that come from Tumblr, things that come from Twitter, have different metadata fields, and so I want to be able to display those correctly. So anyway, it's just something to think about. I suspect this is all on the front end. I wonder if there's a more generic way of doing it, like, well, on the rendering side. I mean, I think
+
+we can render.
+
+So within the object renderer, we basically read what source it is, and then we call out to the relevant function. And I think that might be the simplest, but there's still this question of like, well, we have all these fields, how do we display them, and what, what do they look like? And maybe this is just something we can give to an LLM and just have it figured out.
+
+So anyway, so Okay, so I have Twitter, so I have my feed,
+
+let's assume I can make it look more like Twitter, which I think is probably helpful. And so now I have, you know, a feed of tweets coming from various sources. I want to be able to
+
+read this feed.
+
+And so well. Again, on the UX side, I
+
+want to be able to like stuff and store those sites. I also want to be able to
+
+mark stuff as seen.
+
+And so that is probably, again, a routine I can have the LLM right, which is like keeping track of how long something was visible on screen. I don't know exactly how that works, but anyways, we'll figure it out, I guess.
+
+And actually, now that I think about it,
+
+I think on the back end, I have, like, seen timestamp, like, when it was last seen, and that's probably helpful. But in fact, maybe I want to also have a like dwell time, which is how many cumulative seconds. Let's say I've seen something anyway.
+
+It's just something to add. And
+
+so I have this feed.
+
+Now there's a good chance I don't want to mess with the order of it, right? So let's say I want to keep it chronological, or rather reverse chronological. So then the question is,
+
+how do I?
+
+What do I want to do with it?
+
+And so in particular, if I mark it, I
+
+Well, so Okay. I
+
+have too many thoughts. I think I need to just say them one at a time. So I think one of the main things I wanted to do was filter out tweets related to the the
+
+current. Event issue
+
+that I don't care about anymore. And so, just to be concrete, let's look at the example of, like, the Venezuela thing. And so I think here there was,
+
+so there was kind of, I um,
+
+okay, so that's the first thing is like potentially filtering based on topic, then A related use case is maybe grouping by topic
+
+and and then one of the issues with Twitter is that it's very referential, and so people are often very terse. And so in context, out of context, a tweet might not give many clues about what it's about. And this is, first of all, where like the retweet, following the retweets, I think will be important. But then secondly, what? Secondly, someone might just have a very short comment, which, on its own, doesn't tell you what it's about, but in context, it would be clear that it's about something, and so I would need to figure out how to deal with that. I You
+
+so Okay, for the moment, let's ignore the short comment, lack of context, saying, although I do think that's going to be relevant,
+
+and so I'm thinking,
+
+well, a few things. So one is like, let's look at the Venezuelan example. It probably is. It might, it might be really annoying to have to write down what's not working. So instead, maybe there's a few ways of thinking about this. So one is, maybe I have, like, a bad bin conceptually, like UX wise, and anything that I'm not interested in. I mean, there's like, maybe one way to look at it is there's like stuff I like stuff I'm neutral about, and stuff I actively dislike in the moment. And so clicking on something like the heart, I think is kind of active. Sorry, it's kind of more long term, perhaps.
+
+But then there are, but then there's
+
+kind of more in the immediate
+
+term. And so here,
+
+yeah, so let's say I had a bin of some sort. I mean, in practice, it might just be a button, but the idea with the bin is that, like, if there's a tweet that's about a current topic I'm not interested in, like Venezuela, again, to be concrete here, I can put that tweet in that bin.
+
+And so then
+
+that becomes, like a filter on top of whatever other filters I have. And, you know, I said, Maybe I have no filters. Maybe it's just,
+
+you know, the chronological feed.
+
+And so how would this work? Well, I think one way of having this work would be it separates my feed into two feeds, and so I get my kind of
+
+all the tweets that kind of match
+
+the bad tweet, or tweets end up like it separates them out into this other feed. And so that's why this notion of dragging, I think it's what I was thinking of, because it's probably going to make mistakes, and so I'll need to be able to drag stuff back. And so I Yeah, so this, you know, as opposed to a ranking thing, this is like a classification or almost like a clustering thing,
+
+depending on the way I want to look at it.
+
+And so, you know, another idea that I had related to all this is an actual clustering with some number of clusters. And it's, you know, I'm not sure if I would define that, or if the algorithm would define that, but let's say you define the number of clusters. So I say four clusters. Well, I could just run clustering and see what happens. I
+
+By the way, I was just thinking, Sorry for the pause. I was just thinking, what if the current source parameters are a JSON text area and or like there are text area on the front end, and I could have the LLM write some code that basically the text of the text area is in a React variable, and then every time it changes, it tries to parse the JSON. And if it works, then it puts a green outline, and if it doesn't work, it puts a red outline, and then it only sends to the server if it worked, although maybe it doesn't automatically sentence server ever. Maybe we explicitly have a button for that,
+
+and it's just a thought so, and
+
+maybe it just replaces the current source field. But then actually the current source field has, like, URLs and stuff. So, so maybe it just actually, maybe this is interesting. Maybe it does a because I don't think we ever want both of those things at once. And so maybe we do a detection, and if it has HTTP, then that's also fine, or if it has valid JSON, then that's fine,
+
+but not anything else, then it's not fine. Okay.
+
+Sorry, so getting back to it. So if we do clustering, and so let's say we set, you know, four clusters, well, we could have it automatically try to cluster the tweets. And by the way, the reason I got off on this tangent is because I was thinking we probably want to filter the tweets, at least certainly well, kind of doing stuff to, like a recent ish set of tweets. And so I think when I talk about clustering, that's happening within the context of some subset of tweets, probably by time, but maybe also things like, you know whether it's coming from, like my followers, My follows or not.
+
+So, yeah, okay, so
+
+one of
+
+the oh, you know I should try to get my latest Twitter data dump. Okay, I just triggered that. I'll get the Twitter dump in a little bit. I think, I think they explicitly said they don't provide likes, but I think it should have at least my follows, so I can use that to and then maybe it'll have my list, and so I can hopefully use that to filter. So, okay, oh, by the way, I should just thinking of this on the back end. I probably want to include the relations. I don't know if I'm currently doing all the relations. I know I did something about likes, but I should make it more generic, so it includes things like follows and so on, once I have them in the tables, so and then, you know, given all that data which will show up in Rails, my Twitter renderer should kind of color stuff accordingly. Or, you know, have something to let me know, like, Oh, this is a follower. Or this is by,
+
+you know, a high priority follower.
+
+Okay, so,
+
+so, where was I? So? Okay, I have this clustering, which is on a recent subset of tweets. And so if I do the automatic clustering, it's unclear. You know what that is. Now, thanks to the magic of LMS, we can feed those tweets to an LLM and ask it to describe what the cluster is, and that, by itself, is probably interesting. But then the other thing we can do is, either via text or via examples, we can the user can define these things. And so this Venezuela example I gave you know that's creating that's separating one feet into two.
+
+And I can think of it as like a clustering thing, or I
+
+can think of it as a classification thing,
+
+but then, you know, I could imagine
+
+like labeling it, like dragging to a third column to get you know three feeds.
+
+So this actually is kind of interesting. I wonder if this could be more generally applied, but I should think about like easiest ways to implement this. And so, you know, dragging is always a pain in the ass. And so I wonder if just having like buttons in the button bar for each object
+
+that maybe just literally say, 123412345,
+
+or whatever, like the max number that I'm imagining.
+
+And, you know, and then that's it. So just move some and, you know, I was just thinking I could even, like, this sounds fancy, but, and it only works on the web, but I could even have it so that whatever my mouse is currently hovering over it, I can accept keyboard input for 12345, that might be a really fast way, rather than, you know, having to use the mouse to kind of explicitly click on those buttons, which are, you Know, by definition, going to have to be small. And so instead, if your mouse is anywhere, over the whole object, you can click, you can type a number, and it will, you know, tag it appropriately. You Yeah,
+
+right, so,
+
+so I think on the UX or on the use case side, those are some of the things I was thinking about with Twitter. I think one of the things that I'll have to deal with is
+
+the fact that things are multimodal here.
+
+And so currently my embeddings, as I've talked about, are separate for image and for text. And in particular, a given tweet can have text and multiple images, and it can also have a quote. It can also be quoting something, and the quote tweet can have various things. And so I know in the Twitter UI, I've definitely seen like a given tweet has text and at least one image, and it has a quoted tweet from which you can see the first part of the text and you can see one image. And so that's all one kind of unit that we should be classifying together, or, you know, thinking about together and so, for every so. Well, okay, one thing we could do is you can run an LLM on the combined thing, if you can kind of render it, but that's very heavy duty. You know, I don't probably want to be doing that for
+
+all these things. So then and
+
+then, plus, I need embeddings.
+
+So then,
+
+well, okay, I can go in one direction between images and text, which is image to image description, which is text to text embeddings. I can't go in the other direction. So I can't take text and convert it into an image embedding, or at least not, not in a way that makes sense. And so it seems like my common denominator is text embeddings. And so I guess, let's say I was able to get all this information, like the quote and the quote information and so on. Then maybe I get an embedding for the combined thing. I mean, I could even construct some sort of text that describes all of it, right. So, so I certainly have the individual embeddings, and currently I can just average them. But in fact, I just realized that the text embeddings are only embedding the literal text of the tweet, not who it's by or the timestamp or any other metadata, which is fine, you know, maybe, maybe that's okay, although, in practice, I Think users do maybe matter, certainly for things like Venezuela and so on, right? Because certain people are talking about it, certain people aren't. And so maybe that's something I should think about in a second. But my point was, I, you know, so let's say I have some text, some images, and maybe some quote text and quote images. So let's just call those my set of inputs, and so I have embeddings for each of those things separately, so I can average them to get a combined text embedding. Or I could construct a block of text that includes all those elements and then embed that. And that will probably be better. I don't know how much better, but it should be better. So that's kind of the first thing is, anyway. So point is that for every tweet, I then end up with an embedding
+
+and so now
+
+everything becomes simplified, because I'm operating at the tweet level.
+
+And I think for Twitter, I don't
+
+probably want to be working
+
+at the image level, directly for anything. I mean, there's other use cases, like looking for common memes and things like that, but I guess let's leave that to the side. So while I'm talking about this, these different use cases, you know, I wonder how to differentiate between them, both from a UX standpoint, but also from like a practical standpoint.
+
+Currently, the front end code is common.
+
+The back end code is also common, except for the populating the database, which is separate. So I have, like on Python, I have a source class, and I have subclasses like Twitter and Tumblr, which fetch, you know, which do their own parsing of the underlying data and API calls and so on. And so
+
+that's kind of how that stuff works.
+
+But I don't know if I want to be separating the front end code out,
+
+although maybe I'll have to. I
+
+and so I don't know if I ever figured out how to have multiple JSX files, like multiple react files served together,
+
+but maybe
+
+well, there's a few ways of doing it, so I think maybe the easiest is if I label each use case, like, give it a name, right? So, and it doesn't have to be named for the site, but kind of so I have, like the clustering thing, or I have the auto clustering thing, or I have the like, image ranking thing.
+
+And so maybe, like, the simplest thing is
+
+I have, like, a user UX element that's just, like a pull down menu or something that selects between these, and I just pick that and it does stuff accordingly. That's the easiest. We could then auto populate this based on the source. The source to use case mapping could be on the back end. It could be, you know, via config. So anyways, but you know, maybe the easiest is just to have this pull down, at least initially, and do it manually.
+
+So okay, so I think that's one thing
+
+in terms of sequencing. And we didn't even talk about another use case, which is kind of the Tumblr auto
+
+crawler exploration,
+
+but I'll get to that later.
+
+So in terms of sequencing, I think
+
+there's a lot of interesting stuff here. Maybe the maybe the image ranker is simplest in some sense, and so I can start with that. Yeah, I.
+
+Transcribed by https://otter.ai
+
+
+
+
+Collections 7 - Jan 17, 2026
+----------------------------
+Okay, so let's continue. I want to think about
+
+the other use case, which was
+
+the kind of automated crawling. Specifically I was thinking of Tumblr here.
+
+And so with Tumblr. You know, I think,
+
+I think just being able to
+
+see like the archive view,
+
+and then being able to
+
+see which things I've seen already, which I've liked, and then to be able to like from there, and then, you know, open up the detailed page and so on. Like that, in itself, is quite valuable, and so I don't know to what degree I need to be able to do the automated crawling, because certainly what I laid out was a lot of work. That being said, I will be training classifiers for a bunch of things. And so I think some of that stuff was certainly relevant there.
+
+So anyways, we'll come back to the classifier training.
+
+So given,
+
+so what is a
+
+kind of halfway point?
+
+So let's say we're starting with this basic archive view, which you know I should be able to do, assuming I can get the relevant data, including, like my history of lights and scene, which I'm planning on doing. So then,
+
+what is next?
+
+Basically, if there's a
+
+image that I like,
+
+open its detail page and then that I
+
+so I'll open this detail page
+
+and then look at some of the other blogs that retweeted it, and then look at those. So what is the way I can kind of do this self contained
+
+it's So assuming I'm able to
+
+get kind of this post info via my API wrapper, I
+
+so I get the detail. It stores
+
+the reblogs and stuff in my table, my tables, I
+
+it. Then what?
+
+So once
+
+you know we wanted to, and I think they would tell us,
+
+I have those in my table. The simple thing is, I mean, I
+
+wouldn't mind giving
+
+treatment.
+
+You okay, so given a particular post, I can fetch the details and then those are in the tables. There's no embedding work required, because we're just a count here. And so it should be pretty fast. And now I guess there's a couple questions. One, is some sort of ranking and so on. Right now, I don't even need to have ranked to get like, what have I seen before? What getting some basic counts, I think should also be doable,
+
+and like obviously checking for which ones I follow.
+
+Okay, so I think the back end part feels quite doable. I don't know exactly what the speed will be like, but we'll do with that.
+
+So then the next question is, what about
+
+what about the UX?
+
+So I guess there's a couple things we want to care about. One is kind of specifically how it looks on the page. This,
+
+kind of the list of accounts.
+
+And then secondly, what
+
+does it mean to open a new page, like to click on those accounts? So I think the latter actually is easier, because assuming I'm able to get a basic like to get the source input for Tumblr working, clicking on An account would just be
+
+clicking into the source.
+
+There's a question about,
+
+should we replace what's currently visible or not? And maybe I don't know, I don't have a good answer to that.
+
+So in terms of the UX. So what are we starting with? So this is on mobile. We have, let's say, a two column view of images. And so what happens? I them.
+
+So we have this two column view.
+
+It's tightly packed. I
+
+I mean, maybe it should work kind of The way
+
+Tumblr works, which is that you get a
+
+which is maybe, again, we get a fixed div at the bottom
+
+that has the things in it. I
+
+with the relevant counts it's on I you
+
+Yeah, okay, I think I don't
+
+know If there's too much point in drilling on this. I on this. So OK, I think that's all the use cases. Now let's get down to some brass tacks on stuff. So one of
+
+the I one of the things I was thinking about is
+
+when you add like, so let's say you set a source to like a particular Tumblr account, then we fetch, you know, one batch. And then how do we know to kind of extend it so on Tumblr, at least when you fetch a batch, it has links at the bottom
+
+which contains a specific link to get the next page
+
+and so. And the thing is, we need to hold on to this if we want to be able to fetch that next page.
+
+And so if we think about a blog containing a stream, like a one dimensional stream of posts,
+
+and we access it at time, t
+
+so then we're going from the newest post down to some
+
+like one batch
+
+of posts. And now we come back at some feature time, t plus one. Then at that point,
+
+what have we seen? Well, we've seen
+
+kind of one contiguous chunk in the middle of the stream now,
+
+and in particular, we
+
+so the way the place is going is, I was thinking about storing pagination token.
+
+And so if I store
+
+a pagination token, then
+
+what happens in the future? Well, in the future, if I come back to that blog, I can say, Well, I wish I'd seen these. So let's go down.
+
+Or I could resume from that pagination token. I
+
+Yeah, why not? So I think maybe the thing to do is in the items table for the row which corresponds to the blog in the metadata field will store both the pagination token and the timestamp at which we set that pagination token.
+
+So that's the first thing is, we'll set that.
+
+The second thing is now when we signal, so now we send back the first batch to the front end, right and so, for the moment, we're just hot linking
+
+the images. I um, I
+
+think that's okay. We can figure out a better thing to do in the future.
+
+Okay, so we have one batch
+
+of images that we show. I
+
+Yeah, and then what?
+
+So we have one batch that we show, and then we need some way to signal that we want the next batch. And so I think
+
+the way all these sites do it is I
+
+also the way All these sites do it is, is what, as
+
+you get to the bottom of the page, it triggers a call. So you know, there's a couple edge cases I can remember, sometimes if the whole batch fits within the page and no scrolling is required, then you're kind of screwed. So that's kind of one issue, and then,
+
+and then another issue is you know, triggering it exactly once, although I guess that something on the front end we can handle. I'm going to ask an Allen to do that anyways, but
+
+sorry. So the bigger question is,
+
+we need to tell the server that we want the next batch. I mean, I think it's clear the what we need to be doing is storing the next parameter on the front end so the front end itself knows what to call and so I think we should. So how's this working? We're calling set source, which calls the source endpoint, which calls a Tumblr parse handler, which sends to the front end directly a set of parameters to call, and so those parameters are basically to do something like set this set like a parent ID or a blog name or something.
+
+And so that'll make a call to the back end
+
+to do a get with those parameters. And so in particular, we need to be storing if we return only one thing, the set of parameters, then those set of parameters need to be returning the next I think that part is clear. And so,
+
+so what happens on
+
+the back end. Sorry. What happens on the Yeah, on the back end. If you make that call to say, give me everything with this ID, and then you say, and you give it the next link, and it's fine. It doesn't care about the next link, so that's not an issue. But then when you get down to the bottom of the page and you trigger a next how does that work?
+
+And you know, I'm not very clear on that,
+
+so I think One way.
+
+So, okay, there's a few things. One is, by definition, I think we said we're going to be storing the next token in the main table anyways, when we get the archive. And so really, what this is a question of is like, are we getting the right batch of things, and are we not getting cumulatively more things every time we query and
+
+so in particular,
+
+let's say we've been to a page before, and so We have some set of items there already in the table. And now we go again and fetch, you know, from the top of the Timeline now, which might or might not overlap with previous stuff, but in terms of parameters, everything's going to have the parent ID as the parent,
+
+so we can't just use that.
+
+So I do wonder if the batch will need to be defined some other way. Well, so how else can we define it? We can define it as a list of ids that seems weird, but doable. I
+
+here. So what else?
+
+Oh, by the way, this is not related, but just something I'm thinking of. One of the things I want to do is collapse NEERA duplicates and so for that, the UI I was imagining was some sort of indicator on a post or image that they're more and then some overlay buttons to kind of toggle through them. And then perhaps, if I'm fancy putting some sort of touch handler to be able to swirl through them.
+
+But that was specifically meant for,
+
+like, multiple different images
+
+that we grouped together. But actually a similar thing applies on Tumblr or Twitter when a post has multiple images and for showing the whole post, because then we could either grid them the way Twitter does, or we could do this overlay thing. So anyways, just something to think about. I mean, also for my Tumblr thing, I want to think about whether I'm displaying posts or I'm displaying images, because it might change some stuff.
+
+Anyways. Okay, so coming back to the pagination thing,
+
+yeah, this feels really tricky and annoying. I don't quite know the right thing to do. I Okay,
+
+so let's come back to it. So we have a batch.
+
+They we don't know that the IDS will necessarily be in order.
+
+In fact, what do we know about this batch of items that ties them together as like a unified batch, and it's not clear to me
+
+that we know anything about them. I
+
+and so I don't know it seems like, if I want to do this, maybe I just do the dumb thing, which is
+
+to say, Fuck it. Let's just.
+
+The front end just says, Give me next
+
+for this vlog.
+
+And like with these parameters, the back end looks up what the next token is and follows that, gets an X batch and returns all the IDs. Oh, wait, wait, actually, there's a simple thing, because by getting next we're specifically getting we're specifically getting a new batch of IDs. And so we just need to return that new batch of IDs. Whether that batch of IDs includes old stuff or new stuff, it doesn't matter, because we're doing an Upsert, we're getting those items. So I think problem solved. You know, there's some stuff we have to deal with on the front end. In fact, this might be a good time to mention one of the front end things we're going to have to keep straight is, currently we have a list of ids, I think it's called IDs, or current IDs, and then we have a dict mapping from ID to all the data we have about that ID, which includes, you know, like the metadata field on the back end and the basic items and all the relations And so what I'm thinking is on the front end, we should
+
+not really be removing stuff from the
+
+dict, which is the information priority, piecemeal. We should either totally reset it depending on what the user does, or we should just keep adding to it. So I think that'll kind of simplify some stuff. And then current iDS is the thing that we have to kind of be careful about not messing with. And so it could very well be the case that we often filter down some items based on whatever and but yet we don't want to, we don't want to modify current iDS based on that, because if we need to cut back to it. So I think I'm often using the dict as a source of truth, of like the current list of ids, and treating the current iDS as more temporary. And I think the right way to deal with this is to have a third variable, which,
+
+you know, maybe it's a more generic
+
+dict of kind of current information per item, because the Current dict is kind of stuff that the server knows. And so maybe we need a separate one, because I've been thinking about, you know, other variables that I keep track of on a per item basis, but just for the front end. So maybe it should all be unified. And so, and then that dict
+
+maybe, Does,
+
+does represent the kind of universe of items on the front end, and I'm just about to run on time here. So I think the other thing we could do is we either so current ideas could then get reduced, or we could add a flag to this dict that says whether an item is currently active or not. Okay. That's it for now. You.
+
+Transcribed by https://otter.ai
+
+
+
+Collections 8 - Jan 17, 2026
+----------------------------
+Okay, so now let's think about
+
+this NEERA dupe sync.
+
+Actually, you would know it before that, I think the more important thing is dealing with delayed processing of
+
+images and embeddings on the back end.
+
+So let's say we've added a blog. There's a bunch of items we have, all the metadata for those items immediately,
+
+and so
+
+and so the front end knows. Okay, this is what we have. And so, then, what? So, then the,
+
+so, then what? The back end
+
+is processing stuff in the background.
+
+And so really what we need is we need, actually, on the back end, some kind of notification system
+
+that it knows when stuff is processed.
+
+So currently, what's happening is,
+
+as a given item is embedded, we update the database accordingly, right So, and you know, it might happen per batch or might have per item. I don't quite know, but I can, you know, tune that as necessary. And so what does that updated process looks like? Well, in particular, there's the Embed Ts
+
+that gets updated
+
+in the main items, SQL table.
+
+Now, what would it mean to kind of notify
+
+the front end.
+
+Well, so I think here's what should happen, maybe is you go to source, you enter a URL, and you add it, and now, when you add it, the back end gets one batch of items from that blog, adds them to the SQL, kicks off embedding, And then gives you back a set of query parameters, gives the front end back a set of query parameters. Now, with the query parameters, the front end immediately sends us to the back end to get a list of to get the list of images and so on Right so that,
+
+so that process of
+
+getting back to uh,
+
+what does that do? So that gives you
+
+a bunch of items
+
+with their metadata,
+
+right? And so that metadata includes the fact that whether or not we have embeddings and so then I think probably the simplest is just to have
+
+a pulling on the front end
+
+that happens every some
+
+time, like every five seconds or 10 seconds, and when so at the polling time, what we do is we say so
+
+the Front End determines which things have not been embedded,
+
+and says, Hey, give me updated information for these items.
+
+So that's probably a general thing. I Yeah,
+
+so that's probably a general call.
+
+Just get updated metadata. But in particular,
+
+the back end doesn't need to know what it's for, and the front end,
+
+and sometimes also doesn't need to know what it's for. It just knows it should keep doing that until
+
+everything's been embedded or we have an error. And
+
+so I guess in the embed timestamp,
+
+we should have a way to mark stuff as done
+
+or rather errored.
+
+And so maybe a simple hack is to say, well, if
+
+it didn't work, we give it a minus one, and then if we're trying it again, we keep track of the fact that it was previously minus one, and so now it can become minus two. And so if it's negative, that's how many times it's errored out. And so obviously, anything that errors we
+
+we don't add, we don't count for a pulling.
+
+Okay, so I think that
+
+kind of covers that. Oh, I think the other piece is the back end needs to reload the feature set periodically to make sure it's up to date. So I added that simple function that's called like reload or something. Let's just call it when necessary. It's not quite clear exactly when that should be, but you know or what the impact of that is, but I guess we'll figure it out.
+
+I guess in particular, we're not
+
+right now. We're not holding on to any embeddings
+
+because I disabled that caching bit in the feature set,
+
+or, yeah, in feature set. So
+
+I think we're just fetching them from scratch every time, which is obviously expensive, and I might need some optimization at some point, but I shouldn't be premature about it, I guess.
+
+Okay, so that's that piece,
+
+right? So classifiers,
+
+so if I think about,
+
+what are the two main cases? So the two main cases are, we have an overall quality classifier
+
+for posts or for images,
+
+and then I have my clustering thing.
+
+And let's, let's think about the on the fly clustering.
+
+So for,
+
+so, for the overall quality filter,
+
+I think one way of doing it is, you know, the starting point is like a manual trigger from the front end. And so on the front end we have a button that says, retrain my quality filter, and maybe it sends some parameters as well, like time to go back and, you know, the waiting and things like that. Or maybe not. Maybe it just does it
+
+in the backend, figures out what to do,
+
+and so well, and then,
+
+I guess, crucially, we need to know what we're training. But again, this can just be hard coded for now, either on the front end or in the back end. So it might say, no train the image quality classifier, and maybe you limited it to a particular site or source, I don't know. So then, what does that do? So on the back end, it triggers a training. Let's presume for the moment that the training will take a while. This might or might not be true, but let's say it is so then
+
+what happens on the front end?
+
+Well, maybe nothing,
+
+right? So
+
+currently, how are we doing classification?
+
+Well, we're calling we're giving it plus minus, right? And so and so that's doing stuff on fly. It's not modifying the sequel.
+
+And so, as we talked about last time,
+
+there was some question about where we store the metadata about classifiers. So I think I was thinking to have kind of the heavy duty information, including scores in not in SQL, but in lmdb, in a separate lmdb. And so that might be the case, but it might be helpful to have something in the SQL about classifiers. I
+
+and so I think on the front end, we probably want to have a global UI element, which is rank, this stuff that I currently see with
+
+one or more classifiers.
+
+And so again, there's a big question here, which is, how do I deal with multiple classifiers? In particular, what if I have a global classifier and then also a plus minus or also a search term? But ignoring that for a minute, let's say we're not doing plus minus, we disable that. Let's say we're not doing search we disable that. Then what we want is, we want a list of classifiers on the back end that we can fetch and we can click
+
+on to get To
+
+kind of update the ranking based on that so
+
+a and so maybe there's a
+
+couple step process, which is, there's
+
+actually training, and then there's inference. So we have some trained classifiers on the back end. I Neeraj, and then we would like to run inference. And so by default, I guess when we train a classifier, we shouldn't, we should not
+
+run it on anything until we're asked to.
+
+And so instead, I think so. Let's say we have a table with classifiers in SQL, and let's say we also, when we're done training a classifier, we store it on disk.
+
+Some are probably a classifiers directory
+
+and then,
+
+and maybe this classifier table should include like source and S type and O type, and if it was trained on a specific thing, particularly O type and source, right? So it might be trained on like Twitter posts, or it might be trained on Tumblr images, then we fill in those fields. And if it's trained on multiple sets of things, any of the fields, and we leave those blank, or we have a comma separated thing, and then we have like, you know, kickoff time and train time, maybe some of those go in metadata, because we might not need to index by all of them, whatever we figured that out. So in particular, I think
+
+when we do classification, how
+
+do we want to do this? So I think on the front end,
+
+we keep track of our universe of items. Do a
+
+right? And so
+
+we have a universe of items.
+
+We also have our source parameters. And maybe the source parameters are, maybe, the source parameters can be used instead of the current set of IDs, although I don't know. Why not just have the current set of IDs. So we have the current set of IDs, which is the universe. And so here's how we could update the classification endpoint. So you give it your current universe of IDs, I guess equivalently, you could give it source parameters, but that's probably an optimization that we don't need to worry about right now. So you give it your current set of IDs, and you tell it what you wanted to classify, or how you want to classify. And so currently, currently, the classify endpoint just takes pause, I think, like the list of positive ideas for plus minus, and it figures out the universe. So that's the first thing is, we need to stop it from figure out the
+
+universe. The second thing is,
+
+so, actually, okay, this, I think, unified thing, so you can give it a pause, you can give it a pause, and or so, all of these things are independently settable, and then we'll decide what to do with them. So you give it that, you give it, you can give it a search or filter string or strings, or you can give it a classifier name or ID. So so this classifier ID and so on the back end, I probably want to have a folder structure which is like classifiers, which should be on the DB directory, and then underneath that, maybe it's like the classifier type. So it might be images, it might be text, it might be post, it might be something else. That's a sub directory, and then underneath that we have just the ID from the classifiers table, dot, whatever extension we need. So anyway, so when you kick off a new classifier training, you can
+
+press a button and that gives you back
+
+the classifier ID or
+
+and then maybe also, like, maybe we have a field which is like Name of classifier, or type of classifier, not name, because specifically I want, like, you know, may not care. I might just say, give me the latest image quality classifier. That's it. So, right? Oh, you know, I'm thinking, currently I'm setting kind of the SQL path and lmdb path myself, but actually maybe I should just be giving it a directory and it figures out where everything is within that directory. Oh yeah, that's probably a good idea. So anyway, so if I give it classifier ID or Name, then it finds the appropriate classifier and lets me know if it's ready or not. And if it's ready, then it returns. Then it runs the classifications based on all the parameters I gave it, and that's what it sends back. And if it's not ready, then it sends back some sort of error message that the front end knows and can kind of either pull or just alert me.
+
+Right? So, okay,
+
+so I think that makes sense. I
+
+now, what?
+
+Okay, so I think
+
+the other classifier piece is the clustering piece. So that one, I think maybe it works differently. We again have a notion of a universe, which is fine.
+
+And so then, well, we still can just call the classify endpoint as a practical matter. So yeah, because then you know, instead of giving a classifier name, it says like. And instead of pause positive, we have some sort of dict which has the
+
+like number of
+
+for each cluster which might be identified by name or number. So that's the keys in this dict, and the values are a list of ids that we've labeled.
+
+Okay, actually, that feels very clean, and
+
+then we can figure out how to implement it.
+
+Okay, I think we've made good progress today in terms of the thinking. The next step is to write all this down, organize it, sequence it, and start going. OK, done. How?
+
+Transcribed by https://otter.ai
