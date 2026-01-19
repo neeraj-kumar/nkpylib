@@ -58,11 +58,11 @@ const STYLES = `
 }
 `;
 
-const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, ...props}) => {
+const Obj = ({id, otype, url, md, togglePos, score, rels, setLiked, source, ...props}) => {
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
   return (
-    <div id={`id-${id}`} className={`object ${otype}`} onClick={() => togglePos(id)}>
+    <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`} onClick={() => togglePos(id)}>
       {otype === 'text' && (
         <div className="content">{md.text}</div>
       )}
