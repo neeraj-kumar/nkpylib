@@ -136,7 +136,7 @@ const STYLES = `
 // Source-specific content renderers for posts only
 const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
   return (
-    <>
+    <div>
       <div className="twitter-handle">@{md.handle}</div>
       <div className="twitter-display-name">{md.display_name}</div>
       <div className="twitter-stats">
@@ -161,14 +161,14 @@ const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
       >
         ♥
       </div>
-    </>
+    </div>
   );
 };
 
 const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
   return (
-    <>
-      <div className="tumblr-tags">#{md.tags?.slice(0, 3).join(' #')}</div>
+    <div>
+      <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
       <div className="tumblr-stats">
         {md.n_notes} notes • {md.n_likes} ♥ • {md.n_reblogs} ↻
       </div>
@@ -191,34 +191,23 @@ const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
       >
         ♥
       </div>
-    </>
+    </div>
   );
-};
-
-// Factory for source-specific post content
-const getPostContentRenderer = (source) => {
-  const renderers = {
-    twitter: TwitterPostContent,
-    tumblr: TumblrPostContent,
-  };
-  return renderers[source];
 };
 
 const Obj = (props) => {
   const {id, otype, url, md, togglePos, score, rels, setLiked, source} = props;
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
-  const PostContentRenderer = getPostContentRenderer(source);
-  
+  const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
+  const PostContentRenderer = window[rendererName]
+
   return (
     <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`} onClick={() => togglePos(id)}>
       {otype === 'post' && PostContentRenderer ? (
-        <PostContentRenderer 
-          {...props}
-          liked={liked}
-        />
+        <PostContentRenderer {...props} liked={liked} />
       ) : (
-        <>
+        <div>
           {otype === 'text' && (
             <div className="content">{md.text}</div>
           )}
@@ -256,7 +245,7 @@ const Obj = (props) => {
           >
             ♥
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -340,7 +329,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
 const App = () => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
-  const [curOtypes, setCurOtypes] = React.useState(['image', 'text', 'link']);
+  const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
