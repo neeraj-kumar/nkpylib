@@ -27,13 +27,13 @@ from pyquery import PyQuery as pq # type: ignore
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
 from nkpylib.web_utils import make_request
-from nkpylib.ml.nkcollections import Item, init_sql_db
+from nkpylib.ml.nkcollections import Item, init_sql_db, Source
 
 logger = logging.getLogger(__name__)
 
 J = lambda obj: json.dumps(obj, indent=2)
 
-class Tumblr:
+class Tumblr(Source):
     NAME = 'tumblr'
     DIR = 'db/tumblr/'
     IMAGES_DIR = join(DIR, 'images/')
@@ -399,14 +399,14 @@ def process_posts(posts):
 
 def simple_test(config_path: str, **kw):
     tumblr = Tumblr(config_path)
-    name = 'vsemily'
+    name = tumblr.config['blogs'][0]
     while 1:
         tumblr.get_dashboard()
         tumblr.get_likes()
-        sys.exit()
         #posts = tumblr.get_blog_content(name)
         posts, total = tumblr.get_blog_archive(name, 30)
         print(f'{tumblr.csrf}: {len(posts)} posts: {J(posts)[:500]}...')
+        sys.exit()
         sys.exit()
         break
         time.sleep(60 + random.random()*60)
