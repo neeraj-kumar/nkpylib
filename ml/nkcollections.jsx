@@ -612,7 +612,7 @@ const Obj = (props) => {
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-  nCols, setNCols, simpleMode, setSimpleMode, ...props}) => {
+  nCols, setNCols, simpleMode, setSimpleMode, refreshMasonry, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -700,6 +700,9 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           Simple
         </label>
       </div>
+      <div className="control refresh-masonry">
+        <button onClick={refreshMasonry}>Refresh Layout</button>
+      </div>
     </div>
   );
 }
@@ -779,11 +782,13 @@ const App = () => {
         let loadedImages = 0;
 
         const initMasonry = () => {
-          new window.Masonry(grid, {
+          const masonryInstance = new window.Masonry(grid, {
             itemSelector: '.object',
             columnWidth: columnWidth,
             gutter: 10
           });
+          // Store reference for manual refresh
+          grid.masonry = masonryInstance;
         };
 
         if (images.length === 0) {
@@ -933,9 +938,17 @@ const App = () => {
     }
   }, [sourceStr, updateData, setSourceStr]);
 
+  // Function to manually refresh Masonry layout
+  const refreshMasonry = React.useCallback(() => {
+    const grid = document.querySelector('.objects');
+    if (grid && window.Masonry && grid.masonry) {
+      grid.masonry.layout();
+    }
+  }, []);
+
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode};
+    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, refreshMasonry};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
