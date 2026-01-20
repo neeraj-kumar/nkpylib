@@ -145,6 +145,44 @@ const STYLES = `
   color: #555;
 }
 
+.button-bar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 5px;
+  padding: 5px;
+  border-top: 1px solid #eee;
+}
+
+.button-bar .icon-button {
+  cursor: pointer;
+  font-size: 18px;
+  padding: 5px;
+  border-radius: 3px;
+  user-select: none;
+}
+
+.button-bar .icon-button:hover {
+  background-color: #f0f0f0;
+}
+
+.heart-icon {
+  color: #ccc;
+}
+
+.heart-icon.liked {
+  color: red;
+}
+
+.classify-icon {
+  color: #666;
+}
+
+.classify-icon.selected {
+  background-color: #e6f3ff;
+  color: #0066cc;
+}
+
 /* Twitter-specific styles */
 .source-twitter.otype-post {
   border-left: 4px solid #1da1f2;
@@ -225,7 +263,8 @@ const STYLES = `
 `;
 
 // Source-specific content renderers for posts only
-const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
+const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked, togglePos, pos}) => {
+  const isSelected = pos.includes(id);
   return (
     <div>
       <div className="twitter-handle">@{md.handle}</div>
@@ -237,20 +276,25 @@ const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
-      <div
-        className="heart-icon"
-        onClick={(e) => {
-          e.stopPropagation();
-          setLiked(id, !liked);
-        }}
-        style={{
-          cursor: 'pointer',
-          fontSize: '20px',
-          color: liked ? 'red' : '#ccc',
-          userSelect: 'none'
-        }}
-      >
-        ♥
+      <div className="button-bar">
+        <div
+          className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setLiked(id, !liked);
+          }}
+        >
+          ♥
+        </div>
+        <div
+          className={`icon-button classify-icon ${isSelected ? 'selected' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            togglePos(id);
+          }}
+        >
+          🎯
+        </div>
       </div>
     </div>
   );
@@ -292,15 +336,16 @@ const TumblrContentBlock = ({block}) => {
   }
 };
 
-const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_blocks}) => {
+const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_blocks, togglePos, pos}) => {
+  const isSelected = pos.includes(id);
   return (
     <div>
-      <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
+      <div className="tumblr-tags">#{md.tags?.slice(0, 3).join(' #')}</div>
       <div className="tumblr-stats">
         {md.n_notes} notes • {md.n_likes} ♥ • {md.n_reblogs} ↻
       </div>
       <div className="tumblr-content">
-        {content_blocks.map((block, index) => (
+        {content_blocks?.map((block, index) => (
           <TumblrContentBlock key={`${id}-${index}`} block={block} />
         ))}
       </div>
@@ -308,34 +353,39 @@ const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
-      <div
-        className="heart-icon"
-        onClick={(e) => {
-          e.stopPropagation();
-          setLiked(id, !liked);
-        }}
-        style={{
-          cursor: 'pointer',
-          fontSize: '20px',
-          color: liked ? 'red' : '#ccc',
-          userSelect: 'none'
-        }}
-      >
-        ♥
+      <div className="button-bar">
+        <div
+          className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setLiked(id, !liked);
+          }}
+        >
+          ♥
+        </div>
+        <div
+          className={`icon-button classify-icon ${isSelected ? 'selected' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            togglePos(id);
+          }}
+        >
+          🎯
+        </div>
       </div>
     </div>
   );
 };
 
 const Obj = (props) => {
-  const {id, otype, url, md, togglePos, score, rels, setLiked, source} = props;
+  const {id, otype, url, md, togglePos, score, rels, setLiked, source, pos} = props;
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
 
   return (
-    <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`} onClick={() => togglePos(id)}>
+    <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`}>
       {otype === 'post' && PostContentRenderer ? (
         <PostContentRenderer {...props} liked={liked} />
       ) : (
@@ -362,20 +412,25 @@ const Obj = (props) => {
           {score !== undefined && (
             <div className="score">Score: {score.toFixed(3)}</div>
           )}
-          <div
-            className="heart-icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLiked(id, !liked);
-            }}
-            style={{
-              cursor: 'pointer',
-              fontSize: '20px',
-              color: liked ? 'red' : '#ccc',
-              userSelect: 'none'
-            }}
-          >
-            ♥
+          <div className="button-bar">
+            <div
+              className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setLiked(id, !liked);
+              }}
+            >
+              ♥
+            </div>
+            <div
+              className={`icon-button classify-icon ${pos.includes(id) ? 'selected' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePos(id);
+              }}
+            >
+              🎯
+            </div>
           </div>
         </div>
       )}
@@ -626,7 +681,7 @@ const App = () => {
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols};
+    setLiked, nCols, setNCols, pos};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
