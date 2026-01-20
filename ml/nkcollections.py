@@ -323,68 +323,67 @@ class MyBaseHandler(BaseHandler):
             return otypes
 
 class GetHandler(MyBaseHandler):
+    @db_session
+    def build_query(self, data: dict[str, Any]) -> pony.orm.core.Query:
+        """Builds up the database query to get items matching the given data filters.
+
+        For string fields, the value can be a string (exact match) or a list of strings (any of).
+        For numeric fields, the value can be a number (exact match) or a string with an operator
+        such as '>=123', '<=456', '>789', '<1011', '!=1213'.
+        """
+        q = Item.select()
+        # Handle ids parameter (num spec)
+        if 'ids' in data:
+            ids = parse_num_spec(data['ids'])
+            q = q.filter(lambda c: c.id in ids)
+        # Handle string fields
+        string_fields = ['source', 'stype', 'otype', 'url', 'name']
+        for field in string_fields:
+            if field in data:
+                value = data[field]
+                if isinstance(value, list):
+                    q = q.filter(lambda c: getattr(c, field) in value)
+                else:
+                    q = q.filter(lambda c: getattr(c, field) == value)
+        # Handle parent field
+        if 'parent' in data:
+            parent_id = int(data['parent'])
+            q = q.filter(lambda c: c.parent and c.parent.id == parent_id)
+        # Handle numeric fields
+        numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts', 'parent']
+        for field in numeric_fields:
+            if field in data:
+                value = data[field].replace(' ','') # remove spaces
+                if isinstance(value, str): # Parse operator
+                    if value.startswith('>='):
+                        threshold = float(value[2:])
+                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) >= threshold)
+                    elif value.startswith('<='):
+                        threshold = float(value[2:])
+                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) <= threshold)
+                    elif value.startswith('!='):
+                        threshold = float(value[2:])
+                        q = q.filter(lambda c: getattr(c, field) != threshold)
+                    elif value.startswith('>'):
+                        threshold = float(value[1:])
+                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) > threshold)
+                    elif value.startswith('<'):
+                        threshold = float(value[1:])
+                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) < threshold)
+                    else: # No operator, treat as exact match
+                        q = q.filter(lambda c: getattr(c, field) == float(value))
+                else: # Exact match
+                    q = q.filter(lambda c: getattr(c, field) == value)
+        return q
+
     def post(self):
         data = json.loads(self.request.body)
         print(f'GetHandler got data={data}')
-        
         # Build query conditions
         with db_session:
-            query = Item.select()
-            
-            # Handle ids parameter (num spec)
-            if 'ids' in data:
-                ids = parse_num_spec(data['ids'])
-                query = query.filter(lambda c: c.id in ids)
-            
-            # Handle string fields
-            string_fields = ['source', 'stype', 'otype', 'url', 'name']
-            for field in string_fields:
-                if field in data:
-                    value = data[field]
-                    if field == 'otype' and isinstance(value, list):
-                        # Special case for otype list (backwards compatibility)
-                        query = query.filter(lambda c: getattr(c, field) in value)
-                    else:
-                        query = query.filter(lambda c: getattr(c, field) == value)
-            
-            # Handle parent field
-            if 'parent' in data:
-                parent_id = int(data['parent'])
-                query = query.filter(lambda c: c.parent and c.parent.id == parent_id)
-            
-            # Handle numeric fields with operators
-            numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
-            for field in numeric_fields:
-                if field in data:
-                    value = data[field]
-                    if isinstance(value, (int, float)):
-                        # Exact match
-                        query = query.filter(lambda c: getattr(c, field) == value)
-                    elif isinstance(value, str):
-                        # Parse operator
-                        if value.startswith('>='):
-                            threshold = float(value[2:])
-                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) >= threshold)
-                        elif value.startswith('<='):
-                            threshold = float(value[2:])
-                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) <= threshold)
-                        elif value.startswith('!='):
-                            threshold = float(value[2:])
-                            query = query.filter(lambda c: getattr(c, field) != threshold)
-                        elif value.startswith('>'):
-                            threshold = float(value[1:])
-                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) > threshold)
-                        elif value.startswith('<'):
-                            threshold = float(value[1:])
-                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) < threshold)
-                        else:
-                            # No operator, treat as exact match
-                            threshold = float(value)
-                            query = query.filter(lambda c: getattr(c, field) == threshold)
-            
+            q = self.build_query(data)
             rows = {r.id: recursive_to_dict(r) for r in query}
             cur_ids = list(rows.keys())
-            
             # fetch all rels with source = me and tgt in ids and update the appropriate rows
             me = Item.get_me()
             rels = Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids)
@@ -393,10 +392,7 @@ class GetHandler(MyBaseHandler):
                 if 'rels' not in rows[tgt_id]:
                     rows[tgt_id]['rels'] = {}
                 rows[tgt_id]['rels'][rel.rtype] = rel.ts
-            
-            msg = f'hello'
-        
-        self.write(dict(msg=msg, rows=rows, allOtypes=self.all_otypes))
+        self.write(dict(rows=rows, allOtypes=self.all_otypes))
 
 class SourceHandler(MyBaseHandler):
     def post(self):
