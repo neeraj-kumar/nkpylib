@@ -37,6 +37,10 @@
 
 const DEBOUNCE_MS = 2000;
 
+// Detect if we're on a mobile device
+const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                  (window.innerWidth <= 768);
+
 // Utility function for making API calls
 const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
   const {
