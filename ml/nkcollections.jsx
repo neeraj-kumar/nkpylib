@@ -267,8 +267,7 @@ const STYLES = `
 `;
 
 // Source-specific content renderers for posts only
-const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked, togglePos, pos}) => {
-  const isSelected = pos.includes(id);
+const TwitterPostContent = ({id, otype, url, md, score}) => {
   return (
     <div>
       <div className="twitter-handle">@{md.handle}</div>
@@ -280,35 +279,6 @@ const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked, toggleP
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
-      <div className="button-bar">
-        <div
-          className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            setLiked(id, !liked);
-          }}
-        >
-          ♥
-        </div>
-        <div
-          className={`icon-button classify-icon ${isSelected ? 'selected' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePos(id);
-          }}
-        >
-          🎯
-        </div>
-        <div
-          className="icon-button open-icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            window.open(url, '_blank');
-          }}
-        >
-          🔗
-        </div>
-      </div>
     </div>
   );
 };
@@ -349,8 +319,7 @@ const TumblrContentBlock = ({block}) => {
   }
 };
 
-const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_blocks, togglePos, pos}) => {
-  const isSelected = pos.includes(id);
+const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
   return (
     <div>
       <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
@@ -366,35 +335,6 @@ const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_
       {score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
-      <div className="button-bar">
-        <div
-          className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            setLiked(id, !liked);
-          }}
-        >
-          ♥
-        </div>
-        <div
-          className={`icon-button classify-icon ${isSelected ? 'selected' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePos(id);
-          }}
-        >
-          🎯
-        </div>
-        <div
-          className="icon-button open-icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            window.open(url, '_blank');
-          }}
-        >
-          🔗
-        </div>
-      </div>
     </div>
   );
 };
@@ -409,7 +349,7 @@ const Obj = (props) => {
   return (
     <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`}>
       {otype === 'post' && PostContentRenderer ? (
-        <PostContentRenderer {...props} liked={liked} />
+        <PostContentRenderer {...props} />
       ) : (
         <div>
           {otype === 'text' && (
@@ -434,37 +374,37 @@ const Obj = (props) => {
           {score !== undefined && (
             <div className="score">Score: {score.toFixed(3)}</div>
           )}
-          <div className="button-bar">
-            <div
-              className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setLiked(id, !liked);
-              }}
-            >
-              ♥
-            </div>
-            <div
-              className={`icon-button classify-icon ${pos.includes(id) ? 'selected' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                togglePos(id);
-              }}
-            >
-              🎯
-            </div>
-            <div
-              className="icon-button open-icon"
-              onClick={(e) => {
-                e.stopPropagation();
-                window.open(url, '_blank');
-              }}
-            >
-              🔗
-            </div>
-          </div>
         </div>
       )}
+      <div className="button-bar">
+        <div
+          className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setLiked(id, !liked);
+          }}
+        >
+          ♥
+        </div>
+        <div
+          className={`icon-button classify-icon ${pos.includes(id) ? 'selected' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            togglePos(id);
+          }}
+        >
+          🎯
+        </div>
+        <div
+          className="icon-button open-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(url, '_blank');
+          }}
+        >
+          🔗
+        </div>
+      </div>
     </div>
   );
 }
