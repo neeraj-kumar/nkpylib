@@ -185,6 +185,7 @@ const STYLES = `
 }
 
 .heart-icon {
+  font-size:20px!important;
   color: #ccc;
 }
 
@@ -568,16 +569,16 @@ const Obj = (props) => {
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
       </div>
-      
+
       {/* Media carousel for posts with media */}
       {otype === 'post' && media_blocks && media_blocks.length > 0 && (
-        <MediaCarousel 
-          mediaBlocks={media_blocks} 
+        <MediaCarousel
+          mediaBlocks={media_blocks}
           currentIndex={currentMediaIndex}
           setCurrentIndex={setCurrentMediaIndex}
         />
       )}
-      
+
       {otype === 'post' && PostContentRenderer ? (
         <PostContentRenderer {...props} />
       ) : (
@@ -862,6 +863,7 @@ const App = () => {
       otype: curOtypes,
       added_ts: '>=' + (Math.floor(Date.now() / 1000) - (24*3600)), // added within the last day
       assemble_posts: true,
+      limit: 500,
     }).then(updateData);
   }, [updateData]);
 

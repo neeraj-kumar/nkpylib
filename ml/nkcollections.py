@@ -396,6 +396,11 @@ class GetHandler(MyBaseHandler):
                         q = q.filter(lambda c: getattr(c, field) == float(value))
                 else: # Exact match
                     q = q.filter(lambda c: getattr(c, field) == value)
+        # sort by id descending
+        q = q.order_by(lambda c: desc(c.id))
+        # if there was a limit parameter, set it
+        if 'limit' in data:
+            q = q.limit(int(data['limit']))
         return q
 
     def post(self):
