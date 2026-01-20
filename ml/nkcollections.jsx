@@ -408,16 +408,12 @@ const TumblrPostContent = (props) => {
 
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
   if (!mediaBlocks.length) return null;
-  
   const currentMedia = mediaBlocks[currentIndex];
-  
   // Calculate max height based on image metadata
   const maxHeight = React.useMemo(() => {
     if (!mediaBlocks.length) return 0;
-    
     // Get approximate container width (will be refined by actual container width)
     const containerWidth = window.innerWidth / 8; // Rough estimate based on default columns
-    
     return Math.max(...mediaBlocks.map(block => {
       const {w, h} = block.data.md || {};
       if (w && h) {
@@ -427,7 +423,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
       return 200; // fallback height
     }));
   }, [mediaBlocks]);
-  
+
   const handleImageClick = (e) => {
     if (mediaBlocks.length <= 1) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -446,7 +442,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
       setCurrentIndex(currentIndex === mediaBlocks.length - 1 ? 0 : currentIndex + 1);
     }
   };
-  
+
   const renderMedia = (block) => {
     const {type, data} = block;
     switch (type) {
@@ -461,7 +457,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
         );
       case 'video':
         return (
-          <a href={data.url} target="_blank" rel="noreferrer">
+          <a href={data.url} target="_blank" rel="noreferrer" className="video-link">
             <img
               src={data.md.poster_url}
               alt={`Video ${data.id} poster`}
@@ -580,7 +576,7 @@ const Obj = (props) => {
           )}
           {otype === 'video' && (
             <div className="content">
-              <a href={url} target="_blank" rel="noreferrer">
+              <a href={url} target="_blank" rel="noreferrer" className="video-link">
                 <img src={md.poster_url} alt={`Video ${id} poster`} />
               </a>
             </div>
@@ -790,11 +786,12 @@ const App = () => {
             initMasonry();
           }
         }
-      }, 100);
+      }, 500);
     }
   }, [curIds, nCols]); // Re-run when items or columns change
 
   // Throttled scroll handler for infinite scroll
+  /*
   React.useEffect(() => {
     let ticking = false;
     
@@ -816,6 +813,7 @@ const App = () => {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+*/
 
   const updateData = React.useCallback((data, resetData=false) => {
     console.log('got data', data);
@@ -899,7 +897,7 @@ const App = () => {
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
       api.sourceUrl(sourceStr).then((params) => {
         // save the params, serialized, to sourceStr
-        setSourceStr(JSON.stringify(params));
+        //setSourceStr(JSON.stringify(params));
         return api.get(params);
       }).then((data) => {
         updateData(data, true);
