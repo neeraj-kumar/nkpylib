@@ -130,8 +130,14 @@ const STYLES = `
   max-width: 200px;
 }
 
+.object {
+  max-width: calc((100vw - (var(--n-cols) + 1) * 10px) / var(--n-cols));
+  box-sizing: border-box;
+}
+
 .object img {
-  max-width: 200px;
+  max-width: 100%;
+  height: auto;
 }
 
 .score {
@@ -642,7 +648,13 @@ const App = () => {
       {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
     </div>
     <Controls {...funcs} />
-    <div className="objects" style={{gridTemplateColumns: `repeat(${nCols}, 1fr)`}}>
+    <div 
+      className="objects" 
+      style={{
+        gridTemplateColumns: `repeat(${nCols}, 1fr)`,
+        '--n-cols': nCols
+      }}
+    >
       {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
     </div>
   </div>
