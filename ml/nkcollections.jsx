@@ -408,7 +408,26 @@ const TumblrPostContent = (props) => {
 
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
   if (!mediaBlocks.length) return null;
+  
   const currentMedia = mediaBlocks[currentIndex];
+  
+  // Calculate max height based on image metadata
+  const maxHeight = React.useMemo(() => {
+    if (!mediaBlocks.length) return 0;
+    
+    // Get approximate container width (will be refined by actual container width)
+    const containerWidth = window.innerWidth / 8; // Rough estimate based on default columns
+    
+    return Math.max(...mediaBlocks.map(block => {
+      const {w, h} = block.data.md || {};
+      if (w && h) {
+        // Calculate scaled height maintaining aspect ratio
+        return (h / w) * containerWidth;
+      }
+      return 200; // fallback height
+    }));
+  }, [mediaBlocks]);
+  
   const handleImageClick = (e) => {
     if (mediaBlocks.length <= 1) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -427,6 +446,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
       setCurrentIndex(currentIndex === mediaBlocks.length - 1 ? 0 : currentIndex + 1);
     }
   };
+  
   const renderMedia = (block) => {
     const {type, data} = block;
     switch (type) {
@@ -454,8 +474,12 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
         return null;
     }
   };
+  
   return (
-    <div className="media-carousel">
+    <div 
+      className="media-carousel"
+      style={{minHeight: maxHeight > 0 ? `${maxHeight}px` : 'auto'}}
+    >
       {renderMedia(currentMedia)}
     </div>
   );
