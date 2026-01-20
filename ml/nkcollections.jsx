@@ -303,6 +303,18 @@ const STYLES = `
   min-width: 40px;
   text-align: center;
 }
+
+/* Media navigation in button bar */
+.media-nav-button {
+  color: #666;
+}
+
+.media-counter {
+  font-size: 0.8em;
+  color: #666;
+  padding: 0 5px;
+  user-select: none;
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -373,11 +385,11 @@ const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
   );
 };
 
-const MediaCarousel = ({mediaBlocks}) => {
-  const [currentIndex, setCurrentIndex] = React.useState(0);
-  if (!mediaBlocks.length) return null;
+const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
+  if (!mediaBlocks?.length) return null;
+  
   const currentMedia = mediaBlocks[currentIndex];
-  const hasMultiple = mediaBlocks.length > 1;
+  
   const renderMedia = (block) => {
     const {type, data} = block;
     switch (type) {
@@ -397,23 +409,6 @@ const MediaCarousel = ({mediaBlocks}) => {
   return (
     <div className="media-carousel">
       {renderMedia(currentMedia)}
-      {hasMultiple && (
-        <div className="media-nav">
-          <button 
-            onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-            disabled={currentIndex === 0}
-          >
-            ←
-          </button>
-          <span>{currentIndex + 1} / {mediaBlocks.length}</span>
-          <button 
-            onClick={() => setCurrentIndex(Math.min(mediaBlocks.length - 1, currentIndex + 1))}
-            disabled={currentIndex === mediaBlocks.length - 1}
-          >
-            →
-          </button>
-        </div>
-      )}
     </div>
   );
 };
@@ -424,6 +419,10 @@ const Obj = (props) => {
   const liked = Boolean(rels.like);
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
+  
+  // Media carousel state
+  const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
+  const hasMultipleMedia = media_blocks && media_blocks.length > 1;
 
   return (
     <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`}>
@@ -455,11 +454,44 @@ const Obj = (props) => {
         >
           🔗
         </div>
+        
+        {/* Media navigation controls - only show if multiple media */}
+        {hasMultipleMedia && (
+          <>
+            <div
+              className="icon-button media-nav-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentMediaIndex(Math.max(0, currentMediaIndex - 1));
+              }}
+              style={{opacity: currentMediaIndex === 0 ? 0.5 : 1}}
+            >
+              ←
+            </div>
+            <span className="media-counter">
+              {currentMediaIndex + 1}/{media_blocks.length}
+            </span>
+            <div
+              className="icon-button media-nav-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentMediaIndex(Math.min(media_blocks.length - 1, currentMediaIndex + 1));
+              }}
+              style={{opacity: currentMediaIndex === media_blocks.length - 1 ? 0.5 : 1}}
+            >
+              →
+            </div>
+          </>
+        )}
       </div>
       
-      {/* Media carousel for posts with multiple media */}
+      {/* Media carousel for posts with media */}
       {otype === 'post' && media_blocks && media_blocks.length > 0 && (
-        <MediaCarousel mediaBlocks={media_blocks} />
+        <MediaCarousel 
+          mediaBlocks={media_blocks} 
+          currentIndex={currentMediaIndex}
+          setCurrentIndex={setCurrentMediaIndex}
+        />
       )}
       
       {otype === 'post' && PostContentRenderer ? (
