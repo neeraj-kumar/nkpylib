@@ -167,6 +167,56 @@ const STYLES = `
   color: #666;
   margin-top: 5px;
 }
+
+.tumblr-content {
+  margin: 10px 0;
+}
+
+.tumblr-text-block {
+  margin: 5px 0;
+  text-align: left;
+}
+
+.tumblr-image-block {
+  margin: 5px 0;
+}
+
+.tumblr-image-block img {
+  max-width: 300px;
+  height: auto;
+}
+
+.tumblr-video-block {
+  margin: 5px 0;
+}
+
+.tumblr-video-block img {
+  max-width: 300px;
+  height: auto;
+}
+
+.tumblr-link-block {
+  margin: 5px 0;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  background-color: #f9f9f9;
+}
+
+.tumblr-link-description {
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 3px;
+}
+
+.tumblr-unknown-block {
+  margin: 5px 0;
+  padding: 5px;
+  background-color: #ffe6e6;
+  border: 1px solid #ffcccc;
+  border-radius: 3px;
+  font-size: 0.8em;
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -201,12 +251,53 @@ const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
   );
 };
 
-const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked}) => {
+const TumblrContentBlock = ({block}) => {
+  const {type, data} = block;
+  
+  switch (type) {
+    case 'text':
+      return <div className="tumblr-text-block">{data.md.text}</div>;
+    case 'image':
+      return (
+        <div className="tumblr-image-block">
+          <img src={data.url} alt={`Image ${data.id}`} />
+        </div>
+      );
+    case 'video':
+      return (
+        <div className="tumblr-video-block">
+          <a href={data.url} target="_blank" rel="noreferrer">
+            <img src={data.md.poster_url} alt={`Video ${data.id} poster`} />
+          </a>
+        </div>
+      );
+    case 'link':
+      return (
+        <div className="tumblr-link-block">
+          <a href={data.url} target="_blank" rel="noreferrer">
+            {data.md.title || data.md.display_url}
+          </a>
+          {data.md.description && (
+            <div className="tumblr-link-description">{data.md.description}</div>
+          )}
+        </div>
+      );
+    default:
+      return <div className="tumblr-unknown-block">Unknown block type: {type}</div>;
+  }
+};
+
+const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_blocks}) => {
   return (
     <div>
-      <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
+      <div className="tumblr-tags">#{md.tags?.slice(0, 3).join(' #')}</div>
       <div className="tumblr-stats">
         {md.n_notes} notes • {md.n_likes} ♥ • {md.n_reblogs} ↻
+      </div>
+      <div className="tumblr-content">
+        {content_blocks?.map((block, index) => (
+          <TumblrContentBlock key={`${id}-${index}`} block={block} />
+        ))}
       </div>
       <p className="score">ID: {id}</p>
       {score !== undefined && (
