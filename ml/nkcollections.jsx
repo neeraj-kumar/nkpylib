@@ -309,7 +309,7 @@ const STYLES = `
 `;
 
 // Source-specific content renderers for posts only
-const TwitterPostContent = ({id, otype, url, md, score}) => {
+const TwitterPostContent = ({id, otype, url, md, score, simpleMode}) => {
   return (
     <div>
       <div className="twitter-handle">@{md.handle}</div>
@@ -317,8 +317,8 @@ const TwitterPostContent = ({id, otype, url, md, score}) => {
       <div className="twitter-stats">
         {md.likes} ♥ {md.reposts} ↻ {md.replies} 💬 {md.views} 👁
       </div>
-      <p className="score">ID: {id}</p>
-      {score !== undefined && (
+      {!simpleMode && <p className="score">ID: {id}</p>}
+      {!simpleMode && score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
     </div>
@@ -352,7 +352,7 @@ const TumblrContentBlock = ({block}) => {
 };
 
 const TumblrPostContent = (props) => {
-  const {id, otype, url, md, score} = props;
+  const {id, otype, url, md, score, simpleMode} = props;
   const content_blocks = props.content_blocks || [];
   // Filter out media blocks since they're handled by MediaCarousel
   const nonMediaBlocks = content_blocks.filter(block =>
@@ -361,16 +361,18 @@ const TumblrPostContent = (props) => {
   return (
     <div>
       <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
-      <div className="tumblr-stats">
-        {md.n_notes} 📝 • {md.n_likes} ♥ • {md.n_reblogs} ↻
-      </div>
+      {!simpleMode && (
+        <div className="tumblr-stats">
+          {md.n_notes} 📝 • {md.n_likes} ♥ • {md.n_reblogs} ↻
+        </div>
+      )}
       <div className="tumblr-content">
         {nonMediaBlocks.map((block, index) => (
           <TumblrContentBlock key={`${id}-${index}`} block={block} />
         ))}
       </div>
-      <p className="score">ID: {id}</p>
-      {score !== undefined && (
+      {!simpleMode && <p className="score">ID: {id}</p>}
+      {!simpleMode && score !== undefined && (
         <div className="score">Score: {score.toFixed(3)}</div>
       )}
     </div>
@@ -532,8 +534,8 @@ const Obj = (props) => {
               </a>
             </div>
           )}
-          <p className="score">ID: {id}</p>
-          {score !== undefined && (
+          {!props.simpleMode && <p className="score">ID: {id}</p>}
+          {!props.simpleMode && score !== undefined && (
             <div className="score">Score: {score.toFixed(3)}</div>
           )}
         </div>
@@ -544,7 +546,7 @@ const Obj = (props) => {
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-  nCols, setNCols, ...props}) => {
+  nCols, setNCols, simpleMode, setSimpleMode, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -622,6 +624,16 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           });
         }}>Randomize</button>
       </div>
+      <div className="control simple-mode">
+        <label>
+          <input
+            type="checkbox"
+            checked={simpleMode}
+            onChange={(e) => setSimpleMode(e.target.checked)}
+          />
+          Simple
+        </label>
+      </div>
     </div>
   );
 }
@@ -639,6 +651,7 @@ const App = () => {
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('');
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 3 : 8);
+  const [simpleMode, setSimpleMode] = React.useState(false);
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -787,7 +800,7 @@ const App = () => {
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols, pos};
+    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
