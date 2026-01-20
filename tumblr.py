@@ -80,7 +80,7 @@ class Tumblr(Source):
         """Returns if this source can parse the given url"""
         return 'tumblr.com' in url
 
-    def parse(self, url: str, n_posts: int=20, **kw) -> Any:
+    def parse(self, url: str, n_posts: int=400, **kw) -> Any:
         """Parses the given url and returns an appropriate set of GetHandler params.
 
         For now, this simply returns the list of posts that are children of the tumblr blog's Item.
@@ -99,10 +99,11 @@ class Tumblr(Source):
         with db_session:
             # now look for the appropriate blog user item
             u = self.get_blog_user(blog_name)
+            offset = 0
             # add posts if we don't have any yet
             if not select(p for p in Item if p.parent == u).exists():
-                posts, next_link, total = self.get_blog_archive(blog_name, n_posts=n_posts)
-                self.create_collection_from_posts(posts, blog_name=blog_name, next_link=next_link)
+                posts, offset, total = self.get_blog_archive(blog_name, n_posts=n_posts)
+                self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
             return dict(source=self.NAME, parent=u.id, assemble_posts=True)
 
     @property
@@ -180,6 +181,7 @@ class Tumblr(Source):
             url = endpoint
         else:
             url = f'https://api.tumblr.com/v2/{endpoint}'
+        #print(f'got headers {headers}, {self.cookies}, {kw}')
         resp = make_request(url, headers=headers, cookies=self.cookies, **kw)
         try:
             obj = resp.json()
@@ -275,38 +277,39 @@ class Tumblr(Source):
             break # because we're using the parseable version
         return ret
 
-    def get_blog_archive(self, blog_name: str, n_posts: int = 20) -> tuple[list[dict], str, int]:
+    def get_blog_archive(self, blog_name: str, n_posts: int = 20, offset: int=0) -> tuple[list[dict], int, int]:
         """Get blog archive via API.
 
         Note that some blogs don't allow access to the archive, so you must get it via the web
         interface.
 
-        Returns (posts, next_link, totalPosts)
+        Returns (posts, offset, totalPosts)
         """
-        offset = 0
         posts: list[dict] = []
         total = 0
-        next_link = ''
+        next_link = dict(
+            npf='true',
+            reblog_info='true',
+            context='archive',
+            offset=str(offset),
+        )
         while offset < n_posts:
-            params = dict(
-                npf='true',
-                reblog_info='true',
-                context='archive',
-                offset=str(offset),
-            )
-            endpoint = f'blog/{blog_name}/posts?{urlencode(params)}'
+            print(f'initial next link: {J(next_link)}')
+            endpoint = f'blog/{blog_name}/posts'
+            if next_link:
+                endpoint = f'blog/{blog_name}/posts?{urlencode(next_link)}'
             obj = self.make_api_req(endpoint)
             if obj.get('links'):
-                print(f'Links: {obj["links"]["next"]}')
-                next_link = obj['links'].get('next', {}).get('queryParams', {})
+                ext_link = obj['links'].get('next', {}).get('queryParams', {})
             batch = obj['posts'] or []
             posts.extend(batch)
             total = obj['totalPosts']
             offset += 20
             logger.debug(f'Got offset {offset}, {n_posts}, {len(batch)}, {total}, {obj.get("links")}')
+            next_link['offset'] = str(offset)
             if not batch or not obj.get('links', []):
                 break
-        return (posts, next_link, total)
+        return (posts, offset, total)
 
     def update_blogs(self):
         blogs = self.config['blogs']
@@ -510,10 +513,16 @@ def simple_test(config_path: str, **kw):
     tumblr = Tumblr(config_path)
     name = tumblr.config['blogs'][0]
     while 1:
+        try:
+            posts, next_link, total = tumblr.get_blog_archive(name, 30)
+        except Exception as e:
+            print(f'got exception: {e}')
+        for p in posts:
+            print(p['id'])
+        break
         tumblr.get_dashboard()
         tumblr.get_likes()
         #posts = tumblr.get_blog_content(name)
-        posts, next_link, total = tumblr.get_blog_archive(name, 30)
         print(f'{tumblr.csrf}: {len(posts)} posts: {J(posts)[:500]}...')
         sys.exit()
         sys.exit()
