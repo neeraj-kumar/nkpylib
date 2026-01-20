@@ -85,7 +85,12 @@ const STYLES = `
   margin-bottom: 10px;
 }
 
-.objects, .labeled, .controls {
+.objects {
+  display: grid;
+  gap: 5px;
+}
+
+.labeled, .controls {
   display: flex;
   flex-wrap: wrap;
 }
@@ -384,7 +389,7 @@ const Obj = (props) => {
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-  ...props}) => {
+  nCols, setNCols, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -417,6 +422,15 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           placeholder="Search..."
           value={searchStr}
           onChange={(e) => updateSearchStr(e.target.value)}
+        />
+        <input
+          type="number"
+          placeholder="Cols"
+          value={nCols}
+          onChange={(e) => setNCols(parseInt(e.target.value) || 1)}
+          min="1"
+          max="20"
+          style={{width: '60px', marginLeft: '10px'}}
         />
       </div>
       <div className="control otype-filters">
@@ -467,6 +481,7 @@ const App = () => {
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('');
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -614,7 +629,7 @@ const App = () => {
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked};
+    setLiked, nCols, setNCols};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
@@ -626,7 +641,7 @@ const App = () => {
       {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
     </div>
     <Controls {...funcs} />
-    <div className="objects">
+    <div className="objects" style={{gridTemplateColumns: `repeat(${nCols}, 1fr)`}}>
       {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
     </div>
   </div>
