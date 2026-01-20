@@ -196,30 +196,20 @@ class Tumblr(Source):
     def assemble_post(cls, post, children) -> dict:
         """Assemble a complete Tumblr post with all content blocks"""
         post_data = recursive_to_dict(post)
-        
-        # Find videos and their corresponding frame1 images to remove
-        videos = [c for c in children if c.otype == 'video']
-        frame1_images_to_remove = set()
-        
-        for video in videos:
-            if video.md and 'poster_media_key' in video.md:
-                poster_key = video.md['poster_media_key']
-                # Find images with matching media_key that might be frame1
-                for child in children:
-                    if (child.otype == 'image' and 
-                        child.md and 
-                        child.md.get('media_key') == poster_key):
-                        frame1_images_to_remove.add(child.id)
-        
-        # Group children by type, maintaining order, but skip frame1 images
+        # Find videos and their corresponding poster images to remove
+        ignore = set()
+        for c in children:
+            if c.otype == 'video' and c.md and 'poster_media_key' in c.md:
+                ignore.add(c.md['poster_media_key'])
+        # Group children by type, maintaining order, but skip 'ignore' media_keys
         content_blocks = []
         for child in sorted(children, key=lambda c: c.id):
-            if child.id not in frame1_images_to_remove:
-                content_blocks.append(dict(
-                    type=child.otype,
-                    data=recursive_to_dict(child)
-                ))
-        
+            if child.md and 'media_key' in child.md and child.md['media_key'] in ignore:
+                continue
+            content_blocks.append(dict(
+                type=child.otype,
+                data=recursive_to_dict(child)
+            ))
         post_data['content_blocks'] = content_blocks
         return post_data
 
@@ -407,6 +397,8 @@ class Tumblr(Source):
                         poster = c['poster'][0]
                         poster_url = poster['url'].replace('.pnj', '.png')
                         poster_media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
+                        while isinstance(poster_media_key, (list, tuple)):
+                            poster_media_key = poster_media_key[0]
                         md = dict(
                             w=media.get('width'),
                             h=media.get('height'),
