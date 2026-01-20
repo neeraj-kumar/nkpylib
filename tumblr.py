@@ -214,11 +214,9 @@ class Tumblr(Source):
                 data=recursive_to_dict(child)
             )
             content_blocks.append(block)
-            print(f'helo')
             # Also add to media_blocks if it's media
             if child.otype in ['image', 'video']:
-                print(f'Adding media block: {child.otype} {child.md}')
-                # skip poster images
+                # Skip poster images (they're already handled by their parent video)
                 if child.otype == 'image' and child.md and 'poster_for' in child.md:
                     continue
                 media_blocks.append(block)
