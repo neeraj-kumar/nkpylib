@@ -85,8 +85,35 @@ const STYLES = `
   margin-bottom: 10px;
 }
 
+.randomize-btn {
+  display: none;
+}
+
 .objects {
   display: grid;
+  grid-auto-flow: dense;
+  align-items: start;
+  column-fill: balance;
+}
+
+.object {
+  display: inline-block;
+  break-inside: avoid;
+  border: 1px solid #ccc;
+  margin: 0px;
+  text-align: center;
+}
+
+.flexobjects {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.flexobject {
+  border: 1px solid #ccc;
+  margin: 0px;
+  text-align: center;
+  flex: 0 0 calc((100% - (var(--n-cols) - 1) * 10px) / var(--n-cols));
 }
 
 .labeled, .controls {
@@ -104,12 +131,6 @@ const STYLES = `
 
 .filter-input, .search-input {
   display: none;
-}
-
-.object {
-  border: 1px solid #ccc;
-  margin: 2px;
-  text-align: center;
 }
 
 .object.post {
@@ -257,7 +278,7 @@ const STYLES = `
 
 /* Media carousel styles */
 .media-carousel {
-  margin: 10px 0;
+  margin: 0 0;
 }
 
 .media-nav {
@@ -651,7 +672,7 @@ const App = () => {
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('');
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 3 : 8);
-  const [simpleMode, setSimpleMode] = React.useState(false);
+  const [simpleMode, setSimpleMode] = React.useState(true);
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -700,6 +721,19 @@ const App = () => {
     styleEl.innerHTML = STYLES;
     document.head.appendChild(styleEl);
   }, []);
+
+  React.useEffect(() => {
+    const grid = document.querySelector('.objects');
+    if (grid && window.Masonry) {
+      const containerWidth = grid.offsetWidth;
+      const columnWidth = (containerWidth - (nCols + 1) * 10) / nCols;
+      new window.Masonry(grid, {
+        itemSelector: '.object',
+        columnWidth: columnWidth,
+        gutter: 10,
+      });
+    }
+  }, [ids, nCols]); // Re-run when items or columns change
 
   const updateData = React.useCallback((data, resetData=false) => {
     console.log('got data', data);
