@@ -460,9 +460,8 @@ const Obj = (props) => {
               className="icon-button media-nav-button"
               onClick={(e) => {
                 e.stopPropagation();
-                setCurrentMediaIndex(Math.max(0, currentMediaIndex - 1));
+                setCurrentMediaIndex(currentMediaIndex === 0 ? media_blocks.length - 1 : currentMediaIndex - 1);
               }}
-              style={{opacity: currentMediaIndex === 0 ? 0.5 : 1}}
             >
               ←
             </div>
@@ -473,9 +472,8 @@ const Obj = (props) => {
               className="icon-button media-nav-button"
               onClick={(e) => {
                 e.stopPropagation();
-                setCurrentMediaIndex(Math.min(media_blocks.length - 1, currentMediaIndex + 1));
+                setCurrentMediaIndex(currentMediaIndex === media_blocks.length - 1 ? 0 : currentMediaIndex + 1);
               }}
-              style={{opacity: currentMediaIndex === media_blocks.length - 1 ? 0.5 : 1}}
             >
               →
             </div>
