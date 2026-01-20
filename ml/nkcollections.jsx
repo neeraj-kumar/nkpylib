@@ -389,15 +389,48 @@ const TumblrPostContent = (props) => {
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
+  
+  const handleImageClick = (e) => {
+    if (mediaBlocks.length <= 1) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const imageWidth = rect.width;
+    
+    if (clickX <= 10) {
+      // Clicked on left edge - go to previous
+      e.preventDefault();
+      e.stopPropagation();
+      setCurrentIndex(currentIndex === 0 ? mediaBlocks.length - 1 : currentIndex - 1);
+    } else if (clickX >= imageWidth - 10) {
+      // Clicked on right edge - go to next
+      e.preventDefault();
+      e.stopPropagation();
+      setCurrentIndex(currentIndex === mediaBlocks.length - 1 ? 0 : currentIndex + 1);
+    }
+  };
+  
   const renderMedia = (block) => {
     const {type, data} = block;
     switch (type) {
       case 'image':
-        return <img src={data.url} alt={`Image ${data.id}`} />;
+        return (
+          <img 
+            src={data.url} 
+            alt={`Image ${data.id}`} 
+            onClick={handleImageClick}
+            style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
+          />
+        );
       case 'video':
         return (
           <a href={data.url} target="_blank" rel="noreferrer">
-            <img src={data.md.poster_url} alt={`Video ${data.id} poster`} />
+            <img 
+              src={data.md.poster_url} 
+              alt={`Video ${data.id} poster`}
+              onClick={handleImageClick}
+              style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
+            />
           </a>
         );
       default:
