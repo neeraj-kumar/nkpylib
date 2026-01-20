@@ -423,6 +423,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           value={searchStr}
           onChange={(e) => updateSearchStr(e.target.value)}
         />
+        <label>Cols:</label>
         <input
           type="number"
           placeholder="Cols"
