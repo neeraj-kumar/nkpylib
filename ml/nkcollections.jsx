@@ -360,12 +360,13 @@ const TumblrContentBlock = ({block}) => {
   }
 };
 
-const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
+const TumblrPostContent = (props) => {
+  const {id, otype, url, md, score} = props;
+  const content_blocks = props.content_blocks || [];
   // Filter out media blocks since they're handled by MediaCarousel
-  const nonMediaBlocks = content_blocks.filter(block => 
+  const nonMediaBlocks = content_blocks.filter(block =>
     block.type !== 'image' && block.type !== 'video'
   ) || [];
-  
   return (
     <div>
       <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
@@ -386,10 +387,8 @@ const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
 };
 
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
-  if (!mediaBlocks?.length) return null;
-  
+  if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
-  
   const renderMedia = (block) => {
     const {type, data} = block;
     switch (type) {
@@ -454,10 +453,9 @@ const Obj = (props) => {
         >
           🔗
         </div>
-        
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && (
-          <>
+          <div>
             <div
               className="icon-button media-nav-button"
               onClick={(e) => {
@@ -481,7 +479,7 @@ const Obj = (props) => {
             >
               →
             </div>
-          </>
+          </div>
         )}
       </div>
       
@@ -614,7 +612,8 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
 const App = () => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
-  const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
+  //const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
+  const [curOtypes, setCurOtypes] = React.useState(['post']);
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
@@ -692,7 +691,8 @@ const App = () => {
     // fetch objects from the server
     api.get({
       otype: curOtypes,
-      seen_ts: '>=' + (Math.floor(Date.now() / 1000) - 3600), // seen within the last hour
+      added_ts: '>=' + (Math.floor(Date.now() / 1000) - 3600), // added within the last hour
+      assemble_posts: true,
     }).then(updateData);
   }, [updateData]);
 
