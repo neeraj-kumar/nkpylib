@@ -196,13 +196,30 @@ class Tumblr(Source):
     def assemble_post(cls, post, children) -> dict:
         """Assemble a complete Tumblr post with all content blocks"""
         post_data = recursive_to_dict(post)
-        # Group children by type, maintaining order
+        
+        # Find videos and their corresponding frame1 images to remove
+        videos = [c for c in children if c.otype == 'video']
+        frame1_images_to_remove = set()
+        
+        for video in videos:
+            if video.md and 'poster_media_key' in video.md:
+                poster_key = video.md['poster_media_key']
+                # Find images with matching media_key that might be frame1
+                for child in children:
+                    if (child.otype == 'image' and 
+                        child.md and 
+                        child.md.get('media_key') == poster_key):
+                        frame1_images_to_remove.add(child.id)
+        
+        # Group children by type, maintaining order, but skip frame1 images
         content_blocks = []
         for child in sorted(children, key=lambda c: c.id):
-            content_blocks.append(dict(
-                type=child.otype,
-                data=recursive_to_dict(child)
-            ))
+            if child.id not in frame1_images_to_remove:
+                content_blocks.append(dict(
+                    type=child.otype,
+                    data=recursive_to_dict(child)
+                ))
+        
         post_data['content_blocks'] = content_blocks
         return post_data
 

@@ -340,12 +340,12 @@ const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_
   const isSelected = pos.includes(id);
   return (
     <div>
-      <div className="tumblr-tags">#{md.tags?.slice(0, 3).join(' #')}</div>
+      <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
       <div className="tumblr-stats">
         {md.n_notes} notes • {md.n_likes} ♥ • {md.n_reblogs} ↻
       </div>
       <div className="tumblr-content">
-        {content_blocks?.map((block, index) => (
+        {content_blocks.map((block, index) => (
           <TumblrContentBlock key={`${id}-${index}`} block={block} />
         ))}
       </div>
