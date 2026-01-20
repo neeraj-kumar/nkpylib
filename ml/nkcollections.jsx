@@ -946,7 +946,10 @@ const App = () => {
   const refreshMasonry = React.useCallback(() => {
     const grid = document.querySelector('.objects');
     if (grid && window.Masonry && grid.masonry) {
-      grid.masonry.layout();
+      setTimeout(() => {
+        grid.masonry.reloadItems();
+        grid.masonry.layout();
+      }, 100);
     }
   }, []);
 
