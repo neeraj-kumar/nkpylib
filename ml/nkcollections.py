@@ -28,6 +28,7 @@ from pony.orm import (
     composite_index,
     Database,
     db_session,
+    desc,
     Json,
     Optional,
     PrimaryKey,

@@ -505,7 +505,7 @@ def process_posts(posts):
                     print(f'  unknown content type: {c["type"]}')
         if i == 500:
             print('Liking this post...')
-            like_post(post_id=p['id'], reblog_key=p['reblogKey'], csrf=csrf)
+            like_post(post_id=p['id'], reblog_key=p['reblogKey'])
 
 def simple_test(config_path: str, **kw):
     tumblr = Tumblr(config_path)

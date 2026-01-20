@@ -720,7 +720,7 @@ const App = () => {
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('');
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 8);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 8);
   const [simpleMode, setSimpleMode] = React.useState(true);
 
   // Refs to access current values in debounced callbacks
