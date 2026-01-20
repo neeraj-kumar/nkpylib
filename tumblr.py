@@ -77,8 +77,12 @@ class Tumblr(Source):
         """Returns if this source can parse the given url"""
         return 'tumblr.com' in url
 
-    def parse(self, url: str, **kw) -> Any:
-        """Parses the given url and does whatever it wants."""
+    def parse(self, url: str, n_posts: int=20, **kw) -> Any:
+        """Parses the given url and returns an appropriate set of GetHandler params.
+
+        For now, this simply returns the list of posts that are children of the tumblr blog's Item.
+        If there are none, we fetch one batch of posts from the archive.
+        """
         # first get the blog name, which is either in the format xyz.tumblr.com or tumblr.com/xyz
         parsed = urlparse(url)
         netloc = parsed.netloc.lower()
@@ -89,9 +93,13 @@ class Tumblr(Source):
                 blog_name = ''
         if not blog_name:
             blog_name = path.split('/')[1]
-        # now look for the appropriate blog source item
-
-
+        # now look for the appropriate blog user item
+        u = self.get_blog_user(blog_name)
+        # add posts if we don't have any yet
+        if not select(p for p in Item if p.parent == u).exists():
+            posts, total = self.get_blog_archive(blog_name, n_posts=n_posts)
+            self.create_collection_from_posts(posts, blog_name=blog_name)
+        return dict(source=self.NAME, parent=u.id)
 
     @property
     def api_token(self) -> str:
