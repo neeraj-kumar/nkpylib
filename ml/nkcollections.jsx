@@ -90,18 +90,17 @@ const STYLES = `
 }
 
 .objects {
-  display: grid;
-  grid-auto-flow: dense;
-  align-items: start;
-  column-fill: balance;
+  /* Masonry library will handle layout */
 }
 
 .object {
-  display: inline-block;
+  display: block;
   break-inside: avoid;
   border: 1px solid #ccc;
   margin: 0px;
   text-align: center;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .flexobjects {
@@ -726,12 +725,40 @@ const App = () => {
     const grid = document.querySelector('.objects');
     if (grid && window.Masonry) {
       const containerWidth = grid.offsetWidth;
-      const columnWidth = (containerWidth - (nCols + 1) * 10) / nCols;
-      new window.Masonry(grid, {
-        itemSelector: '.object',
-        columnWidth: columnWidth,
-        gutter: 10,
-      });
+      const columnWidth = (containerWidth - (nCols - 1) * 10) / nCols;
+      
+      // Wait for images to load
+      const images = grid.querySelectorAll('img');
+      let loadedImages = 0;
+      
+      const initMasonry = () => {
+        new window.Masonry(grid, {
+          itemSelector: '.object',
+          columnWidth: columnWidth,
+          gutter: 10
+        });
+      };
+      
+      if (images.length === 0) {
+        initMasonry();
+      } else {
+        images.forEach(img => {
+          if (img.complete) {
+            loadedImages++;
+          } else {
+            img.onload = () => {
+              loadedImages++;
+              if (loadedImages === images.length) {
+                initMasonry();
+              }
+            };
+          }
+        });
+        
+        if (loadedImages === images.length) {
+          initMasonry();
+        }
+      }
     }
   }, [ids, nCols]); // Re-run when items or columns change
 
