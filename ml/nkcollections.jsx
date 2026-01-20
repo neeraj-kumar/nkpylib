@@ -333,6 +333,25 @@ const STYLES = `
   user-select: none;
   margin-top: 3px;
 }
+
+/* Video link overlay icon */
+.video-link {
+  position: relative;
+  display: inline-block;
+}
+
+.video-link::after {
+  content: '▶';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+}
 `;
 
 // Source-specific content renderers for posts only
