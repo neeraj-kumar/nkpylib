@@ -37,6 +37,42 @@
 
 const DEBOUNCE_MS = 2000;
 
+// Utility function for making API calls
+const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
+  const {
+    method = 'POST',
+    headers = { 'Content-Type': 'application/json' },
+    onError = (error) => console.error('Fetch error:', error),
+    ...fetchOptions
+  } = options;
+
+  try {
+    const response = await fetch(endpoint, {
+      method,
+      headers,
+      body: method !== 'GET' ? JSON.stringify(data) : undefined,
+      ...fetchOptions
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    onError(error);
+    throw error;
+  }
+};
+
+// API helper functions
+const api = {
+  get: (params) => fetchEndpoint('/get', params),
+  classify: (pos) => fetchEndpoint('/classify', { pos }),
+  action: (id, action) => fetchEndpoint('/action', { id, action }),
+  source: (url) => fetchEndpoint('/source', { url }),
+};
+
 const STYLES = `
 
 .labeled {
@@ -404,18 +440,10 @@ const App = () => {
   // fetch data when otypes changes
   React.useEffect(() => {
     // fetch objects from the server
-    fetch('/get', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        otype: curOtypes,
-        seen_ts: '>=' + (Math.floor(Date.now() / 1000) - 3600), // seen within the last hour
-      })
-    })
-      .then((response) => response.json())
-      .then(updateData);
+    api.get({
+      otype: curOtypes,
+      seen_ts: '>=' + (Math.floor(Date.now() / 1000) - 3600), // seen within the last hour
+    }).then(updateData);
   }, [updateData]);
 
   // toggles the given id in the pos array
@@ -432,13 +460,7 @@ const App = () => {
   const setLiked = React.useCallback((id, likedState) => {
     console.log('setting liked for', id, likedState);
     // send to server
-    fetch('/action', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({id, action:(likedState ? 'like': 'unlike')}),
-    });
+    api.action(id, likedState ? 'like' : 'unlike');
     // update rowById
     setRowById((rowById) => {
       return immer.produce(rowById, (draft) => {
@@ -463,42 +485,40 @@ const App = () => {
       return;
     }
     console.log('calling classify for pos', pos);
-    fetch('/classify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({pos}),
-    })
-      .then((response) => response.json())
-      .then((data) => {
-        console.log('got classify data', data);
-        // update curIds and scores
-        if (data.curIds && data.scores){
-          setCurIds(data.curIds);
-          setScores(data.scores);
-        }
-      });
+    api.classify(pos).then((data) => {
+      console.log('got classify data', data);
+      // update curIds and scores
+      if (data.curIds && data.scores){
+        setCurIds(data.curIds);
+        setScores(data.scores);
+      }
+    });
   }, [pos]);
 
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback(() => {
     console.log('updating source with', sourceStr);
     const isUrl = sourceStr.startsWith('http');
-    const endpoint = isUrl ? '/source' : '/get';
-    const body = isUrl ? JSON.stringify({url: sourceStr}) : sourceStr;
-    fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body,
-    }).then((response) => response.json())
-      .then((params) => {
+    
+    if (isUrl) {
+      api.source(sourceStr).then((params) => {
         // if we got a URL, extract the params and do another fetch to /get
-        // convert params to a JSON string and set as our source variable
-        updateData(data, true));
-  }, [sourceStr]);
+        return api.get(params);
+      }).then((data) => {
+        updateData(data, true);
+      });
+    } else {
+      // Parse as JSON and use as get parameters
+      try {
+        const params = JSON.parse(sourceStr);
+        api.get(params).then((data) => {
+          updateData(data, true);
+        });
+      } catch (error) {
+        console.error('Invalid JSON in source string:', error);
+      }
+    }
+  }, [sourceStr, updateData]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
