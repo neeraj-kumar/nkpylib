@@ -792,7 +792,30 @@ const App = () => {
         }
       }, 100);
     }
-  }, [ids, nCols]); // Re-run when items or columns change
+  }, [curIds, nCols]); // Re-run when items or columns change
+
+  // Throttled scroll handler for infinite scroll
+  React.useEffect(() => {
+    let ticking = false;
+    
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const isAtBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 100;
+          
+          if (isAtBottom) {
+            console.log('User scrolled to bottom - fetch more data');
+            // TODO: Implement fetchMoreData function
+          }
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const updateData = React.useCallback((data, resetData=false) => {
     console.log('got data', data);
