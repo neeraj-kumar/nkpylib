@@ -148,7 +148,6 @@ const STYLES = `
 .button-bar {
   display: flex;
   justify-content: center;
-  gap: 10px;
   margin-top: 5px;
   padding: 5px;
   border-top: 1px solid #eee;
@@ -314,6 +313,7 @@ const STYLES = `
   color: #666;
   padding: 0 5px;
   user-select: none;
+  margin-top: 8px;
 }
 `;
 
@@ -423,6 +423,30 @@ const Obj = (props) => {
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
 
+  const mediaDivs = [
+    (<div key="a"
+      className="icon-button media-nav-button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setCurrentMediaIndex(currentMediaIndex === 0 ? media_blocks.length - 1 : currentMediaIndex - 1);
+      }}
+    >
+      ←
+    </div>),
+    (<span className="media-counter" key="b">
+      {currentMediaIndex + 1}/{media_blocks.length}
+    </span>),
+    (<div key="c"
+      className="icon-button media-nav-button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setCurrentMediaIndex(currentMediaIndex === media_blocks.length - 1 ? 0 : currentMediaIndex + 1);
+      }}
+    >
+      →
+    </div>),
+  ];
+
   return (
     <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`}>
       <div className="button-bar">
@@ -454,31 +478,7 @@ const Obj = (props) => {
           🔗
         </div>
         {/* Media navigation controls - only show if multiple media */}
-        {hasMultipleMedia && (
-          <div>
-            <div
-              className="icon-button media-nav-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCurrentMediaIndex(currentMediaIndex === 0 ? media_blocks.length - 1 : currentMediaIndex - 1);
-              }}
-            >
-              ←
-            </div>
-            <span className="media-counter">
-              {currentMediaIndex + 1}/{media_blocks.length}
-            </span>
-            <div
-              className="icon-button media-nav-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCurrentMediaIndex(currentMediaIndex === media_blocks.length - 1 ? 0 : currentMediaIndex + 1);
-              }}
-            >
-              →
-            </div>
-          </div>
-        )}
+        {hasMultipleMedia && mediaDivs}
       </div>
       
       {/* Media carousel for posts with media */}
@@ -618,7 +618,7 @@ const App = () => {
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('');
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 8);
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -689,7 +689,7 @@ const App = () => {
     // fetch objects from the server
     api.get({
       otype: curOtypes,
-      added_ts: '>=' + (Math.floor(Date.now() / 1000) - 3600), // added within the last hour
+      added_ts: '>=' + (Math.floor(Date.now() / 1000) - (24*3600)), // added within the last day
       assemble_posts: true,
     }).then(updateData);
   }, [updateData]);
