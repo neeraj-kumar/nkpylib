@@ -203,14 +203,20 @@ class Tumblr(Source):
                 ignore.add(c.md['poster_media_key'])
         # Group children by type, maintaining order, but skip 'ignore' media_keys
         content_blocks = []
+        media_blocks = []
         for child in sorted(children, key=lambda c: c.id):
             if child.md and 'media_key' in child.md and child.md['media_key'] in ignore:
                 continue
-            content_blocks.append(dict(
+            block = dict(
                 type=child.otype,
                 data=recursive_to_dict(child)
-            ))
+            )
+            content_blocks.append(block)
+            # Also add to media_blocks if it's media
+            if child.otype in ['image', 'video']:
+                media_blocks.append(block)
         post_data['content_blocks'] = content_blocks
+        post_data['media_blocks'] = media_blocks
         return post_data
 
 

@@ -292,6 +292,15 @@ class Source:
         """
         assembled_post = recursive_to_dict(post)
         assembled_post['children'] = [recursive_to_dict(child) for child in children]
+        # Extract media blocks for carousel functionality
+        media_blocks = []
+        for child in children:
+            if child.otype in ['image', 'video']:
+                media_blocks.append(dict(
+                    type=child.otype,
+                    data=recursive_to_dict(child)
+                ))
+        assembled_post['media_blocks'] = media_blocks
         return assembled_post
 
     @classmethod

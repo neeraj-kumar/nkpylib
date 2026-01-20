@@ -264,6 +264,45 @@ const STYLES = `
   border-radius: 3px;
   font-size: 0.8em;
 }
+
+/* Media carousel styles */
+.media-carousel {
+  margin: 10px 0;
+}
+
+.media-nav {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 5px;
+  padding: 5px;
+}
+
+.media-nav button {
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.media-nav button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.media-nav button:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.media-nav span {
+  font-size: 0.9em;
+  color: #666;
+  min-width: 40px;
+  text-align: center;
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -289,20 +328,6 @@ const TumblrContentBlock = ({block}) => {
   switch (type) {
     case 'text':
       return <div className="tumblr-text-block">{data.md.text}</div>;
-    case 'image':
-      return (
-        <div className="tumblr-image-block">
-          <img src={data.url} alt={`Image ${data.id}`} />
-        </div>
-      );
-    case 'video':
-      return (
-        <div className="tumblr-video-block">
-          <a href={data.url} target="_blank" rel="noreferrer">
-            <img src={data.md.poster_url} alt={`Video ${data.id} poster`} />
-          </a>
-        </div>
-      );
     case 'link':
       return (
         <div className="tumblr-link-block">
@@ -314,12 +339,21 @@ const TumblrContentBlock = ({block}) => {
           )}
         </div>
       );
+    case 'image':
+    case 'video':
+      // Media is now handled by MediaCarousel, so skip rendering here
+      return null;
     default:
       return <div className="tumblr-unknown-block">Unknown block type: {type}</div>;
   }
 };
 
 const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
+  // Filter out media blocks since they're handled by MediaCarousel
+  const nonMediaBlocks = content_blocks?.filter(block => 
+    block.type !== 'image' && block.type !== 'video'
+  ) || [];
+  
   return (
     <div>
       <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
@@ -327,7 +361,7 @@ const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
         {md.n_notes} notes • {md.n_likes} ♥ • {md.n_reblogs} ↻
       </div>
       <div className="tumblr-content">
-        {content_blocks.map((block, index) => (
+        {nonMediaBlocks.map((block, index) => (
           <TumblrContentBlock key={`${id}-${index}`} block={block} />
         ))}
       </div>
@@ -339,8 +373,56 @@ const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
   );
 };
 
+const MediaCarousel = ({mediaBlocks}) => {
+  const [currentIndex, setCurrentIndex] = React.useState(0);
+  
+  if (!mediaBlocks?.length) return null;
+  
+  const currentMedia = mediaBlocks[currentIndex];
+  const hasMultiple = mediaBlocks.length > 1;
+  
+  const renderMedia = (block) => {
+    const {type, data} = block;
+    switch (type) {
+      case 'image':
+        return <img src={data.url} alt={`Image ${data.id}`} />;
+      case 'video':
+        return (
+          <a href={data.url} target="_blank" rel="noreferrer">
+            <img src={data.md.poster_url} alt={`Video ${data.id} poster`} />
+          </a>
+        );
+      default:
+        return null;
+    }
+  };
+  
+  return (
+    <div className="media-carousel">
+      {renderMedia(currentMedia)}
+      {hasMultiple && (
+        <div className="media-nav">
+          <button 
+            onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+            disabled={currentIndex === 0}
+          >
+            ←
+          </button>
+          <span>{currentIndex + 1} / {mediaBlocks.length}</span>
+          <button 
+            onClick={() => setCurrentIndex(Math.min(mediaBlocks.length - 1, currentIndex + 1))}
+            disabled={currentIndex === mediaBlocks.length - 1}
+          >
+            →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Obj = (props) => {
-  const {id, otype, url, md, togglePos, score, rels, setLiked, source, pos} = props;
+  const {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks} = props;
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
@@ -377,6 +459,12 @@ const Obj = (props) => {
           🔗
         </div>
       </div>
+      
+      {/* Media carousel for posts with multiple media */}
+      {otype === 'post' && media_blocks && media_blocks.length > 0 && (
+        <MediaCarousel mediaBlocks={media_blocks} />
+      )}
+      
       {otype === 'post' && PostContentRenderer ? (
         <PostContentRenderer {...props} />
       ) : (
