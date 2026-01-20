@@ -348,34 +348,6 @@ const Obj = (props) => {
 
   return (
     <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`}>
-      {otype === 'post' && PostContentRenderer ? (
-        <PostContentRenderer {...props} />
-      ) : (
-        <div>
-          {otype === 'text' && (
-            <div className="content">{md.text}</div>
-          )}
-          {otype === 'link' && (
-            <div className="content"><a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a></div>
-          )}
-          {otype === 'image' && (
-            <div className="content">
-              <img src={url} alt={`Image ${id}`} />
-            </div>
-          )}
-          {otype === 'video' && (
-            <div className="content">
-              <a href={url} target="_blank" rel="noreferrer">
-                <img src={md.poster_url} alt={`Video ${id} poster`} />
-              </a>
-            </div>
-          )}
-          <p className="score">ID: {id}</p>
-          {score !== undefined && (
-            <div className="score">Score: {score.toFixed(3)}</div>
-          )}
-        </div>
-      )}
       <div className="button-bar">
         <div
           className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
@@ -405,6 +377,34 @@ const Obj = (props) => {
           🔗
         </div>
       </div>
+      {otype === 'post' && PostContentRenderer ? (
+        <PostContentRenderer {...props} />
+      ) : (
+        <div>
+          {otype === 'text' && (
+            <div className="content">{md.text}</div>
+          )}
+          {otype === 'link' && (
+            <div className="content"><a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a></div>
+          )}
+          {otype === 'image' && (
+            <div className="content">
+              <img src={url} alt={`Image ${id}`} />
+            </div>
+          )}
+          {otype === 'video' && (
+            <div className="content">
+              <a href={url} target="_blank" rel="noreferrer">
+                <img src={md.poster_url} alt={`Video ${id} poster`} />
+              </a>
+            </div>
+          )}
+          <p className="score">ID: {id}</p>
+          {score !== undefined && (
+            <div className="score">Score: {score.toFixed(3)}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
