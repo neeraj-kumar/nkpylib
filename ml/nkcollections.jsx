@@ -410,8 +410,8 @@ const App = () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        ids: '0-1000',
-        otype: curOtypes
+        otype: curOtypes,
+        seen_ts: '>=' + (Math.floor(Date.now() / 1000) - 3600), // seen within the last hour
       })
     })
       .then((response) => response.json())
@@ -481,15 +481,23 @@ const App = () => {
       });
   }, [pos]);
 
+  // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback(() => {
     console.log('updating source with', sourceStr);
-    fetch('/source', {
+    const isUrl = sourceStr.startsWith('http');
+    const endpoint = isUrl ? '/source' : '/get';
+    const body = isUrl ? JSON.stringify({url: sourceStr}) : sourceStr;
+    fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({url: sourceStr}),
-    }).then((response) => response.json()).then((data) => updateData(data, true));
+      body,
+    }).then((response) => response.json())
+      .then((params) => {
+        // if we got a URL, extract the params and do another fetch to /get
+        // convert params to a JSON string and set as our source variable
+        updateData(data, true));
   }, [sourceStr]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
