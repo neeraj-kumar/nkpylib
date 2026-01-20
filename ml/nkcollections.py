@@ -302,9 +302,12 @@ class Source:
         Takes a list of post `Item`s and returns a list of assembled post dictionaries
         with their children content nested appropriately based on source type.
         """
-        assembled_posts = [cls.assemble_post(post, post.children.select()) for post in posts]
+        assembled_posts = []
+        # for each post, get its children and assemble based on the source type
+        for post in posts:
+            src = Source._registry.get(post.source, Source)
+            assembled_posts.append(src.assemble_post(post, post.children.select()))
         return assembled_posts
-
 
 
 class MyBaseHandler(BaseHandler):
@@ -388,7 +391,11 @@ class GetHandler(MyBaseHandler):
         # Build query conditions
         with db_session:
             q = self.build_query(data)
-            rows = {r.id: recursive_to_dict(r) for r in q}
+            items = q[:]
+            if data.get('assemble_posts', False):
+                rows = {r['id']: r for r in Source.assemble_posts(items)}
+            else:
+                rows = {r.id: recursive_to_dict(r) for r in q}
             cur_ids = list(rows.keys())
             # fetch all rels with source = me and tgt in ids and update the appropriate rows
             me = Item.get_me()

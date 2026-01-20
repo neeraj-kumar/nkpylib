@@ -131,7 +131,7 @@ const STYLES = `
 }
 
 .object {
-  max-width: calc((100vw - (var(--n-cols) + 1) * 10px) / var(--n-cols));
+  max-width: calc((100vw - (var(--n-cols) + 1) * 10px) / var(--n-cols) - 10px);
   box-sizing: border-box;
 }
 
@@ -196,18 +196,8 @@ const STYLES = `
   margin: 5px 0;
 }
 
-.tumblr-image-block img {
-  max-width: 300px;
-  height: auto;
-}
-
 .tumblr-video-block {
   margin: 5px 0;
-}
-
-.tumblr-video-block img {
-  max-width: 300px;
-  height: auto;
 }
 
 .tumblr-link-block {
@@ -648,8 +638,8 @@ const App = () => {
       {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
     </div>
     <Controls {...funcs} />
-    <div 
-      className="objects" 
+    <div
+      className="objects"
       style={{
         gridTemplateColumns: `repeat(${nCols}, 1fr)`,
         '--n-cols': nCols

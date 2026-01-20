@@ -24,14 +24,17 @@ from pony.orm import db_session, select
 from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 
+from nkpylib.ml.nkcollections import Item, init_sql_db, Source
+from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
 from nkpylib.web_utils import make_request
-from nkpylib.ml.nkcollections import Item, init_sql_db, Source
 
 logger = logging.getLogger(__name__)
 
 J = lambda obj: json.dumps(obj, indent=2)
+
+DEFAULT_CONFIG_PATH = '.tumblr_config.json'
 
 class Tumblr(Source):
     NAME = 'tumblr'
@@ -53,7 +56,7 @@ class Tumblr(Source):
         "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
     }
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH):
         """Initializes the Tumblr API wrapper.
 
         Expects a config JSON file with at least:
@@ -93,13 +96,14 @@ class Tumblr(Source):
                 blog_name = ''
         if not blog_name:
             blog_name = path.split('/')[1]
-        # now look for the appropriate blog user item
-        u = self.get_blog_user(blog_name)
-        # add posts if we don't have any yet
-        if not select(p for p in Item if p.parent == u).exists():
-            posts, total = self.get_blog_archive(blog_name, n_posts=n_posts)
-            self.create_collection_from_posts(posts, blog_name=blog_name)
-        return dict(source=self.NAME, parent=u.id)
+        with db_session:
+            # now look for the appropriate blog user item
+            u = self.get_blog_user(blog_name)
+            # add posts if we don't have any yet
+            if not select(p for p in Item if p.parent == u).exists():
+                posts, total = self.get_blog_archive(blog_name, n_posts=n_posts)
+                self.create_collection_from_posts(posts, blog_name=blog_name)
+            return dict(source=self.NAME, parent=u.id, assemble_posts=True)
 
     @property
     def api_token(self) -> str:
@@ -304,7 +308,7 @@ class Tumblr(Source):
         print(J(obj)[:500])
 
     @db_session
-    def get_blog_user(self, blog_name: str, users_by_name: {}, **kw) -> Entity:
+    def get_blog_user(self, blog_name: str, users_by_name: dict= {}, **kw) -> Entity:
         """Returns the blog user item for the given `blog_name`."""
         if blog_name not in users_by_name:
             u = Item.upsert(get_kw=dict(
@@ -493,4 +497,4 @@ def update_blogs(config_path: str, **kw):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
     cli_runner([simple_test, update_blogs],
-               config_path=dict(default='.tumblr_config.json', help='Path to the tumblr config json file'))
+               config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))
