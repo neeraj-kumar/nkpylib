@@ -875,6 +875,8 @@ const App = () => {
     const isUrl = sourceStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
       api.sourceUrl(sourceStr).then((params) => {
+        // save the params, serialized, to sourceStr
+        setSourceStr(JSON.stringify(params));
         return api.get(params);
       }).then((data) => {
         updateData(data, true);
@@ -889,7 +891,7 @@ const App = () => {
         console.error('Invalid JSON in source string:', error);
       }
     }
-  }, [sourceStr, updateData]);
+  }, [sourceStr, updateData, setSourceStr]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
