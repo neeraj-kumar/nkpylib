@@ -70,7 +70,7 @@ const api = {
   get: (params) => fetchEndpoint('/get', params),
   classify: (pos) => fetchEndpoint('/classify', { pos }),
   action: (id, action) => fetchEndpoint('/action', { id, action }),
-  source: (url) => fetchEndpoint('/source', { url }),
+  sourceUrl: (url) => fetchEndpoint('/source', { url }),
 };
 
 const STYLES = `
@@ -499,16 +499,13 @@ const App = () => {
   const doSource = React.useCallback(() => {
     console.log('updating source with', sourceStr);
     const isUrl = sourceStr.startsWith('http');
-    
-    if (isUrl) {
-      api.source(sourceStr).then((params) => {
-        // if we got a URL, extract the params and do another fetch to /get
+    if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
+      api.sourceUrl(sourceStr).then((params) => {
         return api.get(params);
       }).then((data) => {
         updateData(data, true);
       });
-    } else {
-      // Parse as JSON and use as get parameters
+    } else { // Parse as JSON and use as get parameters
       try {
         const params = JSON.parse(sourceStr);
         api.get(params).then((data) => {

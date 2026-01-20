@@ -16,7 +16,7 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime
 from os.path import exists, dirname, join, abspath
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 
@@ -71,6 +71,27 @@ class Tumblr(Source):
             self.config = json.load(f)
         logger.info(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
         self.csrf = ''
+
+    @classmethod
+    def can_parse(cls, url: str) -> bool:
+        """Returns if this source can parse the given url"""
+        return 'tumblr.com' in url
+
+    def parse(self, url: str, **kw) -> Any:
+        """Parses the given url and does whatever it wants."""
+        # first get the blog name, which is either in the format xyz.tumblr.com or tumblr.com/xyz
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower()
+        path = parsed.path.lower()
+        if netloc.endswith('.tumblr.com'):
+            blog_name = netloc.split('.tumblr.com')[0]
+            if blog_name in ('www', 'm'):
+                blog_name = ''
+        if not blog_name:
+            blog_name = path.split('/')[1]
+        # now look for the appropriate blog source item
+
+
 
     @property
     def api_token(self) -> str:
@@ -257,7 +278,7 @@ class Tumblr(Source):
             print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
             try:
                 posts, total = self.get_blog_archive(name)
-                cols = create_collection_from_posts(posts, blog_name=name)
+                cols = self.create_collection_from_posts(posts, blog_name=name)
                 print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
             except Exception as e:
                 logger.warning(f'Failed to process blog {name}: {e}')
@@ -274,117 +295,145 @@ class Tumblr(Source):
         obj = self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
         print(J(obj)[:500])
 
-@db_session
-def create_collection_from_posts(posts: list[dict], **kw) -> list[Entity]:
-    """Creates `Item` rows from tumblr posts.
-
-    This creates separate rows (with appropriate types) for each:
-    - post
-    - image/video/text/link content block within the post
-    - for videos: another row for the poster image of that video
-
-    Any additional `kw` are added to the metadata of each 'post' row.
-    """
-    ret = []
-    for post in posts:
-        # Create the main post collection entry
-        pc = Item.upsert(get_kw=dict(
-                source='tumblr',
-                stype='blog',
-                otype='post',
-                url=post['postUrl']
-            ),
-            ts=post.get('timestamp', int(time.time())),
-            md=dict(
-                post_id=post['id'],
-                reblog_key=post['reblogKey'],
-                tags=post.get('tags', []),
-                n_notes=post.get('noteCount', 0),
-                n_likes=post.get('likeCount', 0),
-                n_reblogs=post.get('reblogCount', 0),
-                summary=post.get('summary', ''),
-                original_type=post.get('originalType', ''),
-                reblogged_from=post.get('rebloggedFromUrl', ''),
-                **kw
-            )
-        )
-        ret.append(pc)
-        # Get content from either direct content or trail
-        content = post['content'] or (post['trail'][0]['content'] if post.get('trail') else [])
-        # Create child collections for each content block
-        for i, c in enumerate(content):
-            content_type = c['type']
-            match content_type:
-                case 'image':
-                    media = c['media'][0] if isinstance(c['media'], list) else c['media']
-                    url = media['url'].replace('.pnj', '.png')
-                    md = dict(
-                        w=media.get('width'),
-                        h=media.get('height'),
-                        media_key=media.get('mediaKey', media['url'].split('/')[3].rsplit('.', 1)[0])
-                    )
-                case 'video':
-                    media = c.get('media', c)
-                    url = media['url']
-                    poster = c['poster'][0]
-                    poster_url = poster['url'].replace('.pnj', '.png')
-                    poster_media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
-                    md = dict(
-                        w=media.get('width'),
-                        h=media.get('height'),
-                        media_key=media['url'].split('/')[3],
-                        provider=c.get('provider', ''),
-                        poster_url=poster_url,
-                        poster_media_key=poster_media_key,
-                    )
-                case 'text':
-                    url = f"{pc.url}#text_{i}"
-                    md = dict(
-                        text=c.get('text', ''),
-                    )
-                case 'link':
-                    url = c.get('url', c.get('displayUrl', ''))
-                    md = dict(
-                        display_url=c.get('displayUrl', ''),
-                        title=c.get('title', ''),
-                        description=c.get('description', '')
-                    )
-                case _:
-                    # For other content types
-                    url = f"{pc.url}#{content_type}_{i}"
-                    md = c
-            # Create child collection object
-            cc = Item.upsert(get_kw=dict(
-                    source=pc.source,
-                    stype=pc.stype,
-                    otype=content_type,
-                    url=url,
+    @db_session
+    def get_blog_user(self, blog_name: str, users_by_name: {}, **kw) -> Entity:
+        """Returns the blog user item for the given `blog_name`."""
+        if blog_name not in users_by_name:
+            u = Item.upsert(get_kw=dict(
+                    source=self.NAME,
+                    stype='blog',
+                    otype='user',
+                    url=f'https://{blog_name}.tumblr.com/'
                 ),
-                ts=post.get('timestamp', int(time.time())),
-                md=md,
-                parent=pc
-            )
-            ret.append(cc)
-            # if it was a video, also add the poster as a separate image collection
-            if content_type == 'video' and 'poster' in c:
-                poster_md = dict(
-                    w=poster.get('width'),
-                    h=poster.get('height'),
-                    media_key=poster_media_key,
-                    poster_for=cc.id,
+                md=dict(
+                    blog_name=blog_name,
+                    **kw
                 )
-                pcc = Item.upsert(get_kw=dict(
-                        source=pc.source,
-                        stype=pc.stype,
-                        otype='image',
-                        url=poster_url,
+            )
+            users_by_name[blog_name] = u
+        return users_by_name[blog_name]
+
+    @db_session
+    def create_collection_from_posts(self, posts: list[dict], **kw) -> list[Entity]:
+        """Creates `Item` rows from tumblr posts.
+
+        This creates separate rows (with appropriate types) for each:
+        - post
+        - image/video/text/link content block within the post
+        - for videos: another row for the poster image of that video
+
+        Any additional `kw` are added to the metadata of each 'post' row.
+        """
+        ret = []
+        for post in posts:
+            # get the user item
+            blog_name = post['blog']['name']
+            u = self.get_blog_user(
+                    blog_name=blog_name,
+                    title=post['blog'].get('title', ''),
+                    description=post['blog'].get('description', ''),
+                    uuid=post['blog'].get('uuid', ''),
+            )
+            ret.append(u)
+            # create the main post Item
+            pi = Item.upsert(get_kw=dict(
+                    source=self.NAME,
+                    stype='blog',
+                    otype='post',
+                    url=post['postUrl']
+                ),
+                parent=u,
+                ts=post.get('timestamp', int(time.time())),
+                md=dict(
+                    post_id=post['id'],
+                    reblog_key=post['reblogKey'],
+                    tags=post.get('tags', []),
+                    n_notes=post.get('noteCount', 0),
+                    n_likes=post.get('likeCount', 0),
+                    n_reblogs=post.get('reblogCount', 0),
+                    summary=post.get('summary', ''),
+                    original_type=post.get('originalType', ''),
+                    reblogged_from=post.get('rebloggedFromUrl', ''),
+                    **kw
+                )
+            )
+            ret.append(pi)
+            # Get content from either direct content or trail
+            content = post['content'] or (post['trail'][0]['content'] if post.get('trail') else [])
+            # Create child collections for each content block
+            for i, c in enumerate(content):
+                content_type = c['type']
+                match content_type:
+                    case 'image':
+                        media = c['media'][0] if isinstance(c['media'], list) else c['media']
+                        url = media['url'].replace('.pnj', '.png')
+                        md = dict(
+                            w=media.get('width'),
+                            h=media.get('height'),
+                            media_key=media.get('mediaKey', media['url'].split('/')[3].rsplit('.', 1)[0])
+                        )
+                    case 'video':
+                        media = c.get('media', c)
+                        url = media['url']
+                        poster = c['poster'][0]
+                        poster_url = poster['url'].replace('.pnj', '.png')
+                        poster_media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
+                        md = dict(
+                            w=media.get('width'),
+                            h=media.get('height'),
+                            media_key=media['url'].split('/')[3],
+                            provider=c.get('provider', ''),
+                            poster_url=poster_url,
+                            poster_media_key=poster_media_key,
+                        )
+                    case 'text':
+                        url = f"{pi.url}#text_{i}"
+                        md = dict(
+                            text=c.get('text', ''),
+                        )
+                    case 'link':
+                        url = c.get('url', c.get('displayUrl', ''))
+                        md = dict(
+                            display_url=c.get('displayUrl', ''),
+                            title=c.get('title', ''),
+                            description=c.get('description', '')
+                        )
+                    case _:
+                        # For other content types
+                        url = f"{pi.url}#{content_type}_{i}"
+                        md = c
+                # Create child collection object
+                cc = Item.upsert(get_kw=dict(
+                        source=pi.source,
+                        stype=pi.stype,
+                        otype=content_type,
+                        url=url,
                     ),
                     ts=post.get('timestamp', int(time.time())),
-                    md=poster_md,
-                    parent=pc,
+                    md=md,
+                    parent=pi
                 )
-                ret.append(pcc)
-    return ret
+                ret.append(cc)
+                # if it was a video, also add the poster as a separate image collection
+                if content_type == 'video' and 'poster' in c:
+                    poster_md = dict(
+                        w=poster.get('width'),
+                        h=poster.get('height'),
+                        media_key=poster_media_key,
+                        poster_for=cc.id,
+                    )
+                    pcc = Item.upsert(get_kw=dict(
+                            source=pi.source,
+                            stype=pi.stype,
+                            otype='image',
+                            url=poster_url,
+                        ),
+                        ts=post.get('timestamp', int(time.time())),
+                        md=poster_md,
+                        parent=pi,
+                    )
+                    ret.append(pcc)
+        return ret
 
 def process_posts(posts):
     for i, p in enumerate(posts):

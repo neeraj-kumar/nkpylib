@@ -77,7 +77,7 @@ class Item(sql_db.Entity, GetMixin):
     url = Required(str, index=True)
     composite_index(source, stype, otype, url)
     name = Optional(str, index=True)
-    parent = Optional('Item', reverse='children')
+    parent = Optional('Item', reverse='children', index=True)
     # time of the actual item
     ts = Required(float, default=lambda: time.time(), index=True)
     # time we added this to our database
@@ -271,6 +271,11 @@ class Source:
 
     @staticmethod
     def handle_url(url: str, **data) -> dict[str, Any]:
+        """This is the main entry point to handle a given url.
+
+        This finds the appropriate Source subclass that can parse the given url,
+        and calls its parse() method with the given url and data.
+        """
         for source_cls in Source.__subclasses__():
             if source_cls.can_parse(url):
                 source = source_cls()
@@ -350,26 +355,27 @@ class GetHandler(MyBaseHandler):
             parent_id = int(data['parent'])
             q = q.filter(lambda c: c.parent and c.parent.id == parent_id)
         # Handle numeric fields
-        numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts', 'parent']
+        numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
         for field in numeric_fields:
             if field in data:
-                value = data[field].replace(' ','') # remove spaces
+                value = data[field]
                 if isinstance(value, str): # Parse operator
+                    value = value.replace(' ', '')
                     if value.startswith('>='):
                         threshold = float(value[2:])
-                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) >= threshold)
+                        q = q.filter(lambda c: getattr(c, field) >= threshold)
                     elif value.startswith('<='):
                         threshold = float(value[2:])
-                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) <= threshold)
+                        q = q.filter(lambda c: getattr(c, field) <= threshold)
                     elif value.startswith('!='):
                         threshold = float(value[2:])
                         q = q.filter(lambda c: getattr(c, field) != threshold)
                     elif value.startswith('>'):
                         threshold = float(value[1:])
-                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) > threshold)
+                        q = q.filter(lambda c: getattr(c, field) > threshold)
                     elif value.startswith('<'):
                         threshold = float(value[1:])
-                        q = q.filter(lambda c: getattr(c, field) and getattr(c, field) < threshold)
+                        q = q.filter(lambda c: getattr(c, field) < threshold)
                     else: # No operator, treat as exact match
                         q = q.filter(lambda c: getattr(c, field) == float(value))
                 else: # Exact match
@@ -382,7 +388,7 @@ class GetHandler(MyBaseHandler):
         # Build query conditions
         with db_session:
             q = self.build_query(data)
-            rows = {r.id: recursive_to_dict(r) for r in query}
+            rows = {r.id: recursive_to_dict(r) for r in q}
             cur_ids = list(rows.keys())
             # fetch all rels with source = me and tgt in ids and update the appropriate rows
             me = Item.get_me()
@@ -403,9 +409,12 @@ class SourceHandler(MyBaseHandler):
         # find a source that can parse this url
         parsed = Source.handle_url(url, **data)
         print(f'parsed to {parsed}')
-        # redirect to /get/{0-10000} with parsed data
-        parsed_params = '&'.join([f'{k}={v}' for k, v in parsed.items()])
-        self.redirect(f"/get/0-100000?{parsed_params}")
+        if 0:
+            parsed_params = '&'.join([f'{k}={v}' for k, v in parsed.items()])
+            self.redirect(f"/get/0-100000?{parsed_params}")
+        else:
+            # send the parsed result to the client
+            self.write(parsed)
 
 class ActionHandler(MyBaseHandler):
     def post(self):
