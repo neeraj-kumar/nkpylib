@@ -783,6 +783,9 @@ const App = () => {
         let loadedImages = 0;
 
         const initMasonry = () => {
+          if (grid.masonry) {
+            grid.masonry.destroy();
+          }
           const masonryInstance = new window.Masonry(grid, {
             itemSelector: '.object',
             columnWidth: columnWidth,
@@ -819,7 +822,6 @@ const App = () => {
   /*
   React.useEffect(() => {
     let ticking = false;
-    
     const handleScroll = () => {
       if (!ticking) {
         requestAnimationFrame(() => {
