@@ -350,7 +350,7 @@ const TumblrContentBlock = ({block}) => {
 
 const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
   // Filter out media blocks since they're handled by MediaCarousel
-  const nonMediaBlocks = content_blocks?.filter(block => 
+  const nonMediaBlocks = content_blocks.filter(block => 
     block.type !== 'image' && block.type !== 'video'
   ) || [];
   
@@ -375,12 +375,9 @@ const TumblrPostContent = ({id, otype, url, md, score, content_blocks}) => {
 
 const MediaCarousel = ({mediaBlocks}) => {
   const [currentIndex, setCurrentIndex] = React.useState(0);
-  
-  if (!mediaBlocks?.length) return null;
-  
+  if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
   const hasMultiple = mediaBlocks.length > 1;
-  
   const renderMedia = (block) => {
     const {type, data} = block;
     switch (type) {
