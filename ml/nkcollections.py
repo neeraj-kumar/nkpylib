@@ -296,6 +296,8 @@ class Source:
         media_blocks = []
         for child in children:
             if child.otype in ['image', 'video']:
+                if child.otype == 'image' and child.md and 'poster_for' in child.md:
+                    continue
                 media_blocks.append(dict(
                     type=child.otype,
                     data=recursive_to_dict(child)
@@ -312,9 +314,11 @@ class Source:
         with their children content nested appropriately based on source type.
         """
         assembled_posts = []
+        #print(f'Got registry: {Source._registry}, {posts}')
         # for each post, get its children and assemble based on the source type
         for post in posts:
             src = Source._registry.get(post.source, Source)
+            #print(f'for post source {post.source}, using src={src}, {Source._registry}')
             assembled_posts.append(src.assemble_post(post, post.children.select()))
         return assembled_posts
 
