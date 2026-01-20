@@ -183,6 +183,10 @@ const STYLES = `
   color: #0066cc;
 }
 
+.open-icon {
+  color: #666;
+}
+
 /* Twitter-specific styles */
 .source-twitter.otype-post {
   border-left: 4px solid #1da1f2;
@@ -295,6 +299,15 @@ const TwitterPostContent = ({id, otype, url, md, score, liked, setLiked, toggleP
         >
           🎯
         </div>
+        <div
+          className="icon-button open-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(url, '_blank');
+          }}
+        >
+          🔗
+        </div>
       </div>
     </div>
   );
@@ -372,6 +385,15 @@ const TumblrPostContent = ({id, otype, url, md, score, liked, setLiked, content_
         >
           🎯
         </div>
+        <div
+          className="icon-button open-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(url, '_blank');
+          }}
+        >
+          🔗
+        </div>
       </div>
     </div>
   );
@@ -430,6 +452,15 @@ const Obj = (props) => {
               }}
             >
               🎯
+            </div>
+            <div
+              className="icon-button open-icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(url, '_blank');
+              }}
+            >
+              🔗
             </div>
           </div>
         </div>
