@@ -404,7 +404,16 @@ const App = () => {
   // fetch data when otypes changes
   React.useEffect(() => {
     // fetch objects from the server
-    fetch(`/get/0-1000?otypes=${curOtypes.join(',')}`)
+    fetch('/get', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ids: '0-1000',
+        otype: curOtypes
+      })
+    })
       .then((response) => response.json())
       .then(updateData);
   }, [updateData]);

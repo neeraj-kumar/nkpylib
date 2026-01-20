@@ -323,20 +323,68 @@ class MyBaseHandler(BaseHandler):
             return otypes
 
 class GetHandler(MyBaseHandler):
-    def get(self, indices):
-        otypes = self.get_argument('otypes', ','.join(self.all_otypes)).split(',')
-        # print all arguments
-        print(f'GetHandler got indices={indices}, otypes={otypes}, args={self.request.arguments}')
-        ids = parse_num_spec(indices)
-        #TODO build up query params based on other args
-        # select from the Item table where ids in ids
+    def post(self):
+        data = json.loads(self.request.body)
+        print(f'GetHandler got data={data}')
+        
+        # Build query conditions
         with db_session:
-            query = Item.select(lambda c: c.id in ids and (c.otype in otypes))
-            parent = self.get_argument('parent', '')
-            if parent:
-                query = query.filter(lambda c: c.parent and c.parent.id == int(parent))
+            query = Item.select()
+            
+            # Handle ids parameter (num spec)
+            if 'ids' in data:
+                ids = parse_num_spec(data['ids'])
+                query = query.filter(lambda c: c.id in ids)
+            
+            # Handle string fields
+            string_fields = ['source', 'stype', 'otype', 'url', 'name']
+            for field in string_fields:
+                if field in data:
+                    value = data[field]
+                    if field == 'otype' and isinstance(value, list):
+                        # Special case for otype list (backwards compatibility)
+                        query = query.filter(lambda c: getattr(c, field) in value)
+                    else:
+                        query = query.filter(lambda c: getattr(c, field) == value)
+            
+            # Handle parent field
+            if 'parent' in data:
+                parent_id = int(data['parent'])
+                query = query.filter(lambda c: c.parent and c.parent.id == parent_id)
+            
+            # Handle numeric fields with operators
+            numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
+            for field in numeric_fields:
+                if field in data:
+                    value = data[field]
+                    if isinstance(value, (int, float)):
+                        # Exact match
+                        query = query.filter(lambda c: getattr(c, field) == value)
+                    elif isinstance(value, str):
+                        # Parse operator
+                        if value.startswith('>='):
+                            threshold = float(value[2:])
+                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) >= threshold)
+                        elif value.startswith('<='):
+                            threshold = float(value[2:])
+                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) <= threshold)
+                        elif value.startswith('!='):
+                            threshold = float(value[2:])
+                            query = query.filter(lambda c: getattr(c, field) != threshold)
+                        elif value.startswith('>'):
+                            threshold = float(value[1:])
+                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) > threshold)
+                        elif value.startswith('<'):
+                            threshold = float(value[1:])
+                            query = query.filter(lambda c: getattr(c, field) and getattr(c, field) < threshold)
+                        else:
+                            # No operator, treat as exact match
+                            threshold = float(value)
+                            query = query.filter(lambda c: getattr(c, field) == threshold)
+            
             rows = {r.id: recursive_to_dict(r) for r in query}
             cur_ids = list(rows.keys())
+            
             # fetch all rels with source = me and tgt in ids and update the appropriate rows
             me = Item.get_me()
             rels = Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids)
@@ -345,8 +393,10 @@ class GetHandler(MyBaseHandler):
                 if 'rels' not in rows[tgt_id]:
                     rows[tgt_id]['rels'] = {}
                 rows[tgt_id]['rels'][rel.rtype] = rel.ts
+            
             msg = f'hello'
-        self.write(dict(msg=msg, indices=indices, rows=rows, allOtypes=self.all_otypes))
+        
+        self.write(dict(msg=msg, rows=rows, allOtypes=self.all_otypes))
 
 class SourceHandler(MyBaseHandler):
     def post(self):
@@ -427,7 +477,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         app.embs = Embeddings([args.lmdb_path])
 
     more_handlers = [
-        (r'/get/(.*)', GetHandler),
+        (r'/get', GetHandler),
         (r'/source', SourceHandler),
         (r'/action', ActionHandler),
         (r'/classify', ClassifyHandler),
