@@ -103,6 +103,13 @@ const STYLES = `
   box-sizing: border-box;
 }
 
+.gridobjects {
+  display: grid;
+  grid-auto-flow: dense;
+  align-items: start;
+  column-fill: balance;
+}
+
 .flexobjects {
   display: flex;
   flex-wrap: wrap;
@@ -670,7 +677,7 @@ const App = () => {
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('');
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 3 : 8);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 8);
   const [simpleMode, setSimpleMode] = React.useState(true);
 
   // Refs to access current values in debounced callbacks
@@ -724,41 +731,42 @@ const App = () => {
   React.useEffect(() => {
     const grid = document.querySelector('.objects');
     if (grid && window.Masonry) {
-      const containerWidth = grid.offsetWidth;
-      const columnWidth = (containerWidth - (nCols - 1) * 10) / nCols;
-      
-      // Wait for images to load
-      const images = grid.querySelectorAll('img');
-      let loadedImages = 0;
-      
-      const initMasonry = () => {
-        new window.Masonry(grid, {
-          itemSelector: '.object',
-          columnWidth: columnWidth,
-          gutter: 10
-        });
-      };
-      
-      if (images.length === 0) {
-        initMasonry();
-      } else {
-        images.forEach(img => {
-          if (img.complete) {
-            loadedImages++;
-          } else {
-            img.onload = () => {
-              loadedImages++;
-              if (loadedImages === images.length) {
-                initMasonry();
-              }
-            };
-          }
-        });
-        
-        if (loadedImages === images.length) {
+      setTimeout(() => { // small timeout to ensure layout is ready
+        const containerWidth = grid.offsetWidth;
+        const columnWidth = (containerWidth - (nCols - 1) * 10) / nCols;
+
+        // Wait for images to load
+        const images = grid.querySelectorAll('img');
+        let loadedImages = 0;
+
+        const initMasonry = () => {
+          new window.Masonry(grid, {
+            itemSelector: '.object',
+            columnWidth: columnWidth,
+            gutter: 10
+          });
+        };
+
+        if (images.length === 0) {
           initMasonry();
+        } else {
+          images.forEach(img => {
+            if (img.complete) {
+              loadedImages++;
+            } else {
+              img.onload = () => {
+                loadedImages++;
+                if (loadedImages === images.length) {
+                  initMasonry();
+                }
+              };
+            }
+          });
+          if (loadedImages === images.length) {
+            initMasonry();
+          }
         }
-      }
+      }, 100);
     }
   }, [ids, nCols]); // Re-run when items or columns change
 
