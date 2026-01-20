@@ -87,7 +87,6 @@ const STYLES = `
 
 .objects {
   display: grid;
-  gap: 5px;
 }
 
 .labeled, .controls {
@@ -109,21 +108,17 @@ const STYLES = `
 
 .object {
   border: 1px solid #ccc;
-  padding: 5px;
-  margin: 5px;
+  margin: 2px;
   text-align: center;
 }
 
 .object.post {
-  border-color: blue;
 }
 
 .object.text {
-  border-color: green;
 }
 
 .object.image {
-  border-color: orange;
 }
 
 .text .content {
@@ -131,7 +126,7 @@ const STYLES = `
 }
 
 .object {
-  max-width: calc((100vw - (var(--n-cols) + 1) * 10px) / var(--n-cols) - 10px);
+  max-width: calc((100vw - (var(--n-cols) + 1) * 10px) / var(--n-cols) - 1px);
   box-sizing: border-box;
 }
 
@@ -148,15 +143,12 @@ const STYLES = `
 .button-bar {
   display: flex;
   justify-content: center;
-  margin-top: 5px;
-  padding: 5px;
-  border-top: 1px solid #eee;
 }
 
 .button-bar .icon-button {
   cursor: pointer;
-  font-size: 18px;
-  padding: 5px;
+  font-size: 12px;
+  padding: 2px;
   border-radius: 3px;
   user-select: none;
 }
@@ -188,7 +180,6 @@ const STYLES = `
 
 /* Twitter-specific styles */
 .source-twitter.otype-post {
-  border-left: 4px solid #1da1f2;
 }
 
 .twitter-handle {
@@ -209,10 +200,10 @@ const STYLES = `
 
 /* Tumblr-specific styles */
 .source-tumblr.otype-post {
-  border-left: 4px solid #00cf35;
 }
 
 .tumblr-tags {
+  display: none;
   font-size: 0.8em;
   color: #666;
   margin-bottom: 5px;
@@ -313,7 +304,7 @@ const STYLES = `
   color: #666;
   padding: 0 5px;
   user-select: none;
-  margin-top: 8px;
+  margin-top: 3px;
 }
 `;
 
@@ -371,7 +362,7 @@ const TumblrPostContent = (props) => {
     <div>
       <div className="tumblr-tags">#{md.tags.slice(0, 3).join(' #')}</div>
       <div className="tumblr-stats">
-        {md.n_notes} notes • {md.n_likes} ♥ • {md.n_reblogs} ↻
+        {md.n_notes} 📝 • {md.n_likes} ♥ • {md.n_reblogs} ↻
       </div>
       <div className="tumblr-content">
         {nonMediaBlocks.map((block, index) => (
@@ -389,35 +380,32 @@ const TumblrPostContent = (props) => {
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
-  
   const handleImageClick = (e) => {
     if (mediaBlocks.length <= 1) return;
-    
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const imageWidth = rect.width;
-    
-    if (clickX <= 10) {
+    const clickThreshold = imageWidth * 0.45; // pixels from edge to trigger navigation
+    if (clickX <= clickThreshold) {
       // Clicked on left edge - go to previous
       e.preventDefault();
       e.stopPropagation();
       setCurrentIndex(currentIndex === 0 ? mediaBlocks.length - 1 : currentIndex - 1);
-    } else if (clickX >= imageWidth - 10) {
+    } else if (clickX >= imageWidth - clickThreshold) {
       // Clicked on right edge - go to next
       e.preventDefault();
       e.stopPropagation();
       setCurrentIndex(currentIndex === mediaBlocks.length - 1 ? 0 : currentIndex + 1);
     }
   };
-  
   const renderMedia = (block) => {
     const {type, data} = block;
     switch (type) {
       case 'image':
         return (
-          <img 
-            src={data.url} 
-            alt={`Image ${data.id}`} 
+          <img
+            src={data.url}
+            alt={`Image ${data.id}`}
             onClick={handleImageClick}
             style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
           />
@@ -425,8 +413,8 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
       case 'video':
         return (
           <a href={data.url} target="_blank" rel="noreferrer">
-            <img 
-              src={data.md.poster_url} 
+            <img
+              src={data.md.poster_url}
               alt={`Video ${data.id} poster`}
               onClick={handleImageClick}
               style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
@@ -437,7 +425,6 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
         return null;
     }
   };
-  
   return (
     <div className="media-carousel">
       {renderMedia(currentMedia)}
@@ -451,7 +438,7 @@ const Obj = (props) => {
   const liked = Boolean(rels.like);
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
-  
+
   // Media carousel state
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
@@ -651,7 +638,7 @@ const App = () => {
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('');
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 8);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 3 : 8);
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
