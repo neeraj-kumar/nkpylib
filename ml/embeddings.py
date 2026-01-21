@@ -69,6 +69,55 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             raise NotImplementedError(f'Clustering method {method!r} not implemented.')
         return clusterer
 
+    def count_clustering_conflicts(self, labels: dict[KeyT, int], predictions: dict[KeyT, int]) -> dict[str, int]:
+        """Count conflicts between labeled and predicted cluster assignments.
+        
+        Args:
+            labels: Ground truth cluster assignments {item_id: cluster_num}
+            predictions: Predicted cluster assignments {item_id: cluster_num}
+            
+        Returns:
+            Dictionary with conflict counts:
+            - separation_conflicts: labeled same-cluster pairs that got separated
+            - merge_conflicts: labeled different-cluster pairs that got merged  
+            - total_conflicts: sum of above two
+            - total_pairs_checked: total number of labeled pairs examined
+            - conflict_rate: total_conflicts / total_pairs_checked
+        """
+        separation_conflicts = 0
+        merge_conflicts = 0
+        total_pairs_checked = 0
+        
+        # Get all items that have both labels and predictions
+        common_items = set(labels.keys()) & set(predictions.keys())
+        common_items = list(common_items)
+        
+        # Check all pairs of labeled items
+        for i in range(len(common_items)):
+            for j in range(i + 1, len(common_items)):
+                item1, item2 = common_items[i], common_items[j]
+                total_pairs_checked += 1
+                
+                # Check if they should be in same cluster (according to labels)
+                same_label_cluster = labels[item1] == labels[item2]
+                same_pred_cluster = predictions[item1] == predictions[item2]
+                
+                if same_label_cluster and not same_pred_cluster:
+                    separation_conflicts += 1
+                elif not same_label_cluster and same_pred_cluster:
+                    merge_conflicts += 1
+        
+        total_conflicts = separation_conflicts + merge_conflicts
+        conflict_rate = total_conflicts / total_pairs_checked if total_pairs_checked > 0 else 0.0
+        
+        return {
+            'separation_conflicts': separation_conflicts,
+            'merge_conflicts': merge_conflicts,
+            'total_conflicts': total_conflicts,
+            'total_pairs_checked': total_pairs_checked,
+            'conflict_rate': conflict_rate
+        }
+
     def guided_clustering(self,
                           labels: dict[KeyT, int],
                           keys: list[KeyT]|None=None,
@@ -93,16 +142,15 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             #print(keys_all, embs)
             labels_array = np.array([labels[key] if key in labels else -1 for key in keys_all])
             print(labels_array)
-            for _ in range(5):
+            for iteration in range(5):
                 # do a clustering
                 pred_labels = clusterer.fit_predict(embs)
-                # check for conflicts
-                conflict = False
-                for i, key in enumerate(keys_all):
-                    if key in labels and labels[key] != pred_labels[i]:
-                        conflict = True
-                        break
-                if not conflict:
+                # create predictions dict for conflict checking
+                predictions = {key: int(pred_labels[i]) for i, key in enumerate(keys_all)}
+                # check for conflicts using the new method
+                conflict_info = self.count_clustering_conflicts(labels, predictions)
+                print(f"Iteration {iteration}: {conflict_info}")
+                if conflict_info['total_conflicts'] == 0:
                     break
             # assign scores based on distance to cluster center
             centers = clusterer.cluster_centers_
