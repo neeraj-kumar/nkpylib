@@ -404,12 +404,17 @@ const TwitterContentBlock = ({block}) => {
 };
 
 const TwitterPostContent = (props) => {
-  const {id, otype, url, md, score, simpleMode} = props;
-  const content_blocks = props.content_blocks || [];
+  const {id, otype, url, md, score, simpleMode, content_blocks} = props;
+  console.log('TwitterPostContent props:', props);
+  console.log('content_blocks:', content_blocks);
+  
+  const blocks = content_blocks || [];
   // Filter out media blocks since they're handled by MediaCarousel
-  const nonMediaBlocks = content_blocks.filter(block =>
+  const nonMediaBlocks = blocks.filter(block =>
     block.type !== 'image' && block.type !== 'video'
   ) || [];
+  
+  console.log('nonMediaBlocks:', nonMediaBlocks);
   
   return (
     <div>
