@@ -692,8 +692,8 @@ const Obj = (props) => {
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   // Current cluster for this object
-  const currentCluster = clusters[id].num || null;
-  const isManualCluster = clusters[id].score === 1000;
+  const currentCluster = clusters[id]?.num || null;
+  const isManualCluster = clusters[id]?.score === 1000;
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
   // Keyboard event handler for cluster assignment
@@ -1221,7 +1221,22 @@ const App = () => {
       if (Object.keys(manualClusters).length > 0) {
         api.cluster(manualClusters, curIds).then((response) => {
           console.log('Got cluster response:', response);
-          // TODO: Handle response to update automatic clusters
+          // Update clusters with server response, preserving manual assignments
+          if (response.clusters) {
+            setClusters(prevClusters => {
+              const updatedClusters = {...prevClusters};
+              Object.entries(response.clusters).forEach(([objId, clusterData]) => {
+                // Only update if not manually assigned (score !== 1000)
+                if (updatedClusters[objId]?.score !== 1000) {
+                  updatedClusters[objId] = {
+                    num: clusterData.num,
+                    score: clusterData.score
+                  };
+                }
+              });
+              return updatedClusters;
+            });
+          }
         }).catch((error) => {
           console.error('Cluster API call failed:', error);
         });
@@ -1295,7 +1310,7 @@ const App = () => {
   const renderClusterColumns = () => {
     const clusterGroups = {1: [], 2: [], 3: [], 4: [], 5: []};
     ids.forEach(id => {
-      const clusterNum = clusters[id].num || 1;
+      const clusterNum = clusters[id]?.num || 1;
       clusterGroups[clusterNum].push(id);
     });
 
