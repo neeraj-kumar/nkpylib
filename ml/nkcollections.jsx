@@ -450,6 +450,14 @@ const STYLES = `
   background: #0056b3;
 }
 
+.cluster-button.manual {
+  border: 2px solid #28a745;
+}
+
+.cluster-button.automatic {
+  border: 1px solid #dee2e6;
+}
+
 /* Keyboard active object highlighting */
 .object.keyboard-active {
   box-shadow: 0 0 5px #007bff;
@@ -679,7 +687,8 @@ const Obj = (props) => {
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   
   // Current cluster for this object
-  const currentCluster = clusters[id] || null;
+  const currentCluster = clusters[id]?.num || null;
+  const isManualCluster = clusters[id]?.score === 1000;
   
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
@@ -779,7 +788,7 @@ const Obj = (props) => {
             {[1, 2, 3, 4, 5].map(clusterNum => (
               <div
                 key={clusterNum}
-                className={`cluster-button ${currentCluster === clusterNum ? 'active' : ''}`}
+                className={`cluster-button ${currentCluster === clusterNum ? 'active' : ''} ${isManualCluster && currentCluster === clusterNum ? 'manual' : 'automatic'}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   setCluster(id, currentCluster === clusterNum ? null : clusterNum);
@@ -976,7 +985,7 @@ const App = () => {
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
   const [simpleMode, setSimpleMode] = React.useState(true);
   const [mode, setMode] = React.useState(MODES[0]);
-  const [clusters, setClusters] = React.useState({});
+  const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -1130,18 +1139,14 @@ const App = () => {
     setCurIds(Object.keys(data.rows));
     setAllOtypes(data.allOtypes);
 
-    // In clustering mode, set cluster numbers from rels.cluster.num if present, else 1
+    // In clustering mode, initialize clusters for new objects
     if (mode === 'cluster') {
       setClusters((prevClusters) => {
         const newClusters = resetData ? {} : {...prevClusters};
         Object.entries(data.rows).forEach(([id, row]) => {
           if (!(id in newClusters)) {
-            try {
-              const clusterNum = row.rels.cluster.num || 1;
-              newClusters[id] = clusterNum;
-            } catch (err) {
-              newClusters[id] = 1;
-            }
+            // Initialize unlabeled items with num=1, score=0
+            newClusters[id] = {num: 1, score: 0};
           }
         });
         return newClusters;
@@ -1195,13 +1200,14 @@ const App = () => {
     setClusters((clusters) => {
       const newClusters = {...clusters};
       if (clusterNum === null) {
-        delete newClusters[id];
+        // Reset to unlabeled
+        newClusters[id] = {num: 1, score: 0};
       } else {
-        newClusters[id] = clusterNum;
+        // Set as manual with score 1000
+        newClusters[id] = {num: clusterNum, score: 1000};
       }
       return newClusters;
     });
-    // TODO: send to server if needed
   }, [setClusters]);
 
   // function to call classification, whenever pos changes
@@ -1269,7 +1275,7 @@ const App = () => {
     const clusterGroups = {1: [], 2: [], 3: [], 4: [], 5: []};
     
     ids.forEach(id => {
-      const clusterNum = clusters[id] || 1;
+      const clusterNum = clusters[id]?.num || 1;
       clusterGroups[clusterNum].push(id);
     });
 
