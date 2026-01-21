@@ -36,6 +36,7 @@
  */
 
 const DEBOUNCE_MS = 2000;
+const MODES = ['multicol', 'cluster'];
 
 // Detect if we're on a mobile device
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
@@ -698,7 +699,7 @@ const Obj = (props) => {
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-  nCols, setNCols, simpleMode, setSimpleMode, refreshMasonry, ...props}) => {
+  nCols, setNCols, simpleMode, setSimpleMode, mode, setMode, refreshMasonry, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -805,6 +806,20 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
       <div className="control refresh-masonry">
         <button onClick={refreshMasonry}>Refresh Layout</button>
       </div>
+      <div className="control mode-select">
+        <label>Mode:</label>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value)}
+          style={{marginLeft: '5px'}}
+        >
+          {MODES.map((modeOption) => (
+            <option key={modeOption} value={modeOption}>
+              {modeOption}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
@@ -824,6 +839,7 @@ const App = () => {
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
   const [simpleMode, setSimpleMode] = React.useState(true);
+  const [mode, setMode] = React.useState(MODES[0]);
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -1061,7 +1077,7 @@ const App = () => {
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, refreshMasonry};
+    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
