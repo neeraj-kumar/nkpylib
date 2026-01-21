@@ -474,10 +474,12 @@ const STYLES = `
 
 .object.automatic-cluster {
   border: 2px dotted #bbb;
+  opacity: calc(0.4 + 0.6 * var(--cluster-score, 0.5));
 }
 
 .object.unlabeled-cluster {
   border: 2px solid #bbb;
+  opacity: 0.6;
 }
 
 /* Cluster columns layout */
@@ -705,10 +707,11 @@ const Obj = (props) => {
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   // Current cluster for this object
-  const currentCluster = clusters[id].num || null;
-  const clusterScore = clusters[id].score || 0;
-  const isManualCluster = clusters[id].score === 1000;
-  const isUnlabeled = clusters[id].score === 0;
+  const currentCluster = clusters[id]?.num || null;
+  const clusterScore = clusters[id]?.score || 0;
+  const isManualCluster = clusters[id]?.score === 1000;
+  const isUnlabeled = clusters[id]?.score === 0;
+  const normalizedScore = isManualCluster ? 1.0 : clusterScore; // Manual clusters get full opacity
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
   // Keyboard event handler for cluster assignment
@@ -775,6 +778,9 @@ const Obj = (props) => {
     <div 
       id={`id-${id}`} 
       className={classes.join(' ')}
+      style={mode === 'cluster' && clusters[id] ? {
+        '--cluster-score': normalizedScore
+      } : {}}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
