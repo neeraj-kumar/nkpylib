@@ -412,6 +412,42 @@ const STYLES = `
 .src-input.invalid-json {
   border: 2px solid #dc3545;
 }
+
+/* Cluster buttons */
+.cluster-buttons {
+  display: flex;
+  gap: 2px;
+  margin-left: 5px;
+}
+
+.cluster-button {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
+  color: #495057;
+  min-width: 20px;
+  text-align: center;
+  user-select: none;
+}
+
+.cluster-button:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+}
+
+.cluster-button.active {
+  background: #007bff;
+  border-color: #0056b3;
+  color: white;
+}
+
+.cluster-button.active:hover {
+  background: #0056b3;
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -590,7 +626,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
 };
 
 const Obj = (props) => {
-  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks, mode} = props;
+  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks, mode, clusters, setCluster} = props;
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
@@ -600,6 +636,9 @@ const Obj = (props) => {
   // Media carousel state
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
+  
+  // Current cluster for this object
+  const currentCluster = clusters[id] || null;
 
   const mediaDivs = [
     (<div key="a"
@@ -665,6 +704,24 @@ const Obj = (props) => {
         </div>
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
+        
+        {/* Cluster buttons - only show in cluster mode */}
+        {mode === 'cluster' && (
+          <div className="cluster-buttons">
+            {[1, 2, 3, 4, 5].map(clusterNum => (
+              <div
+                key={clusterNum}
+                className={`cluster-button ${currentCluster === clusterNum ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCluster(id, currentCluster === clusterNum ? null : clusterNum);
+                }}
+              >
+                {clusterNum}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {otype === 'post' && PostContentRenderer ? (
@@ -851,6 +908,7 @@ const App = () => {
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
   const [simpleMode, setSimpleMode] = React.useState(true);
   const [mode, setMode] = React.useState(MODES[0]);
+  const [clusters, setClusters] = React.useState({});
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -1041,6 +1099,20 @@ const App = () => {
     });
   }, [setRowById]);
 
+  const setCluster = React.useCallback((id, clusterNum) => {
+    console.log('setting cluster for', id, clusterNum);
+    setClusters((clusters) => {
+      const newClusters = {...clusters};
+      if (clusterNum === null) {
+        delete newClusters[id];
+      } else {
+        newClusters[id] = clusterNum;
+      }
+      return newClusters;
+    });
+    // TODO: send to server if needed
+  }, [setClusters]);
+
   // function to call classification, whenever pos changes
   React.useEffect(() => {
     if (pos.length === 0) {
@@ -1096,7 +1168,8 @@ const App = () => {
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry};
+    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry,
+    clusters, setCluster};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
