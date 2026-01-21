@@ -424,14 +424,15 @@ const STYLES = `
   background: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 3px;
-  padding: 2px 6px;
+  padding: 2px;
   cursor: pointer;
   font-size: 11px;
   font-weight: bold;
   color: #495057;
-  min-width: 20px;
   text-align: center;
   user-select: none;
+  min-width: 20px;
+  max-height: 16px;
 }
 
 .cluster-button:hover {
@@ -1053,21 +1054,27 @@ const App = () => {
     // use immer to update rowById
     setRowById((rowById) => immer.produce(rowById, (draft) => {
       Object.entries(data.rows).forEach(([id, row]) => {
-        row.rels = row.rels || {};
+        if (!row.rels) {
+          row.rels = {};
+        }
         draft[id] = row;
       });
     }));
     setCurIds(Object.keys(data.rows));
     setAllOtypes(data.allOtypes);
-    
+
     // In clustering mode, set cluster numbers from rels.cluster.num if present, else 1
     if (mode === 'cluster') {
       setClusters((prevClusters) => {
         const newClusters = resetData ? {} : {...prevClusters};
         Object.entries(data.rows).forEach(([id, row]) => {
           if (!(id in newClusters)) {
-            const clusterNum = row.rels?.cluster?.num || 1;
-            newClusters[id] = clusterNum;
+            try {
+              const clusterNum = row.rels.cluster.num || 1;
+              newClusters[id] = clusterNum;
+            } catch (err) {
+              newClusters[id] = 1;
+            }
           }
         });
         return newClusters;
