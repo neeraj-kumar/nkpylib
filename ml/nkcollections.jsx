@@ -354,6 +354,19 @@ const STYLES = `
   border-radius: 3px;
   pointer-events: none;
 }
+
+/* Source input validation colors */
+.src-input.url-input {
+  border: 2px solid #007bff;
+}
+
+.src-input.valid-json {
+  border: 2px solid #28a745;
+}
+
+.src-input.invalid-json {
+  border: 2px solid #dc3545;
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -621,12 +634,28 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
       doSource();
     }
   }
+
+  // Determine the CSS class for the source input based on its contents
+  const getSourceInputClass = () => {
+    if (!sourceStr) return 'src-input';
+    
+    if (sourceStr.startsWith('http')) {
+      return 'src-input url-input';
+    }
+    
+    try {
+      JSON.parse(sourceStr);
+      return 'src-input valid-json';
+    } catch (error) {
+      return 'src-input invalid-json';
+    }
+  };
   return (
     <div className="controls">
       <div className="control text-fields">
         <input
           type="text"
-          className="src-input"
+          className={getSourceInputClass()}
           placeholder="Source..."
           value={sourceStr}
           onChange={(e) => setSourceStr(e.target.value)}
