@@ -43,6 +43,7 @@ from nkpylib.utils import specialize
 from nkpylib.ml.feature_set import (
     array1d,
     array2d,
+    nparray2d,
     FeatureSet,
 )
 from nkpylib.ml.nklmdb import (
@@ -71,15 +72,15 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
     def count_clustering_conflicts(self, labels: dict[KeyT, int], predictions: dict[KeyT, int]) -> dict[str, int]:
         """Count conflicts between labeled and predicted cluster assignments.
-        
+
         Args:
             labels: Ground truth cluster assignments {item_id: cluster_num}
             predictions: Predicted cluster assignments {item_id: cluster_num}
-            
+
         Returns:
             Dictionary with conflict counts:
             - separation_conflicts: labeled same-cluster pairs that got separated
-            - merge_conflicts: labeled different-cluster pairs that got merged  
+            - merge_conflicts: labeled different-cluster pairs that got merged
             - total_conflicts: sum of above two
             - total_pairs_checked: total number of labeled pairs examined
             - conflict_rate: total_conflicts / total_pairs_checked
@@ -87,36 +88,30 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         separation_conflicts = 0
         merge_conflicts = 0
         total_pairs_checked = 0
-        
         # Get all items that have both labels and predictions
         common_items = set(labels.keys()) & set(predictions.keys())
         common_items = list(common_items)
-        
         # Check all pairs of labeled items
         for i in range(len(common_items)):
             for j in range(i + 1, len(common_items)):
                 item1, item2 = common_items[i], common_items[j]
                 total_pairs_checked += 1
-                
                 # Check if they should be in same cluster (according to labels)
                 same_label_cluster = labels[item1] == labels[item2]
                 same_pred_cluster = predictions[item1] == predictions[item2]
-                
                 if same_label_cluster and not same_pred_cluster:
                     separation_conflicts += 1
                 elif not same_label_cluster and same_pred_cluster:
                     merge_conflicts += 1
-        
         total_conflicts = separation_conflicts + merge_conflicts
         conflict_rate = total_conflicts / total_pairs_checked if total_pairs_checked > 0 else 0.0
-        
-        return {
-            'separation_conflicts': separation_conflicts,
-            'merge_conflicts': merge_conflicts,
-            'total_conflicts': total_conflicts,
-            'total_pairs_checked': total_pairs_checked,
-            'conflict_rate': conflict_rate
-        }
+        return dict(
+            separation_conflicts=separation_conflicts,
+            merge_conflicts=merge_conflicts,
+            total_conflicts=total_conflicts,
+            total_pairs_checked=total_pairs_checked,
+            conflict_rate=conflict_rate
+        )
 
     def guided_clustering(self,
                           labels: dict[KeyT, int],
@@ -135,6 +130,34 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                     clusters[key] = dict(num=labels[key], score=1.0)
                 else:
                     clusters[key] = dict(num=random.randint(1, n_clusters), score=random.uniform(0, 1))
+        elif method == 'rbf': # apply multiclass rbf classifier
+            keys_all, embs = self.get_keys_embeddings(keys=keys, normed=False, scale_mean=True, scale_std=True)
+            # if we don't have any labels for cluster=1, then add a few dummy examples at low weight
+            orig_labels = labels.copy()
+            key_order = list(labels)
+            if 1 not in labels.values():
+                neg_keys = random.sample([k for k in keys_all if k not in labels], min(5, len(self)//10))
+                for nk in neg_keys:
+                    labels[nk] = 1
+                key_order = list(labels)
+                kwargs['weights'] = [0.1 if k in neg_keys else 1.0 for k in key_order]
+            cls_kw = dict(
+                X=np.vstack([embs[keys_all.index(key)] for key in key_order]),
+                y=[labels[key] for key in key_order],
+                method='rbf',
+                **kwargs)
+            cls = self.make_classifier(C=1, **cls_kw)
+            logger.info(f'Training {method} with labels {labels}: {cls_kw}')
+            scores = cls.decision_function(embs)
+            pred_labels = cls.predict(embs)
+            print(f'got labels {pred_labels}, {pred_labels.shape}, scores of shape {scores.shape}')
+            for i, key in enumerate(keys_all):
+                if len(cls.classes_) == 2:
+                    score = scores[1]
+                else: # multiclass, look up score for predicted class
+                    pred_cls_idx = list(cls.classes_).index(pred_labels[i])
+                    score = scores[i][pred_cls_idx]
+                clusters[key] = dict(num=int(pred_labels[i]), score=float(score))
         else:
             # apply clustering method repeatedly until we have no conflicts with labels
             clusterer = self.get_clusterer(method=method, n_clusters=n_clusters)

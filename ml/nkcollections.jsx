@@ -109,7 +109,7 @@ const STYLES = `
 }
 
 .object.single-col {
-  max-width: 400px;
+  max-width: 400px!important;
 }
 
 .gridobjects {
@@ -335,6 +335,7 @@ const STYLES = `
 /* Media carousel styles */
 .media-carousel {
   margin: 0 0;
+  display: none; /* FIXME */
 }
 
 .media-nav {

@@ -504,18 +504,24 @@ class ClusterHandler(MyBaseHandler):
     """
     def post(self):
         data = json.loads(self.request.body)
-        print(f'In clustering, got manual clusters {data}')
+        print(f'In clustering, got manual clusters {data["clusters"]}')
         # randomly assign cluster nums and scores for now, making sure that the manually labeled
         # clusters are preserved
+        self.embs.reload_keys()
         manual_clusters = data.get('clusters', {})
-        ids = data.get('ids', [])
-        clusters = {}
-        for id in ids:
-            if id in manual_clusters:
-                clusters[id] = dict(num=manual_clusters[id], score=1.0)
-            else:
-                clusters[id] = dict(num=random.randint(1, 5), score=random.uniform(0, 1))
-        ret = dict(msg='random assignment', clusters=clusters)
+        labels = {f'{id}:text': num for id, num in manual_clusters.items()}
+        keys = {f'{id}:text' for id in data.get('ids', [])}
+        method = data.get('method', 'rbf')
+        # number of clusters is the max of the manual cluster num, unless the method is random
+        n_clusters = max(manual_clusters.values())
+        if method == 'random':
+            n_clusters = 5
+        clusters = self.embs.guided_clustering(labels=labels,
+                                               keys=keys,
+                                               method=method,
+                                               n_clusters=n_clusters)
+        clusters = {key.split(':')[0]: v for key, v in clusters.items()}
+        ret = dict(msg=f'method: {method}', clusters=clusters)
         self.write(ret)
 
 
