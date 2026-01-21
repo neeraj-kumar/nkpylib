@@ -284,6 +284,24 @@ const STYLES = `
   font-size: 0.8em;
 }
 
+.twitter-text-block {
+  margin: 5px 0;
+  text-align: left;
+}
+
+.twitter-content {
+  margin: 10px 0;
+}
+
+.twitter-unknown-block {
+  margin: 5px 0;
+  padding: 5px;
+  background-color: #ffe6e6;
+  border: 1px solid #ffcccc;
+  border-radius: 3px;
+  font-size: 0.8em;
+}
+
 /* Media carousel styles */
 .media-carousel {
   margin: 0 0;
@@ -370,11 +388,38 @@ const STYLES = `
 `;
 
 // Source-specific content renderers for posts only
-const TwitterPostContent = ({id, otype, url, md, score, simpleMode}) => {
+const TwitterContentBlock = ({block}) => {
+  const {type, data} = block;
+  
+  switch (type) {
+    case 'text':
+      return <div className="twitter-text-block">{data.md.text}</div>;
+    case 'image':
+    case 'video':
+      // Media is now handled by MediaCarousel, so skip rendering here
+      return null;
+    default:
+      return <div className="twitter-unknown-block">Unknown block type: {type}</div>;
+  }
+};
+
+const TwitterPostContent = (props) => {
+  const {id, otype, url, md, score, simpleMode} = props;
+  const content_blocks = props.content_blocks || [];
+  // Filter out media blocks since they're handled by MediaCarousel
+  const nonMediaBlocks = content_blocks.filter(block =>
+    block.type !== 'image' && block.type !== 'video'
+  ) || [];
+  
   return (
     <div>
       <div className="twitter-handle">@{md.handle}</div>
       <div className="twitter-display-name">{md.display_name}</div>
+      <div className="twitter-content">
+        {nonMediaBlocks.map((block, index) => (
+          <TwitterContentBlock key={`${id}-${index}`} block={block} />
+        ))}
+      </div>
       <div className="twitter-stats">
         {md.likes} ♥ {md.reposts} ↻ {md.replies} 💬 {md.views} 👁
       </div>
