@@ -58,6 +58,61 @@ KeyT = TypeVar('KeyT')
 
 class Embeddings(FeatureSet, Generic[KeyT]):
     """A set of features that you can do stuff with."""
+    def get_clusterer(self, method: str='kmeans', n_clusters: int=-1, **kw) -> Any:
+        if method == 'kmeans':
+            clusterer = MiniBatchKMeans(n_clusters=n_clusters, n_init='auto', **kw)
+        elif method in ('agg', 'average'):
+            clusterer = AgglomerativeClustering(n_clusters=n_clusters, linkage='average', **kw)
+        elif method == 'affinity':
+            clusterer = AffinityPropagation(**kw)
+        else:
+            raise NotImplementedError(f'Clustering method {method!r} not implemented.')
+        return clusterer
+
+    def guided_clustering(self,
+                          labels: dict[KeyT, int],
+                          keys: list[KeyT]|None=None,
+                          n_clusters=-1,
+                          method='kmeans',
+                          **kwargs) -> dict[KeyT, dict]:
+        """You provide a few cluster assignments, and we fill in the rest.
+
+        Returns a dict of key to {num, score}, where score is how confident we are.
+        """
+        clusters: dict[KeyT, dict] = {}
+        if method == 'random': # randomly assign, purely for testing UI
+            for key in keys:
+                if key in labels:
+                    clusters[key] = dict(num=labels[key], score=1.0)
+                else:
+                    clusters[key] = dict(num=random.randint(1, n_clusters), score=random.uniform(0, 1))
+        else:
+            # apply clustering method repeatedly until we have no conflicts with labels
+            clusterer = self.get_clusterer(method=method, n_clusters=n_clusters)
+            keys_all, embs = self.get_keys_embeddings(keys=keys, normed=False, scale_mean=True, scale_std=True)
+            #print(keys_all, embs)
+            labels_array = np.array([labels[key] if key in labels else -1 for key in keys_all])
+            print(labels_array)
+            for _ in range(5):
+                # do a clustering
+                pred_labels = clusterer.fit_predict(embs)
+                # check for conflicts
+                conflict = False
+                for i, key in enumerate(keys_all):
+                    if key in labels and labels[key] != pred_labels[i]:
+                        conflict = True
+                        break
+                if not conflict:
+                    break
+            # assign scores based on distance to cluster center
+            centers = clusterer.cluster_centers_
+            for i, key in enumerate(keys_all):
+                center = centers[pred_labels[i]]
+                dist = np.linalg.norm(embs[i] - center)
+                score = 1 / (1 + dist)
+                clusters[key] = dict(num=int(pred_labels[i])+1, score=float(score))
+        return clusters
+
     def cluster(self, n_clusters=-1, method='kmeans', **kwargs) -> list[list[KeyT]]:
         """Clusters our embeddings.
 
@@ -69,14 +124,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         keys, embs = self.get_keys_embeddings(normed=False, scale_mean=True, scale_std=True)
         if n_clusters <= 0:
             n_clusters = int(np.sqrt(len(keys)))
-        if method == 'kmeans':
-            clusterer = MiniBatchKMeans(n_clusters=n_clusters)
-        elif method in ('agg', 'average'):
-            clusterer = AgglomerativeClustering(n_clusters=n_clusters, linkage='average')
-        elif method == 'affinity':
-            clusterer = AffinityPropagation()
-        else:
-            raise NotImplementedError(f'Clustering method {method!r} not implemented.')
+        clusterer = self.get_clusterer(method=method, n_clusters=n_clusters, **kwargs)
         labels = clusterer.fit_predict(embs)
         uniques = set(labels)
         clusters: dict[int, list[KeyT]] = {i: [] for i in uniques}
