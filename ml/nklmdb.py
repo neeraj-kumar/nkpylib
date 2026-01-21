@@ -292,8 +292,8 @@ class LmdbUpdater(CollectionUpdater):
     """
     def __init__(self,
                  db_path: str,
-                 init_fn: Callable,
-                 map_size: int=2**25,
+                 init_fn: Callable=NumpyLmdb.open,
+                 map_size: int=2**32,
                  n_procs: int=4,
                  **kw):
         """Initialize the updater with the given db_path and `init_fn` (to pick which flavor)
@@ -349,9 +349,15 @@ class LmdbUpdater(CollectionUpdater):
             if emb is not None:
                 emb_updates[id] = np.array(emb, dtype=db.dtype)
         if md_updates:
+            logger.debug(f'Setting {len(md_updates)} metadata entries in process {my_id}: {list(md_updates.items())[:3]}...')
             db.md_batch_set(md_updates)
         if emb_updates:
-            db.update(emb_updates)
+            logger.debug(f'Setting {len(emb_updates)} embeddings in db {(db, len(db))}: {list(emb_updates.items())[:3]}...')
+            try:
+                db.update(emb_updates)
+            except Exception as e:
+                logger.error(f'Error updating embeddings in db {db}: {e}', exc_info=True)
+                raise
         db.sync()
 
     def _add_fn(self, to_add: dict[str, list]) -> None:

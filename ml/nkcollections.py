@@ -423,7 +423,9 @@ class GetHandler(MyBaseHandler):
                 tgt_id = rel.tgt.id
                 if 'rels' not in rows[tgt_id]:
                     rows[tgt_id]['rels'] = {}
-                rows[tgt_id]['rels'][rel.rtype] = rel.ts
+                rel_md = rel.md or {}
+                rel_md['ts'] = rel.ts
+                rows[tgt_id]['rels'][rel.rtype] = rel_md
         self.write(dict(rows=rows, allOtypes=self.all_otypes))
 
 class SourceHandler(MyBaseHandler):
@@ -484,6 +486,14 @@ class ClassifyHandler(MyBaseHandler):
                         scores={id: score for id, score in zip(curIds, scores)},
                         curIds=curIds))
 
+class ClusterHandler(MyBaseHandler):
+    def post(self):
+        data = json.loads(self.request.body)
+        print(f'In clustering, got data {data}')
+        ret = dict(msg='hi', **data)
+        self.write(ret)
+
+
 def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
     # load the data file from first arg
     parser = ArgumentParser(description="NK collections main")
@@ -512,6 +522,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         (r'/source', SourceHandler),
         (r'/action', ActionHandler),
         (r'/classify', ClassifyHandler),
+        (r'/cluster', ClusterHandler),
     ]
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/nkcollections.jsx',
