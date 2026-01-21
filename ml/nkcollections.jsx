@@ -75,6 +75,7 @@ const api = {
   classify: (pos) => fetchEndpoint('/classify', { pos }),
   action: (id, action) => fetchEndpoint('/action', { id, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
+  cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
 };
 
 const STYLES = `
@@ -1207,9 +1208,28 @@ const App = () => {
         // Set as manual with score 1000
         newClusters[id] = {num: clusterNum, score: 1000};
       }
+      
+      // Extract manually assigned clusters and call API
+      const manualClusters = {};
+      Object.entries(newClusters).forEach(([objId, data]) => {
+        if (data.score === 1000) {
+          manualClusters[objId] = data.num;
+        }
+      });
+      
+      // Call cluster endpoint with manual clusters and all object IDs
+      if (Object.keys(manualClusters).length > 0) {
+        api.cluster(manualClusters, curIds).then((response) => {
+          console.log('Got cluster response:', response);
+          // TODO: Handle response to update automatic clusters
+        }).catch((error) => {
+          console.error('Cluster API call failed:', error);
+        });
+      }
+      
       return newClusters;
     });
-  }, [setClusters]);
+  }, [setClusters, curIds]);
 
   // function to call classification, whenever pos changes
   React.useEffect(() => {
