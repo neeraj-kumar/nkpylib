@@ -516,7 +516,8 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
 };
 
 const Obj = (props) => {
-  const {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks} = props;
+  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks} = props;
+  media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
@@ -749,7 +750,8 @@ const App = () => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState('');
+  const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true}');
+  //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 8);
   const [simpleMode, setSimpleMode] = React.useState(true);
 
@@ -799,6 +801,10 @@ const App = () => {
     const styleEl = document.createElement('style');
     styleEl.innerHTML = STYLES;
     document.head.appendChild(styleEl);
+    // call doSource initially
+    if (sourceStr) {
+      setTimeout(() => doSource(), 500);
+    }
   }, []);
 
   React.useEffect(() => {
