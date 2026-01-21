@@ -308,6 +308,8 @@ const STYLES = `
   font-size: 0.8em;
   color: #666;
   margin-top: 5px;
+  display: flex;
+  justify-content: space-evenly;
 }
 
 .twitter-text-block {
@@ -535,7 +537,10 @@ const TwitterPostContent = (props) => {
         ))}
       </div>
       <div className="twitter-stats">
-        💬{md.replies} ↻{md.reposts} ♥{md.likes} 👁{md.views}
+        <span>💬{md.replies}</span>
+        <span>↻{md.reposts}</span>
+        <span>♥{md.likes}</span>
+        <span>📊{md.views}</span>
       </div>
       {!simpleMode && <p className="score">ID: {id}</p>}
       {!simpleMode && score !== undefined && (
@@ -685,26 +690,21 @@ const Obj = (props) => {
   // Media carousel state
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
-  
   // Current cluster for this object
-  const currentCluster = clusters[id]?.num || null;
-  const isManualCluster = clusters[id]?.score === 1000;
-  
+  const currentCluster = clusters[id].num || null;
+  const isManualCluster = clusters[id].score === 1000;
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
-  
   // Keyboard event handler for cluster assignment
   React.useEffect(() => {
     if (!isHovered || mode !== 'cluster') return;
-    
     const handleKeyPress = (e) => {
       const num = parseInt(e.key);
-      if (num >= 1 && num <= 5) {
+      if (num >= 0 && num <= 5) {
         e.preventDefault();
         setCluster(id, currentCluster === num ? null : num);
       }
     };
-    
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [isHovered, mode, id, currentCluster, setCluster]);
@@ -1195,6 +1195,7 @@ const App = () => {
     });
   }, [setRowById]);
 
+  // sets an individual item's cluster
   const setCluster = React.useCallback((id, clusterNum) => {
     console.log('setting cluster for', id, clusterNum);
     setClusters((clusters) => {
@@ -1273,9 +1274,8 @@ const App = () => {
   // Group objects by cluster for cluster mode
   const renderClusterColumns = () => {
     const clusterGroups = {1: [], 2: [], 3: [], 4: [], 5: []};
-    
     ids.forEach(id => {
-      const clusterNum = clusters[id]?.num || 1;
+      const clusterNum = clusters[id].num || 1;
       clusterGroups[clusterNum].push(id);
     });
 
