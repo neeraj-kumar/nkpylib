@@ -467,6 +467,19 @@ const STYLES = `
   border-color: #007bff;
 }
 
+/* Cluster assignment visual indicators */
+.object.manual-cluster {
+  border: 2px solid #28a745; /* Green border for manual */
+}
+
+.object.automatic-cluster {
+  border: 2px solid #ffc107; /* Yellow border for automatic */
+}
+
+.object.unlabeled-cluster {
+  border: 2px solid #6c757d; /* Gray border for unlabeled */
+}
+
 /* Cluster columns layout */
 .cluster-columns {
   display: flex;
@@ -692,8 +705,9 @@ const Obj = (props) => {
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   // Current cluster for this object
-  const currentCluster = clusters[id].num || null;
-  const isManualCluster = clusters[id].score === 1000;
+  const currentCluster = clusters[id]?.num || null;
+  const isManualCluster = clusters[id]?.score === 1000;
+  const isUnlabeled = clusters[id]?.score === 0;
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
   // Keyboard event handler for cluster assignment
@@ -743,6 +757,17 @@ const Obj = (props) => {
   }
   if (isHovered && mode === 'cluster') {
     classes.push('keyboard-active');
+  }
+  
+  // Add cluster assignment visual indicators
+  if (mode === 'cluster' && clusters[id]) {
+    if (isManualCluster) {
+      classes.push('manual-cluster');
+    } else if (isUnlabeled) {
+      classes.push('unlabeled-cluster');
+    } else {
+      classes.push('automatic-cluster');
+    }
   }
 
   return (
