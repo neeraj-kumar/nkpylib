@@ -194,6 +194,7 @@ const STYLES = `
 }
 
 .classify-icon {
+  display: none;
   color: #666;
 }
 
