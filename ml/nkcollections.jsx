@@ -1046,6 +1046,9 @@ const App = () => {
     console.log('got data', data);
     if (resetData) {
       setRowById({});
+      if (mode === 'cluster') {
+        setClusters({});
+      }
     }
     // use immer to update rowById
     setRowById((rowById) => immer.produce(rowById, (draft) => {
@@ -1056,7 +1059,21 @@ const App = () => {
     }));
     setCurIds(Object.keys(data.rows));
     setAllOtypes(data.allOtypes);
-  }, [setRowById, setCurIds, setAllOtypes]);
+    
+    // In clustering mode, set cluster numbers from rels.cluster.num if present, else 1
+    if (mode === 'cluster') {
+      setClusters((prevClusters) => {
+        const newClusters = resetData ? {} : {...prevClusters};
+        Object.entries(data.rows).forEach(([id, row]) => {
+          if (!(id in newClusters)) {
+            const clusterNum = row.rels?.cluster?.num || 1;
+            newClusters[id] = clusterNum;
+          }
+        });
+        return newClusters;
+      });
+    }
+  }, [setRowById, setCurIds, setAllOtypes, mode, setClusters]);
 
   // fetch data when otypes changes
   React.useEffect(() => {
