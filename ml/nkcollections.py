@@ -5,6 +5,7 @@
 import json
 import logging
 import os
+import random
 import re
 import shutil
 import sys
@@ -397,8 +398,15 @@ class GetHandler(MyBaseHandler):
                         q = q.filter(lambda c: getattr(c, field) == float(value))
                 else: # Exact match
                     q = q.filter(lambda c: getattr(c, field) == value)
-        # sort by id descending
-        q = q.order_by(lambda c: desc(c.id))
+        if 'order' in data: # check for ordering info
+            # order value will be a field name, optionally prefixed by - for descending
+            order_field = data['order']
+            if order_field.startswith('-'):
+                q = q.order_by(lambda c: desc(getattr(c, order_field[1:])))
+            else:
+                q = q.order_by(lambda c: getattr(c, order_field))
+        else: # sort by id descending
+            q = q.order_by(lambda c: desc(c.id))
         # if there was a limit parameter, set it
         if 'limit' in data:
             q = q.limit(int(data['limit']))

@@ -43,6 +43,8 @@ from datetime import datetime
 from os.path import exists, dirname, join, abspath
 from urllib.parse import urlencode
 
+import lmdb
+import numpy as np
 import requests
 
 from pony.orm import db_session, select
@@ -51,6 +53,7 @@ from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
 from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main, J
+from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
@@ -208,8 +211,46 @@ class Twitter(Source):
                 )
                 ret.append(im_item)
         logging.info(f'Created {len(ret)} items from archive {path}')
-        Item.update_embeddings(lmdb_path=self.LMDB_PATH, images_dir=self.IMAGES_DIR)
+        self.update_embeddings()
         return ret
+
+    @db_session
+    def update_embeddings(self):
+        """Updates embeddings for our twitter collection."""
+        #Item.update_embeddings(lmdb_path=self.LMDB_PATH, images_dir=self.IMAGES_DIR)
+        # now compute post embeddings based on their content blocks
+        posts = Item.select(lambda i: i.source == self.NAME and i.otype == 'post')
+        print(f'got {posts.count()} posts to update embeddings for')
+        db = NumpyLmdb.open(self.LMDB_PATH, flag='c')
+        updater = LmdbUpdater(self.LMDB_PATH, n_procs=1)
+        for i, post in tqdm(enumerate(posts)):
+            post_key = f'{post.id}:text'
+            if post.id == 51540:
+                logger.info(f' Post {post.id} children: {[(f"{c.id}:text" in db) for c in Item.select(lambda it: it.parent == post)[:]]}, in db: {post_key in db}')
+            if post_key in db:
+                continue
+            children = Item.select(lambda i: i.parent == post)[:]
+            embs = []
+            for c in children:
+                try:
+                    cur = db.get(f'{c.id}:text', None)
+                except lmdb.Error:
+                    db = NumpyLmdb.open(self.LMDB_PATH, flag='c')
+                    cur = db.get(f'{c.id}:text', None)
+                if cur is not None:
+                    embs.append(cur)
+            if not embs:
+                continue
+            # average the embeddings
+            avg = np.mean(np.stack(embs), axis=0)
+            logger.debug(f'  {post_key}: From {len(children)} children, got {len(embs)} embeddings: {embs} -> {avg}')
+            md = dict(n_embs=len(embs), embedding_ts=time.time(), method='average')
+            updater.add(post_key, embedding=avg, metadata=md)
+            post.embed_ts = md['embedding_ts']
+            #if i > 400: break
+        updater.commit()
+
+
 
 def read_archive(path: str='db/twitter/20260116-0028.json', **kw):
     """Reads a twitter archive from given path and prints summary info."""
@@ -230,6 +271,12 @@ def test(**kw):
         assembled = Twitter.assemble_posts(posts[:10])
     print(J(assembled))
 
+def update_embeddings(**kw):
+    """Updates embeddings"""
+    t = Twitter()
+    t.update_embeddings()
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([test, read_archive, web])
+    cli_runner([test, read_archive, web, update_embeddings])

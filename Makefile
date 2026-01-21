@@ -116,3 +116,7 @@ twitter-archive:
 ## runs collections with the twitter archive
 twitter-serve:
 	@python3 twitter.py web
+
+## updates twitter embeddings
+twitter-embeddings:
+	@python3 twitter.py update_embeddings
