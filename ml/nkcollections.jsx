@@ -692,8 +692,8 @@ const Obj = (props) => {
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   // Current cluster for this object
-  const currentCluster = clusters[id]?.num || null;
-  const isManualCluster = clusters[id]?.score === 1000;
+  const currentCluster = clusters[id].num || null;
+  const isManualCluster = clusters[id].score === 1000;
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
   // Keyboard event handler for cluster assignment
@@ -1208,7 +1208,6 @@ const App = () => {
         // Set as manual with score 1000
         newClusters[id] = {num: clusterNum, score: 1000};
       }
-      
       // Extract manually assigned clusters and call API
       const manualClusters = {};
       Object.entries(newClusters).forEach(([objId, data]) => {
@@ -1216,7 +1215,6 @@ const App = () => {
           manualClusters[objId] = data.num;
         }
       });
-      
       // Call cluster endpoint with manual clusters and all object IDs
       if (Object.keys(manualClusters).length > 0) {
         api.cluster(manualClusters, curIds).then((response) => {
@@ -1227,7 +1225,7 @@ const App = () => {
               const updatedClusters = {...prevClusters};
               Object.entries(response.clusters).forEach(([objId, clusterData]) => {
                 // Only update if not manually assigned (score !== 1000)
-                if (updatedClusters[objId]?.score !== 1000) {
+                if (updatedClusters[objId].score !== 1000) {
                   updatedClusters[objId] = {
                     num: clusterData.num,
                     score: clusterData.score
@@ -1241,7 +1239,6 @@ const App = () => {
           console.error('Cluster API call failed:', error);
         });
       }
-      
       return newClusters;
     });
   }, [setClusters, curIds]);
@@ -1310,7 +1307,7 @@ const App = () => {
   const renderClusterColumns = () => {
     const clusterGroups = {1: [], 2: [], 3: [], 4: [], 5: []};
     ids.forEach(id => {
-      const clusterNum = clusters[id]?.num || 1;
+      const clusterNum = clusters[id].num || 1;
       clusterGroups[clusterNum].push(id);
     });
 
