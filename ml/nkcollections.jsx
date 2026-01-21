@@ -99,7 +99,7 @@ const STYLES = `
   border: 1px solid #ccc;
   margin: 0px;
   text-align: center;
-  max-width: 100%;
+  width: 100%;
   box-sizing: border-box;
 }
 
@@ -207,26 +207,6 @@ const STYLES = `
   color: #666;
 }
 
-/* Twitter-specific styles */
-.source-twitter.otype-post {
-}
-
-.twitter-handle {
-  font-weight: bold;
-  color: #1da1f2;
-}
-
-.twitter-display-name {
-  color: #333;
-  margin-bottom: 5px;
-}
-
-.twitter-stats {
-  font-size: 0.8em;
-  color: #666;
-  margin-top: 5px;
-}
-
 /* Tumblr-specific styles */
 .source-tumblr.otype-post {
 }
@@ -284,9 +264,49 @@ const STYLES = `
   font-size: 0.8em;
 }
 
+/* Twitter-specific styles */
+.source-twitter {
+  font-family: "ui-sans-serif", "system-ui", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.object.source-twitter {
+  padding: 0 5px;
+  margin-top: 5px;
+  /* causes issues: max-width: 550px; */
+}
+
+
+.twitter-header {
+  display: flex;
+  text-align: left;
+}
+
+.twitter-display-name {
+  color: #333;
+  margin-bottom: 5px;
+  font-weight: 700;
+  margin-right: 10px;
+}
+
+.twitter-handle {
+  color: rgb(83, 100, 113);
+}
+
+.twitter-ts {
+  display: none;
+  font-size: 0.6em;
+}
+
+.twitter-stats {
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 5px;
+}
+
 .twitter-text-block {
   margin: 5px 0;
   text-align: left;
+  font-size: 15px;
 }
 
 .twitter-content {
@@ -390,7 +410,6 @@ const STYLES = `
 // Source-specific content renderers for posts only
 const TwitterContentBlock = ({block}) => {
   const {type, data} = block;
-  
   switch (type) {
     case 'text':
       return <div className="twitter-text-block">{data.md.text}</div>;
@@ -404,29 +423,30 @@ const TwitterContentBlock = ({block}) => {
 };
 
 const TwitterPostContent = (props) => {
-  const {id, otype, url, md, score, simpleMode, content_blocks} = props;
+  const {id, otype, url, ts, md, score, simpleMode, content_blocks} = props;
   console.log('TwitterPostContent props:', props);
   console.log('content_blocks:', content_blocks);
-  
   const blocks = content_blocks || [];
   // Filter out media blocks since they're handled by MediaCarousel
   const nonMediaBlocks = blocks.filter(block =>
     block.type !== 'image' && block.type !== 'video'
   ) || [];
-  
   console.log('nonMediaBlocks:', nonMediaBlocks);
-  
+  const tsString = new Date(ts*1000).toLocaleString();
   return (
     <div>
-      <div className="twitter-handle">@{md.handle}</div>
-      <div className="twitter-display-name">{md.display_name}</div>
+      <div className="twitter-header" title={tsString}>
+        <div className="twitter-display-name">{md.display_name}</div>
+        <div className="twitter-handle">@{md.handle}</div>
+        <div className="twitter-ts"> {tsString}</div>
+      </div>
       <div className="twitter-content">
         {nonMediaBlocks.map((block, index) => (
           <TwitterContentBlock key={`${id}-${index}`} block={block} />
         ))}
       </div>
       <div className="twitter-stats">
-        {md.likes} ♥ {md.reposts} ↻ {md.replies} 💬 {md.views} 👁
+        💬{md.replies} ↻{md.reposts} ♥{md.likes} 👁{md.views}
       </div>
       {!simpleMode && <p className="score">ID: {id}</p>}
       {!simpleMode && score !== undefined && (
@@ -635,15 +655,6 @@ const Obj = (props) => {
         {hasMultipleMedia && mediaDivs}
       </div>
 
-      {/* Media carousel for posts with media */}
-      {otype === 'post' && media_blocks && media_blocks.length > 0 && (
-        <MediaCarousel
-          mediaBlocks={media_blocks}
-          currentIndex={currentMediaIndex}
-          setCurrentIndex={setCurrentMediaIndex}
-        />
-      )}
-
       {otype === 'post' && PostContentRenderer ? (
         <PostContentRenderer {...props} />
       ) : (
@@ -672,6 +683,15 @@ const Obj = (props) => {
           )}
         </div>
       )}
+      {/* Media carousel for posts with media */}
+      {otype === 'post' && media_blocks && media_blocks.length > 0 && (
+        <MediaCarousel
+          mediaBlocks={media_blocks}
+          currentIndex={currentMediaIndex}
+          setCurrentIndex={setCurrentMediaIndex}
+        />
+      )}
+
     </div>
   );
 }
@@ -802,7 +822,7 @@ const App = () => {
   const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 8);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
   const [simpleMode, setSimpleMode] = React.useState(true);
 
   // Refs to access current values in debounced callbacks

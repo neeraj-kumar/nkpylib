@@ -80,7 +80,7 @@ class Tumblr(Source):
         """Returns if this source can parse the given url"""
         return 'tumblr.com' in url
 
-    def parse(self, url: str, n_posts: int=400, **kw) -> Any:
+    def parse(self, url: str, n_posts: int=300, **kw) -> Any:
         """Parses the given url and returns an appropriate set of GetHandler params.
 
         For now, this simply returns the list of posts that are children of the tumblr blog's Item.

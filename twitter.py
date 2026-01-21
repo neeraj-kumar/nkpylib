@@ -219,6 +219,7 @@ def read_archive(path: str='db/twitter/20260116-0028.json', **kw):
 def web(**kw):
     """Runs the collections web interface."""
     print(f'got kw: {kw}')
+    Twitter()
     return web_main(sqlite_path=Twitter.SQLITE_PATH, lmdb_path=Twitter.LMDB_PATH)
 
 def test(**kw):
