@@ -79,11 +79,38 @@ class Twitter(Source):
         # Find text and images
         text_items = [c for c in children if c.otype == 'text']
         image_items = [c for c in children if c.otype == 'image']
+        video_items = [c for c in children if c.otype == 'video']
 
-        post_data['content'] = dict(
-            text=text_items[0].md['text'] if text_items else '',
-            images=[recursive_to_dict(img) for img in image_items]
-        )
+        # Create content blocks for consistency with other sources
+        content_blocks = []
+        media_blocks = []
+        
+        # Add text content
+        for text_item in text_items:
+            content_blocks.append(dict(
+                type='text',
+                data=recursive_to_dict(text_item)
+            ))
+        
+        # Add media content
+        for img_item in image_items:
+            block = dict(
+                type='image',
+                data=recursive_to_dict(img_item)
+            )
+            content_blocks.append(block)
+            media_blocks.append(block)
+            
+        for video_item in video_items:
+            block = dict(
+                type='video',
+                data=recursive_to_dict(video_item)
+            )
+            content_blocks.append(block)
+            media_blocks.append(block)
+
+        post_data['content_blocks'] = content_blocks
+        post_data['media_blocks'] = media_blocks
         return post_data
 
     @db_session
