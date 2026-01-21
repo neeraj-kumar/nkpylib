@@ -495,10 +495,27 @@ class ClassifyHandler(MyBaseHandler):
                         curIds=curIds))
 
 class ClusterHandler(MyBaseHandler):
+    """Cluster objects semi-automatically.
+
+    Call with manually labeled clusters: {id: cluster_num, ...} and ids (list of all ids to
+    consider), and returns suggested clusters for all ids with scores, as:
+        clusters={id: {num=cluster_num, score=score}, ...}
+
+    """
     def post(self):
         data = json.loads(self.request.body)
-        print(f'In clustering, got data {data}')
-        ret = dict(msg='hi', **data)
+        print(f'In clustering, got manual clusters {data}')
+        # randomly assign cluster nums and scores for now, making sure that the manually labeled
+        # clusters are preserved
+        manual_clusters = data.get('clusters', {})
+        ids = data.get('ids', [])
+        clusters = {}
+        for id in ids:
+            if id in manual_clusters:
+                clusters[id] = dict(num=manual_clusters[id], score=1.0)
+            else:
+                clusters[id] = dict(num=random.randint(1, 5), score=random.uniform(0, 1))
+        ret = dict(msg='random assignment', clusters=clusters)
         self.write(ret)
 
 

@@ -474,12 +474,12 @@ const STYLES = `
 
 .object.automatic-cluster {
   border: 2px dotted #bbb;
-  opacity: calc(0.4 + 0.6 * var(--cluster-score, 0.5));
+  border-opacity: calc(0.4 + 0.6 * var(--cluster-score, 0.5));
 }
 
 .object.unlabeled-cluster {
   border: 2px solid #bbb;
-  opacity: 0.6;
+  border-opacity: 0.6;
 }
 
 /* Cluster columns layout */
@@ -707,10 +707,10 @@ const Obj = (props) => {
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   // Current cluster for this object
-  const currentCluster = clusters[id]?.num || null;
-  const clusterScore = clusters[id]?.score || 0;
-  const isManualCluster = clusters[id]?.score === 1000;
-  const isUnlabeled = clusters[id]?.score === 0;
+  const currentCluster = clusters[id].num || null;
+  const clusterScore = clusters[id].score || 0;
+  const isManualCluster = clusters[id].score === 1000;
+  const isUnlabeled = clusters[id].score === 0;
   const normalizedScore = isManualCluster ? 1.0 : clusterScore; // Manual clusters get full opacity
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
@@ -762,7 +762,6 @@ const Obj = (props) => {
   if (isHovered && mode === 'cluster') {
     classes.push('keyboard-active');
   }
-  
   // Add cluster assignment visual indicators
   if (mode === 'cluster' && clusters[id]) {
     if (isManualCluster) {
@@ -1012,7 +1011,7 @@ const App = () => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true}');
+  const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
   const [simpleMode, setSimpleMode] = React.useState(true);
