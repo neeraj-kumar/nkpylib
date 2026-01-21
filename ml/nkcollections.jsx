@@ -455,6 +455,40 @@ const STYLES = `
   box-shadow: 0 0 5px #007bff;
   border-color: #007bff;
 }
+
+/* Cluster columns layout */
+.cluster-columns {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.cluster-column {
+  flex: 1;
+  min-height: 200px;
+  border: 2px dashed #ddd;
+  border-radius: 5px;
+  padding: 10px;
+  background-color: #fafafa;
+}
+
+.cluster-column h4 {
+  margin: 0 0 10px 0;
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.cluster-column.has-items {
+  border-color: #007bff;
+  background-color: #f8f9ff;
+}
+
+.cluster-column .object {
+  margin-bottom: 10px;
+  max-width: 100%;
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -1230,6 +1264,32 @@ const App = () => {
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
+  // Group objects by cluster for cluster mode
+  const renderClusterColumns = () => {
+    const clusterGroups = {1: [], 2: [], 3: [], 4: [], 5: []};
+    
+    ids.forEach(id => {
+      const clusterNum = clusters[id] || 1;
+      clusterGroups[clusterNum].push(id);
+    });
+
+    return (
+      <div className="cluster-columns">
+        {[1, 2, 3, 4, 5].map(clusterNum => (
+          <div 
+            key={clusterNum} 
+            className={`cluster-column ${clusterGroups[clusterNum].length > 0 ? 'has-items' : ''}`}
+          >
+            <h4>Cluster {clusterNum}</h4>
+            {clusterGroups[clusterNum].map(id => (
+              <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
   <div>
     <h3>Collections</h3>
@@ -1238,15 +1298,20 @@ const App = () => {
       {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
     </div>
     <Controls {...funcs} />
-    <div
-      className="objects"
-      style={{
-        gridTemplateColumns: `repeat(${nCols}, 1fr)`,
-        '--n-cols': nCols
-      }}
-    >
-      {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
-    </div>
+    
+    {mode === 'cluster' ? (
+      renderClusterColumns()
+    ) : (
+      <div
+        className="objects"
+        style={{
+          gridTemplateColumns: `repeat(${nCols}, 1fr)`,
+          '--n-cols': nCols
+        }}
+      >
+        {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
+      </div>
+    )}
   </div>
   );
 }
