@@ -449,6 +449,12 @@ const STYLES = `
 .cluster-button.active:hover {
   background: #0056b3;
 }
+
+/* Keyboard active object highlighting */
+.object.keyboard-active {
+  box-shadow: 0 0 5px #007bff;
+  border-color: #007bff;
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -640,6 +646,25 @@ const Obj = (props) => {
   
   // Current cluster for this object
   const currentCluster = clusters[id] || null;
+  
+  // Hover state for keyboard shortcuts
+  const [isHovered, setIsHovered] = React.useState(false);
+  
+  // Keyboard event handler for cluster assignment
+  React.useEffect(() => {
+    if (!isHovered || mode !== 'cluster') return;
+    
+    const handleKeyPress = (e) => {
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 5) {
+        e.preventDefault();
+        setCluster(id, currentCluster === num ? null : num);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [isHovered, mode, id, currentCluster, setCluster]);
 
   const mediaDivs = [
     (<div key="a"
@@ -672,9 +697,17 @@ const Obj = (props) => {
   } else {
     cClasses.push('hidden');
   }
+  if (isHovered && mode === 'cluster') {
+    classes.push('keyboard-active');
+  }
 
   return (
-    <div id={`id-${id}`} className={classes.join(' ')}>
+    <div 
+      id={`id-${id}`} 
+      className={classes.join(' ')}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       <div className="button-bar">
         <div
           className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
