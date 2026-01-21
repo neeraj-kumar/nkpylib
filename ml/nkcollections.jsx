@@ -80,6 +80,10 @@ const api = {
 
 const STYLES = `
 
+.hidden {
+  display: none;
+}
+
 .labeled {
   border: 1px solid #888;
   padding: 5px;
@@ -102,6 +106,10 @@ const STYLES = `
   text-align: center;
   width: 100%;
   box-sizing: border-box;
+}
+
+.object.single-col {
+  max-width: 400px;
 }
 
 .gridobjects {
@@ -195,7 +203,6 @@ const STYLES = `
 }
 
 .classify-icon {
-  display: none;
   color: #666;
 }
 
@@ -425,14 +432,11 @@ const TwitterContentBlock = ({block}) => {
 
 const TwitterPostContent = (props) => {
   const {id, otype, url, ts, md, score, simpleMode, content_blocks} = props;
-  console.log('TwitterPostContent props:', props);
-  console.log('content_blocks:', content_blocks);
   const blocks = content_blocks || [];
   // Filter out media blocks since they're handled by MediaCarousel
   const nonMediaBlocks = blocks.filter(block =>
     block.type !== 'image' && block.type !== 'video'
   ) || [];
-  console.log('nonMediaBlocks:', nonMediaBlocks);
   const tsString = new Date(ts*1000).toLocaleString();
   return (
     <div>
@@ -587,7 +591,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
 };
 
 const Obj = (props) => {
-  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks} = props;
+  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks, mode} = props;
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
@@ -622,8 +626,16 @@ const Obj = (props) => {
     </div>),
   ];
 
+  let classes = ['object', otype, `source-${source}`, `otype-${otype}`];
+  let cClasses = ['icon-button', 'classify-icon', (pos.includes(id) ? 'selected' : '')];
+  if (mode !== 'multicol') {
+    classes.push('single-col');
+  } else {
+    cClasses.push('hidden');
+  }
+
   return (
-    <div id={`id-${id}`} className={`object ${otype} source-${source} otype-${otype}`}>
+    <div id={`id-${id}`} className={classes.join(' ')}>
       <div className="button-bar">
         <div
           className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
@@ -635,7 +647,7 @@ const Obj = (props) => {
           ♥
         </div>
         <div
-          className={`icon-button classify-icon ${pos.includes(id) ? 'selected' : ''}`}
+          className={cClasses.join(' ')}
           onClick={(e) => {
             e.stopPropagation();
             togglePos(id);
@@ -894,8 +906,18 @@ const App = () => {
   }, []);
 
   React.useEffect(() => {
+    // if mode changes away from multicol, set nCols to 1
+    if (mode !== 'multicol') {
+      setNCols(1);
+    }
+  }, [mode, setNCols]);
+
+  React.useEffect(() => {
     const grid = document.querySelector('.objects');
     if (grid && window.Masonry) {
+      if (mode !== 'multicol') {
+        //TODO do something
+      }
       setTimeout(() => { // small timeout to ensure layout is ready
         const containerWidth = grid.offsetWidth;
         const columnWidth = (containerWidth - (nCols - 1) * 10) / nCols;
@@ -938,7 +960,7 @@ const App = () => {
         }
       }, 500);
     }
-  }, [curIds, nCols]); // Re-run when items or columns change
+  }, [curIds, nCols, mode]); // Re-run when items or columns change
 
   // Throttled scroll handler for infinite scroll
   /*
@@ -948,7 +970,6 @@ const App = () => {
       if (!ticking) {
         requestAnimationFrame(() => {
           const isAtBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 100;
-          
           if (isAtBottom) {
             console.log('User scrolled to bottom - fetch more data');
             // TODO: Implement fetchMoreData function
@@ -1031,7 +1052,7 @@ const App = () => {
     }
     console.log('calling classify for pos', pos);
     api.classify(pos).then((data) => {
-      console.log('got classify data', data);
+      console.log('got classify resp', data);
       // update curIds and scores
       if (data.curIds && data.scores){
         setCurIds(data.curIds);
@@ -1042,7 +1063,6 @@ const App = () => {
 
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback(() => {
-    console.log('updating source with', sourceStr);
     const isUrl = sourceStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
       api.sourceUrl(sourceStr).then((params) => {
