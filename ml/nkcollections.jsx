@@ -458,7 +458,7 @@ const STYLES = `
 }
 
 .cluster-button.automatic {
-  border: 1px solid #dee2e6;
+  border: 1px dashed #dee2e6;
 }
 
 /* Keyboard active object highlighting */
@@ -469,15 +469,15 @@ const STYLES = `
 
 /* Cluster assignment visual indicators */
 .object.manual-cluster {
-  border: 2px solid #28a745; /* Green border for manual */
+  border: 2px solid #000;
 }
 
 .object.automatic-cluster {
-  border: 2px solid #ffc107; /* Yellow border for automatic */
+  border: 2px dotted #bbb;
 }
 
 .object.unlabeled-cluster {
-  border: 2px solid #6c757d; /* Gray border for unlabeled */
+  border: 2px solid #bbb;
 }
 
 /* Cluster columns layout */
@@ -490,7 +490,7 @@ const STYLES = `
 .cluster-column {
   flex: 1;
   min-height: 200px;
-  border: 2px dashed #ddd;
+  /*border: 2px dashed #ddd; */
   border-radius: 5px;
   padding: 10px;
   background-color: #fafafa;
@@ -705,9 +705,10 @@ const Obj = (props) => {
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   // Current cluster for this object
-  const currentCluster = clusters[id]?.num || null;
-  const isManualCluster = clusters[id]?.score === 1000;
-  const isUnlabeled = clusters[id]?.score === 0;
+  const currentCluster = clusters[id].num || null;
+  const clusterScore = clusters[id].score || 0;
+  const isManualCluster = clusters[id].score === 1000;
+  const isUnlabeled = clusters[id].score === 0;
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
   // Keyboard event handler for cluster assignment
@@ -807,10 +808,9 @@ const Obj = (props) => {
         </div>
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
-        
         {/* Cluster buttons - only show in cluster mode */}
         {mode === 'cluster' && (
-          <div className="cluster-buttons">
+          <div className="cluster-buttons" title={`Cluster ${currentCluster}: ${clusterScore}`}>
             {[1, 2, 3, 4, 5].map(clusterNum => (
               <div
                 key={clusterNum}
