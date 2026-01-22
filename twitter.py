@@ -64,14 +64,10 @@ logger = logging.getLogger(__name__)
 class Twitter(Source):
     """A wrapper for processing twitter into a collection"""
     NAME = 'twitter'
-    DIR = 'db/twitter'
-    IMAGES_DIR = join(DIR, 'images/')
-    SQLITE_PATH = join(DIR, 'twitter_collection.sqlite')
-    LMDB_PATH = join(DIR, 'twitter_embeddings.lmdb')
 
     def __init__(self, **kw):
         """Initializes twitter source."""
-        super().__init__(name=self.NAME, sqlite_path=self.SQLITE_PATH)
+        super().__init__(name=self.NAME, data_dir='db/twitter')
 
 
     @classmethod
@@ -217,12 +213,12 @@ class Twitter(Source):
     @db_session
     def update_embeddings(self):
         """Updates embeddings for our twitter collection."""
-        #Item.update_embeddings(lmdb_path=self.LMDB_PATH, images_dir=self.IMAGES_DIR)
+        #Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir)
         # now compute post embeddings based on their content blocks
         posts = Item.select(lambda i: i.source == self.NAME and i.otype == 'post')
         print(f'got {posts.count()} posts to update embeddings for')
-        db = NumpyLmdb.open(self.LMDB_PATH, flag='c')
-        updater = LmdbUpdater(self.LMDB_PATH, n_procs=1)
+        db = NumpyLmdb.open(self.lmdb_path, flag='c')
+        updater = LmdbUpdater(self.lmdb_path, n_procs=1)
         for i, post in tqdm(enumerate(posts)):
             post_key = f'{post.id}:text'
             if post.id == 51540:
@@ -235,7 +231,7 @@ class Twitter(Source):
                 try:
                     cur = db.get(f'{c.id}:text', None)
                 except lmdb.Error:
-                    db = NumpyLmdb.open(self.LMDB_PATH, flag='c')
+                    db = NumpyLmdb.open(self.lmdb_path, flag='c')
                     cur = db.get(f'{c.id}:text', None)
                 if cur is not None:
                     embs.append(cur)
@@ -260,12 +256,12 @@ def read_archive(path: str='db/twitter/20260116-0028.json', **kw):
 def web(**kw):
     """Runs the collections web interface."""
     print(f'got kw: {kw}')
-    Twitter()
-    return web_main(sqlite_path=Twitter.SQLITE_PATH, lmdb_path=Twitter.LMDB_PATH)
+    twitter = Twitter()
+    return web_main(sqlite_path=twitter.sqlite_path, lmdb_path=twitter.lmdb_path)
 
 def test(**kw):
     """Tests out the twitter source."""
-    init_sql_db(Twitter.SQLITE_PATH)
+    twitter = Twitter()
     with db_session:
         posts = Item.select(lambda i: i.source == Twitter.NAME and i.otype == 'post' and i.id > 40000)
         assembled = Twitter.assemble_posts(posts[:10])

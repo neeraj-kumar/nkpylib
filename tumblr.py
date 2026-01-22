@@ -38,10 +38,6 @@ DEFAULT_CONFIG_PATH = '.tumblr_config.json'
 
 class Tumblr(Source):
     NAME = 'tumblr'
-    DIR = 'db/tumblr/'
-    IMAGES_DIR = join(DIR, 'images/')
-    SQLITE_PATH = join(DIR, 'tumblr_collection.sqlite')
-    LMDB_PATH = join(DIR, 'tumblr_embeddings.lmdb')
 
     COMMON_HEADERS = {
         "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
@@ -68,7 +64,7 @@ class Tumblr(Source):
             }
         }
         """
-        super().__init__(name=self.NAME, sqlite_path=self.SQLITE_PATH)
+        super().__init__(name=self.NAME, data_dir='db/tumblr')
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = json.load(f)
@@ -321,8 +317,8 @@ class Tumblr(Source):
                 logger.warning(f'Failed to process blog {name}: {e}')
                 continue
         with db_session:
-            Item.update_embeddings(lmdb_path=self.LMDB_PATH,
-                                   images_dir=self.IMAGES_DIR,
+            Item.update_embeddings(lmdb_path=self.lmdb_path,
+                                   images_dir=self.images_dir,
                                    ids=[c.id for c in cols],
                                    use_cache=True)
 

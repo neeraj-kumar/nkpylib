@@ -256,10 +256,13 @@ class Source:
     """
     _registry = {}  # Class variable to maintain map from names to Source classes
 
-    def __init__(self, name: str, sqlite_path: str, **kw):
+    def __init__(self, name: str, data_dir: str, **kw):
         self.name = name
-        self.sqlite_path = sqlite_path
-        init_sql_db(sqlite_path)
+        self.data_dir = data_dir
+        self.sqlite_path = join(data_dir, 'collection.sqlite')
+        self.lmdb_path = join(data_dir, 'embeddings.lmdb')
+        self.images_dir = join(data_dir, 'images')
+        init_sql_db(self.sqlite_path)
         Source._registry[name] = self.__class__
 
     @classmethod
