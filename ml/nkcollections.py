@@ -53,7 +53,7 @@ sql_db = Database()
 J = lambda obj: json.dumps(obj, indent=2)
 
 
-def maybe_dl(url: str, path: str) -> bool:
+def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
     """Downloads the given url to the given dir if it doesn't already exist there (and is not empty).
 
     Returns if we actually downloaded the file.
@@ -61,7 +61,7 @@ def maybe_dl(url: str, path: str) -> bool:
     if exists(path) and os.path.getsize(path) > 0:
         return False
     logger.debug(f'downloading image {url} -> {path}')
-    r = make_request(url, headers={'Accept': 'image/*,video/*'})
+    r = make_request(url, headers={'Accept': 'image/*,video/*'}, min_delay=fetch_delay)
     try:
         os.makedirs(dirname(path), exist_ok=True)
     except Exception as e:
@@ -112,6 +112,7 @@ class Item(sql_db.Entity, GetMixin):
                           sys_prompt: str|None=None,
                           vlm_model: str='fastvlm',
                           limit: int=-1,
+                          fetch_delay: float=0.1,
                           **kw) -> int:
         """Updates the embeddings for all relevant rows in our table.
 
@@ -135,6 +136,8 @@ class Item(sql_db.Entity, GetMixin):
         #FIXME this is rather complicated
         #FIXME we want this to be async-friendly, as well as batchable/resumable
         #FIXME we also maybe want this to run periodically and automatically?
+        if limit <= 0:
+            limit = 10000000
         db = NumpyLmdb.open(lmdb_path, flag='r')
         #TODO filter by ids
         def postprocess_rows(rows):
@@ -174,7 +177,7 @@ class Item(sql_db.Entity, GetMixin):
                 ext = c.md.get('ext', url.split('.')[-1])
                 mk = c.md.get('media_key', c.id)
                 path = abspath(join(images_dir, f'{mk}.{ext}'))
-                downloaded = maybe_dl(url, path)
+                downloaded = maybe_dl(url, path, fetch_delay=fetch_delay)
                 key = f'{c.id}:image'
                 inputs.append((key, path))
                 if vlm_prompt:
