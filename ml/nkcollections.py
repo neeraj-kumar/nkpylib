@@ -324,6 +324,11 @@ class Source:
             assembled_posts.append(src.assemble_post(post, post.children.select()))
         return assembled_posts
 
+    def update_embeddings(self, **kw):
+        """Updates the embeddings for this Source.
+
+        By default, 
+        """
 
 class MyBaseHandler(BaseHandler):
     @property
