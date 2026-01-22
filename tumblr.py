@@ -87,6 +87,7 @@ class Tumblr(Source):
         parsed = urlparse(url)
         netloc = parsed.netloc.lower()
         path = parsed.path.lower()
+        blog_name = ''
         if netloc.endswith('.tumblr.com'):
             blog_name = netloc.split('.tumblr.com')[0]
             if blog_name in ('www', 'm'):
@@ -149,7 +150,7 @@ class Tumblr(Source):
         if resp.status_code != 200:
             logger.warning(f'Error {resp.status_code} from Tumblr: {resp.text[:500]}')
             sys.exit()
-        resp_path = join(self.DIR, 'last_tumblr_response.html')
+        resp_path = join(self.data_dir, 'last_tumblr_response.html')
         try:
             shutil.copy2(resp_path, resp_path.replace('.html', '_prev.html'))
         except Exception:
@@ -185,7 +186,7 @@ class Tumblr(Source):
         except Exception as e:
             print(resp.text)
             raise Exception(f'Failed to fetch endpoint {endpoint}: {e}')
-        with open(join(self.DIR, 'last_tumblr_api_response.json'), 'w') as f:
+        with open(join(self.data_dir, 'last_tumblr_api_response.json'), 'w') as f:
             json.dump(obj, f, indent=2)
         if obj['meta']['status'] != 200:
             raise Exception(f'Failed to fetch {url}: {obj["meta"]}')

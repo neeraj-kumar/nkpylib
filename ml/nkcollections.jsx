@@ -36,7 +36,7 @@
  */
 
 const DEBOUNCE_MS = 2000;
-const MODES = ['cluster', 'multicol'];
+const MODES = ['multicol', 'cluster'];
 
 // Detect if we're on a mobile device
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
@@ -335,7 +335,6 @@ const STYLES = `
 /* Media carousel styles */
 .media-carousel {
   margin: 0 0;
-  display: none; /* FIXME */
 }
 
 .media-nav {
@@ -685,10 +684,9 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
         return null;
     }
   };
-  
+
   return (
-    <div 
-      className="media-carousel"
+    <div className="media-carousel"
       style={{minHeight: maxHeight > 0 ? `${maxHeight}px` : 'auto'}}
     >
       {renderMedia(currentMedia)}
@@ -707,27 +705,8 @@ const Obj = (props) => {
   // Media carousel state
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
-  // Current cluster for this object
-  const currentCluster = clusters[id].num || null;
-  const clusterScore = clusters[id].score || 0;
-  const isManualCluster = clusters[id].score === 1000;
-  const isUnlabeled = clusters[id].score === 0;
-  const normalizedScore = isManualCluster ? 1.0 : clusterScore; // Manual clusters get full opacity
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
-  // Keyboard event handler for cluster assignment
-  React.useEffect(() => {
-    if (!isHovered || mode !== 'cluster') return;
-    const handleKeyPress = (e) => {
-      const num = parseInt(e.key);
-      if (num >= 0 && num <= 5) {
-        e.preventDefault();
-        setCluster(id, currentCluster === num ? null : num);
-      }
-    };
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [isHovered, mode, id, currentCluster, setCluster]);
 
   const mediaDivs = [
     (<div key="a"
@@ -763,14 +742,37 @@ const Obj = (props) => {
   if (isHovered && mode === 'cluster') {
     classes.push('keyboard-active');
   }
+
+  // Current cluster for this object
+  const currentCluster = (clusters[id]) ? clusters[id].num : null;
+  const clusterScore = (clusters[id]) ? clusters[id].score : 0;
+  const isManualCluster = (clusters[id]) ? clusters[id].score === 1000 : false;
+  const isUnlabeled = (clusters[id]) ? clusters[id].score === 0 : false;
+  const normalizedScore = isManualCluster ? 1.0 : clusterScore; // Manual clusters get full opacity
+  // Keyboard event handler for cluster assignment
+  React.useEffect(() => {
+    if (!isHovered || mode !== 'cluster') return;
+    const handleKeyPress = (e) => {
+      const num = parseInt(e.key);
+      if (num >= 0 && num <= 5) {
+        e.preventDefault();
+        setCluster(id, currentCluster === num ? null : num);
+      }
+    };
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [isHovered, mode, id, currentCluster, setCluster]);
+
   // Add cluster assignment visual indicators
-  if (mode === 'cluster' && clusters[id]) {
-    if (isManualCluster) {
-      classes.push('manual-cluster');
-    } else if (isUnlabeled) {
-      classes.push('unlabeled-cluster');
-    } else {
-      classes.push('automatic-cluster');
+  if (mode === 'cluster') {
+    if (clusters[id]) {
+      if (isManualCluster) {
+        classes.push('manual-cluster');
+      } else if (isUnlabeled) {
+        classes.push('unlabeled-cluster');
+      } else {
+        classes.push('automatic-cluster');
+      }
     }
   }
 
@@ -1012,7 +1014,8 @@ const App = () => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
+  const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "image", "order": "-ts"}');
+  //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
   const [simpleMode, setSimpleMode] = React.useState(true);
@@ -1155,9 +1158,7 @@ const App = () => {
     console.log('got data', data);
     if (resetData) {
       setRowById({});
-      if (mode === 'cluster') {
-        setClusters({});
-      }
+      setClusters({});
     }
     // use immer to update rowById
     setRowById((rowById) => immer.produce(rowById, (draft) => {

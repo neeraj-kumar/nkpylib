@@ -92,6 +92,8 @@ class Item(sql_db.Entity, GetMixin):
     embed_ts = Optional(float, index=True)
     # all other metadata
     md = Optional(Json)
+    # cumulative seconds spent on this item
+    dwell_time = Required(float, default=0.0)
     children = Set('Item', reverse='parent')
     rel_srcs = Set('Rel', reverse='src')
     rel_tgts = Set('Rel', reverse='tgt')
@@ -190,7 +192,6 @@ class Item(sql_db.Entity, GetMixin):
                             messages = vlm_prompt
                         logger.debug(f'Calling VLM for image description for key={key}, path={path}, image_data[:30]')
                         futures[key] = call_vlm.single_future((path, messages), model=vlm_model)
-
                     else: # we already have the desc
                         done[desc_key] = desc['desc']
         def md_func(key, input):
