@@ -52,7 +52,7 @@ class Tumblr(Source):
         "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
     }
 
-    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH):
+    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH, **kw):
         """Initializes the Tumblr API wrapper.
 
         Expects a config JSON file with at least:
@@ -64,7 +64,8 @@ class Tumblr(Source):
             }
         }
         """
-        super().__init__(name=self.NAME, data_dir='db/tumblr')
+        data_dir = kw.pop('data_dir', 'db/tumblr')
+        super().__init__(name=self.NAME, data_dir=data_dir, **kw)
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = json.load(f)
@@ -316,11 +317,7 @@ class Tumblr(Source):
             except Exception as e:
                 logger.warning(f'Failed to process blog {name}: {e}')
                 continue
-        with db_session:
-            Item.update_embeddings(lmdb_path=self.lmdb_path,
-                                   images_dir=self.images_dir,
-                                   ids=[c.id for c in cols],
-                                   use_cache=True)
+        self.update_embeddings(ids=[c.id for c in cols])
 
     def get_likes(self):
         """Returns our likes"""

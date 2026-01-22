@@ -69,7 +69,6 @@ class Twitter(Source):
         """Initializes twitter source."""
         super().__init__(name=self.NAME, data_dir='db/twitter')
 
-
     @classmethod
     def assemble_post(cls, post, children) -> dict:
         """Assemble a complete Twitter post with text and images"""
@@ -211,12 +210,13 @@ class Twitter(Source):
         return ret
 
     @db_session
-    def update_embeddings(self):
+    def update_embeddings(self, **kw):
         """Updates embeddings for our twitter collection."""
-        #Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir)
+        # first compute basic image/text
+        super().update_embeddings(**kw)
         # now compute post embeddings based on their content blocks
         posts = Item.select(lambda i: i.source == self.NAME and i.otype == 'post')
-        print(f'got {posts.count()} posts to update embeddings for')
+        logger.info(f'got {posts.count()} posts to update embeddings for')
         db = NumpyLmdb.open(self.lmdb_path, flag='c')
         updater = LmdbUpdater(self.lmdb_path, n_procs=1)
         for i, post in tqdm(enumerate(posts)):

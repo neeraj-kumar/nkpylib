@@ -111,6 +111,7 @@ class Item(sql_db.Entity, GetMixin):
                           vlm_prompt: str|None='briefly describe this image',
                           sys_prompt: str|None=None,
                           vlm_model: str='fastvlm',
+                          limit: int=-1,
                           **kw) -> int:
         """Updates the embeddings for all relevant rows in our table.
 
@@ -123,6 +124,8 @@ class Item(sql_db.Entity, GetMixin):
         By default we use the given `vlm_prompt` to generate image descriptions for images. If you
         want, you can override this and also optionally override the `sys_prompt`. If `vlm_prompt`
         is empty or None, we don't generate descriptions.
+
+        If you specify a positive `limit`, we only update upto that many embeddings, per otype.
 
         Any kw are passed to `batch_extract_embeddings`.
 
@@ -141,8 +144,8 @@ class Item(sql_db.Entity, GetMixin):
 
         # first do text rows
         with db_session:
-            rows = cls.select(lambda c: c.otype == 'text' and not c.embed_ts)
-            logger.info(f'Updating embeddings for upto {rows.count()} text rows: {rows[:5]}...')
+            rows = cls.select(lambda c: c.otype == 'text' and not c.embed_ts).limit(limit)
+            logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
             inputs = [(f'{c.id}:text', c.md['text']) for c in rows if c.md and 'text' in c.md]
         def md_func(key, input):
             return dict(embedding_ts=int(time.time()))
@@ -152,16 +155,16 @@ class Item(sql_db.Entity, GetMixin):
         postprocess_rows(rows)
         # now do links
         with db_session:
-            rows = cls.select(lambda c: c.otype == 'link' and not c.embed_ts)
-            logger.info(f'Updating embeddings for upto {rows.count()} link rows: {rows[:5]}...')
+            rows = cls.select(lambda c: c.otype == 'link' and not c.embed_ts).limit(limit)
+            logger.info(f'Updating embeddings for upto {len(rows)} link rows: {rows[:5]}...')
             inputs = [(f'{c.id}:text', f"{c.md['title']}: {c.url}") for c in rows if c.md and 'title' in c.md]
         n_text = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
         logger.info(f'  Updated embeddings for {n_text} text rows')
         postprocess_rows(rows)
         # now do image rows. first we have to download them.
         with db_session:
-            rows = cls.select(lambda c: c.otype == 'image' and not c.embed_ts)
-            logger.info(f'Updating embeddings for upto {rows.count()} image rows: {rows[:5]}...')
+            rows = cls.select(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
+            logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
             inputs = []
             futures = {}
             descriptions = {}
@@ -256,14 +259,23 @@ class Source:
     """
     _registry = {}  # Class variable to maintain map from names to Source classes
 
-    def __init__(self, name: str, data_dir: str, **kw):
+    def __init__(self,
+                 name: str,
+                 data_dir: str,
+                 sqlite_path: str='',
+                 lmdb_path: str='',
+                 images_dir: str='',
+                 **kw):
         self.name = name
         self.data_dir = data_dir
-        self.sqlite_path = join(data_dir, 'collection.sqlite')
-        self.lmdb_path = join(data_dir, 'embeddings.lmdb')
-        self.images_dir = join(data_dir, 'images')
+        self.sqlite_path = sqlite_path or join(data_dir, 'collection.sqlite')
+        self.lmdb_path = lmdb_path or join(data_dir, 'embeddings.lmdb')
+        self.images_dir = images_dir or join(data_dir, 'images')
         init_sql_db(self.sqlite_path)
-        Source._registry[name] = self.__class__
+        Source._registry[name] = self
+
+    def __repr__(self) -> str:
+        return f'Source<{self.name}>'
 
     @classmethod
     def can_parse(cls, url: str) -> bool:
@@ -327,11 +339,23 @@ class Source:
             assembled_posts.append(src.assemble_post(post, post.children.select()))
         return assembled_posts
 
+    @db_session
     def update_embeddings(self, **kw):
         """Updates the embeddings for this Source.
 
-        By default, 
+        By default, this just calls Item.update_embeddings, filtered to the ids of items from
+        this source. If 'ids' is given in kw, we further filter to those ids.
+
+        We pass all `kw` to Item.update_embeddings.
         """
+        source_ids = select(c.id for c in Item if c.source == self.name)[:]
+        # if we had a list of input ids, filter to those
+        if 'ids' in kw and kw['ids'] is not None:
+            ids = [id for id in source_ids if id in kw['ids']]
+        else:
+            ids = source_ids
+        Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, ids=ids, **kw)
+
 
 class MyBaseHandler(BaseHandler):
     @property
@@ -571,6 +595,17 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
                                 post_parse_fn=post_parse_fn,
                                 more_kw=kw,
                                 on_start=on_start)
+
+def embeddings_main(batch_size: int=10, **kw):
+    """Runs embedding updates from the command line in an infinite loop.
+
+    You probably want to call this from your subclass, after having initialized your Source.
+    """
+    sources = list(Source._registry.values())
+    logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
+    while 1:
+        for s in sources:
+            s.update_embeddings(limit=batch_size, **kw)
 
 
 if __name__ == '__main__':
