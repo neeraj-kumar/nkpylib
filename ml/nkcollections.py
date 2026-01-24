@@ -600,7 +600,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
                                 more_kw=kw,
                                 on_start=on_start)
 
-def embeddings_main(batch_size: int=10, **kw):
+def embeddings_main(batch_size: int=10, loop_delay: float=10, **kw):
     """Runs embedding updates from the command line in an infinite loop.
 
     You probably want to call this from your subclass, after having initialized your Source.
@@ -608,8 +608,12 @@ def embeddings_main(batch_size: int=10, **kw):
     sources = list(Source._registry.values())
     logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
     while 1:
+        t0 = time.time()
         for s in sources:
             s.update_embeddings(limit=batch_size, **kw)
+        elapsed = time.time() - t0
+        diff = loop_delay - elapsed
+        time.sleep(max(0, diff))
 
 
 if __name__ == '__main__':
