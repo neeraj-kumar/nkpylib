@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 from hashlib import sha256
 
 from qdrant_client import QdrantClient
@@ -78,6 +79,7 @@ class QdrantUpdater(CollectionUpdater):
                  item_incr: int=100,
                  time_incr: float=30.0,
                  post_commit_fn: Callable[[list[str]], None]|None=None,
+                 add_in_bg: bool=True,
                  debug: bool=False):
         """Initialize the updater with the given collection and update frequency.
 
@@ -88,6 +90,11 @@ class QdrantUpdater(CollectionUpdater):
 
         You can optionally pass in a `post_commit_fn` to be called after each commit. It is called
         with the list of ids that were just committed.
+
+        If `add_in_bg` is True (default), then the actual adding to qdrant is done in a background
+        thread. Note that in this case, the `post_commit_fn` is called as soon as the commit is
+        started, not when it is finished. In most cases that's fine, but if e.g. the program
+        terminates while there's still background adds going on, those adds may be lost.
 
         If you specify `debug=True`, then commit messages will be printed using logger.info()
         """
@@ -102,25 +109,75 @@ class QdrantUpdater(CollectionUpdater):
                          time_incr=time_incr,
                          post_commit_fn=post_commit_fn,
                          debug=debug)
+        if add_in_bg:
+            self.bg_pool = ThreadPoolExecutor(max_workers=4)
+            self.futures = []
+        else:
+            self.bg_pool = None
+
+    def __del__(self):
+        """ Cleans up the background pool if any."""
+        if self.bg_pool:
+            for f in self.futures:
+                f.result()
+            self.bg_pool.shutdown(wait=True)
+        super().__del__()
 
     def _add_fn(self, to_add: dict[str, list]) -> None:
-        """Batch add to qdrant"""
-        self.client.upsert(collection_name=self.col_name, points=to_add['objects'])
+        """Batch add to qdrant.
 
-    def add(self, id: int|str, payload: dict[str, Any]|None=None, embedding: dict|Array1D|None=None):
+        This converts to_add['objects'] to PointStructs and upserts them to qdrant.
+
+        It also checks for embeddings that are actually futures, waits for them to complete, and
+        uses their results.
+        """
+        points = []
+        for obj in to_add['objects']:
+            f = obj['vector']
+            if isinstance(f, Future):
+                try:
+                    obj['vector'] = f.result()
+                except Exception as e:
+                    logger.error("Error getting embedding future result for obj %s: %s", obj['id'], e)
+                    continue
+            elif isinstance(f, dict):
+                # if we have a dict of vectors, check for futures
+                for vec_name, embedding in list(f.items()):
+                    if isinstance(embedding, Future):
+                        try:
+                            f[vec_name] = embedding.result()
+                        except Exception as e:
+                            logger.error("Error getting embedding future result for obj %s vector %s: %s", obj['id'], vec_name, e)
+                            del f[vec_name]
+                if not f:
+                    logger.error("No valid embeddings for obj %s after resolving futures", obj['id'])
+                    continue
+            points.append(PointStruct(**obj))
+        if self.bg_pool:
+            f = self.bg_pool.submit(self.client.upsert, collection_name=self.col_name, points=points)
+            self.futures.append(f)
+        else:
+            self.client.upsert(collection_name=self.col_name, points=points)
+
+    def add(self, id: int|str,
+            payload: dict[str, Any]|None=None,
+            embedding: dict|Array1D|future|None=None):
         """Adds an item to the updater.
+
+        Qdrant ids must either ids or valid UUID strings.
+        The payload can be any JSON-able dict.
 
         You can provide an `embedding` as a vector directly, in which case, we will try to add it to
         the presumably only vectors in this collection. Or, you can provide it as a dict mapping
         from vector name(s) to vectors.
 
-        If the update frequency is reached, it will commit the items to the collection.
+        Instead of embeddings, you can also provide futures. When we're committing, we will wait for
+        the futures to complete and use their results as the embeddings.
         """
-        if embedding and len(embedding) > 10:
-            if self.vec_name:
-                # if we have a single vector, use that
+        if embedding is not None and not isinstance(embedding, dict):
+            if self.vec_name: # we have a single vector, use our stored vec_name
                 embedding = {self.vec_name: embedding}
-        obj = PointStruct(
+        obj = dict(
             id=id,
             vector=embedding,
             payload=payload,
