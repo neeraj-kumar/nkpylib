@@ -42,7 +42,7 @@ class LetterboxdArchive:
         self.diary: dict[tuple[str, str], dict[str, Any]] = {}
         self.diary_by_imdb_id: dict[str, list[dict[str, Any]]] = {}
         self.read_data()
-        logger.debug(f'Read {len(self.diary)} diary entries: {json_dumps(sorted(self.diary.items())[:5], indent=2)}')
+        logger.info(f'Read {len(self.diary)} diary entries: {json_dumps(sorted(self.diary.items())[:5], indent=2)}')
 
     def iter_csv(self, rel_path: str) -> Iterator[dict[str, Any]]:
         """Iterates through the CSV file at `rel_path`.
@@ -99,7 +99,9 @@ class LetterboxdArchive:
     def add_imdb_ids(self):
         """Adds imdb ids to the diary entries"""
         # read existing imdb ids
-        updater = JSONUpdater(join(dirname(self.path), 'imdb_ids.json'))
+        path = join(dirname(self.path), 'imdb_ids.json')
+        print(f'Reading imdb ids from {path}: {exists(path)}')
+        updater = JSONUpdater(path)
         updater.load_existing(as_dict=False)
         imdb_map = {row['letterboxd_uri']: row['imdb_id'] for row in updater.data if row.get('imdb_id') and row.get('letterboxd_uri')}
         for entry in self.diary.values():
@@ -113,7 +115,7 @@ class LetterboxdArchive:
                 continue
             queries.append(dict(title=entry['Name'], titles=[entry['Name']], year=entry['Year']))
             to_search.append(entry)
-        logger.info(f'Read {len(imdb_ids)} imdb ids, searching for {len(queries)} missing ones')
+        logger.info(f'Read {len(imdb_map)} imdb ids, searching for {len(queries)} missing ones')
         if not queries:
             return
         #queries = queries[:15]
