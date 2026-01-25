@@ -387,8 +387,6 @@ class JSONUpdater(CollectionUpdater):
 
         You must specify whether the data is a dict (if as_dict=True) or a list.
         """
-        if self.data is None:
-            return
         try:
             with open(self.path, 'r') as f:
                 self.data = json.load(f)

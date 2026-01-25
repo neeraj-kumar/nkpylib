@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from concurrent.futures import Future, ThreadPoolExecutor
 from hashlib import sha256
 
@@ -9,6 +11,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
 from nkpylib.thread_utils import CollectionUpdater
+
+logger = logging.getLogger(__name__)
 
 Array1D = list[float] | tuple[float, ...]  # Assuming a 1D array of floats
 
