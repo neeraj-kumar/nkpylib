@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -134,7 +135,12 @@ class Item(sql_db.Entity, GetMixin):
                 row.embed_ts = ts
             return dict(embed_ts=ts)
 
-        n_text = batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, **kw)
+        # Run the blocking operation in a thread pool
+        loop = asyncio.get_event_loop()
+        n_text = await loop.run_in_executor(
+            None, 
+            lambda: batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, **kw)
+        )
         logger.info(f'  Updated embeddings for {n_text} text rows')
 
     @classmethod
