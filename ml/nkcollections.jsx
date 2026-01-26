@@ -66,7 +66,14 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    return await response.json();
+    const responseData = await response.json();
+    
+    // Check for success message in response
+    if (globalSetMessage && responseData.msg) {
+      globalSetMessage(responseData.msg);
+    }
+    
+    return responseData;
   } catch (error) {
     if (globalSetMessage) {
       globalSetMessage(`API call failed: ${endpoint} - ${error.message}`);
