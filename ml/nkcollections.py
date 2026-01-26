@@ -559,7 +559,7 @@ class ClassifyHandler(MyBaseHandler):
                         if child.otype == 'image':
                             images.add(child)
             # filter down to only those with embeddings
-            pos = [img for img in images if img.embed_ts > 0]
+            pos = [img for img in images if img.embed_ts]
             pos_ids = [p.id for p in pos]
             # get a bunch of random negative images
             neg = Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids)
@@ -572,8 +572,8 @@ class ClassifyHandler(MyBaseHandler):
         scores = {k.split(':')[0]: v for k, v in scores.items()}
         self.write(dict(msg='likes image classifier', pos=pos, neg=neg, scores=scores))
 
-
     def post(self):
+        self.embs.reload_keys()
         # figure out what kind of classification we're doing
         data = json.loads(self.request.body)
         pos = data.get('pos', [])

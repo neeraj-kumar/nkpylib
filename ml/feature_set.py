@@ -42,15 +42,20 @@ class FeatureSet(Mapping, Generic[KeyT]):
         The inputs should either be mapping-like objects, or paths to numpy-encoded lmdb files.
         We compute the intersection of the keys in all inputs, and use that as our list of _keys.
         """
+        self.orig_inputs = inputs
         # remap any path inputs to NumpyLmdb objects
         self.dtype = dtype
         self.inputs = [NumpyLmdb.open(inp, flag='r', dtype=dtype) if isinstance(inp, str) else inp
                        for inp in inputs]
         self.cached: dict[str, Any] = dict()
-        self.reload_keys()
+        self.reload_keys(reload_lmdb=False)
 
-    def reload_keys(self) -> None:
+    def reload_keys(self, reload_lmdb:bool=True) -> None:
         """Reloads our keys"""
+        # first reload all our lmdbs
+        rel_inp = lambda i: NumpyLmdb.open(i.path, flag='r', dtype=self.dtype) if isinstance(i, NumpyLmdb) else i
+        if reload_lmdb:
+            self.inputs = [rel_inp(inp) for inp in self.inputs]
         self._keys = self.get_keys()
         self.n_dims = 0
         for key, value in self.items():

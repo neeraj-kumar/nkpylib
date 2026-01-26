@@ -1340,16 +1340,20 @@ const App = () => {
       console.log('got like classifier response', resp);
       if (resp.scores) {
         setScores(resp.scores);
-        // sort cur ids by score desc
-        const sortedIds = Object.entries(resp.scores)
-          .sort((a, b) => b[1] - a[1])
-          .map(([id, score]) => id);
+        // sort cur ids by score desc, if we have it for that item
+        const sortedIds = curIds.sort((a, b) => {
+          const scoreA = resp.scores[a] || -10;
+          const scoreB = resp.scores[b] || -10;
+          return scoreB - scoreA;
+        });
+        console.log('cur ids vs new', curIds, sortedIds);
         setCurIds(sortedIds);
+        refreshMasonry()
       }
     }).catch((error) => {
       console.error('Like classifier failed:', error);
     });
-  }, [setCurIds, setScores]);
+  }, [setCurIds, setScores, curIds, refreshMasonry]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
@@ -1369,8 +1373,7 @@ const App = () => {
     return (
       <div className="cluster-columns">
         {[1, 2, 3, 4, 5].map(clusterNum => (
-          <div 
-            key={clusterNum} 
+          <div key={clusterNum}
             className={`cluster-column ${clusterGroups[clusterNum].length > 0 ? 'has-items' : ''}`}
           >
             <h4>Cluster {clusterNum}</h4>
