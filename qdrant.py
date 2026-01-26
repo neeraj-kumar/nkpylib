@@ -152,7 +152,7 @@ class QdrantUpdater(CollectionUpdater):
                             f[vec_name] = embedding.result()
                         except Exception as e:
                             logger.error("Error getting embedding future result for obj %s vector %s: %s", obj['id'], vec_name, e)
-                            del f[vec_name]
+                            f.pop(vec_name, None)
                 if not f:
                     logger.error("No valid embeddings for obj %s after resolving futures", obj['id'])
                     continue
