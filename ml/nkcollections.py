@@ -44,6 +44,7 @@ from pony.orm import (
 ) # type: ignore
 
 from nkpylib.ml.client import call_vlm, embed_image
+from nkpylib.ml.embeddings import embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings
@@ -218,7 +219,91 @@ class Item(sql_db.Entity, GetMixin):
                                         sys_prompt,
                                         vlm_model,
                                         **kw) -> int:
-        pass
+        """Updates image descriptions using VLM for images that have been explored.
+        
+        Filters to images where explored_ts is not null, generates descriptions via VLM,
+        embeds the descriptions, and updates both LMDB and SQLite metadata.
+        
+        Returns the number of descriptions updated.
+        """
+        with db_session:
+            rows = q.select(lambda c: c.otype == 'image' and c.explored_ts is not None)
+            logger.info(f'Updating descriptions for {len(rows)} explored image rows: {rows[:5]}...')
+            
+            # Create VLM tasks for all images
+            vlm_tasks = []
+            row_by_task = {}
+            
+            for row in rows:
+                # Check if we already have a description
+                desc_key = f'{row.id}:text'
+                try:
+                    db = NumpyLmdb.open(lmdb_path, flag='r')
+                    existing_desc = db.md_get(desc_key)
+                    db.close()
+                    if existing_desc and 'desc' in existing_desc:
+                        continue  # Skip if we already have description
+                except:
+                    pass  # Continue if we can't check
+                
+                # Create VLM messages
+                if sys_prompt:
+                    messages = [
+                        dict(role='system', content=sys_prompt),
+                        dict(role='user', content=vlm_prompt)
+                    ]
+                else:
+                    messages = vlm_prompt
+                
+                # Get image path
+                image_path = cls.image_path(row, images_dir=kw.get('images_dir', ''))
+                
+                # Create VLM task
+                vlm_task = call_vlm.single_async((image_path, messages), model=vlm_model)
+                vlm_tasks.append(vlm_task)
+                row_by_task[vlm_task] = row
+        
+        if not vlm_tasks:
+            logger.info('No images need description updates')
+            return 0
+        
+        # Process VLM results as they complete
+        n_descriptions = 0
+        db = NumpyLmdb.open(lmdb_path, flag='c')
+        
+        try:
+            async for vlm_task in asyncio.as_completed(vlm_tasks):
+                try:
+                    description = await vlm_task
+                    row = row_by_task[vlm_task]
+                    
+                    # Embed the description text
+                    text_embedding = embed_text.single(description)
+                    
+                    # Update LMDB with description embedding and metadata
+                    desc_key = f'{row.id}:text'
+                    ts = int(time.time())
+                    db.set(desc_key, text_embedding)
+                    db.md_set(desc_key, desc=description, embed_ts=ts)
+                    
+                    # Update SQLite with explored timestamp
+                    with db_session:
+                        sqlite_row = Item[row.id]
+                        sqlite_row.explored_ts = ts
+                    
+                    n_descriptions += 1
+                    logger.debug(f'Updated description for image {row.id}: {description[:50]}...')
+                    
+                except Exception as e:
+                    row = row_by_task[vlm_task]
+                    logger.warning(f'Error processing description for image {row.id}: {e}')
+                    continue
+        
+        finally:
+            db.close()
+        
+        logger.info(f'Updated descriptions for {n_descriptions} images')
+        return n_descriptions
 
     @classmethod
     async def update_embeddings_async(cls,
