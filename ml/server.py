@@ -61,6 +61,7 @@ import uuid
 
 from abc import ABC, abstractmethod
 from collections import Counter, OrderedDict
+from concurrent.futures import ProcessPoolExecutor, Future
 from hashlib import sha256
 from pprint import pformat
 from asyncio import Lock, Condition
@@ -389,59 +390,43 @@ class EmbeddingModel(Model):
             n_dims=len(embedding),
         )
 
+# GLOBAL model storage (per process)
+PROC_MODELS: dict[str, tuple] = {}  # {model_name: (text_func, image_func)}
+
+def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
+    """Class method that handles both loading and execution"""
+    print(f'in worker for model {model_name} in mode {mode} on pid {os.getpid()}')
+    global PROC_MODELS
+    if model_name not in PROC_MODELS:
+        logger.info(f"Loading {model_name} in process {os.getpid()}")
+        if 'clip' in model_name:
+            PROC_MODELS[model_name] = load_clip(model_name)
+        elif 'jina':
+            PROC_MODELS[model_name] = load_jina(model_name)
+        else:
+            raise NotImplementedError(f"Unsupported ImageTextEmbeddingModel: {model_name}")
+    text_func, image_func = PROC_MODELS[model_name]
+    func = text_func if mode == 'text' else image_func
+    return func(input_data)
+
+
 class ImageTextEmbeddingModel(EmbeddingModel):
     """Model subclass for handling joint text/image embeddings."""
-    # Class-level model storage (per process)
-    _models: dict[str, tuple] = {}  # {model_name: (text_func, image_func)}
-    
-    def __init__(self, mode='text', model_name: str='', use_cache: bool=True, use_processes: bool=False, **kw):
+    def __init__(self, mode='text', model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
         super().__init__(model_name=model_name, use_cache=use_cache, **kw)
         assert mode in ('text', 'image')
         self.mode = mode
-        self.use_processes = use_processes
-        
-        if self.use_processes:
-            import concurrent.futures
-            self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=2)
+        self.executor = ProcessPoolExecutor(max_workers=n_procs)
 
-    def __getstate__(self):
-        """Make the class pickleable by excluding non-pickleable attributes"""
-        state = self.__dict__.copy()
-        if 'executor' in state:
-            del state['executor']
-        return state
-
-    def __setstate__(self, state):
-        """Restore the class from pickled state"""
-        self.__dict__.update(state)
-
-    @classmethod
-    def _get_or_load_model(cls, model_name: str):
-        """Get model from class cache, loading if necessary"""
-        if model_name not in cls._models:
-            print(f"Loading {model_name} in process {os.getpid()}")
-            if 'clip' in model_name:
-                cls._models[model_name] = load_clip(model_name)
-            else:
-                cls._models[model_name] = load_jina(model_name)
-        return cls._models[model_name]
-
-    @classmethod
-    def _worker_function(cls, model_name: str, mode: str, input_data: Any):
-        """Class method that handles both loading and execution"""
-        text_func, image_func = cls._get_or_load_model(model_name)
-        func = text_func if mode == 'text' else image_func
-        return func(input_data)
+    def __del__(self):
+        self.executor.shutdown(wait=False)
 
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
         raise NotImplementedError("This method should be overridden in subclasses")
 
     async def _load(self, **kw) -> Any:
-        if self.use_processes:
-            # For process-based execution, we don't pre-load the model
-            return None
-        
+        return None #TODO remove following code once we test process version
         get_text_features, get_image_features = await self.load_feature_funcs()
         if self.mode == 'text':
             return get_text_features
@@ -451,20 +436,16 @@ class ImageTextEmbeddingModel(EmbeddingModel):
 
     async def _run(self, input: Any, **kw) -> dict:
         try:
-            if self.use_processes:
-                # Use process pool executor
-                loop = asyncio.get_event_loop()
-                ret = await loop.run_in_executor(
-                    self.executor,
-                    self._worker_function,
-                    self.model_name,
-                    self.mode,
-                    input
-                )
-            else:
-                # Use thread-based execution (original behavior)
-                ret = await asyncio.to_thread(self.model, input) # no kw options at runtime
-            
+            loop = asyncio.get_event_loop()
+            ret = await loop.run_in_executor(
+                self.executor,
+                image_text_embedding_worker,
+                self.model_name,
+                self.mode,
+                input
+            )
+            # Use thread-based execution (original behavior)
+            #ret = await asyncio.to_thread(self.model, input)
             if not isinstance(ret, np.ndarray):
                 ret = ret.numpy()
             return self.postprocess(ret)
@@ -475,8 +456,8 @@ class ImageTextEmbeddingModel(EmbeddingModel):
 @Singleton
 class ClipTextEmbeddingModel(ImageTextEmbeddingModel):
     """Model subclass for handling CLIP text embeddings."""
-    def __init__(self, model_name: str='', use_cache: bool=True, use_processes: bool=False, **kw):
-        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, use_processes=use_processes, **kw)
+    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
+        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
@@ -485,8 +466,8 @@ class ClipTextEmbeddingModel(ImageTextEmbeddingModel):
 @Singleton
 class ClipImageEmbeddingModel(ImageTextEmbeddingModel):
     """Model subclass for handling CLIP text/image embeddings."""
-    def __init__(self, model_name: str='', use_cache: bool=True, use_processes: bool=False, **kw):
-        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, use_processes=use_processes, **kw)
+    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
+        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
@@ -496,8 +477,8 @@ class ClipImageEmbeddingModel(ImageTextEmbeddingModel):
 @Singleton
 class JinaTextEmbeddingModel(ImageTextEmbeddingModel):
     """Model subclass for handling Jina text embeddings."""
-    def __init__(self, model_name: str='', use_cache: bool=True, use_processes: bool=False, **kw):
-        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, use_processes=use_processes, **kw)
+    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
+        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
@@ -507,8 +488,8 @@ class JinaTextEmbeddingModel(ImageTextEmbeddingModel):
 @Singleton
 class JinaImageEmbeddingModel(ImageTextEmbeddingModel):
     """Model subclass for handling Jina image embeddings."""
-    def __init__(self, model_name: str='', use_cache: bool=True, use_processes: bool=False, **kw):
-        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, use_processes=use_processes, **kw)
+    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
+        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
