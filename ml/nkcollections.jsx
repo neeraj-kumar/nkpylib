@@ -881,7 +881,7 @@ const Obj = (props) => {
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-  nCols, setNCols, simpleMode, setSimpleMode, mode, setMode, refreshMasonry, doLikeClassifier, ...props}) => {
+  nCols, setNCols, simpleMode, setSimpleMode, mode, setMode, refreshMasonry, doLikeClassifier, message, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -906,6 +906,9 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   };
   return (
     <div className="controls">
+      <div className="control message-display">
+        <span>{message}</span>
+      </div>
       <div className="control text-fields">
         <input
           type="text"
@@ -1027,6 +1030,7 @@ const App = () => {
   const [simpleMode, setSimpleMode] = React.useState(true);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
+  const [message, setMessage] = React.useState('Message');
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
@@ -1358,7 +1362,7 @@ const App = () => {
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry,
-    clusters, setCluster, doLikeClassifier};
+    clusters, setCluster, doLikeClassifier, message};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
