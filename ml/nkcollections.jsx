@@ -42,15 +42,20 @@ const MODES = ['multicol', 'cluster'];
 // Detect if we're on a mobile device
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
 
+// Create context for message handling
+const MessageContext = React.createContext();
+
 // Utility function for making API calls
 const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
   const {
     method = 'POST',
     headers = { 'Content-Type': 'application/json' },
     onError = (error) => console.error('Fetch error:', error),
-    setMessage = null,
     ...fetchOptions
   } = options;
+
+  // Get setMessage from context
+  const setMessage = React.useContext(MessageContext);
 
   try {
     const response = await fetch(endpoint, {
@@ -76,12 +81,12 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 
 // API helper functions
 const api = {
-  get: (params, setMessage) => fetchEndpoint('/get', params, { setMessage }),
-  classify: (pos, setMessage) => fetchEndpoint('/classify', { pos }, { setMessage }),
-  classifyLikes: (type, otype, setMessage) => fetchEndpoint('/classify', { type, otype }, { setMessage }),
-  action: (id, action, setMessage) => fetchEndpoint('/action', { id, action }, { setMessage }),
-  sourceUrl: (url, setMessage) => fetchEndpoint('/source', { url }, { setMessage }),
-  cluster: (clusters, ids, setMessage) => fetchEndpoint('/cluster', { clusters, ids }, { setMessage }),
+  get: (params) => fetchEndpoint('/get', params),
+  classify: (pos) => fetchEndpoint('/classify', { pos }),
+  classifyLikes: (type, otype) => fetchEndpoint('/classify', { type, otype }),
+  action: (id, action) => fetchEndpoint('/action', { id, action }),
+  sourceUrl: (url) => fetchEndpoint('/source', { url }),
+  cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
 };
 
 const STYLES = `
@@ -1209,10 +1214,10 @@ const App = () => {
       added_ts: '>=' + (Math.floor(Date.now() / 1000) - (24*3600)), // added within the last day
       assemble_posts: true,
       limit: 500,
-    }, setMessage).then(updateData).catch(() => {
+    }).then(updateData).catch(() => {
       // Error already handled by fetchEndpoint
     });
-  }, [updateData, setMessage]);
+  }, [updateData]);
 
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
@@ -1228,7 +1233,7 @@ const App = () => {
   const setLiked = React.useCallback((id, likedState) => {
     console.log('setting liked for', id, likedState);
     // send to server
-    api.action(id, likedState ? 'like' : 'unlike', setMessage).catch(() => {
+    api.action(id, likedState ? 'like' : 'unlike').catch(() => {
       // Error already handled by fetchEndpoint
     });
     // update rowById
@@ -1244,7 +1249,7 @@ const App = () => {
         }
       });
     });
-  }, [setRowById, setMessage]);
+  }, [setRowById]);
 
   // sets an individual item's cluster
   const setCluster = React.useCallback((id, clusterNum) => {
@@ -1267,7 +1272,7 @@ const App = () => {
       });
       // Call cluster endpoint with manual clusters and all object IDs
       if (Object.keys(manualClusters).length > 0) {
-        api.cluster(manualClusters, curIds, setMessage).then((response) => {
+        api.cluster(manualClusters, curIds).then((response) => {
           console.log('Got cluster response:', response);
           // Update clusters with server response, preserving manual assignments
           if (response.clusters) {
@@ -1291,7 +1296,7 @@ const App = () => {
       }
       return newClusters;
     });
-  }, [setClusters, curIds, setMessage]);
+  }, [setClusters, curIds]);
 
   // function to call classification, whenever pos changes
   React.useEffect(() => {
@@ -1302,7 +1307,7 @@ const App = () => {
       return;
     }
     console.log('calling classify for pos', pos);
-    api.classify(pos, setMessage).then((data) => {
+    api.classify(pos).then((data) => {
       console.log('got classify resp', data);
       // update curIds and scores
       if (data.curIds && data.scores){
@@ -1312,16 +1317,16 @@ const App = () => {
     }).catch(() => {
       // Error already handled by fetchEndpoint
     });
-  }, [pos, setMessage]);
+  }, [pos]);
 
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback(() => {
     const isUrl = sourceStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
-      api.sourceUrl(sourceStr, setMessage).then((params) => {
+      api.sourceUrl(sourceStr).then((params) => {
         // save the params, serialized, to sourceStr
         //setSourceStr(JSON.stringify(params));
-        return api.get(params, setMessage);
+        return api.get(params);
       }).then((data) => {
         updateData(data, true);
       }).catch(() => {
@@ -1330,7 +1335,7 @@ const App = () => {
     } else { // Parse as JSON and use as get parameters
       try {
         const params = JSON.parse(sourceStr);
-        api.get(params, setMessage).then((data) => {
+        api.get(params).then((data) => {
           updateData(data, true);
         }).catch(() => {
           // Error already handled by fetchEndpoint
@@ -1355,7 +1360,7 @@ const App = () => {
 
   const doLikeClassifier = React.useCallback(() => {
     console.log('calling like classifier');
-    api.classifyLikes('likes', 'image', setMessage).then((resp) => {
+    api.classifyLikes('likes', 'image').then((resp) => {
       console.log('got like classifier response', resp);
       if (resp.scores) {
         setScores(resp.scores);
@@ -1372,12 +1377,12 @@ const App = () => {
     }).catch(() => {
       // Error already handled by fetchEndpoint
     });
-  }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
+  }, [setCurIds, setScores, curIds, refreshMasonry]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry,
-    clusters, setCluster, doLikeClassifier, message, setMessage};
+    clusters, setCluster, doLikeClassifier, message};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
@@ -1406,27 +1411,29 @@ const App = () => {
   };
 
   return (
-  <div>
-    <h3>Collections</h3>
-    <h4>Labeled</h4>
-    <div className="labeled">
-      {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
-    </div>
-    <Controls {...funcs} />
-    {mode === 'cluster' ? (
-      renderClusterColumns()
-    ) : (
-      <div
-        className="objects"
-        style={{
-          gridTemplateColumns: `repeat(${nCols}, 1fr)`,
-          '--n-cols': nCols
-        }}
-      >
-        {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
+    <MessageContext.Provider value={setMessage}>
+      <div>
+        <h3>Collections</h3>
+        <h4>Labeled</h4>
+        <div className="labeled">
+          {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
+        </div>
+        <Controls {...funcs} />
+        {mode === 'cluster' ? (
+          renderClusterColumns()
+        ) : (
+          <div
+            className="objects"
+            style={{
+              gridTemplateColumns: `repeat(${nCols}, 1fr)`,
+              '--n-cols': nCols
+            }}
+          >
+            {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
+          </div>
+        )}
       </div>
-    )}
-  </div>
+    </MessageContext.Provider>
   );
 }
 
