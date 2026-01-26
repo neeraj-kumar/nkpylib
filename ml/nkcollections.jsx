@@ -42,8 +42,8 @@ const MODES = ['multicol', 'cluster'];
 // Detect if we're on a mobile device
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
 
-// Create context for message handling
-const MessageContext = React.createContext();
+// Global reference for message handling
+let globalSetMessage = null;
 
 // Utility function for making API calls
 const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
@@ -53,9 +53,6 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
     onError = (error) => console.error('Fetch error:', error),
     ...fetchOptions
   } = options;
-
-  // Get setMessage from context
-  const setMessage = React.useContext(MessageContext);
 
   try {
     const response = await fetch(endpoint, {
@@ -71,8 +68,8 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 
     return await response.json();
   } catch (error) {
-    if (setMessage) {
-      setMessage(`API call failed: ${endpoint} - ${error.message}`);
+    if (globalSetMessage) {
+      globalSetMessage(`API call failed: ${endpoint} - ${error.message}`);
     }
     onError(error);
     throw error;
@@ -1045,6 +1042,11 @@ const App = () => {
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
   const [message, setMessage] = React.useState('Messages show up here');
 
+  // Set up global reference to setMessage
+  React.useEffect(() => {
+    globalSetMessage = setMessage;
+  }, [setMessage]);
+
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
   const searchStrRef = React.useRef(searchStr);
@@ -1415,29 +1417,27 @@ const App = () => {
   };
 
   return (
-    <MessageContext.Provider value={setMessage}>
-      <div>
-        <h3>Collections</h3>
-        <h4>Labeled</h4>
-        <div className="labeled">
-          {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
-        </div>
-        <Controls {...funcs} />
-        {mode === 'cluster' ? (
-          renderClusterColumns()
-        ) : (
-          <div
-            className="objects"
-            style={{
-              gridTemplateColumns: `repeat(${nCols}, 1fr)`,
-              '--n-cols': nCols
-            }}
-          >
-            {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
-          </div>
-        )}
+    <div>
+      <h3>Collections</h3>
+      <h4>Labeled</h4>
+      <div className="labeled">
+        {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
       </div>
-    </MessageContext.Provider>
+      <Controls {...funcs} />
+      {mode === 'cluster' ? (
+        renderClusterColumns()
+      ) : (
+        <div
+          className="objects"
+          style={{
+            gridTemplateColumns: `repeat(${nCols}, 1fr)`,
+            '--n-cols': nCols
+          }}
+        >
+          {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
+        </div>
+      )}
+    </div>
   );
 }
 
