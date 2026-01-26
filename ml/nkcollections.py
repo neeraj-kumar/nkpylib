@@ -1,6 +1,10 @@
 """An abstraction over collections to make it easy to filter/sort/etc
 
 """
+#TODO Embeddings status page
+#TODO propagate likes to source sites if possible
+
+from __future__ import annotations
 
 import json
 import logging
@@ -488,7 +492,14 @@ class SourceHandler(MyBaseHandler):
             # send the parsed result to the client
             self.write(parsed)
 
+class DwellHandler(MyBaseHandler):
+    """Update dwell times of objects"""
+    def post(self):
+        pass
+
+
 class ActionHandler(MyBaseHandler):
+    """The user took some action, which we will store in our `rels` table"""
     def post(self):
         data = json.loads(self.request.body)
         action = data.get('action', '')
@@ -588,6 +599,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         (r'/get', GetHandler),
         (r'/source', SourceHandler),
         (r'/action', ActionHandler),
+        (r'/dwell', DwellHandler),
         (r'/classify', ClassifyHandler),
         (r'/cluster', ClusterHandler),
     ]

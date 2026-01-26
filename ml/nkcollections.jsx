@@ -35,6 +35,7 @@
  *   - Links: display_url, title, description
  */
 
+
 const DEBOUNCE_MS = 2000;
 const MODES = ['multicol', 'cluster'];
 
@@ -702,6 +703,7 @@ const Obj = (props) => {
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
 
+
   // Media carousel state
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
@@ -1368,7 +1370,6 @@ const App = () => {
       {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
     </div>
     <Controls {...funcs} />
-    
     {mode === 'cluster' ? (
       renderClusterColumns()
     ) : (
