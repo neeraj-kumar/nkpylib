@@ -117,7 +117,8 @@ def load_clip(model_name=_default('clip')):
     import torch
     from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
     model = CLIPModel.from_pretrained(model_name)
-    processor = CLIPProcessor.from_pretrained(model_name)
+    torch.compiler.is_compiling = lambda: False
+    processor = CLIPProcessor.from_pretrained(model_name, use_fast=True)
 
     def get_image_features(image_or_path):
         if isinstance(image_or_path, str):
@@ -835,11 +836,6 @@ def cleanup_executors():
     for executor in _EXECUTORS:
         try:
             executor.shutdown(wait=False)
-            # Force kill if needed
-            if hasattr(executor, '_processes'):
-                for p in executor._processes.values():
-                    if p.is_alive():
-                        p.terminate()
         except Exception as e:
             logger.debug(f"Error during executor cleanup: {e}")
     _EXECUTORS.clear()
@@ -847,8 +843,6 @@ def cleanup_executors():
 
 # Register cleanup for multiple signals
 atexit.register(cleanup_executors)
-signal.signal(signal.SIGTERM, lambda s, f: cleanup_executors())
-signal.signal(signal.SIGINT, lambda s, f: cleanup_executors())
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
