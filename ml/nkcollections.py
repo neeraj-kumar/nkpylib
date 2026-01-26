@@ -562,8 +562,8 @@ class ClassifyHandler(MyBaseHandler):
             pos = [img for img in images if img.embed_ts]
             pos_ids = [p.id for p in pos]
             # get a bunch of random negative images
-            neg = Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids)
-            neg = neg[neg.count()-500:]
+            neg = list(Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids))
+            neg = random.sample(neg, min(len(neg), len(pos)*5))
         # train and run the classifier
         pos = [f'{r.id}:image' for r in pos]
         neg = [f'{r.id}:image' for r in neg]
