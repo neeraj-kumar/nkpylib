@@ -74,6 +74,7 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 const api = {
   get: (params) => fetchEndpoint('/get', params),
   classify: (pos) => fetchEndpoint('/classify', { pos }),
+  classifyLikes: (type, otype) => fetchEndpoint('/classify', { type, otype }),
   action: (id, action) => fetchEndpoint('/action', { id, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
@@ -880,7 +881,7 @@ const Obj = (props) => {
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-  nCols, setNCols, simpleMode, setSimpleMode, mode, setMode, refreshMasonry, ...props}) => {
+  nCols, setNCols, simpleMode, setSimpleMode, mode, setMode, refreshMasonry, doLikeClassifier, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -986,6 +987,9 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
       </div>
       <div className="control refresh-masonry">
         <button onClick={refreshMasonry}>Refresh Layout</button>
+      </div>
+      <div className="control like-classifier">
+        <button onClick={doLikeClassifier}>Like Classifier</button>
       </div>
       <div className="control mode-select">
         <label>Mode:</label>
@@ -1330,10 +1334,24 @@ const App = () => {
     }
   }, []);
 
+  const doLikeClassifier = React.useCallback(() => {
+    console.log('calling like classifier');
+    api.classifyLikes('likes', 'image').then((data) => {
+      console.log('got like classifier response', data);
+      // Handle the response as needed
+      if (data.curIds && data.scores) {
+        setCurIds(data.curIds);
+        setScores(data.scores);
+      }
+    }).catch((error) => {
+      console.error('Like classifier failed:', error);
+    });
+  }, [setCurIds, setScores]);
+
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry,
-    clusters, setCluster};
+    clusters, setCluster, doLikeClassifier};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
