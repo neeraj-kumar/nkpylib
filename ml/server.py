@@ -64,6 +64,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections import Counter, OrderedDict
 from concurrent.futures import ProcessPoolExecutor, Future
+from contextlib import asynccontextmanager
 from hashlib import sha256
 from pprint import pformat
 from asyncio import Lock, Condition
@@ -88,7 +89,14 @@ from nkpylib.utils import is_instance_of_type
 
 logger = logging.getLogger(__name__)
 
-app = fastapi.FastAPI()
+@asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    # Startup
+    yield
+    # Shutdown - this will be called on reload
+    cleanup_executors()
+
+app = fastapi.FastAPI(lifespan=lifespan)
 
 MODEL_CACHE: dict = {}
 RESULTS_CACHE: dict = {}
