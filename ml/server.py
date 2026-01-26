@@ -56,6 +56,7 @@ import functools
 import json
 import logging
 import os
+import signal
 import tempfile
 import time
 import uuid
@@ -829,16 +830,25 @@ async def test_api():
 
 
 def cleanup_executors():
-    """Clean up all executors"""
+    """Clean up all executors more aggressively"""
+    print("Starting executor cleanup...")
     for executor in _EXECUTORS:
         try:
             executor.shutdown(wait=False)
-        except Exception:
-            pass
+            # Force kill if needed
+            if hasattr(executor, '_processes'):
+                for p in executor._processes.values():
+                    if p.is_alive():
+                        p.terminate()
+        except Exception as e:
+            logger.debug(f"Error during executor cleanup: {e}")
     _EXECUTORS.clear()
+    print("Finished executor cleanup.")
 
-# Register cleanup function
+# Register cleanup for multiple signals
 atexit.register(cleanup_executors)
+signal.signal(signal.SIGTERM, lambda s, f: cleanup_executors())
+signal.signal(signal.SIGINT, lambda s, f: cleanup_executors())
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
