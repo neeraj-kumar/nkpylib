@@ -43,14 +43,14 @@ from pony.orm import (
     select,
 ) # type: ignore
 
-from nkpylib.ml.client import call_vlm
+from nkpylib.ml.client import call_vlm, embed_image
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async
-from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request
+from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ sql_db = Database()
 J = lambda obj: json.dumps(obj, indent=2)
 
 
-def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
+async def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
     """Downloads the given url to the given dir if it doesn't already exist there (and is not empty).
 
     Returns if we actually downloaded the file.
@@ -67,7 +67,7 @@ def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
     if exists(path) and os.path.getsize(path) > 0:
         return False
     logger.debug(f'downloading image {url} -> {path}')
-    r = make_request(url, headers={'Accept': 'image/*,video/*'}, min_delay=fetch_delay)
+    r = await make_request_async(url, headers={'Accept': 'image/*,video/*'}, min_delay=fetch_delay)
     try:
         os.makedirs(dirname(path), exist_ok=True)
     except Exception as e:
@@ -112,7 +112,23 @@ class Item(sql_db.Entity, GetMixin):
             return me
 
     @classmethod
-    async def update_text_embeddings(cls, q, **kw):
+    def image_path(cls, row, images_dir: str='') -> str:
+        """Returns the image path for a given image `row`"""
+        if not row:
+            return ''
+        url = row.url
+        ext = row.md.get('ext', url.split('.')[-1])
+        mk = row.md.get('media_key', row.id)
+        path = abspath(join(images_dir, f'{mk}.{ext}'))
+        return path
+
+    @classmethod
+    async def update_text_embeddings(cls, q, **kw) -> int:
+        """Updates text embeddings for the given query `q`.
+
+        This select 'text' and 'link' otypes and updates their embeddings.
+        Returns the number of embeddings updated.
+        """
         with db_session:
             rows = q.select(lambda c: c.otype in ('text', 'link') and not c.embed_ts)
             logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
@@ -138,10 +154,71 @@ class Item(sql_db.Entity, GetMixin):
         # Run the blocking operation in a thread pool
         loop = asyncio.get_event_loop()
         n_text = await loop.run_in_executor(
-            None, 
+            None,
             lambda: batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, **kw)
         )
         logger.info(f'  Updated embeddings for {n_text} text rows')
+        return n_text
+
+    @classmethod
+    async def update_image_embeddings(cls, q, lmdb_path, images_dir: str, fetch_delay: float=0.1, **kw) -> int:
+        """Updates images embeddings for the given query `q`.
+
+        This select 'image' rows, downloads them if needed, and updates their embeddings.
+        Returns the number of embeddings updated.
+        """
+        updater = LmdbUpdater(lmdb_path)
+        with db_session:
+            rows = q.select(lambda c: c.otype == 'image' and not c.embed_ts)
+            logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
+            # kick off downloads
+            async def dl_image(row):
+                path = cls.image_path(row, images_dir=images_dir)
+                await maybe_dl(row.url, path, fetch_delay=fetch_delay)
+                return row, path
+
+            download_tasks = [dl_image(row) for row in rows]
+            # kick off embeddings as downloads complete
+            embedding_tasks = []
+            async for task in asyncio.as_completed(download_tasks):
+                row, path = await task
+                key = f'{row.id}:image'
+                if key in updater:
+                    continue
+                async def embed_image_task(row, path):
+                    try:
+                        emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
+                    except Exception as e:
+                        logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
+                        emb = None
+                    return (row, key, emb)
+
+                embedding_tasks.append(embed_image_task(row, path))
+            # kick off postprocessing of embeddings as they complete
+            n_images = 0
+            async for task in asyncio.as_completed(embedding_tasks):
+                row, key, emb = await task
+                ts = int(time.time())
+                # update the lmdb and sqlite
+                if emb is None: # error
+                    updater.add(key, metadata=dict(embed_ts=ts, error='embedding_failed'))
+                    row.embed_ts = -1 #TODO in the future decrement this
+                else:
+                    updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
+                    row.embed_ts = ts
+                n_images += 1
+        logger.info(f'  Updated embeddings for {n_images} text rows')
+        return n_images
+
+    @classmethod
+    async def update_image_descriptions(cls,
+                                        q,
+                                        lmdb_path,
+                                        vlm_prompt,
+                                        sys_prompt,
+                                        vlm_model,
+                                        **kw) -> int:
+        pass
 
     @classmethod
     async def update_embeddings_async(cls,
@@ -179,24 +256,25 @@ class Item(sql_db.Entity, GetMixin):
             limit = 10000000
         db = NumpyLmdb.open(lmdb_path, flag='r')
         postprocess_rows(rows)
-        q = cls.select(lambda c: (ids is None or c.id in ids))
-        q = q.filter(lambda c: not c.embed_ts).limit(limit)
+        q = cls.select(lambda c: (ids is None or c.id in ids)).limit(limit)
         n_text = await cls.update_text_embeddings(q=q, db_path=lmdb_path, **kw)
+        n_images = await cls.update_image_embeddings(q=q,
+                                                     lmdb_path=lmdb_path,
+                                                     images_dir=images_dir,
+                                                     fetch_delay=fetch_delay,
+                                                     **kw)
+        n_descs = await cls.update_image_descriptions(q=q,
+                                                      lmdb_path=lmdb_path,
+                                                      vlm_prompt=vlm_prompt,
+                                                      sys_prompt=sys_prompt,
+                                                      vlm_model=vlm_model,
+                                                      **kw)
         # now do image rows. first we have to download them.
         with db_session:
-            rows = cls.select(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
-            logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
-            inputs = []
             futures = {}
             descriptions = {}
             done = {}
             for c in rows:
-                url = c.url
-                ext = c.md.get('ext', url.split('.')[-1])
-                mk = c.md.get('media_key', c.id)
-                path = abspath(join(images_dir, f'{mk}.{ext}'))
-                downloaded = maybe_dl(url, path, fetch_delay=fetch_delay)
-                key = f'{c.id}:image'
                 inputs.append((key, path))
                 if vlm_prompt:
                     desc_key = f'{c.id}:text'
