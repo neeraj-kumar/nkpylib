@@ -105,6 +105,11 @@ const STYLES = `
   display: none;
 }
 
+.flex-break {
+  flex-basis: 100%;
+  height: 0;
+}
+
 .objects {
   /* Masonry library will handle layout */
 }
@@ -901,11 +906,9 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   // Determine the CSS class for the source input based on its contents
   const getSourceInputClass = () => {
     if (!sourceStr) return 'src-input';
-    
     if (sourceStr.startsWith('http')) {
       return 'src-input url-input';
     }
-    
     try {
       JSON.parse(sourceStr);
       return 'src-input valid-json';
@@ -915,9 +918,6 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   };
   return (
     <div className="controls">
-      <div className="control message-display">
-        <span>{message}</span>
-      </div>
       <div className="control text-fields">
         <input
           type="text"
@@ -1017,6 +1017,10 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           ))}
         </select>
       </div>
+      <div className="control flex-break"></div>
+      <div className="control message-display">
+        <span>{message}</span>
+      </div>
     </div>
   );
 }
@@ -1039,7 +1043,7 @@ const App = () => {
   const [simpleMode, setSimpleMode] = React.useState(true);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
-  const [message, setMessage] = React.useState('Message');
+  const [message, setMessage] = React.useState('Messages show up here');
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
