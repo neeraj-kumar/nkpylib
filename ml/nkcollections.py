@@ -43,11 +43,10 @@ from pony.orm import (
     select,
 ) # type: ignore
 
-from nkpylib.ml.client import call_vlm, embed_image
-from nkpylib.ml.embeddings import embed_text
+from nkpylib.ml.client import call_vlm, embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
-from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings
+from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async
@@ -124,14 +123,16 @@ class Item(sql_db.Entity, GetMixin):
         return path
 
     @classmethod
-    async def update_text_embeddings(cls, q, **kw) -> int:
+    async def update_text_embeddings(cls, q, limit: int, **kw) -> int:
         """Updates text embeddings for the given query `q`.
 
         This select 'text' and 'link' otypes and updates their embeddings.
         Returns the number of embeddings updated.
         """
         with db_session:
-            rows = q.select(lambda c: c.otype in ('text', 'link') and not c.embed_ts)
+            rows = q.filter(lambda c: c.otype in ('text', 'link') and not c.embed_ts).limit(limit)
+            if not rows:
+                return 0
             logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
             inputs = []
             row_by_key = {}
@@ -146,9 +147,9 @@ class Item(sql_db.Entity, GetMixin):
                     inputs.append((key, f"{r.md['title']}: {r.url}"))
 
         def md_func(key, input):
+            row = row_by_key[key]
+            ts = int(time.time())
             with db_session:
-                row = row_by_key[key]
-                ts = int(time.time())
                 row.embed_ts = ts
             return dict(embed_ts=ts)
 
@@ -158,152 +159,133 @@ class Item(sql_db.Entity, GetMixin):
             None,
             lambda: batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, **kw)
         )
-        logger.info(f'  Updated embeddings for {n_text} text rows')
+        if n_text > 0:
+            logger.info(f'  Updated embeddings for {n_text} text rows')
         return n_text
 
     @classmethod
-    async def update_image_embeddings(cls, q, lmdb_path, images_dir: str, fetch_delay: float=0.1, **kw) -> int:
+    async def update_image_embeddings(cls, q, lmdb_path, images_dir: str, limit: int, fetch_delay: float=0.1, **kw) -> int:
         """Updates images embeddings for the given query `q`.
 
         This select 'image' rows, downloads them if needed, and updates their embeddings.
         Returns the number of embeddings updated.
         """
-        updater = LmdbUpdater(lmdb_path)
         with db_session:
-            rows = q.select(lambda c: c.otype == 'image' and not c.embed_ts)
-            logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
-            # kick off downloads
-            async def dl_image(row):
+            rows = q.filter(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
+        if not rows:
+            return 0
+        updater = LmdbUpdater(lmdb_path)
+        logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
+        # kick off downloads
+        async def dl_image(row):
+            with db_session:
                 path = cls.image_path(row, images_dir=images_dir)
                 await maybe_dl(row.url, path, fetch_delay=fetch_delay)
-                return row, path
+            return row, path
 
-            download_tasks = [dl_image(row) for row in rows]
-            # kick off embeddings as downloads complete
-            embedding_tasks = []
-            async for task in asyncio.as_completed(download_tasks):
-                row, path = await task
-                key = f'{row.id}:image'
-                if key in updater:
-                    continue
-                async def embed_image_task(row, path):
-                    try:
-                        emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
-                    except Exception as e:
-                        logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
-                        emb = None
-                    return (row, key, emb)
+        download_tasks = [dl_image(row) for row in rows]
+        # kick off embeddings as downloads complete
+        embedding_tasks = []
+        async def embed_image_task(row, key, path):
+            try:
+                emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
+            except Exception as e:
+                logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
+                emb = None
+            return (row, key, emb)
 
-                embedding_tasks.append(embed_image_task(row, path))
-            # kick off postprocessing of embeddings as they complete
-            n_images = 0
-            async for task in asyncio.as_completed(embedding_tasks):
-                row, key, emb = await task
-                ts = int(time.time())
+        done = set()
+        for task in asyncio.as_completed(download_tasks):
+            row, path = await task
+            key = f'{row.id}:image'
+            if key in updater or key in done:
+                continue
+            done.add(key)
+            embedding_tasks.append(embed_image_task(row, key, path))
+        # kick off postprocessing of embeddings as they complete
+        n_images = 0
+        for task in asyncio.as_completed(embedding_tasks):
+            row, key, emb = await task
+            ts = int(time.time())
+            with db_session:
                 # update the lmdb and sqlite
+                logger.debug(f' emb for image {row}, key={key}, {emb[:10] if emb is not None else "failed"}')
                 if emb is None: # error
-                    updater.add(key, metadata=dict(embed_ts=ts, error='embedding_failed'))
+                    updater.add(key, metadata=dict(embed_ts=ts, error='image embedding failed'))
                     row.embed_ts = -1 #TODO in the future decrement this
                 else:
                     updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
                     row.embed_ts = ts
-                n_images += 1
-        logger.info(f'  Updated embeddings for {n_images} text rows')
+            n_images += 1
+        updater.commit()
+        if n_images > 0:
+            logger.info(f'  Updated embeddings for {n_images} images')
         return n_images
 
     @classmethod
     async def update_image_descriptions(cls,
                                         q,
-                                        lmdb_path,
-                                        vlm_prompt,
-                                        sys_prompt,
-                                        vlm_model,
+                                        lmdb_path: str,
+                                        vlm_prompt: str,
+                                        sys_prompt: str,
+                                        vlm_model: str,
+                                        images_dir: str,
+                                        limit: int,
                                         **kw) -> int:
         """Updates image descriptions using VLM for images that have been explored.
-        
+
         Filters to images where explored_ts is not null, generates descriptions via VLM,
         embeds the descriptions, and updates both LMDB and SQLite metadata.
-        
+
         Returns the number of descriptions updated.
         """
+        updater = LmdbUpdater(lmdb_path)
         with db_session:
-            rows = q.select(lambda c: c.otype == 'image' and c.explored_ts is not None)
-            logger.info(f'Updating descriptions for {len(rows)} explored image rows: {rows[:5]}...')
-            
-            # Create VLM tasks for all images
-            vlm_tasks = []
-            row_by_task = {}
-            
-            for row in rows:
-                # Check if we already have a description
-                desc_key = f'{row.id}:text'
-                try:
-                    db = NumpyLmdb.open(lmdb_path, flag='r')
-                    existing_desc = db.md_get(desc_key)
-                    db.close()
-                    if existing_desc and 'desc' in existing_desc:
-                        continue  # Skip if we already have description
-                except:
-                    pass  # Continue if we can't check
-                
-                # Create VLM messages
-                if sys_prompt:
-                    messages = [
-                        dict(role='system', content=sys_prompt),
-                        dict(role='user', content=vlm_prompt)
-                    ]
-                else:
-                    messages = vlm_prompt
-                
-                # Get image path
-                image_path = cls.image_path(row, images_dir=kw.get('images_dir', ''))
-                
-                # Create VLM task
-                vlm_task = call_vlm.single_async((image_path, messages), model=vlm_model)
-                vlm_tasks.append(vlm_task)
-                row_by_task[vlm_task] = row
-        
-        if not vlm_tasks:
-            logger.info('No images need description updates')
-            return 0
-        
+            rows = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None).limit(limit)
+            if not rows:
+                return 0
+            logger.info(f'Updating descriptions for {len(rows)} image rows: {rows[:5]}...')
+        # Create VLM tasks for all images
+        async def vlm_task(row):
+            if sys_prompt:
+                messages = [
+                    dict(role='system', content=sys_prompt),
+                    dict(role='user', content=vlm_prompt)
+                ]
+            else:
+                messages = vlm_prompt
+            path = cls.image_path(row, images_dir=images_dir)
+            try:
+                desc = await call_vlm.single_async((path, messages), model=vlm_model)
+            except Exception as e:
+                logger.warning(f'Error generating desc for image {row}, path={path}: {e}')
+                desc = ''
+            return row, desc
+
+        vlm_tasks = [vlm_task(row) for row in rows]
         # Process VLM results as they complete
-        n_descriptions = 0
-        db = NumpyLmdb.open(lmdb_path, flag='c')
-        
-        try:
-            async for vlm_task in asyncio.as_completed(vlm_tasks):
-                try:
-                    description = await vlm_task
-                    row = row_by_task[vlm_task]
-                    
-                    # Embed the description text
-                    text_embedding = embed_text.single(description)
-                    
-                    # Update LMDB with description embedding and metadata
-                    desc_key = f'{row.id}:text'
-                    ts = int(time.time())
-                    db.set(desc_key, text_embedding)
-                    db.md_set(desc_key, desc=description, embed_ts=ts)
-                    
-                    # Update SQLite with explored timestamp
-                    with db_session:
-                        sqlite_row = Item[row.id]
-                        sqlite_row.explored_ts = ts
-                    
-                    n_descriptions += 1
-                    logger.debug(f'Updated description for image {row.id}: {description[:50]}...')
-                    
-                except Exception as e:
-                    row = row_by_task[vlm_task]
-                    logger.warning(f'Error processing description for image {row.id}: {e}')
-                    continue
-        
-        finally:
-            db.close()
-        
-        logger.info(f'Updated descriptions for {n_descriptions} images')
-        return n_descriptions
+        n_descs = 0
+        for vlm_task in asyncio.as_completed(vlm_tasks):
+            row, desc = await vlm_task
+            key = f'{row.id}:text'
+            with db_session:
+                if desc:
+                    row.md['desc'] = desc
+                    try:
+                        text_embedding = embed_text.single(desc, model='qwen_emb')
+                        ts = int(time.time())
+                        updater.add(key, embedding=text_embedding, metadata=dict(desc=desc, embed_ts=ts))
+                        row.explored_ts = ts
+                        n_descs += 1
+                    except Exception as e:
+                        logger.warning(f'Error embedding description {desc} for {row}: {e}')
+                        updater.add(key, metadata=dict(desc=desc, embed_ts=time.time(), error='text embedding failed'))
+                else: # failed to get description
+                    row.explored_ts = -1 #TODO decrement on more errors
+        updater.commit()
+        if n_descs > 0:
+            logger.info(f'Updated descriptions for {n_descs} images')
+        return n_descs
 
     @classmethod
     async def update_embeddings_async(cls,
@@ -334,68 +316,29 @@ class Item(sql_db.Entity, GetMixin):
 
         We return the number of embeddings updated.
         """
-        #FIXME this can be quite slow right now
-        #FIXME this is rather complicated
-        #FIXME we want this to be async-friendly, as well as batchable/resumable
         if limit <= 0:
             limit = 10000000
-        db = NumpyLmdb.open(lmdb_path, flag='r')
-        postprocess_rows(rows)
-        q = cls.select(lambda c: (ids is None or c.id in ids)).limit(limit)
-        n_text = await cls.update_text_embeddings(q=q, db_path=lmdb_path, **kw)
+        q = cls.select(lambda c: (ids is None or c.id in ids))
+        q = q.order_by(desc(Item.id))
+        n_text = await cls.update_text_embeddings(q=q, db_path=lmdb_path, limit=limit, **kw)
         n_images = await cls.update_image_embeddings(q=q,
                                                      lmdb_path=lmdb_path,
                                                      images_dir=images_dir,
                                                      fetch_delay=fetch_delay,
+                                                     limit=limit,
                                                      **kw)
-        n_descs = await cls.update_image_descriptions(q=q,
-                                                      lmdb_path=lmdb_path,
-                                                      vlm_prompt=vlm_prompt,
-                                                      sys_prompt=sys_prompt,
-                                                      vlm_model=vlm_model,
-                                                      **kw)
-        # now do image rows. first we have to download them.
-        with db_session:
-            futures = {}
-            descriptions = {}
-            done = {}
-            for c in rows:
-                inputs.append((key, path))
-                if vlm_prompt:
-                    desc_key = f'{c.id}:text'
-                    desc = db.md_get(desc_key)
-                    if not desc: # start computing text description for this image
-                        if sys_prompt:
-                            messages = [dict(role='system', content=sys_prompt), dict(role='user', content=vlm_prompt)]
-                        else:
-                            messages = vlm_prompt
-                        logger.debug(f'Calling VLM for image description for key={key}, path={path}, image_data[:30]')
-                        futures[key] = call_vlm.single_future((path, messages), model=vlm_model)
-                    else: # we already have the desc
-                        done[desc_key] = desc['desc']
-        def md_func(key, input):
-            desc_key = key.split(':')[0]+':text'
-            if desc_key in done: # we already have the desc
-                desc = done[desc_key]
-            else: # wait for description
-                if key in futures:
-                    descriptions[desc_key] = desc = futures[key].result()
-                else:
-                    desc = ''
-            return dict(embedding_ts=int(time.time()), desc=desc)
+        if 0:
+            n_descs = await cls.update_image_descriptions(q=q,
+                                                          lmdb_path=lmdb_path,
+                                                          vlm_prompt=vlm_prompt,
+                                                          sys_prompt=sys_prompt,
+                                                          vlm_model=vlm_model,
+                                                          images_dir=images_dir,
+                                                          limit=limit,
+                                                          **kw)
 
-        n_image = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='image', md_func=md_func, **kw)
-        logger.info(f'  Updated embeddings for {n_image} image rows')
-        postprocess_rows(rows)
-        # finally, add embeddings for the descriptions
-        inputs = list(descriptions.items())
-        logger.info(f'Updating embeddings for upto {len(inputs)} image descs: {inputs[:3]}')
-        def md_func(key, input):
-            return dict(embedding_ts=int(time.time()), desc=input)
-
-        n_descs = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
-        logger.info(f'  Updated embeddings for {n_descs} image descs')
-        return n_text + n_image + n_descs
+        n_descs = 0
+        return n_text + n_images + n_descs
 
     @classmethod
     def update_embeddings(cls,

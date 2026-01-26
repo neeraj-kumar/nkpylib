@@ -321,8 +321,20 @@ class LmdbUpdater(CollectionUpdater):
             obj['embedding'] = embedding
         if metadata is not None:
             obj['metadata'] = metadata
-        #print(f'Added id {id} with obj {obj}')
+        #print(f'Added id {id} with md {metadata}')
         super().add(id, obj)
+
+    def __contains__(self, key: str) -> bool:
+        """Returns True if the given `key` is in the database.
+
+        This calls key_in_db in a worker process.
+        """
+        future = self.pool.submit(self.key_in_db, key)
+        return future.result()
+
+    @staticmethod
+    def key_in_db(key: str) -> bool:
+        return key in db
 
     @staticmethod
     def set_emb(id, emb):
