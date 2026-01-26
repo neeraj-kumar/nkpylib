@@ -51,6 +51,7 @@ from __future__ import annotations
 #TODO some way to turn an LLM query into an embeddings + code query (e.g. recipe pdf name correction)
 
 import asyncio
+import atexit
 import functools
 import json
 import logging
@@ -92,6 +93,9 @@ MODEL_CACHE: dict = {}
 RESULTS_CACHE: dict = {}
 
 RESULTS_CACHE_LIMIT = 90000
+
+# Global list to track all executors for cleanup
+_EXECUTORS: list[ProcessPoolExecutor] = []
 
 # load func takes model name and **kw, and returns the loaded model
 LoadFuncT = Callable[[Any], Any]
@@ -417,9 +421,11 @@ class ImageTextEmbeddingModel(EmbeddingModel):
         assert mode in ('text', 'image')
         self.mode = mode
         self.executor = ProcessPoolExecutor(max_workers=n_procs)
+        _EXECUTORS.append(self.executor)  # Track for cleanup
 
     def __del__(self):
-        self.executor.shutdown(wait=False)
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=False)
 
     async def load_feature_funcs(self):
         """Returns two functions: one for text features, one for image features."""
@@ -822,6 +828,18 @@ async def test_api():
     #await asyncio.sleep(10)
     return "Hello world\n"
 
+
+def cleanup_executors():
+    """Clean up all executors"""
+    for executor in _EXECUTORS:
+        try:
+            executor.shutdown(wait=False)
+        except Exception:
+            pass
+    _EXECUTORS.clear()
+
+# Register cleanup function
+atexit.register(cleanup_executors)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
