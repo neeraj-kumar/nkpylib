@@ -840,14 +840,12 @@ async def test_api():
 
 def cleanup_executors():
     """Clean up all executors more aggressively"""
-    print("Starting executor cleanup...")
     for executor in _EXECUTORS:
         try:
             executor.shutdown(wait=False)
         except Exception as e:
             logger.debug(f"Error during executor cleanup: {e}")
     _EXECUTORS.clear()
-    print("Finished executor cleanup.")
 
 # Register cleanup for multiple signals
 atexit.register(cleanup_executors)

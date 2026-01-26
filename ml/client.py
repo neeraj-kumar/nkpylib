@@ -579,10 +579,20 @@ def quick_test():
         print(call_llm.single('summarize that in one sentence', **kwargs))
         print(call_llm.single('summarize it in 3 sentences', **kwargs))
     if 'imgemb' in test:
-        for url in [image_url, image_path, image]:
-            for model in ['clip', 'jina']:
-                ret = embed_image.single(url, model=model)
+        for url in [image_path, image_url, image]:
+            model = 'clip'
+            if 0:
+                ret = embed_image.single(url, model=model, use_cache=False)
                 print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
+            else:
+                futures = embed_image.batch_futures([url]*20, model=model, use_cache=False)
+                results = [f.result() for f in futures]
+                ret = results[-1]
+                print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
+                break
+            # for 20 images, 8 procs: 38 secs with init, 28 without
+            # slower with 12 procs
+
     if 'vlm1' in test:
         image_url = 'https://images.unsplash.com/photo-1582538885592-e70a5d7ab3d3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1770&q=80'
         prompt = 'Can you describe this image?'
