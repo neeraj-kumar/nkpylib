@@ -48,6 +48,7 @@ from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
+from nkpylib.thread_utils import run_async
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request
 
 logger = logging.getLogger(__name__)
@@ -110,7 +111,34 @@ class Item(sql_db.Entity, GetMixin):
             return me
 
     @classmethod
-    def update_embeddings(cls,
+    async def update_text_embeddings(cls, q, **kw):
+        with db_session:
+            rows = q.select(lambda c: c.otype in ('text', 'link') and not c.embed_ts)
+            logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
+            inputs = []
+            row_by_key = {}
+            for r in rows:
+                if not r.md:
+                    continue
+                key = f'{r.id}:text'
+                row_by_key[key] = r
+                if r.otype == 'text' and 'text' in r.md:
+                    inputs.append((key, r.md['text']))
+                elif r.otype == 'link' and 'title' in r.md:
+                    inputs.append((key, f"{r.md['title']}: {r.url}"))
+
+        def md_func(key, input):
+            with db_session:
+                row = row_by_key[key]
+                ts = int(time.time())
+                row.embed_ts = ts
+            return dict(embed_ts=ts)
+
+        n_text = batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, **kw)
+        logger.info(f'  Updated embeddings for {n_text} text rows')
+
+    @classmethod
+    async def update_embeddings_async(cls,
                           lmdb_path: str,
                           images_dir: str,
                           ids: list[int]|None=None,
@@ -141,35 +169,13 @@ class Item(sql_db.Entity, GetMixin):
         #FIXME this can be quite slow right now
         #FIXME this is rather complicated
         #FIXME we want this to be async-friendly, as well as batchable/resumable
-        #FIXME we also maybe want this to run periodically and automatically?
         if limit <= 0:
             limit = 10000000
         db = NumpyLmdb.open(lmdb_path, flag='r')
-        #TODO filter by ids
-        def postprocess_rows(rows):
-            with db_session:
-                for row in rows:
-                    row.embed_ts = time.time()
-
-        # first do text rows
-        with db_session:
-            rows = cls.select(lambda c: c.otype == 'text' and not c.embed_ts).limit(limit)
-            logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
-            inputs = [(f'{c.id}:text', c.md['text']) for c in rows if c.md and 'text' in c.md]
-        def md_func(key, input):
-            return dict(embedding_ts=int(time.time()))
-
-        n_text = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
-        logger.info(f'  Updated embeddings for {n_text} text rows')
         postprocess_rows(rows)
-        # now do links
-        with db_session:
-            rows = cls.select(lambda c: c.otype == 'link' and not c.embed_ts).limit(limit)
-            logger.info(f'Updating embeddings for upto {len(rows)} link rows: {rows[:5]}...')
-            inputs = [(f'{c.id}:text', f"{c.md['title']}: {c.url}") for c in rows if c.md and 'title' in c.md]
-        n_text = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
-        logger.info(f'  Updated embeddings for {n_text} text rows')
-        postprocess_rows(rows)
+        q = cls.select(lambda c: (ids is None or c.id in ids))
+        q = q.filter(lambda c: not c.embed_ts).limit(limit)
+        n_text = await cls.update_text_embeddings(q=q, db_path=lmdb_path, **kw)
         # now do image rows. first we have to download them.
         with db_session:
             rows = cls.select(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
@@ -221,6 +227,30 @@ class Item(sql_db.Entity, GetMixin):
         n_descs = batch_extract_embeddings(inputs=inputs, db_path=lmdb_path, embedding_type='text', md_func=md_func, **kw)
         logger.info(f'  Updated embeddings for {n_descs} image descs')
         return n_text + n_image + n_descs
+
+    @classmethod
+    def update_embeddings(cls,
+                          lmdb_path: str,
+                          images_dir: str,
+                          ids: list[int]|None=None,
+                          vlm_prompt: str|None='briefly describe this image',
+                          sys_prompt: str|None=None,
+                          vlm_model: str='fastvlm',
+                          limit: int=-1,
+                          fetch_delay: float=0.1,
+                          **kw) -> int:
+        """Calls the async version"""
+        return run_async(cls.update_embeddings_async(
+            lmdb_path=lmdb_path,
+            images_dir=images_dir,
+            ids=ids,
+            vlm_prompt=vlm_prompt,
+            sys_prompt=sys_prompt,
+            vlm_model=vlm_model,
+            limit=limit,
+            fetch_delay=fetch_delay,
+            **kw
+        ))
 
 
 class Rel(sql_db.Entity, GetMixin):
