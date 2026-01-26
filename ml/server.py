@@ -101,6 +101,9 @@ _EXECUTORS: list[ProcessPoolExecutor] = []
 LoadFuncT = Callable[[Any], Any]
 RunFuncT = Callable[[Any, Any], dict]
 
+# GLOBAL model storage (per process)
+PROC_MODELS: dict[str, tuple] = {}  # {model_name: (text_func, image_func)}
+
 def _default(name: str) -> str:
     """Returns the default model full name"""
     if name not in DEFAULT_MODELS:
@@ -394,12 +397,8 @@ class EmbeddingModel(Model):
             n_dims=len(embedding),
         )
 
-# GLOBAL model storage (per process)
-PROC_MODELS: dict[str, tuple] = {}  # {model_name: (text_func, image_func)}
-
 def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
     """Class method that handles both loading and execution"""
-    print(f'in worker for model {model_name} in mode {mode} on pid {os.getpid()}')
     global PROC_MODELS
     if model_name not in PROC_MODELS:
         logger.info(f"Loading {model_name} in process {os.getpid()}")
