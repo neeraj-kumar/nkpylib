@@ -47,6 +47,9 @@ let globalSetMessage = null;
 
 // Utility function for making API calls
 const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
+  const t0 = Date.now();
+  // if we don't have globalSetMessage yet, set a temporary one
+  const setMessage = globalSetMessage || ((msg) => console.log('Message:', msg));
   const {
     method = 'POST',
     headers = { 'Content-Type': 'application/json' },
@@ -55,6 +58,7 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
   } = options;
 
   try {
+    setMessage(`Calling API: ${endpoint}...`);
     const response = await fetch(endpoint, {
       method,
       headers,
@@ -67,17 +71,13 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
     }
 
     const responseData = await response.json();
-    
     // Check for success message in response
-    if (globalSetMessage && responseData.msg) {
-      globalSetMessage(responseData.msg);
+    if (responseData.msg) {
+      setMessage(`API resp: ${responseData.msg} in ${Date.now() - t0}ms`);
     }
-    
     return responseData;
   } catch (error) {
-    if (globalSetMessage) {
-      globalSetMessage(`API call failed: ${endpoint} - ${error.message}`);
-    }
+    setMessage(`API call failed: ${endpoint} - ${error.message}`);
     onError(error);
     throw error;
   }
@@ -1044,7 +1044,7 @@ const App = () => {
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
-  const [simpleMode, setSimpleMode] = React.useState(true);
+  const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
   const [message, setMessage] = React.useState('Messages show up here');

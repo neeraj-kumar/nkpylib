@@ -706,21 +706,22 @@ class ClassifyHandler(MyBaseHandler):
             # get a bunch of random negative images
             neg = list(Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids))
             neg = random.sample(neg, min(len(neg), len(pos)*5))
-        
         # train and run the classifier
         pos = [f'{r.id}:image' for r in pos]
         neg = [f'{r.id}:image' for r in neg]
         to_cls = [k for k in self.embs if k.endswith(':image')]
-        
         # Run the blocking operation in a thread pool
         loop = asyncio.get_event_loop()
+        t0 = time.time()
         cls, scores = await loop.run_in_executor(
             None,
             lambda: self.embs.train_and_run_classifier(pos=pos, neg=neg, to_cls=to_cls, method='rbf')
         )
-        
+        t1 = time.time()
         scores = {k.split(':')[0]: v for k, v in scores.items()}
-        self.write(dict(msg='likes image classifier', pos=pos, neg=neg, scores=scores))
+        self.write(dict(
+            msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s',
+            pos=pos, neg=neg, scores=scores))
 
     async def post(self):
         self.embs.reload_keys()
