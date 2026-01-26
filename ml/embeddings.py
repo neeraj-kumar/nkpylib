@@ -305,6 +305,22 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         logger.debug(f'got final ret: {ret[:10]}')
         return ret
 
+    def train_and_run_classifier(self,
+                                 pos: list[KeyT],
+                                 neg: list[KeyT],
+                                 to_cls: list[KeyT]|array2d|BaseEstimator,
+                                 neg_weight: float=1.0,
+                                 method: str='rbf',
+                                 **kw) -> Any:
+        """High-level function train a classifier with given `pos` and `neg` and run on `to_cls`"""
+        keys, X = self.get_keys_embeddings(keys=pos+neg, normed=False, scale_mean=True, scale_std=True)
+        y = [1 if key in pos else -1 for key in keys]
+        weights = [1.0 if key in pos else neg_weight for key in keys]
+        cls = self.make_classifier(X, y, weights=weights, method=method, **kw)
+        keys, embs = self.get_keys_embeddings(keys=to_cls, normed=False, scale_mean=True, scale_std=True)
+        scores = {key: float(s) for key, s in zip(keys, cls.decision_function(embs))}
+        return cls, scores
+
     def make_classifier(self,
                         X: nparray2d,
                         y: Sequence[float|int],

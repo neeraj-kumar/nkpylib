@@ -1014,7 +1014,7 @@ const App = () => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
   //const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
-  const [curOtypes, setCurOtypes] = React.useState(['post']);
+  const [curOtypes, setCurOtypes] = React.useState(['image', 'post']);
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
@@ -1336,12 +1336,15 @@ const App = () => {
 
   const doLikeClassifier = React.useCallback(() => {
     console.log('calling like classifier');
-    api.classifyLikes('likes', 'image').then((data) => {
-      console.log('got like classifier response', data);
-      // Handle the response as needed
-      if (data.curIds && data.scores) {
-        setCurIds(data.curIds);
-        setScores(data.scores);
+    api.classifyLikes('likes', 'image').then((resp) => {
+      console.log('got like classifier response', resp);
+      if (resp.scores) {
+        setScores(resp.scores);
+        // sort cur ids by score desc
+        const sortedIds = Object.entries(resp.scores)
+          .sort((a, b) => b[1] - a[1])
+          .map(([id, score]) => id);
+        setCurIds(sortedIds);
       }
     }).catch((error) => {
       console.error('Like classifier failed:', error);

@@ -522,10 +522,8 @@ class ActionHandler(MyBaseHandler):
                     print(f'Unknown action {action}')
 
 class ClassifyHandler(MyBaseHandler):
-    def post(self):
-        # get pos from json argument
-        data = json.loads(self.request.body)
-        pos = data.get('pos', [])
+    def _handle_pos(self, pos):
+        """Simple positive only classifier"""
         # for now, we use the first pos to set the otype to search over
         with db_session:
             otype = Item[pos[0]].otype
@@ -540,6 +538,51 @@ class ClassifyHandler(MyBaseHandler):
         self.write(dict(pos=pos,
                         scores={id: score for id, score in zip(curIds, scores)},
                         curIds=curIds))
+
+    def _handle_likes(self, data):
+        """Likes-based classifier"""
+        assert data['otype'] == 'image'
+        images = set()
+        with db_session:
+            # first get pos images from likes
+            me = Item.get_me()
+            like_rels = Rel.select(lambda r: r.src == me and r.rtype == 'like')[:]
+            for r in like_rels:
+                try:
+                    ot = r.tgt.otype
+                except pony.orm.core.UnrepeatableReadError: # tgt was deleted
+                    continue
+                if r.tgt.otype == 'image':
+                    images.add(r.tgt)
+                elif r.tgt.otype == 'post':
+                    for child in r.tgt.children.select():
+                        if child.otype == 'image':
+                            images.add(child)
+            # filter down to only those with embeddings
+            pos = [img for img in images if img.embed_ts > 0]
+            pos_ids = [p.id for p in pos]
+            # get a bunch of random negative images
+            neg = Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids)
+            neg = neg[neg.count()-500:]
+        # train and run the classifier
+        pos = [f'{r.id}:image' for r in pos]
+        neg = [f'{r.id}:image' for r in neg]
+        to_cls = [k for k in self.embs if k.endswith(':image')]
+        cls, scores = self.embs.train_and_run_classifier(pos=pos, neg=neg, to_cls=to_cls, method='rbf')
+        scores = {k.split(':')[0]: v for k, v in scores.items()}
+        self.write(dict(msg='likes image classifier', pos=pos, neg=neg, scores=scores))
+
+
+    def post(self):
+        # figure out what kind of classification we're doing
+        data = json.loads(self.request.body)
+        pos = data.get('pos', [])
+        if pos:
+            return self._handle_pos(pos)
+        cls_type = data.get('type', '')
+        if cls_type == 'likes':
+            return self._handle_likes(data)
+
 
 class ClusterHandler(MyBaseHandler):
     """Cluster objects semi-automatically.
