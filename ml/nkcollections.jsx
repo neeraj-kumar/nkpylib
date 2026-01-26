@@ -48,6 +48,7 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
     method = 'POST',
     headers = { 'Content-Type': 'application/json' },
     onError = (error) => console.error('Fetch error:', error),
+    setMessage = null,
     ...fetchOptions
   } = options;
 
@@ -65,6 +66,9 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 
     return await response.json();
   } catch (error) {
+    if (setMessage) {
+      setMessage(`API call failed: ${endpoint} - ${error.message}`);
+    }
     onError(error);
     throw error;
   }
@@ -72,12 +76,12 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 
 // API helper functions
 const api = {
-  get: (params) => fetchEndpoint('/get', params),
-  classify: (pos) => fetchEndpoint('/classify', { pos }),
-  classifyLikes: (type, otype) => fetchEndpoint('/classify', { type, otype }),
-  action: (id, action) => fetchEndpoint('/action', { id, action }),
-  sourceUrl: (url) => fetchEndpoint('/source', { url }),
-  cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
+  get: (params, setMessage) => fetchEndpoint('/get', params, { setMessage }),
+  classify: (pos, setMessage) => fetchEndpoint('/classify', { pos }, { setMessage }),
+  classifyLikes: (type, otype, setMessage) => fetchEndpoint('/classify', { type, otype }, { setMessage }),
+  action: (id, action, setMessage) => fetchEndpoint('/action', { id, action }, { setMessage }),
+  sourceUrl: (url, setMessage) => fetchEndpoint('/source', { url }, { setMessage }),
+  cluster: (clusters, ids, setMessage) => fetchEndpoint('/cluster', { clusters, ids }, { setMessage }),
 };
 
 const STYLES = `
@@ -1205,8 +1209,10 @@ const App = () => {
       added_ts: '>=' + (Math.floor(Date.now() / 1000) - (24*3600)), // added within the last day
       assemble_posts: true,
       limit: 500,
-    }).then(updateData);
-  }, [updateData]);
+    }, setMessage).then(updateData).catch(() => {
+      // Error already handled by fetchEndpoint
+    });
+  }, [updateData, setMessage]);
 
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
@@ -1222,7 +1228,9 @@ const App = () => {
   const setLiked = React.useCallback((id, likedState) => {
     console.log('setting liked for', id, likedState);
     // send to server
-    api.action(id, likedState ? 'like' : 'unlike');
+    api.action(id, likedState ? 'like' : 'unlike', setMessage).catch(() => {
+      // Error already handled by fetchEndpoint
+    });
     // update rowById
     setRowById((rowById) => {
       return immer.produce(rowById, (draft) => {
@@ -1236,7 +1244,7 @@ const App = () => {
         }
       });
     });
-  }, [setRowById]);
+  }, [setRowById, setMessage]);
 
   // sets an individual item's cluster
   const setCluster = React.useCallback((id, clusterNum) => {
@@ -1259,7 +1267,7 @@ const App = () => {
       });
       // Call cluster endpoint with manual clusters and all object IDs
       if (Object.keys(manualClusters).length > 0) {
-        api.cluster(manualClusters, curIds).then((response) => {
+        api.cluster(manualClusters, curIds, setMessage).then((response) => {
           console.log('Got cluster response:', response);
           // Update clusters with server response, preserving manual assignments
           if (response.clusters) {
@@ -1277,13 +1285,13 @@ const App = () => {
               return updatedClusters;
             });
           }
-        }).catch((error) => {
-          console.error('Cluster API call failed:', error);
+        }).catch(() => {
+          // Error already handled by fetchEndpoint
         });
       }
       return newClusters;
     });
-  }, [setClusters, curIds]);
+  }, [setClusters, curIds, setMessage]);
 
   // function to call classification, whenever pos changes
   React.useEffect(() => {
@@ -1294,38 +1302,45 @@ const App = () => {
       return;
     }
     console.log('calling classify for pos', pos);
-    api.classify(pos).then((data) => {
+    api.classify(pos, setMessage).then((data) => {
       console.log('got classify resp', data);
       // update curIds and scores
       if (data.curIds && data.scores){
         setCurIds(data.curIds);
         setScores(data.scores);
       }
+    }).catch(() => {
+      // Error already handled by fetchEndpoint
     });
-  }, [pos]);
+  }, [pos, setMessage]);
 
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback(() => {
     const isUrl = sourceStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
-      api.sourceUrl(sourceStr).then((params) => {
+      api.sourceUrl(sourceStr, setMessage).then((params) => {
         // save the params, serialized, to sourceStr
         //setSourceStr(JSON.stringify(params));
-        return api.get(params);
+        return api.get(params, setMessage);
       }).then((data) => {
         updateData(data, true);
+      }).catch(() => {
+        // Error already handled by fetchEndpoint
       });
     } else { // Parse as JSON and use as get parameters
       try {
         const params = JSON.parse(sourceStr);
-        api.get(params).then((data) => {
+        api.get(params, setMessage).then((data) => {
           updateData(data, true);
+        }).catch(() => {
+          // Error already handled by fetchEndpoint
         });
       } catch (error) {
         console.error('Invalid JSON in source string:', error);
+        setMessage(`Invalid JSON in source string: ${error.message}`);
       }
     }
-  }, [sourceStr, updateData, setSourceStr]);
+  }, [sourceStr, updateData, setMessage]);
 
   // Function to manually refresh Masonry layout
   const refreshMasonry = React.useCallback(() => {
@@ -1340,7 +1355,7 @@ const App = () => {
 
   const doLikeClassifier = React.useCallback(() => {
     console.log('calling like classifier');
-    api.classifyLikes('likes', 'image').then((resp) => {
+    api.classifyLikes('likes', 'image', setMessage).then((resp) => {
       console.log('got like classifier response', resp);
       if (resp.scores) {
         setScores(resp.scores);
@@ -1354,15 +1369,15 @@ const App = () => {
         setCurIds(sortedIds);
         refreshMasonry()
       }
-    }).catch((error) => {
-      console.error('Like classifier failed:', error);
+    }).catch(() => {
+      // Error already handled by fetchEndpoint
     });
-  }, [setCurIds, setScores, curIds, refreshMasonry]);
+  }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry,
-    clusters, setCluster, doLikeClassifier, message};
+    clusters, setCluster, doLikeClassifier, message, setMessage};
   console.log('rowById', rowById, curIds, pos, scores);
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
