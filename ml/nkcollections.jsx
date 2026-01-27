@@ -128,6 +128,10 @@ const STYLES = `
   box-sizing: border-box;
 }
 
+.object.positive {
+  border-color: #4CAF50;
+}
+
 .object.single-col {
   max-width: 400px!important;
 }
@@ -161,6 +165,7 @@ const STYLES = `
   top: 0;
   padding: 5px;
   right: 0;
+  font-size: 0.8em;
 }
 
 .infobar .control {
@@ -437,6 +442,10 @@ const STYLES = `
   padding: 2px 4px;
   border-radius: 3px;
   pointer-events: none;
+}
+
+.src-input {
+  font-size: 0.7em;
 }
 
 /* Source input validation colors */
@@ -783,6 +792,9 @@ const Obj = (props) => {
   ];
 
   let classes = ['object', otype, `source-${source}`, `otype-${otype}`];
+  if (score !== undefined && score > 0) {
+    classes.push('positive');
+  }
   let cClasses = ['icon-button', 'classify-icon', (pos.includes(id) ? 'selected' : '')];
   if (mode !== 'multicol') {
     classes.push('single-col');
@@ -927,7 +939,7 @@ const Obj = (props) => {
 }
 
 // A floating info/control panel
-const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, doLikeClassifier}) => {
+const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, doLikeClassifier, scores, rowById}) => {
   const incrCols = (incr) => {
     setNCols((nCols) => {
       let newCols = nCols + incr;
@@ -942,10 +954,13 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
   const goToBottom = () => {
     window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
   }
-  const n = (curIds) ? curIds.length : 0;
+  curIds = curIds || [];
+  const n = curIds.length;
+  const nWithScores = curIds.filter(id => scores[id] !== undefined).length;
+  const nWithEmbeds = curIds.map(id => rowById[id].embed_ts).filter(ts => (ts && ts > 0)).length;
   return (
     <div className="infobar">
-      <span>{n} items </span>
+      <div>{n} items ({nWithScores} scored, {nWithEmbeds} embedded) </div>
       <div className="control refresh-masonry">
         <button onClick={refreshMasonry}>Refresh layout</button>
       </div>
@@ -986,7 +1001,7 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
 }
 
 
-const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
+const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
   mode, setMode, message, ...props}) => {
   // add a "return" key handler for the source input
@@ -1009,6 +1024,18 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
       return 'src-input invalid-json';
     }
   };
+
+  // sort scores and compute stats
+  const n = (curIds) ? curIds.length : 0;
+  let sscores = [];
+  if (n > 0) {
+    sscores = curIds.map(id => scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
+  }
+  //console.log('got sscores', sscores, curIds, scores);
+  const medianScore = (sscores.length > 0) ? sscores[Math.floor(sscores.length / 2)] : 0;
+  const meanScore = (sscores.length > 0) ? sscores.reduce((a, b) => a + b, 0) / sscores.length : 0;
+  const nPos = (sscores.length > 0) ? sscores.filter((s) => s > meanScore).length : 0;
+  const pPos = (n) ? 100.0 * nPos / n : 0;
   return (
     <div className="controls">
       <div className="control text-fields">
@@ -1019,7 +1046,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           value={sourceStr}
           onChange={(e) => setSourceStr(e.target.value)}
           onKeyDown={keyHandler}
-          size="50"
+          size="52"
         />
         <button onClick={() => doSource()}>Set Source</button>
         <input
@@ -1075,6 +1102,12 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
       <div className="control message-display">
         <span>{message}</span>
       </div>
+      <div className="control flex-break"></div>
+      {sscores.length > 0 && (
+        <div className="score-stats">
+          Scores: {medianScore.toFixed(3)} (med), {meanScore.toFixed(3)} (mean),
+                  {nPos} ({pPos.toFixed(1)}%) pos
+        </div>)}
     </div>
   );
 }
@@ -1444,12 +1477,12 @@ const App = () => {
     });
   }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
 
+  const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry,
-    clusters, setCluster, doLikeClassifier, message};
+    clusters, setCluster, doLikeClassifier, message, scores, curIds: ids, rowById};
   console.log('rowById', rowById, curIds, pos, scores);
-  const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
   // Group objects by cluster for cluster mode
   const renderClusterColumns = () => {

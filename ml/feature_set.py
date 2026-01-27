@@ -53,8 +53,16 @@ class FeatureSet(Mapping, Generic[KeyT]):
     def reload_keys(self, reload_lmdb:bool=True) -> None:
         """Reloads our keys"""
         # first reload all our lmdbs
-        rel_inp = lambda i: NumpyLmdb.open(i.path, flag='r', dtype=self.dtype) if isinstance(i, NumpyLmdb) else i
-        if reload_lmdb and 0:
+        def rel_inp(i):
+            if isinstance(i, NumpyLmdb):
+                i.close()
+                ret = NumpyLmdb.open(i.path, flag='r', dtype=self.dtype)
+                del i
+                return ret
+            else:
+                return i
+
+        if reload_lmdb:
             self.inputs = [rel_inp(inp) for inp in self.inputs]
         logger.info(f'Reloading keys for FeatureSet with {len(self.inputs)} inputs: {self.inputs}')
         self._keys = self.get_keys()

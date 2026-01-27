@@ -393,6 +393,28 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     PrimaryKey(src, tgt, rtype, ts)
     md = Optional(Json)
 
+    @classmethod
+    @db_session
+    def get_likes(cls, valid_types: list[str]|None=None) -> list[Item]:
+        """Returns Items I've liked, optionally filtered to the given `valid_types`."""
+        me = Item.get_me()
+        like_rels = cls.select(lambda r: r.src == me and r.rtype == 'like')[:]
+        ret = set()
+        def maybe_add(obj):
+            if valid_types is None or obj.otype in valid_types:
+                ret.add(obj)
+
+        for r in like_rels:
+            # check the item itself
+            try:
+                ot = r.tgt.otype
+            except UnrepeatableReadError: # tgt was deleted
+                continue
+            maybe_add(r.tgt)
+            # also check its children
+            for child in r.tgt.children.select():
+                maybe_add(child)
+        return list(ret)
 
 def init_sql_db(path: str) -> Database:
     """Initializes the sqlite database at the given `path`"""
@@ -420,12 +442,14 @@ class Source(abc.ABC):
                  sqlite_path: str='',
                  lmdb_path: str='',
                  images_dir: str='',
+                 classifiers_dir: str='',
                  **kw):
         self.name = name
         self.data_dir = data_dir
         self.sqlite_path = sqlite_path or join(data_dir, 'collection.sqlite')
         self.lmdb_path = lmdb_path or join(data_dir, 'embeddings.lmdb')
         self.images_dir = images_dir or join(data_dir, 'images')
+        self.classifiers_dir = classifiers_dir or join(data_dir, 'classifiers')
         init_sql_db(self.sqlite_path)
         Source._registry[name] = self
 
@@ -735,31 +759,45 @@ class ClassifyHandler(MyBaseHandler):
                         scores={id: score for id, score in zip(curIds, scores)},
                         curIds=curIds))
 
-    async def _handle_likes(self, data):
-        """Likes-based classifier"""
-        assert data['otype'] == 'image'
+    async def _handle_likes(self,
+                            otypes=['image'],
+                            feature_types=None,
+                            method: str='rbf',
+                            neg_factor: float=5,
+                            **kw):
+        """Likes-based classifier.
+
+        There are a few different high-level params that we care about:
+        - otypes: what input types we want to process (images, text, posts, etc)
+        - feature_types: what type of features to use for classification
+          - for text items:
+            - text embeddings
+          - for image items:
+            - image embeddings
+            - text embeddings of image descriptions
+            - text description tag embeddings
+          - for post items:
+            - average text/image embeddings of all children
+            - some sort of post-specific embeddings?
+        - classifier saving/loading:
+          - we could train a new classifier or load an existing classifier or none
+          - we run inference with the chosen classifier, or not?
+          - we could save the trained classifier for future use or not
+
+        Other minor params:
+        - method: classification method (default rbf)
+        - neg_factor: how many negative samples per positive sample to use
+        """
         images = set()
         with db_session:
             # first get pos images from likes
-            me = Item.get_me()
-            like_rels = Rel.select(lambda r: r.src == me and r.rtype == 'like')[:]
-            for r in like_rels:
-                try:
-                    ot = r.tgt.otype
-                except UnrepeatableReadError: # tgt was deleted
-                    continue
-                if r.tgt.otype == 'image':
-                    images.add(r.tgt)
-                elif r.tgt.otype == 'post':
-                    for child in r.tgt.children.select():
-                        if child.otype == 'image':
-                            images.add(child)
+            images.update(Rel.get_likes(valid_types=['image']))
             # filter down to only those with embeddings
-            pos = [img for img in images if img.embed_ts]
+            pos = [img for img in images if img.embed_ts and img.embed_ts > 0]
             pos_ids = [p.id for p in pos]
             # get a bunch of random negative images
             neg = list(Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids))
-            neg = random.sample(neg, min(len(neg), len(pos)*5))
+            neg = random.sample(neg, min(len(neg), len(pos)*neg_factor))
         # train and run the classifier
         pos = [f'{r.id}:image' for r in pos]
         neg = [f'{r.id}:image' for r in neg]
@@ -769,7 +807,7 @@ class ClassifyHandler(MyBaseHandler):
         t0 = time.time()
         cls, scores = await loop.run_in_executor(
             None,
-            lambda: self.embs.train_and_run_classifier(pos=pos, neg=neg, to_cls=to_cls, method='rbf')
+            lambda: self.embs.train_and_run_classifier(pos=pos, neg=neg, to_cls=to_cls, method=method)
         )
         t1 = time.time()
         scores = {k.split(':')[0]: v for k, v in scores.items()}
@@ -786,7 +824,7 @@ class ClassifyHandler(MyBaseHandler):
             return self._handle_pos(pos)
         cls_type = data.get('type', '')
         if cls_type == 'likes':
-            return await self._handle_likes(data)
+            return await self._handle_likes(**data)
 
 
 class ClusterHandler(MyBaseHandler):
