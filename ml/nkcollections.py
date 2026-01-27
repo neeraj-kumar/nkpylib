@@ -3,6 +3,7 @@
 """
 #TODO Embeddings status page
 #TODO propagate likes to source sites if possible
+#TODO fast scanning/detector of all images?
 
 from __future__ import annotations
 
@@ -64,17 +65,16 @@ J = lambda obj: json.dumps(obj, indent=2)
 
 class BackgroundWorker(abc.ABC):
     """Abstract base class for long-running background worker threads.
-    
+
     Subclasses must implement the `process_task` method to define how tasks are processed.
-    
+
     Communication with the worker happens via thread-safe queues:
     - `add_task(task)` to send work to the background thread
     - `get_result()` to retrieve completed results
     - `get_all_results()` to retrieve all pending results
-    
+
     The worker runs in a daemon thread and will automatically stop when the main process exits.
     """
-    
     def __init__(self, name: str = "BackgroundWorker"):
         self.name = name
         self.input_queue: Queue = Queue()
@@ -82,46 +82,40 @@ class BackgroundWorker(abc.ABC):
         self.running = False
         self.thread: Thread | None = None
         self._lock = threading.Lock()
-    
+
     def start(self) -> None:
         """Start the background worker thread."""
         with self._lock:
             if self.running:
                 logger.warning(f"{self.name} is already running")
                 return
-            
             self.running = True
             self.thread = Thread(target=self._worker_loop, daemon=True, name=self.name)
             self.thread.start()
             logger.info(f"Started {self.name}")
-    
+
     def stop(self, timeout: float = 5.0) -> None:
         """Stop the background worker thread.
-        
         - timeout: Maximum time to wait for the thread to finish
         """
         with self._lock:
             if not self.running:
                 return
-            
             self.running = False
-            
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=timeout)
             if self.thread.is_alive():
                 logger.warning(f"{self.name} did not stop within {timeout}s")
             else:
                 logger.info(f"Stopped {self.name}")
-    
+
     def _worker_loop(self) -> None:
         """Main worker loop that processes tasks from the input queue."""
         logger.debug(f"{self.name} worker loop started")
-        
         while self.running:
             try:
                 # Get task with timeout so we can check self.running periodically
                 task = self.input_queue.get(timeout=1.0)
-                
                 try:
                     result = self.process_task(task)
                     if result is not None:
@@ -134,31 +128,29 @@ class BackgroundWorker(abc.ABC):
                         self.output_queue.put(error_result)
                 finally:
                     self.input_queue.task_done()
-                    
             except Empty:
                 # Timeout - continue loop to check self.running
                 continue
             except Exception as e:
                 logger.error(f"{self.name} unexpected error in worker loop: {e}")
-        
         logger.debug(f"{self.name} worker loop finished")
-    
+
     @abc.abstractmethod
     def process_task(self, task: Any) -> Any:
         """Process a single task and return the result.
-        
+
         This method must be implemented by subclasses.
-        
+
         - task: The task data from add_task()
         - Returns: Result to be put in output queue, or None to skip
         """
         pass
-    
+
     def _handle_task_error(self, task: Any, error: Exception) -> Any:
         """Handle errors that occur during task processing.
-        
+
         Override this method to customize error handling.
-        
+
         - task: The task that caused the error
         - error: The exception that was raised
         - Returns: Error result to put in output queue, or None to skip
