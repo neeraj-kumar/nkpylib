@@ -958,9 +958,10 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
   const n = curIds.length;
   const nWithScores = curIds.filter(id => scores[id] !== undefined).length;
   const nWithEmbeds = curIds.map(id => rowById[id].embed_ts).filter(ts => (ts && ts > 0)).length;
+  const nWithLikes = curIds.map(id => rowById[id].rels && rowById[id].rels.like).filter(like => like).length;
   return (
     <div className="infobar">
-      <div>{n} items ({nWithScores} scored, {nWithEmbeds} embedded) </div>
+      <div>{n} items ({nWithScores} scored, {nWithEmbeds} embedded, {nWithLikes} liked) </div>
       <div className="control refresh-masonry">
         <button onClick={refreshMasonry}>Refresh layout</button>
       </div>
@@ -1035,7 +1036,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
   const medianScore = (sscores.length > 0) ? sscores[Math.floor(sscores.length / 2)] : 0;
   const meanScore = (sscores.length > 0) ? sscores.reduce((a, b) => a + b, 0) / sscores.length : 0;
   const nPos = (sscores.length > 0) ? sscores.filter((s) => s > meanScore).length : 0;
-  const pPos = (n) ? 100.0 * nPos / n : 0;
+  const pPos = (sscores.length > 0) ? 100.0 * nPos / sscores.length : 0;
   return (
     <div className="controls">
       <div className="control text-fields">
@@ -1106,7 +1107,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
       {sscores.length > 0 && (
         <div className="score-stats">
           Scores: {medianScore.toFixed(3)} (med), {meanScore.toFixed(3)} (mean),
-                  {nPos} ({pPos.toFixed(1)}%) pos
+                  {nPos} ({pPos.toFixed(1)}%) pos / {sscores.length} scored
         </div>)}
     </div>
   );
@@ -1126,7 +1127,7 @@ const App = () => {
   const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "image", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 4);
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
@@ -1466,7 +1467,6 @@ const App = () => {
         setScores(resp.scores);
         console.log('current ids before', curIds, resp.scores);
         const nScoredIds = curIds.filter(id => (resp.scores[id] !== undefined)).length;
-        setMessage(`${resp.msg}: scored ${nScoredIds} out of our ${curIds.length} cur items.`);
         // sort cur ids by score desc, if we have it for that item
         const sortedIds = curIds.sort((a, b) => {
           const scoreA = resp.scores[a] || -10;
