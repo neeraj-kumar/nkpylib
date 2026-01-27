@@ -151,6 +151,22 @@ const STYLES = `
   flex: 0 0 calc((100% - (var(--n-cols) - 1) * 10px) / var(--n-cols));
 }
 
+.infobar {
+  display: flex;
+  flex-flow: flex-end;
+  flex-wrap: wrap;
+  position: fixed;
+  z-index: 100;
+  background: lightgray;
+  top: 0;
+  padding: 5px;
+  right: 0;
+}
+
+.infobar .control {
+  margin: 0 5px;
+}
+
 .labeled, .controls {
   display: flex;
   flex-wrap: wrap;
@@ -535,6 +551,19 @@ const STYLES = `
   margin-bottom: 10px;
   max-width: 100%;
 }
+
+// section for mobile-specific styles
+@media (max-width: 768px) {
+  .infobar {
+
+  }
+  .infobar .control {
+    margin: 5px 0;
+  }
+  .object {
+    max-width: calc(100vw - 20px)!important;
+  }
+}
 `;
 
 // Source-specific content renderers for posts only
@@ -897,9 +926,69 @@ const Obj = (props) => {
   );
 }
 
+// A floating info/control panel
+const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, doLikeClassifier}) => {
+  const incrCols = (incr) => {
+    setNCols((nCols) => {
+      let newCols = nCols + incr;
+      if (newCols < 1) newCols = 1;
+      if (newCols > 20) newCols = 20;
+      return newCols;
+    });
+  }
+  const goToTop = () => {
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+  const goToBottom = () => {
+    window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+  }
+  const n = (curIds) ? curIds.length : 0;
+  return (
+    <div className="infobar">
+      <span>{n} items </span>
+      <div className="control refresh-masonry">
+        <button onClick={refreshMasonry}>Refresh layout</button>
+      </div>
+      <span>Cols:</span>
+      <div className="control decr-cols"><button onClick={() => incrCols(-1)}>-</button></div>
+      <span>{nCols}</span>
+      <div className="control incr-cols"><button onClick={() => incrCols(1)}>+</button></div>
+      <div className="control randomize-btn">
+        <button onClick={() => {
+          // shuffle curIds
+          setCurIds((curIds) => {
+            const shuffled = [...curIds];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+          });
+        }}>Randomize</button>
+      </div>
+      <div className="control simple-mode">
+        <label>
+          <input
+            type="checkbox"
+            checked={simpleMode}
+            onChange={(e) => setSimpleMode(e.target.checked)}
+          />
+          Simple
+        </label>
+      </div>
+      <div className="control like-classifier">
+        <button onClick={doLikeClassifier}>Like Classifier</button>
+      </div>
+      <div className="control go-to-top"><button onClick={goToTop}>Top</button></div>
+      <div className="control go-to-bottom"><button onClick={goToBottom}>Bottom</button></div>
+    </div>
+  );
+}
+
+
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
   sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-  nCols, setNCols, simpleMode, setSimpleMode, mode, setMode, refreshMasonry, doLikeClassifier, message, ...props}) => {
+  mode, setMode, message, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -930,7 +1019,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           value={sourceStr}
           onChange={(e) => setSourceStr(e.target.value)}
           onKeyDown={keyHandler}
-          size="80"
+          size="50"
         />
         <button onClick={() => doSource()}>Set Source</button>
         <input
@@ -946,16 +1035,6 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           placeholder="Search..."
           value={searchStr}
           onChange={(e) => updateSearchStr(e.target.value)}
-        />
-        <label>Cols:</label>
-        <input
-          type="number"
-          placeholder="Cols"
-          value={nCols}
-          onChange={(e) => setNCols(parseInt(e.target.value) || 1)}
-          min="1"
-          max="20"
-          style={{width: '60px', marginLeft: '10px'}}
         />
       </div>
       <div className="control otype-filters">
@@ -977,35 +1056,6 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds,
           {otype}
         </label>
       ))}
-      </div>
-      <div className="control randomize-btn">
-        <button onClick={() => {
-          // shuffle curIds
-          setCurIds((curIds) => {
-            const shuffled = [...curIds];
-            for (let i = shuffled.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-            }
-            return shuffled;
-          });
-        }}>Randomize</button>
-      </div>
-      <div className="control simple-mode">
-        <label>
-          <input
-            type="checkbox"
-            checked={simpleMode}
-            onChange={(e) => setSimpleMode(e.target.checked)}
-          />
-          Simple
-        </label>
-      </div>
-      <div className="control refresh-masonry">
-        <button onClick={refreshMasonry}>Refresh Layout</button>
-      </div>
-      <div className="control like-classifier">
-        <button onClick={doLikeClassifier}>Like Classifier</button>
       </div>
       <div className="control mode-select">
         <label>Mode:</label>
@@ -1043,7 +1093,7 @@ const App = () => {
   const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "image", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 1 : 6);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
@@ -1433,6 +1483,7 @@ const App = () => {
         {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
       </div>
       <Controls {...funcs} />
+      <InfoBar {...funcs} />
       {mode === 'cluster' ? (
         renderClusterColumns()
       ) : (
