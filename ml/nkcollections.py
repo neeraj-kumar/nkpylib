@@ -225,6 +225,8 @@ class LikesWorker(BackgroundWorker):
         self.last_computed_time: float = 0
         self.last_pos_ids: frozenset[int] = frozenset()
         self.last_saved_classifier = None
+        self.last_classifier_version: float = 0  # created_at timestamp of last classifier
+        self.classified_items: dict[float, set[int]] = {}  # classifier_version -> set of classified item IDs
 
     def process_task(self, task: Any) -> Any:
         """Process a likes classification task.
@@ -337,6 +339,9 @@ class LikesWorker(BackgroundWorker):
             # Update state
             self.last_computed_time = time.time()
             self.last_pos_ids = current_pos_ids
+            self.last_classifier_version = self.last_saved_classifier['created_at']
+            # Clear classified items for this new classifier version
+            self.classified_items[self.last_classifier_version] = set()
 
             logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {classifier_path}")
             return dict(
@@ -366,6 +371,76 @@ class LikesWorker(BackgroundWorker):
     def request_update(self) -> None:
         """Request an update check (will skip if no changes)."""
         self.add_task('update')
+
+    def run_inference(self) -> dict[str, Any]:
+        """Run inference using the last classifier on items that haven't been classified by it.
+        
+        Uses the classifier's 'created_at' timestamp as a unique identifier to track
+        which items have been classified by each classifier version.
+        
+        Returns dict with status and inference results.
+        """
+        if not self.last_saved_classifier or self.last_classifier_version == 0:
+            logger.info("No classifier available for inference")
+            return dict(status='no_classifier')
+
+        try:
+            # Get all image IDs that have embeddings
+            all_ids = self._get_all_image_ids()
+            
+            # Find items that haven't been classified by the current classifier version
+            classified_by_current = self.classified_items.get(self.last_classifier_version, set())
+            unclassified_ids = [id for id in all_ids if id not in classified_by_current]
+            
+            if not unclassified_ids:
+                logger.debug("All items already classified by current classifier")
+                return dict(status='all_classified', classifier_version=self.last_classifier_version)
+
+            # Load the classifier
+            classifier_path = join(self.classifiers_dir, 'likes.joblib')
+            if not exists(classifier_path):
+                logger.warning(f"Classifier file not found: {classifier_path}")
+                return dict(status='classifier_not_found')
+
+            classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
+            
+            # Prepare items for classification
+            to_cls = [f'{id}:image' for id in unclassified_ids]
+            
+            logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.last_classifier_version}")
+            
+            # Get embeddings and run inference
+            t0 = time.time()
+            keys, embs, scaler = self.embs.get_keys_embeddings(
+                keys=to_cls,
+                normed=False,
+                scale_mean=True,
+                scale_std=True,
+                return_scaler=True,
+            )
+            
+            # Run inference
+            scores_array = classifier.decision_function(embs)
+            new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
+            t1 = time.time()
+            
+            # Update our scores dict and tracking
+            self.scores.update(new_scores)
+            self.classified_items[self.last_classifier_version].update(unclassified_ids)
+            
+            logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items")
+            
+            return dict(
+                status='inference_completed',
+                classifier_version=self.last_classifier_version,
+                items_classified=len(new_scores),
+                inference_time=t1-t0,
+                new_scores=new_scores
+            )
+            
+        except Exception as e:
+            logger.error(f"Error running inference: {e}")
+            return dict(status='error', error=str(e))
 
 
 def save_classifier(classifier, scaler, path: str, **extra_params) -> dict[str, Any]:
