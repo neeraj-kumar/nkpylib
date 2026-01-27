@@ -373,35 +373,12 @@ class LikesWorker(BackgroundWorker):
                 'classifier_version': other_data.get('created_at', 0),
             })
             
-            # Get all image IDs and run inference
-            all_ids = self._get_all_image_ids()
-            if not all_ids:
-                logger.info("No images with embeddings found")
-                return
-                
-            to_cls = [f'{id}:image' for id in all_ids]
+            logger.info(f"Loaded existing classifier v{self.last['classifier_version']}")
             
-            # Get embeddings and run inference
-            t0 = time.time()
-            keys, embs, scaler = self.embs.get_keys_embeddings(
-                keys=to_cls,
-                normed=False,
-                scale_mean=True,
-                scale_std=True,
-                scaler=other_data.get('scaler', None),
-                return_scaler=True,
-            )
-            
-            if not keys:
-                logger.info("No valid embeddings found for inference")
-                return
-                
-            # Run inference
-            scores_array = classifier.decision_function(embs)
-            self.scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
-            t1 = time.time()
-            
-            logger.info(f"Initial inference completed in {t1-t0:.2f}s for {len(self.scores)} items using existing classifier v{self.last['classifier_version']}")
+            # Run inference using the loaded classifier
+            result = self.run_inference()
+            if result.get('status') == 'inference_completed':
+                logger.info(f"Initial inference completed for {result.get('items_classified', 0)} items")
             
         except Exception as e:
             logger.warning(f"Failed to load existing classifier for initial inference: {e}")
