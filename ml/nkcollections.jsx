@@ -1086,8 +1086,6 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
     sscores = curIds.map(id => scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
   }
   //console.log('got sscores', sscores, curIds, scores);
-  const medianScore = (sscores.length > 0) ? sscores[Math.floor(sscores.length / 2)] : 0;
-  const meanScore = (sscores.length > 0) ? sscores.reduce((a, b) => a + b, 0) / sscores.length : 0;
   const nPos = (sscores.length > 0) ? sscores.filter((s) => s > 0).length : 0;
   const pPos = (sscores.length > 0) ? 100.0 * nPos / sscores.length : 0;
   return (
@@ -1160,8 +1158,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
       <div className="control flex-break"></div>
       {sscores.length > 0 && (
         <div className="score-stats">
-          Scores: {medianScore.toFixed(3)} (med), {meanScore.toFixed(3)} (mean),
-                  {nPos} ({pPos.toFixed(1)}%) pos / {sscores.length} scored
+          {nPos} ({pPos.toFixed(1)}%) pos / {sscores.length} scored
         </div>)}
     </div>
   );
