@@ -373,10 +373,15 @@ class LikesWorker(BackgroundWorker):
                 'classifier_version': other_data.get('created_at', 0),
             })
             logger.info(f"Loaded existing classifier v{self.last['classifier_version']}")
-            # Run inference using the loaded classifier
-            result = self.run_inference()
-            if result.get('status') == 'inference_completed':
-                logger.info(f"Initial inference completed for {result.get('items_classified', 0)} items")
+            # Run inference using the loaded classifier (run synchronously during init)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(self.run_inference())
+                if result.get('status') == 'inference_completed':
+                    logger.info(f"Initial inference completed for {result.get('items_classified', 0)} items")
+            finally:
+                loop.close()
         except Exception as e:
             logger.warning(f"Failed to load existing classifier for initial inference: {e}")
             # Continue without existing classifier - will train fresh one
