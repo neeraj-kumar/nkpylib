@@ -210,8 +210,8 @@ class LikesWorker(BackgroundWorker):
                  embs: Embeddings,
                  classifiers_dir: str,
                  name: str = "LikesWorker",
-                 method: str = 'rbf',
-                 max_pos: int = 600,
+                 method: str = 'sgd',
+                 max_pos: int = 6000,
                  neg_factor: float = 10,
                  sleep_interval: float = 10.0,
                  exclude_top_n: int = 2000):
@@ -264,7 +264,7 @@ class LikesWorker(BackgroundWorker):
     def _get_current_pos_ids(self) -> frozenset[int]:
         """Get current set of liked image IDs."""
         with db_session:
-            liked_images = Rel.get_likes(valid_types=['image'])
+            liked_images = Rel.get_likes(valid_types=['image', 'post'])
             # Filter to only those with embeddings
             pos_ids = frozenset(img.id for img in liked_images
                                if img.embed_ts and img.embed_ts > 0)
@@ -273,7 +273,7 @@ class LikesWorker(BackgroundWorker):
     def _get_all_image_ids(self) -> list[int]:
         """Get all image IDs that have embeddings."""
         with db_session:
-            all_images = Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0)
+            all_images = Item.select(lambda c: c.otype in ('image', 'post') and c.embed_ts > 0)
             all_ids = [img.id for img in all_images]
         return all_ids
 
@@ -295,8 +295,12 @@ class LikesWorker(BackgroundWorker):
         """Update the classifier if needed."""
         current_pos_ids = self._get_current_pos_ids()
         # Check if we need to update
-        if 1 or current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
+        if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
             # Run inference synchronously
+            last = self.last.copy()
+            last.pop('scores', '')
+            last.get('saved_classifier', {}).pop('scores', '')
+            #print(f'running inference sync...: {last}')
             self.run_inference_sync()
             return dict(status='no_change', pos_count=len(current_pos_ids))
         if not current_pos_ids:
@@ -309,10 +313,11 @@ class LikesWorker(BackgroundWorker):
             all_ids = self._get_all_image_ids()
             to_cls = [f'{id}:image' for id in all_ids]
             # Prepare positive samples
-            pos = [f'{id}:image' for id in current_pos_ids]
+            pos = [f'{id}:image' for id in sorted(current_pos_ids)]
             # randomly sample max_pos of these
             if len(pos) > self.max_pos:
-                pos = random.sample(pos, self.max_pos)
+                #pos = random.sample(pos, self.max_pos)
+                pos = pos[-self.max_pos:]
             # Prepare negative samples (exclude positives and most recent IDs)
             neg_ids = self._get_negative_candidate_ids(current_pos_ids)
             # Sample negatives
@@ -377,7 +382,7 @@ class LikesWorker(BackgroundWorker):
 
             # Update our state with the loaded classifier info
             self.last.update({
-                'saved_classifier': other_data,
+                'saved_classifier': dict(classifier=classifier, **other_data),
                 'classifier_version': other_data.get('created_at', 0),
             })
 
@@ -388,7 +393,6 @@ class LikesWorker(BackgroundWorker):
 
         except Exception as e:
             logger.warning(f"Failed to load existing classifier: {e}")
-            # Continue without existing classifier - will train fresh one
 
     async def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
@@ -423,7 +427,7 @@ class LikesWorker(BackgroundWorker):
             if result['status'] == 'inference_completed':
                 self.scores.update(result['new_scores'])
                 logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.scores)} total scores")
-                
+
                 # Save the classifier with updated scores
                 try:
                     classifier_path = join(self.classifiers_dir, 'likes.joblib')
@@ -431,7 +435,7 @@ class LikesWorker(BackgroundWorker):
                         # Load the existing classifier data and update scores
                         saved_data = self.last['saved_classifier'].copy()
                         saved_data['scores'] = self.scores
-                        
+
                         # Save the updated classifier data
                         self.embs.save_classifier(
                             classifier_path,
@@ -441,6 +445,7 @@ class LikesWorker(BackgroundWorker):
                         logger.info(f"Updated classifier saved with {len(self.scores)} scores")
                 except Exception as e:
                     logger.warning(f"Failed to save updated classifier: {e}")
+                    print(traceback.format_exc())
 
             return result
 
@@ -501,21 +506,6 @@ class LikesWorker(BackgroundWorker):
             logger.error(f"Error in blocking inference: {e}")
             traceback.print_exc()
             return dict(status='error', error=str(e))
-
-
-def save_classifier(classifier, scaler, path: str, **extra_params) -> dict[str, Any]:
-    """Save classifier with scaler and additional parameters"""
-    model_data = {
-        'classifier': classifier,
-        'scaler': scaler,
-        'params': {
-            'created_at': time.time(),
-            'n_features': scaler.n_features_in_ if hasattr(scaler, 'n_features_in_') else None,
-            **extra_params
-        }
-    }
-    joblib.dump(model_data, path)
-    return model_data
 
 
 async def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
@@ -802,7 +792,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         q = q.order_by(desc(Item.id))
         common_kw = dict(q=q, lmdb_path=lmdb_path, **kw)
         # start async tasks for all 3 subfunctions
-        text_task = asyncio.create_task(cls.update_text_embeddings(limit=limit*2, **common_kw))
+        text_task = asyncio.create_task(cls.update_text_embeddings(limit=limit, **common_kw))
+        q2 = q.limit(limit)
+        #print(f'here with {common_kw}: {q2}')
         image_task = asyncio.create_task(
             cls.update_image_embeddings(images_dir=images_dir, fetch_delay=fetch_delay, limit=limit, **common_kw)
         )
@@ -811,7 +803,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                                           sys_prompt=sys_prompt,
                                           vlm_model=vlm_model,
                                           images_dir=images_dir,
-                                          limit=limit*2,
+                                          limit=limit,
                                           **common_kw)
         )
         n_text, n_images, n_descs = await asyncio.gather(text_task, image_task, desc_task)
@@ -829,6 +821,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                           fetch_delay: float=0.1,
                           **kw) -> int:
         """Calls the async version"""
+        #return # FIXME
         return run_async(cls.update_embeddings_async(
             lmdb_path=lmdb_path,
             images_dir=images_dir,
@@ -1041,6 +1034,23 @@ class Source(abc.ABC):
             ids = [id for id in source_ids if id in kw['ids']]
         else:
             ids = source_ids
+        # if we have a limit, then check our likes to see if those need to be prioritized
+        limit = kw.get('limit', None)
+        if 0 and limit:
+            by_type = defaultdict(list)
+            n = 0
+            for item in Rel.get_likes():
+                if item.embed_ts:
+                    continue
+                if item.id in ids:
+                    by_type[item.otype].append(item)
+                    n += 1
+            # reset ids to just 'limit' number of these, by type
+            if n:
+                ids = []
+                for otype, items in by_type.items():
+                    ids.extend([item.id for item in items])
+                logger.info(f'Found {n} liked undone items for source {self.name}, prioritizing {len(ids)}')
         Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, ids=ids, **kw)
 
 
@@ -1430,6 +1440,7 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, **kw):
                 s.update_embeddings(limit=batch_size, **kw)
         except Exception as e:
             logger.warning(f'Error in embeddings main loop: {e}')
+            print(traceback.format_exc())
         elapsed = time.time() - t0
         diff = loop_delay - elapsed
         time.sleep(max(0, diff))
