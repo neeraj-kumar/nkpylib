@@ -123,6 +123,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         path = abspath(join(images_dir, f'{mk}.{ext}'))
         return path
 
+
     @classmethod
     async def update_text_embeddings(cls, q: Query, limit: int, lmdb_path: str, **kw) -> int:
         """Updates text embeddings for the given query `q`.
@@ -206,6 +207,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             row, path = await task
             key = f'{row.id}:image'
             if key in updater or key in done:
+                logger.info(f' skipping image {row}, key={key} already in lmdb')
                 continue
             done.add(key)
             embedding_tasks.append(embed_image_task(row, key, path))
@@ -320,9 +322,10 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
         If `ids` is given, we only update embeddings for those ids, else all ids that don't exist in
         the lmdb. If you specify a positive `limit`, we only update upto that many embeddings, per
-        otype. In general, we skip rows that are already marked done in the sql database (via the
-        `embed_ts` or `explored_ts` fields), and in the case of text, we also skip keys that are
-        already in the lmdb.
+        otype. Note that because image embeddings are done locally and are much slower, we apply a
+        factor of 2x for the other two functions. In general, we skip rows that are already marked
+        done in the sql database (via the `embed_ts` or `explored_ts` fields), and in the case of
+        text, we also skip keys that are already in the lmdb.
 
         By default we use the given `vlm_prompt` to generate image descriptions for images. If you
         want, you can override this and also optionally override the `sys_prompt`. If `vlm_prompt`
@@ -339,17 +342,18 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             limit = 10000000
         q = cls.select(lambda c: (ids is None or c.id in ids))
         q = q.order_by(desc(Item.id))
-        common_kw = dict(q=q, lmdb_path=lmdb_path, limit=limit, **kw)
+        common_kw = dict(q=q, lmdb_path=lmdb_path, **kw)
         # start async tasks for all 3 subfunctions
-        text_task = asyncio.create_task(cls.update_text_embeddings(**common_kw))
+        text_task = asyncio.create_task(cls.update_text_embeddings(limit=limit*2, **common_kw))
         image_task = asyncio.create_task(
-            cls.update_image_embeddings(images_dir=images_dir, fetch_delay=fetch_delay, **common_kw)
+            cls.update_image_embeddings(images_dir=images_dir, fetch_delay=fetch_delay, limit=limit, **common_kw)
         )
         desc_task = asyncio.create_task(
             cls.update_image_descriptions(vlm_prompt=vlm_prompt,
                                           sys_prompt=sys_prompt,
                                           vlm_model=vlm_model,
                                           images_dir=images_dir,
+                                          limit=limit*2,
                                           **common_kw)
         )
         n_text, n_images, n_descs = await asyncio.gather(text_task, image_task, desc_task)
@@ -490,6 +494,54 @@ class Source(abc.ABC):
             #print(f'for post source {post.source}, using src={src}, {Source._registry}')
             assembled_posts.append(src.assemble_post(post, post.children.select()))
         return assembled_posts
+
+    @classmethod
+    def cleanup_embeddings(cls, lmdb_path: str):
+        """Cleans up discrepancies between our sqlite and lmdb.
+
+        Note that this doesn't modify the lmdb at all, only the sqlite.
+        """
+        db = NumpyLmdb.open(lmdb_path, flag='r')
+        keys_in_db = set(db.keys())
+        n_missing = 0
+        n_done = 0
+        with db_session:
+            # first deal with embeddings wrongly marked as done in sqlite but missing in lmdb
+            def process_wrongly_done(rows: list[Item], key_suffix: str, ts_field: str):
+                nonlocal n_missing
+                for row in rows:
+                    key = f'{row.id}:{key_suffix}'
+                    if key not in keys_in_db:
+                        logger.debug(f'Cleaning up {row} with missing key {key}')
+                        setattr(row, ts_field, None)
+                        n_missing += 1
+
+            rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype in ('text', 'link'))
+            process_wrongly_done(rows, 'text', 'embed_ts')
+            rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype == 'image')
+            process_wrongly_done(rows, 'image', 'embed_ts')
+            rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is not None and c.explored_ts > 0)
+            process_wrongly_done(rows, 'text', 'explored_ts')
+            # now deal with embeddings present in lmdb but not marked done in sqlite
+            def process_missing_done(rows: list[Item], key_suffix: str, ts_field: str):
+                nonlocal n_done
+                for row in rows:
+                    key = f'{row.id}:{key_suffix}'
+                    if key in keys_in_db:
+                        logger.debug(f'Marking done for {row} with existing key {key}')
+                        d = db.md_get(key)
+                        ts = d.get('embed_ts', d.get('embedding_ts', int(time.time())))
+                        setattr(row, ts_field, int(time.time()))
+                        n_done += 1
+
+            rows = Item.select(lambda c: c.otype in ('text', 'link') and c.embed_ts is None)
+            process_missing_done(rows, 'text', 'embed_ts')
+            rows = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None)
+            process_missing_done(rows, 'image', 'embed_ts')
+            rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is None)
+            process_missing_done(rows, 'text', 'explored_ts')
+        del db
+        logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
 
     @db_session
     def update_embeddings(self, **kw):
@@ -808,13 +860,15 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
                                 more_kw=kw,
                                 on_start=on_start)
 
-def embeddings_main(batch_size: int=10, loop_delay: float=10, **kw):
+def embeddings_main(batch_size: int=20, loop_delay: float=10, **kw):
     """Runs embedding updates from the command line in an infinite loop.
 
     You probably want to call this from your subclass, after having initialized your Source.
     """
     sources = list(Source._registry.values())
     logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
+    for s in sources:
+        s.cleanup_embeddings(s.lmdb_path)
     while 1:
         t0 = time.time()
         for s in sources:

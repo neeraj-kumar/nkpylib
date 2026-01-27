@@ -314,12 +314,21 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  C=1,
                                  **kw) -> Any:
         """High-level function train a classifier with given `pos` and `neg` and run on `to_cls`"""
-        keys, X = self.get_keys_embeddings(keys=pos+neg, normed=False, scale_mean=True, scale_std=True)
+        times = [time.time()]
+        keys, X, scaler = self.get_keys_embeddings(
+                keys=pos+neg, normed=False, scale_mean=True, scale_std=True, return_scaler=True)
+        times.append(time.time())
         y = [1 if key in pos else -1 for key in keys]
+        times.append(time.time())
         weights = [1.0 if key in pos else neg_weight for key in keys]
+        times.append(time.time())
         cls = self.make_classifier(X, y, weights=weights, method=method, C=C, **kw)
+        times.append(time.time())
         keys, embs = self.get_keys_embeddings(keys=to_cls, normed=False, scale_mean=True, scale_std=True)
+        times.append(time.time())
         scores = {key: float(s) for key, s in zip(keys, cls.decision_function(embs))}
+        times.append(time.time())
+        logger.info(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         return cls, scores
 
     def make_classifier(self,
@@ -327,28 +336,35 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                         y: Sequence[float|int],
                         weights: Sequence[float]|None=None,
                         method: str='rbf',
-                        C=10,
+                        C=1,
                         class_weight='balanced',
                         **kw) -> Any:
         """Makes a classifier with given `method`, trains it on X, y, and returns it.
 
+        This is a somewhat low-level method; for common simple cases, you might want to use
+        `train_and_run_classifier()` instead.
+
         If `weights` is provided, it should be of the same length as `keys` and is a weight for key.
         These can be negative as well.
 
+        Note that we don't do any preprocessing of X here; you should do that before calling this.
+        For most methods, it helps to scale dimensions to have mean 0 and std 1. Use a
+        `StandardScaler` to do this.
         """
         assert len(X) == len(y), f'Length of X {len(X)} must match y {len(y)}'
         if weights is not None:
             assert len(X) == len(weights), f'Length of weights {len(weights)} must match X {len(X)}'
         logger.debug(f'training labels {Counter(y).most_common()}, X: {X.shape}, {X}')
         clf_kw = dict(class_weight=class_weight, **kw)
-        if method == 'rbf':
-            clf = SVC(kernel='rbf', C=C, **clf_kw)
-        elif method == 'linear':
-            clf = SVC(kernel='linear', C=C, **clf_kw)
-        elif method == 'sgd':
-            clf = SGDClassifier(**clf_kw)
-        else:
-            raise NotImplementedError(f'Classifier method {method!r} not implemented.')
+        match method:
+            case 'rbf':
+                clf = SVC(kernel='rbf', C=C, **clf_kw)
+            case 'linear':
+                clf = SVC(kernel='linear', C=C, **clf_kw)
+            case 'sgd':
+                clf = SGDClassifier(**clf_kw)
+            case _:
+                raise NotImplementedError(f'Classifier method {method!r} not implemented.')
         clf.fit(X, y, sample_weight=weights)
         return clf
 

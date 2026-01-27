@@ -311,7 +311,7 @@ class LmdbUpdater(CollectionUpdater):
         """Initializes a worker process with the given db_path and init_fn."""
         global db, my_id
         my_id = os.getpid()
-        logger.info(f'In child {my_id}: initializing db at {db_path} with {init_fn} and map_size {map_size}')
+        logger.debug(f'In child {my_id}: initializing db at {db_path} with {init_fn} and map_size {map_size}')
         db = init_fn(db_path, flag='c', map_size=map_size, autogrow=False)
 
     def add(self, id: str, embedding=None, metadata=None):

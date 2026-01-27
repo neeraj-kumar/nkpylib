@@ -1372,11 +1372,14 @@ const App = () => {
   }, []);
 
   const doLikeClassifier = React.useCallback(() => {
-    console.log('calling like classifier');
     api.classifyLikes('likes', 'image').then((resp) => {
       console.log('got like classifier response', resp);
       if (resp.scores) {
         setScores(resp.scores);
+        console.log('current ids before', curIds, resp.scores);
+        const nScoredIds = curIds.filter(id => (resp.scores[id] !== undefined)).length;
+        console.log(`Like classifier scored ${nScoredIds} out of ${curIds.length} items.`);
+        setMessage(`Like classifier scored ${nScoredIds} out of ${curIds.length} items.`);
         // sort cur ids by score desc, if we have it for that item
         const sortedIds = curIds.sort((a, b) => {
           const scoreA = resp.scores[a] || -10;
@@ -1390,7 +1393,7 @@ const App = () => {
     }).catch(() => {
       // Error already handled by fetchEndpoint
     });
-  }, [setCurIds, setScores, curIds, refreshMasonry]);
+  }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
 
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,

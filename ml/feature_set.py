@@ -54,8 +54,9 @@ class FeatureSet(Mapping, Generic[KeyT]):
         """Reloads our keys"""
         # first reload all our lmdbs
         rel_inp = lambda i: NumpyLmdb.open(i.path, flag='r', dtype=self.dtype) if isinstance(i, NumpyLmdb) else i
-        if reload_lmdb:
+        if reload_lmdb and 0:
             self.inputs = [rel_inp(inp) for inp in self.inputs]
+        logger.info(f'Reloading keys for FeatureSet with {len(self.inputs)} inputs: {self.inputs}')
         self._keys = self.get_keys()
         self.n_dims = 0
         for key, value in self.items():
@@ -117,25 +118,29 @@ class FeatureSet(Mapping, Generic[KeyT]):
                             keys: list[KeyT]|None=None,
                             normed: bool=False,
                             scale_mean:bool=True,
-                            scale_std:bool=True) -> tuple[list[KeyT], np.ndarray]:
+                            scale_std:bool=True,
+                            return_scaler:bool=False) -> tuple[list[KeyT], np.ndarray]:
         """Returns a list of keys and a numpy array of embeddings.
 
         By default we return embeddings for all our keys, but you can optionally pass in a list of
-        keys to get embeddings for.
+        keys to get embeddings for. Note that these are futher filtered to those we have in our set.
 
         You can optionally set the following flags:
         - `normed`: Normalize embeddings to unit length.
         - `scale_mean`: Scale embeddings to have zero mean.
         - `scale_std`: Scale embeddings to have unit variance.
 
-        Note that the normalization is applied only to the set of keys you fetch embeddings for, so
-        it might be degenerate if you request too few keys.
+        Note that the scalings are applied only to the set of keys you fetch embeddings for, so it
+        might be degenerate if you request too few keys.
 
         The keys and embeddings are cached for future calls with the same flags (only if requesting
         all keys).
+
+        If you set `return_scaler` to True, we also return the scaler object used for scaling as the
+        last item in the return tuple.
         """
         if keys is None:
-            if 0:
+            if 0: #TODO caching temporarily disabled
                 cache_kw = dict(normed=normed, scale_mean=scale_mean, scale_std=scale_std)
                 if self.cached and all(self.cached[k] == v for k, v in cache_kw.items()):
                     return self.cached['keys'], self.cached['embs']
@@ -151,7 +156,9 @@ class FeatureSet(Mapping, Generic[KeyT]):
         if scale_mean or scale_std:
             scaler = StandardScaler(with_mean=scale_mean, with_std=scale_std)
             embs = scaler.fit_transform(embs)
-        if len(keys) == len(self):
-            # cache these
+        if 0 and len(keys) == len(self): # cache these
             self.cached.update(keys=keys, embs=embs, scaler=scaler, **cache_kw)
-        return keys, embs
+        if return_scaler:
+            return keys, embs, scaler
+        else:
+            return keys, embs

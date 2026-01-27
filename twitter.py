@@ -52,7 +52,7 @@ from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
-from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main, J
+from nkpylib.ml.nkcollections import Item, init_sql_db, Source, web_main, J, embeddings_main
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
@@ -215,8 +215,11 @@ class Twitter(Source):
         # first compute basic image/text
         super().update_embeddings(**kw)
         # now compute post embeddings based on their content blocks
-        posts = Item.select(lambda i: i.source == self.NAME and i.otype == 'post')
-        logger.info(f'got {posts.count()} posts to update embeddings for')
+        limit = kw.get('limit', 0)
+        if limit <= 0:
+            limit = 10000000
+        posts = Item.select(lambda i: i.source == self.NAME and i.otype == 'post').limit(limit)
+        logger.info(f'got {len(posts)} posts to update embeddings for')
         db = NumpyLmdb.open(self.lmdb_path, flag='c')
         updater = LmdbUpdater(self.lmdb_path, n_procs=1)
         for i, post in tqdm(enumerate(posts)):
@@ -269,8 +272,9 @@ def test(**kw):
 
 def update_embeddings(**kw):
     """Updates embeddings"""
-    t = Twitter()
-    t.update_embeddings()
+    from tumblr import Tumblr
+    tw = Twitter()
+    embeddings_main(**kw)
 
 
 if __name__ == '__main__':
