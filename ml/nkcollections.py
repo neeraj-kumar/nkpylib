@@ -4,6 +4,7 @@
 #TODO Embeddings status page
 #TODO propagate likes to source sites if possible
 #TODO fast scanning/detector of all images?
+#TODO list of recent users
 
 from __future__ import annotations
 
@@ -222,7 +223,7 @@ class LikesWorker(BackgroundWorker):
 
         # State tracking
         self.scores: dict[str, float] = {}
-        self.likes: dict[str, Any] = {
+        self.last: dict[str, Any] = {
             'computed_time': 0.0,
             'pos_ids': frozenset(),
             'saved_classifier': None,
@@ -281,48 +282,37 @@ class LikesWorker(BackgroundWorker):
                 neg_ids = neg_ids[self.exclude_top_n:]
         return neg_ids
 
-    def _update_classifier(self, force: bool = False) -> dict[str, Any]:
+    def _update_classifier(self) -> dict[str, Any]:
         """Update the classifier if needed."""
         current_pos_ids = self._get_current_pos_ids()
-
         # Check if we need to update
-        if not force and current_pos_ids == self.likes['pos_ids']:
-            logger.debug(f"No change in liked images, sleeping for {self.sleep_interval}s")
-            time.sleep(self.sleep_interval)
+        if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
+            self.run_inference()
             return dict(status='no_change', pos_count=len(current_pos_ids))
-
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
             return dict(status='no_positives', pos_count=0)
-
         try:
             # Reload embeddings keys
             self.embs.reload_keys()
-
             # Get all image IDs for classification
             all_ids = self._get_all_image_ids()
             to_cls = [f'{id}:image' for id in all_ids]
-
             # Prepare positive samples
-            pos = [f'{id}:image' for id in current_pos_ids][:5]
-
+            pos = [f'{id}:image' for id in current_pos_ids][:500]
             # Prepare negative samples (exclude positives and most recent IDs)
             neg_ids = self._get_negative_candidate_ids(current_pos_ids)
-
             # Sample negatives
             neg_sample_size = min(len(neg_ids), int(len(pos) * self.neg_factor))
             neg_ids = random.sample(neg_ids, neg_sample_size)
             neg = [f'{id}:image' for id in neg_ids]
-
             logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
-
             # Train and run classifier
             t0 = time.time()
             classifier, scores, other_stuff = self.embs.train_and_run_classifier(
                 pos=pos, neg=neg, to_cls=to_cls, method=self.method
             )
             t1 = time.time()
-
             self.scores = {k.split(':')[0]: v for k, v in scores.items()}
             #classifier_path = join(self.classifiers_dir, f'likes/{int(time.time())}.joblib')
             classifier_path = join(self.classifiers_dir, f'likes.joblib')
@@ -336,15 +326,13 @@ class LikesWorker(BackgroundWorker):
                 total_classified=len(to_cls),
                 **other_stuff,
             )
-
             # Update state
-            self.likes.update({
+            self.last.update({
                 'computed_time': time.time(),
                 'pos_ids': current_pos_ids,
                 'saved_classifier': saved_classifier,
                 'classifier_version': saved_classifier['created_at'],
             })
-
             logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {classifier_path}")
             return dict(
                 status='updated',
@@ -362,18 +350,6 @@ class LikesWorker(BackgroundWorker):
         """Get current classifier scores."""
         return self.scores.copy()
 
-    def get_last_computed_time(self) -> float:
-        """Get timestamp of last classifier computation."""
-        return self.likes['computed_time']
-
-    def force_update(self) -> None:
-        """Force an update of the classifier."""
-        self.add_task('force')
-
-    def request_update(self) -> None:
-        """Request an update check (will skip if no changes)."""
-        self.add_task('update')
-
     def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
 
@@ -382,10 +358,9 @@ class LikesWorker(BackgroundWorker):
 
         Returns dict with status and inference results.
         """
-        if not self.likes['saved_classifier'] or self.likes['classifier_version'] == 0:
+        if not self.last['saved_classifier'] or self.last['classifier_version'] == 0:
             logger.info("No classifier available for inference")
             return dict(status='no_classifier')
-
         try:
             # Get all image IDs that have embeddings
             all_ids = self._get_all_image_ids()
@@ -393,24 +368,16 @@ class LikesWorker(BackgroundWorker):
             # Find items that haven't been classified (not in self.scores)
             classified_ids = set(int(id) for id in self.scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
-
             if not unclassified_ids:
-                logger.debug("All items already classified by current classifier")
-                return dict(status='all_classified', classifier_version=self.likes['classifier_version'])
-
+                return {}
             # Load the classifier
-            classifier_path = join(self.classifiers_dir, 'likes.joblib')
-            if not exists(classifier_path):
+            try:
+                classifier_path = join(self.classifiers_dir, 'likes.joblib')
+                classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
+            except Exception as e:
                 logger.warning(f"Classifier file not found: {classifier_path}")
                 return dict(status='classifier_not_found')
-
-            classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
-
-            # Prepare items for classification
             to_cls = [f'{id}:image' for id in unclassified_ids]
-
-            logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.likes['classifier_version']}")
-
             # Get embeddings and run inference
             t0 = time.time()
             keys, embs, scaler = self.embs.get_keys_embeddings(
@@ -418,9 +385,13 @@ class LikesWorker(BackgroundWorker):
                 normed=False,
                 scale_mean=True,
                 scale_std=True,
+                scaler=other_data.get('scaler', None),
                 return_scaler=True,
             )
-
+            if not keys:
+                logger.debug("All items already classified by current classifier")
+                return dict(status='all_classified', classifier_version=self.last['classifier_version'])
+            logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.last['classifier_version']}")
             # Run inference
             scores_array = classifier.decision_function(embs)
             new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
@@ -428,19 +399,19 @@ class LikesWorker(BackgroundWorker):
 
             # Update our scores dict
             self.scores.update(new_scores)
-
-            logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items")
-
+            logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items, {len(scores)} total scores")
             return dict(
                 status='inference_completed',
-                classifier_version=self.likes['classifier_version'],
+                classifier_version=self.last['classifier_version'],
                 items_classified=len(new_scores),
                 inference_time=t1-t0,
                 new_scores=new_scores
             )
-
         except Exception as e:
             logger.error(f"Error running inference: {e}")
+            # print stacktrace
+            import traceback
+            traceback.print_exc()
             return dict(status='error', error=str(e))
 
 
@@ -929,6 +900,7 @@ class Source(abc.ABC):
 
         Note that this doesn't modify the lmdb at all, only the sqlite.
         """
+        #TODO remove bad images
         db = NumpyLmdb.open(lmdb_path, flag='r')
         keys_in_db = set(db.keys())
         n_missing = 0
