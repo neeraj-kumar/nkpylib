@@ -733,19 +733,21 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
     const {type, data} = block;
     switch (type) {
       case 'image':
+        const imageUrl = data.local_path ? `/data/${data.local_path}` : data.url;
         return (
           <img
-            src={data.url}
+            src={imageUrl}
             alt={`Image ${data.id}`}
             onClick={handleImageClick}
             style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
           />
         );
       case 'video':
+        const posterUrl = data.md.poster_url && data.local_path ? `/data/${data.local_path}` : data.md.poster_url;
         return (
           <a href={data.url} target="_blank" rel="noreferrer" className="video-link">
             <img
-              src={data.md.poster_url}
+              src={posterUrl}
               alt={`Video ${data.id} poster`}
               onClick={handleImageClick}
               style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
@@ -923,7 +925,7 @@ const Obj = (props) => {
           )}
           {otype === 'image' && (
             <div className="content">
-              <img src={url} alt={`Image ${id}`} />
+              <img src={props.local_path ? `/data/${props.local_path}` : url} alt={`Image ${id}`} />
             </div>
           )}
           {otype === 'video' && (
