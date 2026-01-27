@@ -37,6 +37,7 @@
 
 
 const DEBOUNCE_MS = 2000;
+const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
 // Detect if we're on a mobile device
