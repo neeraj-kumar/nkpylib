@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import json
 import logging
@@ -25,7 +26,6 @@ from queue import Queue, Empty
 from threading import Thread
 from typing import Any
 
-import pony.orm.core
 import termcolor
 import tornado.web
 
@@ -42,12 +42,13 @@ from pony.orm import (
     Set,
     select,
 ) # type: ignore
+from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
 from nkpylib.ml.client import call_vlm, embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
+from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
@@ -76,7 +77,7 @@ async def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
         f.write(r.content)
     return True
 
-class Item(sql_db.Entity, GetMixin):
+class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     """Each individual item, which can include users, posts, images, links, etc."""
     id = PrimaryKey(int, auto=True)
     source = Required(str)
@@ -85,7 +86,7 @@ class Item(sql_db.Entity, GetMixin):
     url = Required(str, index=True)
     composite_index(source, stype, otype, url)
     name = Optional(str, index=True)
-    parent = Optional('Item', reverse='children', index=True)
+    parent = Optional('Item', reverse='children', index=True) # type: ignore[var-annotated]
     # time of the actual item
     ts = Required(float, default=lambda: time.time(), index=True)
     # time we added this to our database
@@ -100,9 +101,9 @@ class Item(sql_db.Entity, GetMixin):
     md = Optional(Json)
     # cumulative seconds spent on this item
     dwell_time = Required(float, default=0.0)
-    children = Set('Item', reverse='parent')
-    rel_srcs = Set('Rel', reverse='src')
-    rel_tgts = Set('Rel', reverse='tgt')
+    children = Set('Item', reverse='parent') # type: ignore[var-annotated]
+    rel_srcs = Set('Rel', reverse='src') # type: ignore[var-annotated]
+    rel_tgts = Set('Rel', reverse='tgt') # type: ignore[var-annotated]
 
     @classmethod
     def get_me(cls):
@@ -123,7 +124,7 @@ class Item(sql_db.Entity, GetMixin):
         return path
 
     @classmethod
-    async def update_text_embeddings(cls, q, limit: int, **kw) -> int:
+    async def update_text_embeddings(cls, q: Query, limit: int, lmdb_path: str, **kw) -> int:
         """Updates text embeddings for the given query `q`.
 
         This select 'text' and 'link' otypes and updates their embeddings.
@@ -157,14 +158,20 @@ class Item(sql_db.Entity, GetMixin):
         loop = asyncio.get_event_loop()
         n_text = await loop.run_in_executor(
             None,
-            lambda: batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, **kw)
+            lambda: batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, db_path=lmdb_path, **kw)
         )
         if n_text > 0:
             logger.info(f'  Updated embeddings for {n_text} text rows')
         return n_text
 
     @classmethod
-    async def update_image_embeddings(cls, q, lmdb_path, images_dir: str, limit: int, fetch_delay: float=0.1, **kw) -> int:
+    async def update_image_embeddings(cls,
+                                      q: Query,
+                                      lmdb_path: str,
+                                      images_dir: str,
+                                      limit: int,
+                                      fetch_delay: float=0.1,
+                                      **kw) -> int:
         """Updates images embeddings for the given query `q`.
 
         This select 'image' rows, downloads them if needed, and updates their embeddings.
@@ -226,11 +233,11 @@ class Item(sql_db.Entity, GetMixin):
     async def update_image_descriptions(cls,
                                         q,
                                         lmdb_path: str,
-                                        vlm_prompt: str,
-                                        sys_prompt: str,
-                                        vlm_model: str,
                                         images_dir: str,
                                         limit: int,
+                                        vlm_prompt: str|None='briefly describe this image',
+                                        sys_prompt: str|None=None,
+                                        vlm_model: str='fastvlm',
                                         **kw) -> int:
         """Updates image descriptions using VLM for images that have been explored.
 
@@ -239,6 +246,8 @@ class Item(sql_db.Entity, GetMixin):
 
         Returns the number of descriptions updated.
         """
+        if not vlm_prompt or not vlm_model:
+            return 0
         updater = LmdbUpdater(lmdb_path)
         with db_session:
             rows = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None).limit(limit)
@@ -265,8 +274,8 @@ class Item(sql_db.Entity, GetMixin):
         vlm_tasks = [vlm_task(row) for row in rows]
         # Process VLM results as they complete
         n_descs = 0
-        for vlm_task in asyncio.as_completed(vlm_tasks):
-            row, desc = await vlm_task
+        for task in asyncio.as_completed(vlm_tasks):
+            row, desc = await task
             key = f'{row.id}:text'
             with db_session:
                 if desc:
@@ -300,52 +309,50 @@ class Item(sql_db.Entity, GetMixin):
                           **kw) -> int:
         """Updates the embeddings for all relevant rows in our table.
 
+        This does embeddings of:
+        - otype=text: text embeddings of the 'text' field in md
+        - otype=link: text embeddings of the 'title' field + url in md
+        - otype=image: image embeddings of the image at url (downloaded to images_dir if needed)
+        - otype=image: text embeddings of image descriptions generated via VLM
+
         The embeddings are stored in a NumpyLmdb at the given `lmdb_path`.
         For images, we first download them to the given `images_dir`.
 
         If `ids` is given, we only update embeddings for those ids, else all ids that don't exist in
-        the lmdb.
+        the lmdb. If you specify a positive `limit`, we only update upto that many embeddings, per
+        otype. In general, we skip rows that are already marked done in the sql database (via the
+        `embed_ts` or `explored_ts` fields), and in the case of text, we also skip keys that are
+        already in the lmdb.
 
         By default we use the given `vlm_prompt` to generate image descriptions for images. If you
         want, you can override this and also optionally override the `sys_prompt`. If `vlm_prompt`
         is empty or None, we don't generate descriptions.
 
-        If you specify a positive `limit`, we only update upto that many embeddings, per otype.
+        We run the 3 subfunctions (text+link, image embeddings, image descriptions+text embeddings)
+        asynchronously in parallel.
 
-        Any kw are passed to `batch_extract_embeddings`.
+        Any kw are passed to the subfunctions, some of which call `batch_extract_embeddings`.
 
-        We return the number of embeddings updated.
+        We return the total number of embeddings updated.
         """
         if limit <= 0:
             limit = 10000000
         q = cls.select(lambda c: (ids is None or c.id in ids))
         q = q.order_by(desc(Item.id))
-        
-        # Run text and image embedding updates in parallel
-        text_task = asyncio.create_task(
-            cls.update_text_embeddings(q=q, db_path=lmdb_path, limit=limit, **kw)
-        )
+        common_kw = dict(q=q, lmdb_path=lmdb_path, limit=limit, **kw)
+        # start async tasks for all 3 subfunctions
+        text_task = asyncio.create_task(cls.update_text_embeddings(**common_kw))
         image_task = asyncio.create_task(
-            cls.update_image_embeddings(q=q,
-                                       lmdb_path=lmdb_path,
-                                       images_dir=images_dir,
-                                       fetch_delay=fetch_delay,
-                                       limit=limit,
-                                       **kw)
+            cls.update_image_embeddings(images_dir=images_dir, fetch_delay=fetch_delay, **common_kw)
         )
-        
-        # Wait for both to complete
-        n_text, n_images = await asyncio.gather(text_task, image_task)
-        
-        # Image descriptions run after text/image embeddings complete
-        n_descs = await cls.update_image_descriptions(q=q,
-                                                      lmdb_path=lmdb_path,
-                                                      vlm_prompt=vlm_prompt,
-                                                      sys_prompt=sys_prompt,
-                                                      vlm_model=vlm_model,
-                                                      images_dir=images_dir,
-                                                      limit=limit,
-                                                      **kw)
+        desc_task = asyncio.create_task(
+            cls.update_image_descriptions(vlm_prompt=vlm_prompt,
+                                          sys_prompt=sys_prompt,
+                                          vlm_model=vlm_model,
+                                          images_dir=images_dir,
+                                          **common_kw)
+        )
+        n_text, n_images, n_descs = await asyncio.gather(text_task, image_task, desc_task)
         return n_text + n_images + n_descs
 
     @classmethod
@@ -373,10 +380,10 @@ class Item(sql_db.Entity, GetMixin):
         ))
 
 
-class Rel(sql_db.Entity, GetMixin):
+class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     """Relations between items"""
-    src = Required('Item', reverse='rel_srcs')
-    tgt = Required('Item', reverse='rel_tgts')
+    src = Required('Item', reverse='rel_srcs') # type: ignore[var-annotated]
+    tgt = Required('Item', reverse='rel_tgts') # type: ignore[var-annotated]
     rtype = Required(str)
     ts = Required(int)
     PrimaryKey(src, tgt, rtype, ts)
@@ -385,37 +392,23 @@ class Rel(sql_db.Entity, GetMixin):
 
 def init_sql_db(path: str) -> Database:
     """Initializes the sqlite database at the given `path`"""
-    for func in sqlite_pragmas:
-        sql_db.on_connect(provider='sqlite')(func)
-    # create parent dirs
-    path = abspath(path)
-    try:
-        os.makedirs(dirname(path), exist_ok=True)
-    except Exception as e:
-        pass
-    try:
-        sql_db.bind('sqlite', path, create_db=True)
-        #set_sql_debug(True)
-        sql_db.generate_mapping(create_tables=True)
-        # add an initial row for 'me'
-        with db_session:
-            Item.upsert(get_kw=dict(
-                source='me',
-                stype='user',
-                otype='user',
-                url='me'
-            ))
-    except pony.orm.core.BindingError:
-        pass
+    sql_db = init_sqlite_db(path, db=sql_db)
+    with db_session:
+        Item.upsert(get_kw=dict(
+            source='me',
+            stype='user',
+            otype='user',
+            url='me'
+        ))
     return sql_db
 
 
-class Source:
+class Source(abc.ABC):
     """Base class for all sources. Subclass this.
 
     Implement can_parse() and parse() methods if you want to handle custom inputs.
     """
-    _registry = {}  # Class variable to maintain map from names to Source classes
+    _registry: dict[str, Source] = {}  # Class variable to maintain map from names to Source classes
 
     def __init__(self,
                  name: str,
@@ -453,7 +446,8 @@ class Source:
         """
         for source_cls in Source.__subclasses__():
             if source_cls.can_parse(url):
-                source = source_cls()
+                # subclasses must be instantiable with no args
+                source = source_cls() # type: ignore[call-arg]
                 result = source.parse(url, **data)
                 return result
         raise NotImplementedError(f'No source found to parse url {url}')
@@ -518,26 +512,26 @@ class Source:
 class MyBaseHandler(BaseHandler):
     @property
     def sql_db(self) -> Database:
-        return self.application.sql_db
+        return self.application.sql_db # type: ignore[attr-defined]
 
     @property
     def lmdb(self) -> NumpyLmdb:
-        return self.application.lmdb
+        return self.application.lmdb # type: ignore[attr-defined]
 
     @property
     def embs(self) -> Embeddings:
-        return self.application.embs
+        return self.application.embs # type: ignore[attr-defined]
 
     @property
     @cache
     def all_otypes(self) -> list[str]:
         with db_session:
-            otypes = list(select(r.otype for r in Item))
+            otypes = list(select(r.otype for r in Item)) # type: ignore[attr-defined]
             return otypes
 
 class GetHandler(MyBaseHandler):
     @db_session
-    def build_query(self, data: dict[str, Any]) -> pony.orm.core.Query:
+    def build_query(self, data: dict[str, Any]) -> Query:
         """Builds up the database query to get items matching the given data filters.
 
         For string fields, the value can be a string (exact match) or a list of strings (any of).
@@ -700,7 +694,7 @@ class ClassifyHandler(MyBaseHandler):
             for r in like_rels:
                 try:
                     ot = r.tgt.otype
-                except pony.orm.core.UnrepeatableReadError: # tgt was deleted
+                except UnrepeatableReadError: # tgt was deleted
                     continue
                 if r.tgt.otype == 'image':
                     images.add(r.tgt)

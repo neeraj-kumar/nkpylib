@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+
+from os.path import abspath, dirname
 
 from pony.orm import * # type: ignore
 from pony.orm.core import Entity, EntityMeta, SetInstance # type: ignore
@@ -127,3 +130,26 @@ def recursive_to_dict(obj, _has_iterated=False, **kwargs):
             del obj[deletable_key]
 
     return obj
+
+def init_sqlite_db(path: str, db: Database|None=None, debug:bool=False) -> Database:
+    """Initializes the sqlite database at the given `path`.
+
+    You can optionally pass in your own `db` instance.
+    If you set `debug` to True, SQL debugging will be enabled.
+    """
+    if db is None:
+        db = Database()
+    for func in sqlite_pragmas:
+        db.on_connect(provider='sqlite')(func)
+    path = abspath(path)
+    try:
+        os.makedirs(dirname(path), exist_ok=True)
+    except Exception as e:
+        pass
+    try:
+        db.bind('sqlite', path, create_db=True)
+        set_sql_debug(debug)
+        db.generate_mapping(create_tables=True)
+    except BindingError:
+        pass
+    return db

@@ -43,7 +43,7 @@ from datetime import datetime
 from os.path import exists, dirname, join, abspath
 from urllib.parse import urlencode
 
-import lmdb
+import lmdb # type: ignore
 import numpy as np
 import requests
 
@@ -112,7 +112,7 @@ class Twitter(Source):
         return post_data
 
     @db_session
-    def create_collection_from_archive(self, path: str, **kw) -> list[Entity]:
+    def create_collection_from_archive(self, path: str, **kw) -> list[Item]:
         """Creates `Item` rows from a twitter archive.
 
         The archive is in my nkbase, accessible via http://localhost:10002/p/x.com

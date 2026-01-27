@@ -16,6 +16,7 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime
 from os.path import exists, dirname, join, abspath
+from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import requests
@@ -38,6 +39,7 @@ DEFAULT_CONFIG_PATH = '.tumblr_config.json'
 
 class Tumblr(Source):
     NAME = 'tumblr'
+    MIN_DELAY = 0.3 # between requests
 
     COMMON_HEADERS = {
         "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
@@ -99,7 +101,7 @@ class Tumblr(Source):
             u = self.get_blog_user(blog_name)
             offset = 0
             # add posts if we don't have any yet
-            if not select(p for p in Item if p.parent == u).exists():
+            if not select(p for p in Item if p.parent == u).exists(): # type: ignore[attr-defined]
                 posts, offset, total = self.get_blog_archive(blog_name, n_posts=n_posts)
                 self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
             return dict(source=self.NAME, parent=u.id, assemble_posts=True)
@@ -141,7 +143,7 @@ class Tumblr(Source):
             "Authorization": f'Bearer {self.api_token}',
             **self.COMMON_HEADERS
         }
-        resp = make_request(url, cookies=self.cookies, headers=headers, **kw)
+        resp = make_request(url, cookies=self.cookies, headers=headers, min_delay=self.MIN_DELAY, **kw)
         if resp.cookies:
             logger.info(f'  Resp cookies: {resp.cookies}')
             # update the 'sid' cookie in our config
@@ -180,7 +182,7 @@ class Tumblr(Source):
         else:
             url = f'https://api.tumblr.com/v2/{endpoint}'
         #print(f'got headers {headers}, {self.cookies}, {kw}')
-        resp = make_request(url, headers=headers, cookies=self.cookies, **kw)
+        resp = make_request(url, headers=headers, cookies=self.cookies, min_delay=self.MIN_DELAY, **kw)
         try:
             obj = resp.json()
         except Exception as e:
@@ -235,8 +237,7 @@ class Tumblr(Source):
                 "X-CSRF": self.csrf,
                 **self.COMMON_HEADERS
             }
-            resp = self.make_web_req('api/v2/user/like', method='POST', headers=headers, json=data)
-            obj = resp.json()
+            obj = self.make_web_req('api/v2/user/like', method='POST', headers=headers, json=data)
         else: # TODO this requires Oauth access, not just api key
             endpoint = 'user/like'
             obj = self.make_api_req(endpoint, method='POST', json=data)
@@ -247,6 +248,7 @@ class Tumblr(Source):
         """Returns our "dashboard". Useful for updating the csrf"""
         obj = self.make_web_req('')
         print(J(obj)[:500])
+        return obj['PeeprRoute']['initialDashboard']['posts']
 
     def get_blog_content(self, blog_name: str, n_posts: int=20) -> list[dict]:
         """Get blog content from the web interface.
@@ -373,7 +375,7 @@ class Tumblr(Source):
                 u.md['next_link'] = next_link
             ret.append(u)
             # create the main post Item
-            pi = Item.upsert(get_kw=dict(
+            pi: Any = Item.upsert(get_kw=dict(
                     source=self.NAME,
                     stype='blog',
                     otype='post',
@@ -459,7 +461,7 @@ class Tumblr(Source):
                         w=poster.get('width'),
                         h=poster.get('height'),
                         media_key=poster_media_key,
-                        poster_for=cc.id,
+                        poster_for=cc.id, # type: ignore[attr-defined]
                     )
                     pcc = Item.upsert(get_kw=dict(
                             source=pi.source,
