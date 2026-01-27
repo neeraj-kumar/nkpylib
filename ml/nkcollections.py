@@ -156,24 +156,24 @@ class BackgroundWorker(abc.ABC):
         - Returns: Error result to put in output queue, or None to skip
         """
         return dict(error=str(error), task=task)
-    
+
     def add_task(self, task: Any) -> None:
         """Add a task to the input queue for processing.
-        
+
         - task: Any data that will be passed to process_task()
         """
         if not self.running:
             raise RuntimeError(f"{self.name} is not running")
-        
+
         self.input_queue.put(task)
-    
+
     def get_result(self) -> Any | None:
         """Get one result from the output queue, or None if no results available."""
         try:
             return self.output_queue.get_nowait()
         except Empty:
             return None
-    
+
     def get_all_results(self) -> list[Any]:
         """Get all available results from the output queue."""
         results = []
@@ -183,14 +183,14 @@ class BackgroundWorker(abc.ABC):
                 break
             results.append(result)
         return results
-    
+
     def queue_sizes(self) -> dict[str, int]:
         """Get current queue sizes for monitoring."""
         return dict(
             input_queue_size=self.input_queue.qsize(),
             output_queue_size=self.output_queue.qsize()
         )
-    
+
     def is_running(self) -> bool:
         """Check if the worker thread is running."""
         return self.running and self.thread is not None and self.thread.is_alive()
@@ -198,13 +198,13 @@ class BackgroundWorker(abc.ABC):
 
 class LikesWorker(BackgroundWorker):
     """Background worker that maintains likes-based image classifier state.
-    
+
     Continuously monitors for changes in liked images and updates classifier scores.
-    Maintains a dict of scores (id->score), tracks the last computed time, and 
+    Maintains a dict of scores (id->score), tracks the last computed time, and
     saves classifiers to disk for persistence.
     """
-    
-    def __init__(self, 
+
+    def __init__(self,
                  embs: Embeddings,
                  classifiers_dir: str,
                  name: str = "LikesWorker",
@@ -219,20 +219,20 @@ class LikesWorker(BackgroundWorker):
         self.neg_factor = neg_factor
         self.sleep_interval = sleep_interval
         self.exclude_top_n = exclude_top_n
-        
+
         # State tracking
         self.scores: dict[str, float] = {}
         self.last_computed_time: float = 0
         self.last_pos_ids: frozenset[int] = frozenset()
         self.last_classifier = None
         self.last_scaler = None
-        
+
         # Ensure classifiers directory exists
         os.makedirs(self.classifiers_dir, exist_ok=True)
-    
+
     def process_task(self, task: Any) -> Any:
         """Process a likes classification task.
-        
+
         Task can be:
         - 'update': Check for changes and update classifier if needed
         - 'force': Force update classifier regardless of changes
@@ -244,16 +244,16 @@ class LikesWorker(BackgroundWorker):
         else:
             logger.warning(f"Unknown task type: {task}")
             return None
-    
+
     def _get_current_pos_ids(self) -> frozenset[int]:
         """Get current set of liked image IDs."""
         with db_session:
             liked_images = Rel.get_likes(valid_types=['image'])
             # Filter to only those with embeddings
-            pos_ids = frozenset(img.id for img in liked_images 
+            pos_ids = frozenset(img.id for img in liked_images
                                if img.embed_ts and img.embed_ts > 0)
         return pos_ids
-    
+
     def _get_all_image_ids(self) -> list[int]:
         """Get all image IDs that have embeddings, excluding top N by ID."""
         with db_session:
@@ -264,37 +264,37 @@ class LikesWorker(BackgroundWorker):
             if len(all_ids) > self.exclude_top_n:
                 all_ids = all_ids[self.exclude_top_n:]
         return all_ids
-    
+
     def _update_classifier(self, force: bool = False) -> dict[str, Any]:
         """Update the classifier if needed."""
         current_pos_ids = self._get_current_pos_ids()
-        
+
         # Check if we need to update
         if not force and current_pos_ids == self.last_pos_ids:
             logger.debug(f"No change in liked images, sleeping for {self.sleep_interval}s")
             time.sleep(self.sleep_interval)
             return dict(status='no_change', pos_count=len(current_pos_ids))
-        
+
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
             return dict(status='no_positives', pos_count=0)
-        
+
         try:
             # Reload embeddings keys
             self.embs.reload_keys()
-            
+
             # Get all image IDs for classification
             all_ids = self._get_all_image_ids()
             to_cls = [f'{id}:image' for id in all_ids]
-            
+
             # Prepare positive samples
             pos = [f'{id}:image' for id in current_pos_ids]
-            
+
             # Prepare negative samples (exclude positives and top N IDs)
             with db_session:
-                neg_candidates = Item.select(lambda c: 
-                    c.otype == 'image' and 
-                    c.embed_ts > 0 and 
+                neg_candidates = Item.select(lambda c:
+                    c.otype == 'image' and
+                    c.embed_ts > 0 and
                     c.id not in current_pos_ids
                 )
                 # Further exclude top N by ID
@@ -302,36 +302,36 @@ class LikesWorker(BackgroundWorker):
                 neg_ids.sort(reverse=True)
                 if len(neg_ids) > self.exclude_top_n:
                     neg_ids = neg_ids[self.exclude_top_n:]
-                
+
                 # Sample negatives
                 neg_sample_size = min(len(neg_ids), int(len(pos) * self.neg_factor))
                 neg_ids = random.sample(neg_ids, neg_sample_size)
                 neg = [f'{id}:image' for id in neg_ids]
-            
+
             logger.info(f"Training classifier with {len(pos)} pos, {len(neg)} neg, "
                        f"classifying {len(to_cls)} images")
-            
+
             # Train and run classifier
             t0 = time.time()
             classifier, scores = self.embs.train_and_run_classifier(
                 pos=pos, neg=neg, to_cls=to_cls, method=self.method
             )
             t1 = time.time()
-            
+
             # Convert scores to int keys
             self.scores = {k.split(':')[0]: v for k, v in scores.items()}
-            
+
             # Save classifier to disk
             classifier_path = os.path.join(
-                self.classifiers_dir, 
+                self.classifiers_dir,
                 f'likes_classifier_{int(time.time())}.joblib'
             )
-            
+
             # Get scaler from the embeddings if available
             scaler = getattr(self.embs, '_last_scaler', None)
-            
+
             save_data = self.embs.save_classifier(
-                classifier_path, 
+                classifier_path,
                 classifier,
                 scaler=scaler,
                 method=self.method,
@@ -341,16 +341,16 @@ class LikesWorker(BackgroundWorker):
                 total_classified=len(to_cls),
                 training_time=t1 - t0
             )
-            
+
             # Update state
             self.last_computed_time = time.time()
             self.last_pos_ids = current_pos_ids
             self.last_classifier = classifier
             self.last_scaler = scaler
-            
+
             logger.info(f"Updated likes classifier in {t1-t0:.2f}s, "
                        f"saved to {classifier_path}")
-            
+
             return dict(
                 status='updated',
                 pos_count=len(pos),
@@ -359,23 +359,23 @@ class LikesWorker(BackgroundWorker):
                 training_time=t1 - t0,
                 classifier_path=classifier_path
             )
-            
+
         except Exception as e:
             logger.error(f"Error updating likes classifier: {e}")
             return dict(status='error', error=str(e))
-    
+
     def get_scores(self) -> dict[str, float]:
         """Get current classifier scores."""
         return self.scores.copy()
-    
+
     def get_last_computed_time(self) -> float:
         """Get timestamp of last classifier computation."""
         return self.last_computed_time
-    
+
     def force_update(self) -> None:
         """Force an update of the classifier."""
         self.add_task('force')
-    
+
     def request_update(self) -> None:
         """Request an update check (will skip if no changes)."""
         self.add_task('update')
