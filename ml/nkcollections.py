@@ -331,6 +331,7 @@ class LikesWorker(BackgroundWorker):
                 pos_count=len(pos),
                 neg_count=len(neg),
                 total_classified=len(to_cls),
+                scores=self.scores,
                 **other_stuff,
             )
             # Update state
@@ -358,22 +359,32 @@ class LikesWorker(BackgroundWorker):
         return self.scores.copy()
 
     def _load_and_run_initial_inference(self) -> None:
-        """Load existing classifier on initialization and run inference to populate scores."""
+        """Load existing classifier on initialization and populate scores from saved data."""
         try:
-            # Load the classifier and metadata
             classifier_path = join(self.classifiers_dir, 'likes.joblib')
+            if not exists(classifier_path):
+                logger.info("No existing classifier found, starting fresh")
+                return
+                
+            # Load the classifier and metadata
             classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
+            
+            # Update our state with the loaded classifier info
             self.last.update({
                 'saved_classifier': other_data,
                 'classifier_version': other_data.get('created_at', 0),
             })
-            logger.info(f"Loaded existing classifier v{self.last['classifier_version']}")
-            # Run inference using the loaded classifier
-            result = self.run_inference_sync()
-            if result.get('status') == 'inference_completed':
-                logger.info(f"Initial inference completed for {result.get('items_classified', 0)} items")
+            
+            # Load scores from saved classifier data
+            saved_scores = other_data.get('scores', {})
+            if saved_scores:
+                self.scores = saved_scores.copy()
+                logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores")
+            else:
+                logger.info(f"Loaded existing classifier v{self.last['classifier_version']} but no scores found")
+                
         except Exception as e:
-            logger.warning(f"Failed to load existing classifier for initial inference: {e}")
+            logger.warning(f"Failed to load existing classifier: {e}")
             # Continue without existing classifier - will train fresh one
 
     async def run_inference(self) -> dict[str, Any]:
