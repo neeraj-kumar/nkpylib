@@ -229,6 +229,12 @@ class LikesWorker(BackgroundWorker):
             'saved_classifier': None,
             'classifier_version': 0.0,
         }
+        
+        # Ensure classifiers directory exists
+        os.makedirs(self.classifiers_dir, exist_ok=True)
+        
+        # Load existing classifier and run inference on initialization
+        self._load_and_run_initial_inference()
 
     def process_task(self, task: Any) -> Any:
         """Process a likes classification task.
@@ -350,6 +356,57 @@ class LikesWorker(BackgroundWorker):
         """Get current classifier scores."""
         return self.scores.copy()
 
+    def _load_and_run_initial_inference(self) -> None:
+        """Load existing classifier on initialization and run inference to populate scores."""
+        try:
+            classifier_path = join(self.classifiers_dir, 'likes.joblib')
+            if not exists(classifier_path):
+                logger.info("No existing classifier found, starting fresh")
+                return
+                
+            # Load the classifier and metadata
+            classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
+            
+            # Update our state with the loaded classifier info
+            self.last.update({
+                'saved_classifier': other_data,
+                'classifier_version': other_data.get('created_at', 0),
+            })
+            
+            # Get all image IDs and run inference
+            all_ids = self._get_all_image_ids()
+            if not all_ids:
+                logger.info("No images with embeddings found")
+                return
+                
+            to_cls = [f'{id}:image' for id in all_ids]
+            
+            # Get embeddings and run inference
+            t0 = time.time()
+            keys, embs, scaler = self.embs.get_keys_embeddings(
+                keys=to_cls,
+                normed=False,
+                scale_mean=True,
+                scale_std=True,
+                scaler=other_data.get('scaler', None),
+                return_scaler=True,
+            )
+            
+            if not keys:
+                logger.info("No valid embeddings found for inference")
+                return
+                
+            # Run inference
+            scores_array = classifier.decision_function(embs)
+            self.scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
+            t1 = time.time()
+            
+            logger.info(f"Initial inference completed in {t1-t0:.2f}s for {len(self.scores)} items using existing classifier v{self.last['classifier_version']}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to load existing classifier for initial inference: {e}")
+            # Continue without existing classifier - will train fresh one
+
     def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
 
@@ -399,7 +456,7 @@ class LikesWorker(BackgroundWorker):
 
             # Update our scores dict
             self.scores.update(new_scores)
-            logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items, {len(scores)} total scores")
+            logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items, {len(self.scores)} total scores")
             return dict(
                 status='inference_completed',
                 classifier_version=self.last['classifier_version'],
