@@ -229,10 +229,10 @@ class LikesWorker(BackgroundWorker):
             'saved_classifier': None,
             'classifier_version': 0.0,
         }
-        
+
         # Ensure classifiers directory exists
         os.makedirs(self.classifiers_dir, exist_ok=True)
-        
+
         # Load existing classifier and run inference on initialization
         self._load_and_run_initial_inference()
 
@@ -305,7 +305,7 @@ class LikesWorker(BackgroundWorker):
             all_ids = self._get_all_image_ids()
             to_cls = [f'{id}:image' for id in all_ids]
             # Prepare positive samples
-            pos = [f'{id}:image' for id in current_pos_ids][:500]
+            pos = [f'{id}:image' for id in current_pos_ids]
             # Prepare negative samples (exclude positives and most recent IDs)
             neg_ids = self._get_negative_candidate_ids(current_pos_ids)
             # Sample negatives
@@ -359,27 +359,18 @@ class LikesWorker(BackgroundWorker):
     def _load_and_run_initial_inference(self) -> None:
         """Load existing classifier on initialization and run inference to populate scores."""
         try:
-            classifier_path = join(self.classifiers_dir, 'likes.joblib')
-            if not exists(classifier_path):
-                logger.info("No existing classifier found, starting fresh")
-                return
-                
             # Load the classifier and metadata
+            classifier_path = join(self.classifiers_dir, 'likes.joblib')
             classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
-            
-            # Update our state with the loaded classifier info
             self.last.update({
                 'saved_classifier': other_data,
                 'classifier_version': other_data.get('created_at', 0),
             })
-            
             logger.info(f"Loaded existing classifier v{self.last['classifier_version']}")
-            
             # Run inference using the loaded classifier
             result = self.run_inference()
             if result.get('status') == 'inference_completed':
                 logger.info(f"Initial inference completed for {result.get('items_classified', 0)} items")
-            
         except Exception as e:
             logger.warning(f"Failed to load existing classifier for initial inference: {e}")
             # Continue without existing classifier - will train fresh one
@@ -1255,7 +1246,7 @@ class ClassifyHandler(MyBaseHandler):
             pos=pos, neg=neg, scores=scores, times=times_dict))
 
     async def post(self):
-        self.embs.reload_keys()
+        #self.embs.reload_keys()
         # figure out what kind of classification we're doing
         data = json.loads(self.request.body)
         pos = data.get('pos', [])
