@@ -310,8 +310,8 @@ class LikesWorker(BackgroundWorker):
 
             # Train and run classifier
             t0 = time.time()
-            classifier, scores, scaler = self.embs.train_and_run_classifier(
-                pos=pos, neg=neg, to_cls=to_cls, method=self.method, return_scaler=True
+            classifier, scores, times_dict = self.embs.train_and_run_classifier(
+                pos=pos, neg=neg, to_cls=to_cls, method=self.method, return_scaler=True, return_times=True
             )
             t1 = time.time()
 
@@ -326,7 +326,7 @@ class LikesWorker(BackgroundWorker):
                 pos_count=len(pos),
                 neg_count=len(neg),
                 total_classified=len(to_cls),
-                training_time=t1 - t0
+                times=times_dict
             )
 
             # Update state
@@ -343,7 +343,7 @@ class LikesWorker(BackgroundWorker):
                 pos_count=len(pos),
                 neg_count=len(neg),
                 scores_count=len(self.scores),
-                training_time=t1 - t0,
+                times=times_dict,
                 classifier_path=classifier_path
             )
 
@@ -1142,15 +1142,15 @@ class ClassifyHandler(MyBaseHandler):
         # Run the blocking operation in a thread pool
         loop = asyncio.get_event_loop()
         t0 = time.time()
-        cls, scores = await loop.run_in_executor(
+        cls, scores, times_dict = await loop.run_in_executor(
             None,
-            lambda: self.embs.train_and_run_classifier(pos=pos, neg=neg, to_cls=to_cls, method=method)
+            lambda: self.embs.train_and_run_classifier(pos=pos, neg=neg, to_cls=to_cls, method=method, return_times=True)
         )
         t1 = time.time()
         scores = {k.split(':')[0]: v for k, v in scores.items()}
         self.write(dict(
-            msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s',
-            pos=pos, neg=neg, scores=scores))
+            msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s (training: {times_dict["training"]:.2f}s, inference: {times_dict["inference"]:.2f}s)',
+            pos=pos, neg=neg, scores=scores, times=times_dict))
 
     async def post(self):
         self.embs.reload_keys()

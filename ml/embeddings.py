@@ -314,6 +314,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  neg_weight: float=1.0,
                                  method: str='rbf',
                                  C=1,
+                                 return_times: bool=False,
                                  **kw) -> Any:
         """High-level function train a classifier with given `pos` and `neg` and run on `to_cls`"""
         times = [time.time()]
@@ -348,10 +349,18 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         times.append(time.time())
         scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(np.vstack(test_X)))}
         times.append(time.time())
+        
+        timing_dict = dict(
+            training=times[3] - times[2],
+            inference=times[4] - times[3]
+        )
         logger.info(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         # all ids: 0.4, 0.03, 3.6, 1.2, 16.7
         # just visible: 0.4, 0.00, 3.6, 0.066, 0.76
         # after refactoring: 0.34, 0.00, 3.5, 0.04
+        
+        if return_times:
+            return cls, scores, timing_dict
         return cls, scores
 
     def train_classifier(self,
