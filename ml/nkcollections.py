@@ -320,13 +320,24 @@ class Item(sql_db.Entity, GetMixin):
             limit = 10000000
         q = cls.select(lambda c: (ids is None or c.id in ids))
         q = q.order_by(desc(Item.id))
-        n_text = await cls.update_text_embeddings(q=q, db_path=lmdb_path, limit=limit, **kw)
-        n_images = await cls.update_image_embeddings(q=q,
-                                                     lmdb_path=lmdb_path,
-                                                     images_dir=images_dir,
-                                                     fetch_delay=fetch_delay,
-                                                     limit=limit,
-                                                     **kw)
+        
+        # Run text and image embedding updates in parallel
+        text_task = asyncio.create_task(
+            cls.update_text_embeddings(q=q, db_path=lmdb_path, limit=limit, **kw)
+        )
+        image_task = asyncio.create_task(
+            cls.update_image_embeddings(q=q,
+                                       lmdb_path=lmdb_path,
+                                       images_dir=images_dir,
+                                       fetch_delay=fetch_delay,
+                                       limit=limit,
+                                       **kw)
+        )
+        
+        # Wait for both to complete
+        n_text, n_images = await asyncio.gather(text_task, image_task)
+        
+        # Image descriptions run after text/image embeddings complete
         n_descs = await cls.update_image_descriptions(q=q,
                                                       lmdb_path=lmdb_path,
                                                       vlm_prompt=vlm_prompt,
