@@ -222,11 +222,12 @@ class LikesWorker(BackgroundWorker):
 
         # State tracking
         self.scores: dict[str, float] = {}
-        self.last_computed_time: float = 0
-        self.last_pos_ids: frozenset[int] = frozenset()
-        self.last_saved_classifier = None
-        self.last_classifier_version: float = 0  # created_at timestamp of last classifier
-        self.classified_items: dict[float, set[int]] = {}  # classifier_version -> set of classified item IDs
+        self.likes: dict[str, Any] = {
+            'computed_time': 0.0,
+            'pos_ids': frozenset(),
+            'saved_classifier': None,
+            'classifier_version': 0.0,
+        }
 
     def process_task(self, task: Any) -> Any:
         """Process a likes classification task.
@@ -285,7 +286,7 @@ class LikesWorker(BackgroundWorker):
         current_pos_ids = self._get_current_pos_ids()
 
         # Check if we need to update
-        if not force and current_pos_ids == self.last_pos_ids:
+        if not force and current_pos_ids == self.likes['pos_ids']:
             logger.debug(f"No change in liked images, sleeping for {self.sleep_interval}s")
             time.sleep(self.sleep_interval)
             return dict(status='no_change', pos_count=len(current_pos_ids))
@@ -325,7 +326,7 @@ class LikesWorker(BackgroundWorker):
             self.scores = {k.split(':')[0]: v for k, v in scores.items()}
             #classifier_path = join(self.classifiers_dir, f'likes/{int(time.time())}.joblib')
             classifier_path = join(self.classifiers_dir, f'likes.joblib')
-            self.last_saved_classifier = self.embs.save_classifier(
+            saved_classifier = self.embs.save_classifier(
                 classifier_path,
                 classifier,
                 method=self.method,
@@ -337,11 +338,12 @@ class LikesWorker(BackgroundWorker):
             )
 
             # Update state
-            self.last_computed_time = time.time()
-            self.last_pos_ids = current_pos_ids
-            self.last_classifier_version = self.last_saved_classifier['created_at']
-            # Clear classified items for this new classifier version
-            self.classified_items[self.last_classifier_version] = set()
+            self.likes.update({
+                'computed_time': time.time(),
+                'pos_ids': current_pos_ids,
+                'saved_classifier': saved_classifier,
+                'classifier_version': saved_classifier['created_at'],
+            })
 
             logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {classifier_path}")
             return dict(
@@ -362,7 +364,7 @@ class LikesWorker(BackgroundWorker):
 
     def get_last_computed_time(self) -> float:
         """Get timestamp of last classifier computation."""
-        return self.last_computed_time
+        return self.likes['computed_time']
 
     def force_update(self) -> None:
         """Force an update of the classifier."""
@@ -375,12 +377,12 @@ class LikesWorker(BackgroundWorker):
     def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
 
-        Uses the classifier's 'created_at' timestamp as a unique identifier to track
-        which items have been classified by each classifier version.
+        Assumes all items in self.scores have been classified with the current classifier version.
+        Only runs inference on items not already in self.scores.
 
         Returns dict with status and inference results.
         """
-        if not self.last_saved_classifier or self.last_classifier_version == 0:
+        if not self.likes['saved_classifier'] or self.likes['classifier_version'] == 0:
             logger.info("No classifier available for inference")
             return dict(status='no_classifier')
 
@@ -388,13 +390,13 @@ class LikesWorker(BackgroundWorker):
             # Get all image IDs that have embeddings
             all_ids = self._get_all_image_ids()
 
-            # Find items that haven't been classified by the current classifier version
-            classified_by_current = self.classified_items.get(self.last_classifier_version, set())
-            unclassified_ids = [id for id in all_ids if id not in classified_by_current]
+            # Find items that haven't been classified (not in self.scores)
+            classified_ids = set(int(id) for id in self.scores.keys())
+            unclassified_ids = [id for id in all_ids if id not in classified_ids]
 
             if not unclassified_ids:
                 logger.debug("All items already classified by current classifier")
-                return dict(status='all_classified', classifier_version=self.last_classifier_version)
+                return dict(status='all_classified', classifier_version=self.likes['classifier_version'])
 
             # Load the classifier
             classifier_path = join(self.classifiers_dir, 'likes.joblib')
@@ -407,7 +409,7 @@ class LikesWorker(BackgroundWorker):
             # Prepare items for classification
             to_cls = [f'{id}:image' for id in unclassified_ids]
 
-            logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.last_classifier_version}")
+            logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.likes['classifier_version']}")
 
             # Get embeddings and run inference
             t0 = time.time()
@@ -424,15 +426,14 @@ class LikesWorker(BackgroundWorker):
             new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
             t1 = time.time()
 
-            # Update our scores dict and tracking
+            # Update our scores dict
             self.scores.update(new_scores)
-            self.classified_items[self.last_classifier_version].update(unclassified_ids)
 
             logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items")
 
             return dict(
                 status='inference_completed',
-                classifier_version=self.last_classifier_version,
+                classifier_version=self.likes['classifier_version'],
                 items_classified=len(new_scores),
                 inference_time=t1-t0,
                 new_scores=new_scores
