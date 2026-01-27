@@ -293,13 +293,8 @@ class LikesWorker(BackgroundWorker):
         current_pos_ids = self._get_current_pos_ids()
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
-            # Run inference in the background (fire and forget)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self.run_inference())
-            finally:
-                loop.close()
+            # Run inference synchronously
+            self.run_inference_sync()
             return dict(status='no_change', pos_count=len(current_pos_ids))
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
@@ -373,15 +368,10 @@ class LikesWorker(BackgroundWorker):
                 'classifier_version': other_data.get('created_at', 0),
             })
             logger.info(f"Loaded existing classifier v{self.last['classifier_version']}")
-            # Run inference using the loaded classifier (run synchronously during init)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                result = loop.run_until_complete(self.run_inference())
-                if result.get('status') == 'inference_completed':
-                    logger.info(f"Initial inference completed for {result.get('items_classified', 0)} items")
-            finally:
-                loop.close()
+            # Run inference using the loaded classifier
+            result = self.run_inference_sync()
+            if result.get('status') == 'inference_completed':
+                logger.info(f"Initial inference completed for {result.get('items_classified', 0)} items")
         except Exception as e:
             logger.warning(f"Failed to load existing classifier for initial inference: {e}")
             # Continue without existing classifier - will train fresh one
@@ -427,6 +417,16 @@ class LikesWorker(BackgroundWorker):
             import traceback
             traceback.print_exc()
             return dict(status='error', error=str(e))
+
+    def run_inference_sync(self) -> dict[str, Any]:
+        """Synchronous wrapper for run_inference that handles event loop setup."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(self.run_inference())
+            return result
+        finally:
+            loop.close()
 
     def _run_inference_blocking(self, unclassified_ids: list[int]) -> dict[str, Any]:
         """The blocking part of inference that runs in a thread pool."""
