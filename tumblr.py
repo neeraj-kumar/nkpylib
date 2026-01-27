@@ -19,13 +19,16 @@ from os.path import exists, dirname, join, abspath
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
+import numpy as np
 import requests
 
 from pony.orm import db_session, select
 from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
+from tqdm import tqdm
 
 from nkpylib.ml.nkcollections import Item, init_sql_db, Source
+from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
@@ -104,7 +107,7 @@ class Tumblr(Source):
             if not select(p for p in Item if p.parent == u).exists(): # type: ignore[attr-defined]
                 posts, offset, total = self.get_blog_archive(blog_name, n_posts=n_posts)
                 self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
-            return dict(source=self.NAME, parent=u.id, assemble_posts=True)
+            return dict(source=self.NAME, ancestor=u.id, assemble_posts=True)
 
     @property
     def api_token(self) -> str:
@@ -138,7 +141,7 @@ class Tumblr(Source):
     def make_web_req(self, endpoint: str, **kw) -> dict:
         """Make a request to the Tumblr web interface"""
         url = endpoint if 'tumblr.com' in endpoint else f'https://www.tumblr.com/{endpoint}'
-        print(f'Hitting url: {url}')
+        #print(f'Hitting url: {url}')
         headers = {
             "Authorization": f'Bearer {self.api_token}',
             **self.COMMON_HEADERS
@@ -292,7 +295,7 @@ class Tumblr(Source):
             offset=str(offset),
         )
         while offset < n_posts:
-            print(f'initial next link: {J(next_link)}')
+            #print(f'initial next link: {J(next_link)}')
             endpoint = f'blog/{blog_name}/posts'
             if next_link:
                 endpoint = f'blog/{blog_name}/posts?{urlencode(next_link)}'
@@ -475,6 +478,53 @@ class Tumblr(Source):
                     )
                     ret.append(pcc)
         return ret
+
+    @db_session
+    def update_embeddings(self, **kw):
+        """Updates embeddings for our tumblr collection."""
+        # first compute basic image/text
+        super().update_embeddings(**kw)
+        return #FIXME fix the rest of this
+        # now compute post embeddings based on their content blocks
+        limit = kw.get('limit', 0)
+        if limit <= 0:
+            limit = 10000000
+        posts = Item.select(lambda i: i.source == self.name and i.otype == 'post').limit(limit)
+        logger.info(f'got {len(posts)} posts to update embeddings for')
+        db = NumpyLmdb.open(self.lmdb_path, flag='c')
+        updater = LmdbUpdater(self.lmdb_path, n_procs=1)
+        n = 0
+        for i, post in tqdm(enumerate(posts)):
+            post_key = f'{post.id}:image'
+            if post_key in db:
+                continue
+            children = Item.select(lambda i: i.parent == post)[:]
+            embs = []
+            for c in children:
+                if not c.embed_ts:
+                    continue
+                try:
+                    cur = db.get(f'{c.id}:image', None)
+                    print(f'  {post.id} -> {c}, {c.embed_ts} -> {cur}, {self.lmdb_path}')
+                except lmdb.Error:
+                    db = NumpyLmdb.open(self.lmdb_path, flag='c')
+                    cur = db.get(f'{c.id}:image', None)
+                if cur is not None:
+                    embs.append(cur)
+            if not embs:
+                continue
+            print('here')
+            # average the embeddings
+            avg = np.mean(np.stack(embs), axis=0)
+            logger.debug(f'  {post_key}: From {len(children)} children, got {len(embs)} embeddings: {embs} -> {avg}')
+            md = dict(n_embs=len(embs), embed_ts=time.time(), method='average')
+            updater.add(post_key, embedding=avg, metadata=md)
+            post.embed_ts = md['embed_ts']
+            n += 1
+            #if i > 400: break
+        updater.commit()
+        logger.info(f'Updated embeddings for {n} tumblr posts')
+
 
 def process_posts(posts):
     for i, p in enumerate(posts):

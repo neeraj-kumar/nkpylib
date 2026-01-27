@@ -15,7 +15,8 @@ llm:
 
 ## runs the llm server
 llm-server:
-	nice uvicorn server:app --reload --port 8234 --host 0.0.0.0
+	nice uvicorn server:app --port 8234 --host 0.0.0.0
+	#nice uvicorn server:app --reload --port 8234 --host 0.0.0.0
 
 ## test requests to the llm server
 test-llm:

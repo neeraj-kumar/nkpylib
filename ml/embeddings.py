@@ -314,9 +314,15 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  neg_weight: float=1.0,
                                  method: str='rbf',
                                  C=1,
-                                 return_times: bool=False,
-                                 **kw) -> Any:
-        """High-level function train a classifier with given `pos` and `neg` and run on `to_cls`"""
+                                 **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
+        """High-level function train a classifier with given `pos` and `neg` and run on `to_cls`.
+
+        Returns `(classifier, scores_dict, other_stuff)`, where `scores_dict` is a dict of key to
+        score, and `other_stuff` includes:
+        - times: dict with timing info for training and inference
+        - scaler: the scaler used (if any)
+        """
+        other_stuff = {}
         times = [time.time()]
         assert len(to_cls) > 0
         # we get initial embeddings for all keys to normalize correctly.
@@ -328,6 +334,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             return_scaler=True,
         )
         times.append(time.time())
+        other_stuff['scaler'] = scaler
         pos_set = set(pos)
         neg_set = set(neg)
         to_cls = set(to_cls)
@@ -349,8 +356,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         times.append(time.time())
         scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(np.vstack(test_X)))}
         times.append(time.time())
-        
-        timing_dict = dict(
+        other_stuff['times'] = dict(
             training=times[3] - times[2],
             inference=times[4] - times[3]
         )
@@ -358,10 +364,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         # all ids: 0.4, 0.03, 3.6, 1.2, 16.7
         # just visible: 0.4, 0.00, 3.6, 0.066, 0.76
         # after refactoring: 0.34, 0.00, 3.5, 0.04
-        
-        if return_times:
-            return cls, scores, timing_dict
-        return cls, scores
+        return cls, scores, other_stuff
 
     def train_classifier(self,
                          X: nparray2d,
@@ -416,11 +419,9 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             os.makedirs(dirname(path), exist_ok=True)
         except Exception:
             pass
-        save_data = dict(
-            classifier=classifier,
-            created_at=time.time(),
-            **kw
-        )
+        save_data = dict(classifier=classifier, **kw)
+        if 'created_time' not in kw:
+            save_data['created_at'] = time.time()
         # Save using joblib
         joblib.dump(save_data, path)
         logger.info(f"Saved classifier to {path}")
@@ -428,30 +429,12 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
     @staticmethod
     def load_and_setup_classifier(path: str) -> tuple[BaseEstimator, dict[str, Any]]:
-        """Load classifier from path and optionally create pipeline with scaler.
-
-        - path: Path to the saved classifier file
-
-        If the saved data contains a 'scaler' key, creates a Pipeline with the scaler
-        followed by the classifier. Otherwise returns the raw classifier.
-
-        Returns a tuple of `(classifier_or_pipeline, other_kwargs)`
-        """
+        """Load classifier from `path`, returning `(classifier, other_kwargs)`"""
         # Load the saved data
         saved_data = joblib.load(path)
         logger.info(f"Loaded classifier from {path}")
-        # Extract classifier and other data
         classifier = saved_data.pop('classifier')
-        scaler = saved_data.pop('scaler', None)
-        # Create pipeline if scaler exists
-        if scaler is not None:
-            pipeline = Pipeline([
-                ('scaler', scaler),
-                ('classifier', classifier)
-            ])
-            return pipeline, saved_data
-        else:
-            return classifier, saved_data
+        return classifier, saved_data
 
 
 # hashable bound

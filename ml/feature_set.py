@@ -159,6 +159,12 @@ class FeatureSet(Mapping, Generic[KeyT]):
             embs = np.vstack(_embs)
         else:
             keys = [k for k in keys if k in self]
+            if not keys:
+                embs = np.zeros((0, self.n_dims), dtype=self.dtype)
+                if return_scaler:
+                    return (keys, embs, scaler)
+                else:
+                    return (keys, embs)
             embs = np.vstack([self[k] for k in keys])
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
