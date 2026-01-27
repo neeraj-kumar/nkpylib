@@ -19,6 +19,7 @@ import shutil
 import sys
 import threading
 import time
+import traceback
 
 from argparse import ArgumentParser
 from collections import defaultdict
@@ -210,6 +211,7 @@ class LikesWorker(BackgroundWorker):
                  classifiers_dir: str,
                  name: str = "LikesWorker",
                  method: str = 'rbf',
+                 max_pos: int = 600,
                  neg_factor: float = 10,
                  sleep_interval: float = 10.0,
                  exclude_top_n: int = 2000):
@@ -217,6 +219,7 @@ class LikesWorker(BackgroundWorker):
         self.embs = embs
         self.classifiers_dir = classifiers_dir
         self.method = method
+        self.max_pos = max_pos
         self.neg_factor = neg_factor
         self.sleep_interval = sleep_interval
         self.exclude_top_n = exclude_top_n
@@ -292,7 +295,7 @@ class LikesWorker(BackgroundWorker):
         """Update the classifier if needed."""
         current_pos_ids = self._get_current_pos_ids()
         # Check if we need to update
-        if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
+        if 1 or current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
             # Run inference synchronously
             self.run_inference_sync()
             return dict(status='no_change', pos_count=len(current_pos_ids))
@@ -307,6 +310,9 @@ class LikesWorker(BackgroundWorker):
             to_cls = [f'{id}:image' for id in all_ids]
             # Prepare positive samples
             pos = [f'{id}:image' for id in current_pos_ids]
+            # randomly sample max_pos of these
+            if len(pos) > self.max_pos:
+                pos = random.sample(pos, self.max_pos)
             # Prepare negative samples (exclude positives and most recent IDs)
             neg_ids = self._get_negative_candidate_ids(current_pos_ids)
             # Sample negatives
@@ -365,24 +371,21 @@ class LikesWorker(BackgroundWorker):
             if not exists(classifier_path):
                 logger.info("No existing classifier found, starting fresh")
                 return
-                
+
             # Load the classifier and metadata
             classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
-            
+
             # Update our state with the loaded classifier info
             self.last.update({
                 'saved_classifier': other_data,
                 'classifier_version': other_data.get('created_at', 0),
             })
-            
+
             # Load scores from saved classifier data
             saved_scores = other_data.get('scores', {})
-            if saved_scores:
-                self.scores = saved_scores.copy()
-                logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores")
-            else:
-                logger.info(f"Loaded existing classifier v{self.last['classifier_version']} but no scores found")
-                
+            self.scores = saved_scores.copy()
+            logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores")
+
         except Exception as e:
             logger.warning(f"Failed to load existing classifier: {e}")
             # Continue without existing classifier - will train fresh one
@@ -398,34 +401,33 @@ class LikesWorker(BackgroundWorker):
         if not self.last['saved_classifier'] or self.last['classifier_version'] == 0:
             logger.info("No classifier available for inference")
             return dict(status='no_classifier')
-        
+
         try:
             # Get all image IDs that have embeddings (quick DB operation)
             all_ids = self._get_all_image_ids()
             classified_ids = set(int(id) for id in self.scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
-            
+
             if not unclassified_ids:
                 return dict(status='all_classified', classifier_version=self.last['classifier_version'])
-            
+
             # Move the heavy lifting to a thread pool
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
-                None, 
-                self._run_inference_blocking, 
+                None,
+                self._run_inference_blocking,
                 unclassified_ids
             )
-            
+
             # Update scores in main thread if successful
             if result['status'] == 'inference_completed':
                 self.scores.update(result['new_scores'])
                 logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.scores)} total scores")
-                
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Error running inference: {e}")
-            import traceback
             traceback.print_exc()
             return dict(status='error', error=str(e))
 
@@ -445,11 +447,11 @@ class LikesWorker(BackgroundWorker):
             # Load the classifier
             classifier_path = join(self.classifiers_dir, 'likes.joblib')
             classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
-            
+
             to_cls = [f'{id}:image' for id in unclassified_ids]
-            
+
             logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.last['classifier_version']}")
-            
+
             # Get embeddings and run inference
             t0 = time.time()
             keys, embs, scaler = self.embs.get_keys_embeddings(
@@ -460,15 +462,15 @@ class LikesWorker(BackgroundWorker):
                 scaler=other_data.get('scaler', None),
                 return_scaler=True,
             )
-            
+
             if not keys:
                 return dict(status='all_classified', classifier_version=self.last['classifier_version'])
-                
+
             # Run inference
             scores_array = classifier.decision_function(embs)
             new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
             t1 = time.time()
-            
+
             return dict(
                 status='inference_completed',
                 classifier_version=self.last['classifier_version'],
@@ -476,9 +478,10 @@ class LikesWorker(BackgroundWorker):
                 inference_time=t1-t0,
                 new_scores=new_scores
             )
-            
+
         except Exception as e:
             logger.error(f"Error in blocking inference: {e}")
+            traceback.print_exc()
             return dict(status='error', error=str(e))
 
 
@@ -495,11 +498,6 @@ def save_classifier(classifier, scaler, path: str, **extra_params) -> dict[str, 
     }
     joblib.dump(model_data, path)
     return model_data
-
-
-def load_classifier(path: str) -> dict[str, Any]:
-    """Load classifier with all associated data"""
-    return joblib.load(path)
 
 
 async def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
@@ -1079,6 +1077,19 @@ class GetHandler(MyBaseHandler):
         if 'parent' in data:
             parent_id = int(data['parent'])
             q = q.filter(lambda c: c.parent and c.parent.id == parent_id)
+        if 'ancestor' in data:
+            ancestor_id = int(data['ancestor'])
+            def has_ancestor(c):
+                p = c.parent
+                while p:
+                    if p.id == ancestor_id:
+                        return True
+                    p = p.parent
+                return False
+
+            #q = q.filter(has_ancestor) #TODO doesn't work
+            # workaround:
+            q = q.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
         # Handle numeric fields
         numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
         for field in numeric_fields:
@@ -1215,7 +1226,7 @@ class ClassifyHandler(MyBaseHandler):
                             **kw):
         """Gets the latest likes scores"""
         scores = self.likes_worker.get_scores()
-        logger.info(f'Got {len(scores)} scores {list(scores.items())[:10]}')
+        #logger.info(f'Got {len(scores)} scores {list(scores.items())[:10]}')
         self.write(dict(
             msg=f'Likes scores for {len(scores)} items',
             #msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s (training: {times_dict["training"]:.2f}s, inference: {times_dict["inference"]:.2f}s)',
