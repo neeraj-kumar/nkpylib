@@ -1178,7 +1178,7 @@ class GetHandler(MyBaseHandler):
                     source = Source._registry.get(item.source)
                     if source:
                         local_path = Item.image_path(item, images_dir=source.images_dir)
-                        rows[item.id]['local_path'] = local_path
+                        rows[item.id]['local_path'] = os.path.relpath(local_path)
             
             # fetch all rels with source = me and tgt in ids and update the appropriate rows
             me = Item.get_me()
