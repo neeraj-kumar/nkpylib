@@ -308,29 +308,48 @@ class Embeddings(FeatureSet, Generic[KeyT]):
     def train_and_run_classifier(self,
                                  pos: list[KeyT],
                                  neg: list[KeyT],
-                                 to_cls: list[KeyT]|array2d|BaseEstimator,
+                                 to_cls: list[KeyT],
                                  neg_weight: float=1.0,
                                  method: str='rbf',
                                  C=1,
                                  **kw) -> Any:
         """High-level function train a classifier with given `pos` and `neg` and run on `to_cls`"""
         times = [time.time()]
-        keys, X, scaler = self.get_keys_embeddings(
-                keys=pos+neg, normed=False, scale_mean=True, scale_std=True, return_scaler=True)
+        assert len(to_cls) > 0
+        # we get initial embeddings for all keys to normalize correctly.
+        keys, embs, scaler = self.get_keys_embeddings(
+            keys=pos+neg+to_cls,
+            normed=False,
+            scale_mean=True,
+            scale_std=True,
+            return_scaler=True,
+        )
         times.append(time.time())
         pos_set = set(pos)
-        y = [1 if key in pos_set else -1 for key in keys]
-        weights = [1.0 if key in pos_set else neg_weight for key in keys]
+        neg_set = set(neg)
+        to_cls = set(to_cls)
+        train_X = []
+        y = []
+        weights = []
+        test_keys = []
+        test_X = []
+        for k, emb in zip(keys, embs):
+            if k in pos_set or k in neg_set:
+                train_X.append(emb)
+                y.append(1 if k in pos_set else -1)
+                weights.append(1.0 if k in pos_set else neg_weight)
+            if k in to_cls:
+                test_keys.append(k)
+                test_X.append(emb)
         times.append(time.time())
-        cls = self.train_classifier(X, y, weights=weights, method=method, C=C, **kw)
+        cls = self.train_classifier(np.vstack(train_X), y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
-        keys, embs = self.get_keys_embeddings(keys=to_cls, normed=False, scale_mean=True, scale_std=True)
-        times.append(time.time())
-        scores = {key: float(s) for key, s in zip(keys, cls.decision_function(embs))}
+        scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(np.vstack(test_X)))}
         times.append(time.time())
         logger.info(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         # all ids: 0.4, 0.03, 3.6, 1.2, 16.7
         # just visible: 0.4, 0.00, 3.6, 0.066, 0.76
+        # after refactoring: 0.34, 0.00, 3.5, 0.04
         return cls, scores
 
     def train_classifier(self,

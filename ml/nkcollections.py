@@ -785,7 +785,7 @@ class ClassifyHandler(MyBaseHandler):
                             otypes=['image'],
                             feature_types=None,
                             method: str='rbf',
-                            neg_factor: float=5,
+                            neg_factor: float=10,
                             **kw):
         """Likes-based classifier.
 
@@ -812,6 +812,11 @@ class ClassifyHandler(MyBaseHandler):
         - neg_factor: how many negative samples per positive sample to use
         """
         images = set()
+        if cur_ids is not None:
+            cur_ids = set(int(i) for i in cur_ids)
+            to_cls = [f'{id}:image' for id in cur_ids]
+        else:
+            to_cls = [k for k in self.embs if k.endswith(':image')]
         with db_session:
             # first get pos images from likes
             images.update(Rel.get_likes(valid_types=['image']))
@@ -820,14 +825,13 @@ class ClassifyHandler(MyBaseHandler):
             pos_ids = [p.id for p in pos]
             # get a bunch of random negative images
             neg = list(Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids))
+            # remove any to_cls from it
+            if cur_ids is not None:
+                neg = [n for n in neg if n.id not in cur_ids]
             neg = random.sample(neg, min(len(neg), len(pos)*neg_factor))
         # train and run the classifier
         pos = [f'{r.id}:image' for r in pos]
         neg = [f'{r.id}:image' for r in neg]
-        if cur_ids is not None:
-            to_cls = [f'{id}:image' for id in cur_ids]
-        else:
-            to_cls = [k for k in self.embs if k.endswith(':image')]
         # Run the blocking operation in a thread pool
         loop = asyncio.get_event_loop()
         t0 = time.time()

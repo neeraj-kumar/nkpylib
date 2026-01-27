@@ -127,6 +127,7 @@ class FeatureSet(Mapping, Generic[KeyT]):
                             normed: bool=False,
                             scale_mean:bool=True,
                             scale_std:bool=True,
+                            scaler:StandardScaler|None=None,
                             return_scaler:bool=False) -> tuple[list[KeyT], np.ndarray]:
         """Returns a list of keys and a numpy array of embeddings.
 
@@ -141,8 +142,9 @@ class FeatureSet(Mapping, Generic[KeyT]):
         Note that the scalings are applied only to the set of keys you fetch embeddings for, so it
         might be degenerate if you request too few keys.
 
-        The keys and embeddings are cached for future calls with the same flags (only if requesting
-        all keys).
+        You can also pass in your own scaler. In that case, we still apply normalization first (if
+        `normed` is True), and then apply the given scaler to the embeddings, ignoring the
+        `scale_mean` and `scale_std` params.
 
         If you set `return_scaler` to True, we also return the scaler object used for scaling as the
         last item in the return tuple.
@@ -158,12 +160,14 @@ class FeatureSet(Mapping, Generic[KeyT]):
         else:
             keys = [k for k in keys if k in self]
             embs = np.vstack([self[k] for k in keys])
-        scaler: StandardScaler|None = None
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
-        if scale_mean or scale_std:
-            scaler = StandardScaler(with_mean=scale_mean, with_std=scale_std)
-            embs = scaler.fit_transform(embs)
+        if scaler is None:
+            if scale_mean or scale_std:
+                scaler = StandardScaler(with_mean=scale_mean, with_std=scale_std)
+                embs = scaler.fit_transform(embs)
+        else:
+            embs = scaler.transform(embs)
         if 0 and len(keys) == len(self): # cache these
             self.cached.update(keys=keys, embs=embs, scaler=scaler, **cache_kw)
         if return_scaler:

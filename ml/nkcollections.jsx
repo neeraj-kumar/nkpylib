@@ -953,7 +953,7 @@ const Obj = (props) => {
 }
 
 // A floating info/control panel
-const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, doLikeClassifier, scores, rowById}) => {
+const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, autoLikesElapsed, doLikeClassifier, scores, rowById}) => {
   const incrCols = (incr) => {
     setNCols((nCols) => {
       let newCols = nCols + incr;
@@ -1011,7 +1011,7 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
           <input
             type="checkbox"
             checked={autoLikesMode}
-            onChange={(e) => setAutoLikesMode(e.target.checked)}
+            onChange={(e) => {setAutoLikesMode(e.target.checked); doLikesClassifier()}}
           />
           Auto Likes
         </label>
@@ -1179,26 +1179,25 @@ const App = () => {
       // Reset elapsed time and start tracking
       setAutoLikesElapsed(0);
       const startTime = Date.now();
-      
       // Start the recurring timer for classifier
       autoLikesTimerRef.current = setInterval(() => {
         doLikeClassifier();
         setAutoLikesElapsed(0); // Reset elapsed time after each run
       }, AUTO_LIKES_DELAY_MS);
-      
+
       // Start elapsed time tracking (update every 100ms for smooth progress)
       const elapsedTimer = setInterval(() => {
         const elapsed = Date.now() - startTime;
         const cycleElapsed = elapsed % AUTO_LIKES_DELAY_MS;
         setAutoLikesElapsed(cycleElapsed);
       }, 100);
-      
+
       // Store both timers for cleanup
       autoLikesTimerRef.current = {
         classifierTimer: autoLikesTimerRef.current,
         elapsedTimer: elapsedTimer
       };
-      
+
       setMessage(`Auto likes mode enabled - will run classifier every ${AUTO_LIKES_DELAY_MS/1000}s`);
     } else {
       // Clear the timers if they exist
