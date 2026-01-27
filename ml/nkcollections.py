@@ -374,10 +374,10 @@ class LikesWorker(BackgroundWorker):
 
     def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
-        
+
         Uses the classifier's 'created_at' timestamp as a unique identifier to track
         which items have been classified by each classifier version.
-        
+
         Returns dict with status and inference results.
         """
         if not self.last_saved_classifier or self.last_classifier_version == 0:
@@ -387,11 +387,11 @@ class LikesWorker(BackgroundWorker):
         try:
             # Get all image IDs that have embeddings
             all_ids = self._get_all_image_ids()
-            
+
             # Find items that haven't been classified by the current classifier version
             classified_by_current = self.classified_items.get(self.last_classifier_version, set())
             unclassified_ids = [id for id in all_ids if id not in classified_by_current]
-            
+
             if not unclassified_ids:
                 logger.debug("All items already classified by current classifier")
                 return dict(status='all_classified', classifier_version=self.last_classifier_version)
@@ -403,12 +403,12 @@ class LikesWorker(BackgroundWorker):
                 return dict(status='classifier_not_found')
 
             classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
-            
+
             # Prepare items for classification
             to_cls = [f'{id}:image' for id in unclassified_ids]
-            
+
             logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.last_classifier_version}")
-            
+
             # Get embeddings and run inference
             t0 = time.time()
             keys, embs, scaler = self.embs.get_keys_embeddings(
@@ -418,18 +418,18 @@ class LikesWorker(BackgroundWorker):
                 scale_std=True,
                 return_scaler=True,
             )
-            
+
             # Run inference
             scores_array = classifier.decision_function(embs)
             new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
             t1 = time.time()
-            
+
             # Update our scores dict and tracking
             self.scores.update(new_scores)
             self.classified_items[self.last_classifier_version].update(unclassified_ids)
-            
+
             logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items")
-            
+
             return dict(
                 status='inference_completed',
                 classifier_version=self.last_classifier_version,
@@ -437,7 +437,7 @@ class LikesWorker(BackgroundWorker):
                 inference_time=t1-t0,
                 new_scores=new_scores
             )
-            
+
         except Exception as e:
             logger.error(f"Error running inference: {e}")
             return dict(status='error', error=str(e))
