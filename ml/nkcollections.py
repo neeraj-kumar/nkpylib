@@ -327,17 +327,14 @@ class Item(sql_db.Entity, GetMixin):
                                                      fetch_delay=fetch_delay,
                                                      limit=limit,
                                                      **kw)
-        if 0:
-            n_descs = await cls.update_image_descriptions(q=q,
-                                                          lmdb_path=lmdb_path,
-                                                          vlm_prompt=vlm_prompt,
-                                                          sys_prompt=sys_prompt,
-                                                          vlm_model=vlm_model,
-                                                          images_dir=images_dir,
-                                                          limit=limit,
-                                                          **kw)
-
-        n_descs = 0
+        n_descs = await cls.update_image_descriptions(q=q,
+                                                      lmdb_path=lmdb_path,
+                                                      vlm_prompt=vlm_prompt,
+                                                      sys_prompt=sys_prompt,
+                                                      vlm_model=vlm_model,
+                                                      images_dir=images_dir,
+                                                      limit=limit,
+                                                      **kw)
         return n_text + n_images + n_descs
 
     @classmethod
