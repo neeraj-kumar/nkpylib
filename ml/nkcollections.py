@@ -293,7 +293,13 @@ class LikesWorker(BackgroundWorker):
         current_pos_ids = self._get_current_pos_ids()
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
-            self.run_inference()
+            # Run inference in the background (fire and forget)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.run_inference())
+            finally:
+                loop.close()
             return dict(status='no_change', pos_count=len(current_pos_ids))
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
@@ -375,7 +381,7 @@ class LikesWorker(BackgroundWorker):
             logger.warning(f"Failed to load existing classifier for initial inference: {e}")
             # Continue without existing classifier - will train fresh one
 
-    def run_inference(self) -> dict[str, Any]:
+    async def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
 
         Assumes all items in self.scores have been classified with the current classifier version.
@@ -386,23 +392,48 @@ class LikesWorker(BackgroundWorker):
         if not self.last['saved_classifier'] or self.last['classifier_version'] == 0:
             logger.info("No classifier available for inference")
             return dict(status='no_classifier')
+        
         try:
-            # Get all image IDs that have embeddings
+            # Get all image IDs that have embeddings (quick DB operation)
             all_ids = self._get_all_image_ids()
-
-            # Find items that haven't been classified (not in self.scores)
             classified_ids = set(int(id) for id in self.scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
+            
             if not unclassified_ids:
-                return {}
+                return dict(status='all_classified', classifier_version=self.last['classifier_version'])
+            
+            # Move the heavy lifting to a thread pool
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, 
+                self._run_inference_blocking, 
+                unclassified_ids
+            )
+            
+            # Update scores in main thread if successful
+            if result['status'] == 'inference_completed':
+                self.scores.update(result['new_scores'])
+                logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.scores)} total scores")
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error running inference: {e}")
+            import traceback
+            traceback.print_exc()
+            return dict(status='error', error=str(e))
+
+    def _run_inference_blocking(self, unclassified_ids: list[int]) -> dict[str, Any]:
+        """The blocking part of inference that runs in a thread pool."""
+        try:
             # Load the classifier
-            try:
-                classifier_path = join(self.classifiers_dir, 'likes.joblib')
-                classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
-            except Exception as e:
-                logger.warning(f"Classifier file not found: {classifier_path}")
-                return dict(status='classifier_not_found')
+            classifier_path = join(self.classifiers_dir, 'likes.joblib')
+            classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
+            
             to_cls = [f'{id}:image' for id in unclassified_ids]
+            
+            logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.last['classifier_version']}")
+            
             # Get embeddings and run inference
             t0 = time.time()
             keys, embs, scaler = self.embs.get_keys_embeddings(
@@ -413,18 +444,15 @@ class LikesWorker(BackgroundWorker):
                 scaler=other_data.get('scaler', None),
                 return_scaler=True,
             )
+            
             if not keys:
-                logger.debug("All items already classified by current classifier")
                 return dict(status='all_classified', classifier_version=self.last['classifier_version'])
-            logger.info(f"Running inference on {len(to_cls)} unclassified items with classifier v{self.last['classifier_version']}")
+                
             # Run inference
             scores_array = classifier.decision_function(embs)
             new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
             t1 = time.time()
-
-            # Update our scores dict
-            self.scores.update(new_scores)
-            logger.info(f"Inference completed in {t1-t0:.2f}s for {len(new_scores)} items, {len(self.scores)} total scores")
+            
             return dict(
                 status='inference_completed',
                 classifier_version=self.last['classifier_version'],
@@ -432,11 +460,9 @@ class LikesWorker(BackgroundWorker):
                 inference_time=t1-t0,
                 new_scores=new_scores
             )
+            
         except Exception as e:
-            logger.error(f"Error running inference: {e}")
-            # print stacktrace
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error in blocking inference: {e}")
             return dict(status='error', error=str(e))
 
 
