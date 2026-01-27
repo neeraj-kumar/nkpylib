@@ -1050,17 +1050,14 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
         console.error('Clipboard API not supported in this browser');
         return;
       }
-      
       const clipboardText = await navigator.clipboard.readText();
       if (!clipboardText.trim()) {
         console.error('Clipboard is empty');
         return;
       }
-      
-      setSourceStr(clipboardText.trim());
-      // Call doSource after setting the source string
-      setTimeout(() => doSource(), 100);
-      
+      const str = clipboardText.trim();
+      setSourceStr(str);
+      doSource(str);
     } catch (error) {
       console.error('Failed to read clipboard:', error);
     }
@@ -1173,7 +1170,7 @@ const App = () => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
   //const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
-  const [curOtypes, setCurOtypes] = React.useState(['image', 'post']);
+  const [curOtypes, setCurOtypes] = React.useState(['image']);
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
@@ -1532,10 +1529,11 @@ const App = () => {
   }, [pos]);
 
   // the source string can be either a url or a JSON string of parameters
-  const doSource = React.useCallback(() => {
-    const isUrl = sourceStr.startsWith('http');
+  const doSource = React.useCallback((newSourceStr=null) => {
+    const inputStr = newSourceStr || sourceStr;
+    const isUrl = inputStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
-      api.sourceUrl(sourceStr).then((params) => {
+      api.sourceUrl(inputStr).then((params) => {
         // save the params, serialized, to sourceStr
         //setSourceStr(JSON.stringify(params));
         return api.get(params);
@@ -1546,7 +1544,7 @@ const App = () => {
       });
     } else { // Parse as JSON and use as get parameters
       try {
-        const params = JSON.parse(sourceStr);
+        const params = JSON.parse(inputStr);
         api.get(params).then((data) => {
           updateData(data, true);
         }).catch(() => {
@@ -1585,8 +1583,8 @@ const App = () => {
         const nScoredIds = curIds.filter(id => (resp.scores[id] !== undefined)).length;
         // sort cur ids by score desc, if we have it for that item
         const sortedIds = curIds.sort((a, b) => {
-          const scoreA = resp.scores[a] || -10;
-          const scoreB = resp.scores[b] || -10;
+          const scoreA = resp.scores[a] || -1000;
+          const scoreB = resp.scores[b] || -1000;
           return scoreB - scoreA;
         });
         console.log('cur ids vs new', curIds, sortedIds);
