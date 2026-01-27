@@ -227,9 +227,6 @@ class LikesWorker(BackgroundWorker):
         self.last_classifier = None
         self.last_scaler = None
 
-        # Ensure classifiers directory exists
-        os.makedirs(self.classifiers_dir, exist_ok=True)
-
     def process_task(self, task: Any) -> Any:
         """Process a likes classification task.
 
@@ -308,28 +305,17 @@ class LikesWorker(BackgroundWorker):
                 neg_ids = random.sample(neg_ids, neg_sample_size)
                 neg = [f'{id}:image' for id in neg_ids]
 
-            logger.info(f"Training classifier with {len(pos)} pos, {len(neg)} neg, "
-                       f"classifying {len(to_cls)} images")
+            logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
 
             # Train and run classifier
             t0 = time.time()
-            classifier, scores = self.embs.train_and_run_classifier(
-                pos=pos, neg=neg, to_cls=to_cls, method=self.method
+            classifier, scores, scaler = self.embs.train_and_run_classifier(
+                pos=pos, neg=neg, to_cls=to_cls, method=self.method, return_scaler=True
             )
             t1 = time.time()
 
-            # Convert scores to int keys
             self.scores = {k.split(':')[0]: v for k, v in scores.items()}
-
-            # Save classifier to disk
-            classifier_path = os.path.join(
-                self.classifiers_dir,
-                f'likes_classifier_{int(time.time())}.joblib'
-            )
-
-            # Get scaler from the embeddings if available
-            scaler = getattr(self.embs, '_last_scaler', None)
-
+            classifier_path = join(self.classifiers_dir, f'likes/{int(time.time())}.joblib')
             save_data = self.embs.save_classifier(
                 classifier_path,
                 classifier,
