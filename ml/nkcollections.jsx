@@ -1378,8 +1378,7 @@ const App = () => {
         setScores(resp.scores);
         console.log('current ids before', curIds, resp.scores);
         const nScoredIds = curIds.filter(id => (resp.scores[id] !== undefined)).length;
-        console.log(`Like classifier scored ${nScoredIds} out of ${curIds.length} items.`);
-        setMessage(`Like classifier scored ${nScoredIds} out of ${curIds.length} items.`);
+        setMessage(`${resp.msg}: scored ${nScoredIds} out of our ${curIds.length} cur items.`);
         // sort cur ids by score desc, if we have it for that item
         const sortedIds = curIds.sort((a, b) => {
           const scoreA = resp.scores[a] || -10;
