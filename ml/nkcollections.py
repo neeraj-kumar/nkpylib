@@ -423,6 +423,24 @@ class LikesWorker(BackgroundWorker):
             if result['status'] == 'inference_completed':
                 self.scores.update(result['new_scores'])
                 logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.scores)} total scores")
+                
+                # Save the classifier with updated scores
+                try:
+                    classifier_path = join(self.classifiers_dir, 'likes.joblib')
+                    if self.last['saved_classifier']:
+                        # Load the existing classifier data and update scores
+                        saved_data = self.last['saved_classifier'].copy()
+                        saved_data['scores'] = self.scores
+                        
+                        # Save the updated classifier data
+                        self.embs.save_classifier(
+                            classifier_path,
+                            saved_data.pop('classifier'),
+                            **saved_data
+                        )
+                        logger.info(f"Updated classifier saved with {len(self.scores)} scores")
+                except Exception as e:
+                    logger.warning(f"Failed to save updated classifier: {e}")
 
             return result
 
