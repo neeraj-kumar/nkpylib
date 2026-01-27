@@ -1170,6 +1170,16 @@ class GetHandler(MyBaseHandler):
             else:
                 rows = {r.id: recursive_to_dict(r) for r in q}
             cur_ids = list(rows.keys())
+            
+            # Add local_path for images with positive embed_ts
+            for item in items:
+                if item.otype == 'image' and item.embed_ts and item.embed_ts > 0:
+                    # Find the appropriate source to get images_dir
+                    source = Source._registry.get(item.source)
+                    if source:
+                        local_path = Item.image_path(item, images_dir=source.images_dir)
+                        rows[item.id]['local_path'] = local_path
+            
             # fetch all rels with source = me and tgt in ids and update the appropriate rows
             me = Item.get_me()
             rels = Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids)
