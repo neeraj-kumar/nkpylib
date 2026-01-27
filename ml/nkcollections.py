@@ -769,13 +769,14 @@ class ClassifyHandler(MyBaseHandler):
 
         There are a few different high-level params that we care about:
         - otypes: what input types we want to process (images, text, posts, etc)
+          - for now, we only do images
         - feature_types: what type of features to use for classification
-          - for text items:
-            - text embeddings
           - for image items:
             - image embeddings
             - text embeddings of image descriptions
             - text description tag embeddings
+          - for text items:
+            - text embeddings
           - for post items:
             - average text/image embeddings of all children
             - some sort of post-specific embeddings?
@@ -909,8 +910,11 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, **kw):
         s.cleanup_embeddings(s.lmdb_path)
     while 1:
         t0 = time.time()
-        for s in sources:
-            s.update_embeddings(limit=batch_size, **kw)
+        try:
+            for s in sources:
+                s.update_embeddings(limit=batch_size, **kw)
+        except Exception as e:
+            logger.warning(f'Error in embeddings main loop: {e}')
         elapsed = time.time() - t0
         diff = loop_delay - elapsed
         time.sleep(max(0, diff))
