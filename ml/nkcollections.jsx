@@ -507,6 +507,19 @@ const STYLES = `
   border: 1px dashed #dee2e6;
 }
 
+/* Auto likes timer progress styling */
+.like-classifier button.timer-active {
+  background: linear-gradient(
+    to right, 
+    #007bff 0%, 
+    #007bff var(--progress, 0%), 
+    #f8f9fa var(--progress, 0%), 
+    #f8f9fa 100%
+  );
+  transition: background 0.1s ease;
+  color: white;
+}
+
 /* Keyboard active object highlighting */
 .object.keyboard-active {
   box-shadow: 0 0 5px #007bff;
@@ -1004,7 +1017,13 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
         </label>
       </div>
       <div className="control like-classifier">
-        <button onClick={doLikeClassifier}>Like Classifier</button>
+        <button 
+          className={autoLikesMode ? 'timer-active' : ''}
+          style={autoLikesMode ? {'--progress': `${(autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
+          onClick={doLikeClassifier}
+        >
+          Like Classifier
+        </button>
       </div>
       <div className="control go-to-top"><button onClick={goToTop}>Top</button></div>
       <div className="control go-to-bottom"><button onClick={goToBottom}>Bottom</button></div>
@@ -1145,8 +1164,9 @@ const App = () => {
   const [autoLikesMode, setAutoLikesMode] = React.useState(false);
   const [message, setMessage] = React.useState('Messages show up here');
 
-  // Auto likes timer ref
+  // Auto likes timer ref and elapsed time tracking
   const autoLikesTimerRef = React.useRef(null);
+  const [autoLikesElapsed, setAutoLikesElapsed] = React.useState(0);
 
   // Set up global reference to setMessage
   React.useEffect(() => {
@@ -1156,24 +1176,54 @@ const App = () => {
   // Auto likes mode timer effect
   React.useEffect(() => {
     if (autoLikesMode) {
-      // Start the recurring timer
+      // Reset elapsed time and start tracking
+      setAutoLikesElapsed(0);
+      const startTime = Date.now();
+      
+      // Start the recurring timer for classifier
       autoLikesTimerRef.current = setInterval(() => {
         doLikeClassifier();
+        setAutoLikesElapsed(0); // Reset elapsed time after each run
       }, AUTO_LIKES_DELAY_MS);
+      
+      // Start elapsed time tracking (update every 100ms for smooth progress)
+      const elapsedTimer = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const cycleElapsed = elapsed % AUTO_LIKES_DELAY_MS;
+        setAutoLikesElapsed(cycleElapsed);
+      }, 100);
+      
+      // Store both timers for cleanup
+      autoLikesTimerRef.current = {
+        classifierTimer: autoLikesTimerRef.current,
+        elapsedTimer: elapsedTimer
+      };
+      
       setMessage(`Auto likes mode enabled - will run classifier every ${AUTO_LIKES_DELAY_MS/1000}s`);
     } else {
-      // Clear the timer if it exists
+      // Clear the timers if they exist
       if (autoLikesTimerRef.current) {
-        clearInterval(autoLikesTimerRef.current);
+        if (autoLikesTimerRef.current.classifierTimer) {
+          clearInterval(autoLikesTimerRef.current.classifierTimer);
+        }
+        if (autoLikesTimerRef.current.elapsedTimer) {
+          clearInterval(autoLikesTimerRef.current.elapsedTimer);
+        }
         autoLikesTimerRef.current = null;
+        setAutoLikesElapsed(0);
         setMessage('Auto likes mode disabled');
       }
     }
 
-    // Cleanup function to clear timer on unmount
+    // Cleanup function to clear timers on unmount
     return () => {
       if (autoLikesTimerRef.current) {
-        clearInterval(autoLikesTimerRef.current);
+        if (autoLikesTimerRef.current.classifierTimer) {
+          clearInterval(autoLikesTimerRef.current.classifierTimer);
+        }
+        if (autoLikesTimerRef.current.elapsedTimer) {
+          clearInterval(autoLikesTimerRef.current.elapsedTimer);
+        }
         autoLikesTimerRef.current = null;
       }
     };
@@ -1526,7 +1576,7 @@ const App = () => {
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, mode, setMode, refreshMasonry,
+    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, autoLikesElapsed, mode, setMode, refreshMasonry,
     clusters, setCluster, doLikeClassifier, message, scores, curIds: ids, rowById};
   console.log('rowById', rowById, curIds, pos, scores);
 
