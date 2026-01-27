@@ -26,6 +26,7 @@ from queue import Queue, Empty
 from threading import Thread
 from typing import Any
 
+import joblib
 import termcolor
 import tornado.web
 
@@ -58,6 +59,26 @@ logger = logging.getLogger(__name__)
 sql_db = Database()
 
 J = lambda obj: json.dumps(obj, indent=2)
+
+
+def save_classifier(classifier, scaler, path: str, **extra_params) -> dict[str, Any]:
+    """Save classifier with scaler and additional parameters"""
+    model_data = {
+        'classifier': classifier,
+        'scaler': scaler,
+        'params': {
+            'created_at': time.time(),
+            'n_features': scaler.n_features_in_ if hasattr(scaler, 'n_features_in_') else None,
+            **extra_params
+        }
+    }
+    joblib.dump(model_data, path)
+    return model_data
+
+
+def load_classifier(path: str) -> dict[str, Any]:
+    """Load classifier with all associated data"""
+    return joblib.load(path)
 
 
 async def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
