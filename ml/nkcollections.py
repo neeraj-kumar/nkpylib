@@ -210,7 +210,7 @@ class LikesWorker(BackgroundWorker):
                  name: str = "LikesWorker",
                  method: str = 'rbf',
                  neg_factor: float = 10,
-                 sleep_interval: float = 30.0,
+                 sleep_interval: float = 10.0,
                  exclude_top_n: int = 2000):
         super().__init__(name)
         self.embs = embs
@@ -224,20 +224,26 @@ class LikesWorker(BackgroundWorker):
         self.scores: dict[str, float] = {}
         self.last_computed_time: float = 0
         self.last_pos_ids: frozenset[int] = frozenset()
-        self.last_classifier = None
-        self.last_scaler = None
+        self.last_saved_classifier = None
 
     def process_task(self, task: Any) -> Any:
         """Process a likes classification task.
 
-        Task can be:
+        Task is a string and can be:
         - 'update': Check for changes and update classifier if needed
         - 'force': Force update classifier regardless of changes
         """
         if task == 'update':
-            return self._update_classifier()
-        elif task == 'force':
-            return self._update_classifier(force=True)
+            while 1:
+                t0 = time.time()
+                try:
+                    self._update_classifier()
+                except Exception as e:
+                    pass
+                elapsed = time.time() - t0
+                diff = self.sleep_interval - elapsed
+                if diff > 0:
+                    time.sleep(diff)
         else:
             logger.warning(f"Unknown task type: {task}")
             return None
@@ -257,16 +263,15 @@ class LikesWorker(BackgroundWorker):
             all_images = Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0)
             all_ids = [img.id for img in all_images]
         return all_ids
-    
+
     def _get_negative_candidate_ids(self, pos_ids: frozenset[int]) -> list[int]:
         """Get image IDs suitable for negative sampling, excluding positives and most recent."""
         with db_session:
-            neg_candidates = Item.select(lambda c: 
-                c.otype == 'image' and 
-                c.embed_ts > 0 and 
+            neg_candidates = Item.select(lambda c:
+                c.otype == 'image' and
+                c.embed_ts > 0 and
                 c.id not in pos_ids
             )
-            # Get all negative candidate IDs and exclude top N by ID
             neg_ids = [img.id for img in neg_candidates]
             neg_ids.sort(reverse=True)
             if len(neg_ids) > self.exclude_top_n:
@@ -296,11 +301,11 @@ class LikesWorker(BackgroundWorker):
             to_cls = [f'{id}:image' for id in all_ids]
 
             # Prepare positive samples
-            pos = [f'{id}:image' for id in current_pos_ids]
+            pos = [f'{id}:image' for id in current_pos_ids][:5]
 
             # Prepare negative samples (exclude positives and most recent IDs)
             neg_ids = self._get_negative_candidate_ids(current_pos_ids)
-            
+
             # Sample negatives
             neg_sample_size = min(len(neg_ids), int(len(pos) * self.neg_factor))
             neg_ids = random.sample(neg_ids, neg_sample_size)
@@ -310,43 +315,38 @@ class LikesWorker(BackgroundWorker):
 
             # Train and run classifier
             t0 = time.time()
-            classifier, scores, times_dict = self.embs.train_and_run_classifier(
-                pos=pos, neg=neg, to_cls=to_cls, method=self.method, return_scaler=True, return_times=True
+            classifier, scores, other_stuff = self.embs.train_and_run_classifier(
+                pos=pos, neg=neg, to_cls=to_cls, method=self.method
             )
             t1 = time.time()
 
             self.scores = {k.split(':')[0]: v for k, v in scores.items()}
-            classifier_path = join(self.classifiers_dir, f'likes/{int(time.time())}.joblib')
-            save_data = self.embs.save_classifier(
+            #classifier_path = join(self.classifiers_dir, f'likes/{int(time.time())}.joblib')
+            classifier_path = join(self.classifiers_dir, f'likes.joblib')
+            self.last_saved_classifier = self.embs.save_classifier(
                 classifier_path,
                 classifier,
-                scaler=scaler,
                 method=self.method,
                 neg_factor=self.neg_factor,
                 pos_count=len(pos),
                 neg_count=len(neg),
                 total_classified=len(to_cls),
-                times=times_dict
+                **other_stuff,
             )
 
             # Update state
             self.last_computed_time = time.time()
             self.last_pos_ids = current_pos_ids
-            self.last_classifier = classifier
-            self.last_scaler = scaler
 
-            logger.info(f"Updated likes classifier in {t1-t0:.2f}s, "
-                       f"saved to {classifier_path}")
-
+            logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {classifier_path}")
             return dict(
                 status='updated',
                 pos_count=len(pos),
                 neg_count=len(neg),
                 scores_count=len(self.scores),
-                times=times_dict,
-                classifier_path=classifier_path
+                classifier_path=classifier_path,
+                **other_stuff
             )
-
         except Exception as e:
             logger.error(f"Error updating likes classifier: {e}")
             return dict(status='error', error=str(e))
@@ -927,6 +927,10 @@ class MyBaseHandler(BaseHandler):
         return self.application.embs # type: ignore[attr-defined]
 
     @property
+    def likes_worker(self) -> LikesWorker:
+        return self.application.likes_worker
+
+    @property
     @cache
     def all_otypes(self) -> list[str]:
         with db_session:
@@ -1094,6 +1098,22 @@ class ClassifyHandler(MyBaseHandler):
                             method: str='rbf',
                             neg_factor: float=10,
                             **kw):
+        """Gets the latest likes scores"""
+        scores = self.likes_worker.get_scores()
+        logger.info(f'Got {len(scores)} scores {list(scores.items())[:10]}')
+        self.write(dict(
+            msg=f'Likes scores for {len(scores)} items',
+            #msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s (training: {times_dict["training"]:.2f}s, inference: {times_dict["inference"]:.2f}s)',
+            scores=scores
+        ))
+
+    async def _old_handle_likes(self,
+                            cur_ids: list[int]|None=None,
+                            otypes=['image'],
+                            feature_types=None,
+                            method: str='rbf',
+                            neg_factor: float=10,
+                            **kw):
         """Likes-based classifier.
 
         There are a few different high-level params that we care about:
@@ -1217,7 +1237,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         temp = NumpyLmdb.open(args.lmdb_path, flag='c')
         del temp
         app.embs = Embeddings([args.lmdb_path])
-        
+
         # Initialize LikesWorker with first source's classifiers_dir
         sources = list(Source._registry.values())
         if sources:
@@ -1225,9 +1245,10 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
             app.likes_worker = LikesWorker(
                 embs=app.embs,
                 classifiers_dir=classifiers_dir,
-                name="LikesWorker"
             )
             app.likes_worker.start()
+            # kick it off by putting a likes task in the queue
+            app.likes_worker.add_task('update')
             logger.info(f"Started LikesWorker with classifiers_dir: {classifiers_dir}")
         else:
             logger.warning("No sources available, LikesWorker not initialized")
