@@ -1145,10 +1145,39 @@ const App = () => {
   const [autoLikesMode, setAutoLikesMode] = React.useState(false);
   const [message, setMessage] = React.useState('Messages show up here');
 
+  // Auto likes timer ref
+  const autoLikesTimerRef = React.useRef(null);
+
   // Set up global reference to setMessage
   React.useEffect(() => {
     globalSetMessage = setMessage;
   }, [setMessage]);
+
+  // Auto likes mode timer effect
+  React.useEffect(() => {
+    if (autoLikesMode) {
+      // Start the recurring timer
+      autoLikesTimerRef.current = setInterval(() => {
+        doLikeClassifier();
+      }, AUTO_LIKES_DELAY_MS);
+      setMessage(`Auto likes mode enabled - will run classifier every ${AUTO_LIKES_DELAY_MS/1000}s`);
+    } else {
+      // Clear the timer if it exists
+      if (autoLikesTimerRef.current) {
+        clearInterval(autoLikesTimerRef.current);
+        autoLikesTimerRef.current = null;
+        setMessage('Auto likes mode disabled');
+      }
+    }
+
+    // Cleanup function to clear timer on unmount
+    return () => {
+      if (autoLikesTimerRef.current) {
+        clearInterval(autoLikesTimerRef.current);
+        autoLikesTimerRef.current = null;
+      }
+    };
+  }, [autoLikesMode, doLikeClassifier, setMessage]);
 
   // Refs to access current values in debounced callbacks
   const filterStrRef = React.useRef(filterStr);
