@@ -1033,7 +1033,7 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
 
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores,
-  sourceStr, setSourceStr, doSource, doSourceFromClipboard,
+  sourceStr, setSourceStr, doSource,
   filterStr, updateFilterStr, searchStr, updateSearchStr,
   mode, setMode, message, ...props}) => {
   // add a "return" key handler for the source input
@@ -1042,6 +1042,29 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
       doSource();
     }
   }
+
+  // Function to get clipboard contents and set as source
+  const doSourceFromClipboard = React.useCallback(async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        console.error('Clipboard API not supported in this browser');
+        return;
+      }
+      
+      const clipboardText = await navigator.clipboard.readText();
+      if (!clipboardText.trim()) {
+        console.error('Clipboard is empty');
+        return;
+      }
+      
+      setSourceStr(clipboardText.trim());
+      // Call doSource after setting the source string
+      setTimeout(() => doSource(), 100);
+      
+    } catch (error) {
+      console.error('Failed to read clipboard:', error);
+    }
+  }, [setSourceStr, doSource]);
 
   // Determine the CSS class for the source input based on its contents
   const getSourceInputClass = () => {
@@ -1625,7 +1648,7 @@ const App = () => {
 
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
-    sourceStr, setSourceStr, doSource, doSourceFromClipboard, filterStr, updateFilterStr, searchStr, updateSearchStr,
+    sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, autoLikesElapsed, mode, setMode, refreshMasonry,
     clusters, setCluster, doLikeClassifier, message, scores, curIds: ids, rowById};
   console.log('rowById', rowById, curIds, pos, scores);
