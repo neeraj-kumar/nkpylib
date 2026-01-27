@@ -36,6 +36,7 @@ from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering
 from sklearn.decomposition import TruncatedSVD # type: ignore
 from sklearn.linear_model import SGDClassifier # type: ignore
 from sklearn.neighbors import NearestNeighbors # type: ignore
+from sklearn.pipeline import Pipeline # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
 from sklearn.svm import SVC # type: ignore
 from tqdm import tqdm
@@ -415,6 +416,34 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         joblib.dump(save_data, path)
         logger.info(f"Saved classifier to {path}")
         return save_data
+
+    @staticmethod
+    def load_and_setup_classifier(path: str) -> tuple[BaseEstimator, dict[str, Any]]:
+        """Load classifier from path and optionally create pipeline with scaler.
+
+        - path: Path to the saved classifier file
+
+        Returns a tuple of (classifier_or_pipeline, other_kwargs).
+        If the saved data contains a 'scaler' key, creates a Pipeline with the scaler
+        followed by the classifier. Otherwise returns the raw classifier.
+        """
+        # Load the saved data
+        saved_data = joblib.load(path)
+        logger.info(f"Loaded classifier from {path}")
+        
+        # Extract classifier and other data
+        classifier = saved_data.pop('classifier')
+        scaler = saved_data.pop('scaler', None)
+        
+        # Create pipeline if scaler exists
+        if scaler is not None:
+            pipeline = Pipeline([
+                ('scaler', scaler),
+                ('classifier', classifier)
+            ])
+            return pipeline, saved_data
+        else:
+            return classifier, saved_data
 
 
 # hashable bound
