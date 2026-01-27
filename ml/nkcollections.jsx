@@ -1080,6 +1080,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
           size="52"
         />
         <button onClick={() => doSource()}>Set Source</button>
+        <button onClick={doSourceFromClipboard}>Source from Clipboard</button>
         <input
           type="text"
           className="filter-input"
@@ -1534,6 +1535,56 @@ const App = () => {
     }
   }, [sourceStr, updateData, setMessage]);
 
+  // Function to get clipboard contents and set as source
+  const doSourceFromClipboard = React.useCallback(async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        setMessage('Clipboard API not supported in this browser');
+        return;
+      }
+      
+      const clipboardText = await navigator.clipboard.readText();
+      if (!clipboardText.trim()) {
+        setMessage('Clipboard is empty');
+        return;
+      }
+      
+      setSourceStr(clipboardText.trim());
+      setMessage('Source set from clipboard');
+      
+      // Automatically call doSource after setting the clipboard content
+      setTimeout(() => {
+        // We need to use the clipboard text directly since state update is async
+        const isUrl = clipboardText.trim().startsWith('http');
+        if (isUrl) {
+          api.sourceUrl(clipboardText.trim()).then((params) => {
+            return api.get(params);
+          }).then((data) => {
+            updateData(data, true);
+          }).catch(() => {
+            // Error already handled by fetchEndpoint
+          });
+        } else {
+          try {
+            const params = JSON.parse(clipboardText.trim());
+            api.get(params).then((data) => {
+              updateData(data, true);
+            }).catch(() => {
+              // Error already handled by fetchEndpoint
+            });
+          } catch (error) {
+            console.error('Invalid JSON in clipboard:', error);
+            setMessage(`Invalid JSON in clipboard: ${error.message}`);
+          }
+        }
+      }, 100);
+      
+    } catch (error) {
+      console.error('Failed to read clipboard:', error);
+      setMessage(`Failed to read clipboard: ${error.message}`);
+    }
+  }, [setSourceStr, setMessage, updateData]);
+
   // Function to manually refresh Masonry layout
   const refreshMasonry = React.useCallback(() => {
     const grid = document.querySelector('.objects');
@@ -1574,7 +1625,7 @@ const App = () => {
 
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
-    sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
+    sourceStr, setSourceStr, doSource, doSourceFromClipboard, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, autoLikesElapsed, mode, setMode, refreshMasonry,
     clusters, setCluster, doLikeClassifier, message, scores, curIds: ids, rowById};
   console.log('rowById', rowById, curIds, pos, scores);
