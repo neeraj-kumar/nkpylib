@@ -252,15 +252,26 @@ class LikesWorker(BackgroundWorker):
         return pos_ids
 
     def _get_all_image_ids(self) -> list[int]:
-        """Get all image IDs that have embeddings, excluding top N by ID."""
+        """Get all image IDs that have embeddings."""
         with db_session:
             all_images = Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0)
             all_ids = [img.id for img in all_images]
-            # Sort by ID descending and exclude top N
-            all_ids.sort(reverse=True)
-            if len(all_ids) > self.exclude_top_n:
-                all_ids = all_ids[self.exclude_top_n:]
         return all_ids
+    
+    def _get_negative_candidate_ids(self, pos_ids: frozenset[int]) -> list[int]:
+        """Get image IDs suitable for negative sampling, excluding positives and most recent."""
+        with db_session:
+            neg_candidates = Item.select(lambda c: 
+                c.otype == 'image' and 
+                c.embed_ts > 0 and 
+                c.id not in pos_ids
+            )
+            # Get all negative candidate IDs and exclude top N by ID
+            neg_ids = [img.id for img in neg_candidates]
+            neg_ids.sort(reverse=True)
+            if len(neg_ids) > self.exclude_top_n:
+                neg_ids = neg_ids[self.exclude_top_n:]
+        return neg_ids
 
     def _update_classifier(self, force: bool = False) -> dict[str, Any]:
         """Update the classifier if needed."""
@@ -287,23 +298,13 @@ class LikesWorker(BackgroundWorker):
             # Prepare positive samples
             pos = [f'{id}:image' for id in current_pos_ids]
 
-            # Prepare negative samples (exclude positives and top N IDs)
-            with db_session:
-                neg_candidates = Item.select(lambda c:
-                    c.otype == 'image' and
-                    c.embed_ts > 0 and
-                    c.id not in current_pos_ids
-                )
-                # Further exclude top N by ID
-                neg_ids = [img.id for img in neg_candidates]
-                neg_ids.sort(reverse=True)
-                if len(neg_ids) > self.exclude_top_n:
-                    neg_ids = neg_ids[self.exclude_top_n:]
-
-                # Sample negatives
-                neg_sample_size = min(len(neg_ids), int(len(pos) * self.neg_factor))
-                neg_ids = random.sample(neg_ids, neg_sample_size)
-                neg = [f'{id}:image' for id in neg_ids]
+            # Prepare negative samples (exclude positives and most recent IDs)
+            neg_ids = self._get_negative_candidate_ids(current_pos_ids)
+            
+            # Sample negatives
+            neg_sample_size = min(len(neg_ids), int(len(pos) * self.neg_factor))
+            neg_ids = random.sample(neg_ids, neg_sample_size)
+            neg = [f'{id}:image' for id in neg_ids]
 
             logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
 
