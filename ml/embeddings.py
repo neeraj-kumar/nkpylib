@@ -27,6 +27,7 @@ from collections import Counter
 from os.path import abspath, dirname, exists, join
 from typing import Any, Sequence, Generic, TypeVar, Hashable
 
+import joblib
 import numpy as np
 
 from scipy.spatial.distance import cdist
@@ -388,6 +389,35 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 raise NotImplementedError(f'Classifier method {method!r} not implemented.')
         clf.fit(X, y, sample_weight=weights)
         return clf
+
+    def save_classifier(self, classifier: BaseEstimator, path: str, **kw) -> dict[str, Any]:
+        """Save classifier with additional metadata using joblib.
+        
+        - classifier: The trained classifier to save
+        - path: Path where to save the classifier (will add .joblib extension if missing)
+        - **kw: Additional metadata to save with the classifier
+        
+        Returns the saved data dictionary.
+        """
+        # Ensure path has the correct extension
+        if not path.endswith('.joblib') and not path.endswith('.pkl'):
+            path = path + '.joblib'
+        
+        # Create parent directories if they don't exist
+        os.makedirs(dirname(path), exist_ok=True)
+        
+        # Prepare data to save
+        save_data = dict(
+            classifier=classifier,
+            created_at=time.time(),
+            **kw
+        )
+        
+        # Save using joblib
+        joblib.dump(save_data, path)
+        logger.info(f"Saved classifier to {path}")
+        
+        return save_data
 
 # hashable bound
 T = TypeVar('T', bound=Hashable)
