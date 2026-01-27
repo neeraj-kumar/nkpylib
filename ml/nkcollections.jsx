@@ -939,7 +939,7 @@ const Obj = (props) => {
 }
 
 // A floating info/control panel
-const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, doLikeClassifier, scores, rowById}) => {
+const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, doLikeClassifier, scores, rowById}) => {
   const incrCols = (incr) => {
     setNCols((nCols) => {
       let newCols = nCols + incr;
@@ -990,6 +990,16 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
             onChange={(e) => setSimpleMode(e.target.checked)}
           />
           Simple
+        </label>
+      </div>
+      <div className="control auto-likes-mode">
+        <label>
+          <input
+            type="checkbox"
+            checked={autoLikesMode}
+            onChange={(e) => setAutoLikesMode(e.target.checked)}
+          />
+          Auto Likes
         </label>
       </div>
       <div className="control like-classifier">
@@ -1131,6 +1141,7 @@ const App = () => {
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
+  const [autoLikesMode, setAutoLikesMode] = React.useState(false);
   const [message, setMessage] = React.useState('Messages show up here');
 
   // Set up global reference to setMessage
@@ -1485,7 +1496,7 @@ const App = () => {
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, mode, setMode, refreshMasonry,
+    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, mode, setMode, refreshMasonry,
     clusters, setCluster, doLikeClassifier, message, scores, curIds: ids, rowById};
   console.log('rowById', rowById, curIds, pos, scores);
 
