@@ -1033,7 +1033,8 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
 
 
 const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores,
-  sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
+  sourceStr, setSourceStr, doSource, doSourceFromClipboard,
+  filterStr, updateFilterStr, searchStr, updateSearchStr,
   mode, setMode, message, ...props}) => {
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
@@ -1578,7 +1579,6 @@ const App = () => {
           }
         }
       }, 100);
-      
     } catch (error) {
       console.error('Failed to read clipboard:', error);
       setMessage(`Failed to read clipboard: ${error.message}`);
