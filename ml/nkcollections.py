@@ -203,7 +203,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             rows = q.filter(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
         if not rows:
             return 0
-        updater = LmdbUpdater(lmdb_path)
+        updater = LmdbUpdater(lmdb_path, n_procs=1)
         logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
         # kick off downloads
         async def dl_image(row):
@@ -271,7 +271,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         """
         if not vlm_prompt or not vlm_model:
             return 0
-        updater = LmdbUpdater(lmdb_path)
+        updater = LmdbUpdater(lmdb_path, n_procs=1)
         with db_session:
             rows = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None).limit(limit)
             if not rows:
