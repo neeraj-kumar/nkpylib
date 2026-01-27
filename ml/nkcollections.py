@@ -392,7 +392,7 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
 def init_sql_db(path: str) -> Database:
     """Initializes the sqlite database at the given `path`"""
-    sql_db = init_sqlite_db(path, db=sql_db)
+    init_sqlite_db(path, db=sql_db)
     with db_session:
         Item.upsert(get_kw=dict(
             source='me',

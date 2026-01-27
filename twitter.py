@@ -146,7 +146,7 @@ class Twitter(Source):
         # sort tweets by ts
         tweets.sort(key=lambda t: t.get('iso_ts', ''))
         md_fields = 'handle display_name likes replies reposts views'.split()
-        ret = []
+        ret: list[Item] = []
         for i, t in tqdm(enumerate(tweets)):
             # add the tweet id
             t['id'] = t['url'].split('/')[-1]
