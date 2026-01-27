@@ -423,18 +423,17 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
         - path: Path to the saved classifier file
 
-        Returns a tuple of (classifier_or_pipeline, other_kwargs).
         If the saved data contains a 'scaler' key, creates a Pipeline with the scaler
         followed by the classifier. Otherwise returns the raw classifier.
+
+        Returns a tuple of `(classifier_or_pipeline, other_kwargs)`
         """
         # Load the saved data
         saved_data = joblib.load(path)
         logger.info(f"Loaded classifier from {path}")
-        
         # Extract classifier and other data
         classifier = saved_data.pop('classifier')
         scaler = saved_data.pop('scaler', None)
-        
         # Create pipeline if scaler exists
         if scaler is not None:
             pipeline = Pipeline([
