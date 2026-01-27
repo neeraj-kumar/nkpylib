@@ -1065,7 +1065,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
   //console.log('got sscores', sscores, curIds, scores);
   const medianScore = (sscores.length > 0) ? sscores[Math.floor(sscores.length / 2)] : 0;
   const meanScore = (sscores.length > 0) ? sscores.reduce((a, b) => a + b, 0) / sscores.length : 0;
-  const nPos = (sscores.length > 0) ? sscores.filter((s) => s > meanScore).length : 0;
+  const nPos = (sscores.length > 0) ? sscores.filter((s) => s > 0).length : 0;
   const pPos = (sscores.length > 0) ? 100.0 * nPos / sscores.length : 0;
   return (
     <div className="controls">
@@ -1157,7 +1157,7 @@ const App = () => {
   const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "image", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 4);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
