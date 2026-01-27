@@ -1230,6 +1230,20 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         temp = NumpyLmdb.open(args.lmdb_path, flag='c')
         del temp
         app.embs = Embeddings([args.lmdb_path])
+        
+        # Initialize LikesWorker with first source's classifiers_dir
+        sources = list(Source._registry.values())
+        if sources:
+            classifiers_dir = sources[0].classifiers_dir
+            app.likes_worker = LikesWorker(
+                embs=app.embs,
+                classifiers_dir=classifiers_dir,
+                name="LikesWorker"
+            )
+            app.likes_worker.start()
+            logger.info(f"Started LikesWorker with classifiers_dir: {classifiers_dir}")
+        else:
+            logger.warning("No sources available, LikesWorker not initialized")
 
     more_handlers = [
         (r'/get', GetHandler),
