@@ -87,7 +87,7 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 const api = {
   get: (params) => fetchEndpoint('/get', params),
   classify: (pos) => fetchEndpoint('/classify', { pos }),
-  classifyLikes: (type, otype) => fetchEndpoint('/classify', { type, otype }),
+  classifyLikes: (options) => fetchEndpoint('/classify', options),
   action: (id, action) => fetchEndpoint('/action', { id, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
@@ -1455,7 +1455,12 @@ const App = () => {
   }, []);
 
   const doLikeClassifier = React.useCallback(() => {
-    api.classifyLikes('likes', 'image').then((resp) => {
+    const options = {
+      type: 'likes',
+      otypes:['image'],
+      cur_ids: curIds,
+    };
+    api.classifyLikes(options).then((resp) => {
       console.log('got like classifier response', resp);
       if (resp.scores) {
         setScores(resp.scores);

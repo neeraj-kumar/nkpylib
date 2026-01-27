@@ -146,7 +146,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 y=[labels[key] for key in key_order],
                 method='rbf',
                 **kwargs)
-            cls = self.make_classifier(C=1, **cls_kw)
+            cls = self.train_classifier(C=1, **cls_kw)
             logger.info(f'Training {method} with labels {labels}: {cls_kw}')
             scores = cls.decision_function(embs)
             pred_labels = cls.predict(embs)
@@ -213,7 +213,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 **kw) -> list[tuple[float, KeyT]]:
         """Returns the most similar keys and scores to the given `queries`.
 
-        This is a wrapper on top of `nearest_neighbors()` (method='nn') and `make_classifier()`
+        This is a wrapper on top of `nearest_neighbors()` (method='nn') and `train_classifier()`
         (method='rbf').
 
         The queries can either be keys from this class, or embedding vectors.
@@ -255,7 +255,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                     neg = random.sample(range(len(embs)), n_neg)
                     X = np.vstack([queries, embs[neg]]) # type: ignore[list-item]
                 y = [1]*len(pos) + [-1]*len(neg)
-                clf = self.make_classifier(X, y, method=method, **kw)
+                clf = self.train_classifier(X, y, method=method, **kw)
             scores = clf.decision_function(embs)
             logger.debug(f'Got scores {scores.shape}: {scores}')
             _ret = [(s, k) for s, k in zip(scores, keys) if s > min_score]
@@ -318,27 +318,29 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         keys, X, scaler = self.get_keys_embeddings(
                 keys=pos+neg, normed=False, scale_mean=True, scale_std=True, return_scaler=True)
         times.append(time.time())
-        y = [1 if key in pos else -1 for key in keys]
+        pos_set = set(pos)
+        y = [1 if key in pos_set else -1 for key in keys]
+        weights = [1.0 if key in pos_set else neg_weight for key in keys]
         times.append(time.time())
-        weights = [1.0 if key in pos else neg_weight for key in keys]
-        times.append(time.time())
-        cls = self.make_classifier(X, y, weights=weights, method=method, C=C, **kw)
+        cls = self.train_classifier(X, y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
         keys, embs = self.get_keys_embeddings(keys=to_cls, normed=False, scale_mean=True, scale_std=True)
         times.append(time.time())
         scores = {key: float(s) for key, s in zip(keys, cls.decision_function(embs))}
         times.append(time.time())
         logger.info(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
+        # all ids: 0.4, 0.03, 3.6, 1.2, 16.7
+        # just visible: 0.4, 0.00, 3.6, 0.066, 0.76
         return cls, scores
 
-    def make_classifier(self,
-                        X: nparray2d,
-                        y: Sequence[float|int],
-                        weights: Sequence[float]|None=None,
-                        method: str='rbf',
-                        C=1,
-                        class_weight='balanced',
-                        **kw) -> Any:
+    def train_classifier(self,
+                         X: nparray2d,
+                         y: Sequence[float|int],
+                         weights: Sequence[float]|None=None,
+                         method: str='rbf',
+                         C=1,
+                         class_weight='balanced',
+                         **kw) -> Any:
         """Makes a classifier with given `method`, trains it on X, y, and returns it.
 
         This is a somewhat low-level method; for common simple cases, you might want to use

@@ -781,6 +781,7 @@ class ClassifyHandler(MyBaseHandler):
                         curIds=curIds))
 
     async def _handle_likes(self,
+                            cur_ids: list[int]|None=None,
                             otypes=['image'],
                             feature_types=None,
                             method: str='rbf',
@@ -823,7 +824,10 @@ class ClassifyHandler(MyBaseHandler):
         # train and run the classifier
         pos = [f'{r.id}:image' for r in pos]
         neg = [f'{r.id}:image' for r in neg]
-        to_cls = [k for k in self.embs if k.endswith(':image')]
+        if cur_ids is not None:
+            to_cls = [f'{id}:image' for id in cur_ids]
+        else:
+            to_cls = [k for k in self.embs if k.endswith(':image')]
         # Run the blocking operation in a thread pool
         loop = asyncio.get_event_loop()
         t0 = time.time()
