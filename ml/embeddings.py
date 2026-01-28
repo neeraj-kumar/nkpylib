@@ -432,7 +432,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         """Load classifier from `path`, returning `(classifier, other_kwargs)`"""
         # Load the saved data
         saved_data = joblib.load(path)
-        logger.info(f"Loaded classifier from {path}")
+        logger.debug(f"Loaded classifier from {path}")
         classifier = saved_data.pop('classifier')
         return classifier, saved_data
 

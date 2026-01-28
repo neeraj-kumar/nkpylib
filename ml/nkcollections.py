@@ -6,6 +6,7 @@
 #TODO fast scanning/detector of all images?
 #TODO list of recent users
 #TODO remove bad images
+#TODO aggregate like scores per user
 
 from __future__ import annotations
 
@@ -302,7 +303,8 @@ class LikesWorker(BackgroundWorker):
             last.pop('scores', '')
             last.get('saved_classifier', {}).pop('scores', '')
             #print(f'running inference sync...: {last}')
-            self.run_inference()
+            r = self.run_inference()
+            logging.debug(f'Running inference result: {r}')
             return dict(status='no_change', pos_count=len(current_pos_ids))
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
@@ -353,7 +355,7 @@ class LikesWorker(BackgroundWorker):
                 'saved_classifier': saved_classifier,
                 'classifier_version': saved_classifier['created_at'],
             })
-            logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {classifier_path}")
+            logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {classifier_path}, v{self.last['classifier_version']}")
             return dict(
                 status='updated',
                 pos_count=len(pos),
@@ -413,6 +415,7 @@ class LikesWorker(BackgroundWorker):
             all_ids = self._get_all_image_ids()
             classified_ids = set(int(id) for id in self.scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
+            #unclassified_ids = [id for id in all_ids]
 
             if not unclassified_ids:
                 return dict(status='all_classified', classifier_version=self.last['classifier_version'])
@@ -1161,7 +1164,6 @@ class GetHandler(MyBaseHandler):
             else:
                 rows = {r.id: recursive_to_dict(r) for r in q}
             cur_ids = list(rows.keys())
-            
             # Add local_path for images with positive embed_ts
             for item in items:
                 if item.otype == 'image' and item.embed_ts and item.embed_ts > 0:
@@ -1170,7 +1172,6 @@ class GetHandler(MyBaseHandler):
                     if source:
                         local_path = Item.image_path(item, images_dir=source.images_dir)
                         rows[item.id]['local_path'] = os.path.relpath(local_path)
-            
             # fetch all rels with source = me and tgt in ids and update the appropriate rows
             me = Item.get_me()
             rels = Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids)
@@ -1181,7 +1182,10 @@ class GetHandler(MyBaseHandler):
                 rel_md = rel.md or {}
                 rel_md['ts'] = rel.ts
                 rows[tgt_id]['rels'][rel.rtype] = rel_md
-        self.write(dict(rows=rows, allOtypes=self.all_otypes))
+            # count the number of un-embedded images
+            n_unembedded = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None) .count()
+        msg = f'Got {len(rows)} items, {n_unembedded} un-embedded images'
+        self.write(dict(msg=msg, rows=rows, allOtypes=self.all_otypes))
 
 class SourceHandler(MyBaseHandler):
     def post(self):
@@ -1261,71 +1265,6 @@ class ClassifyHandler(MyBaseHandler):
             #msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s (training: {times_dict["training"]:.2f}s, inference: {times_dict["inference"]:.2f}s)',
             scores=scores
         ))
-
-    async def _old_handle_likes(self,
-                            cur_ids: list[int]|None=None,
-                            otypes=['image'],
-                            feature_types=None,
-                            method: str='rbf',
-                            neg_factor: float=10,
-                            **kw):
-        """Likes-based classifier.
-
-        There are a few different high-level params that we care about:
-        - otypes: what input types we want to process (images, text, posts, etc)
-          - for now, we only do images
-        - feature_types: what type of features to use for classification
-          - for image items:
-            - image embeddings
-            - text embeddings of image descriptions
-            - text description tag embeddings
-          - for text items:
-            - text embeddings
-          - for post items:
-            - average text/image embeddings of all children
-            - some sort of post-specific embeddings?
-        - classifier saving/loading:
-          - we could train a new classifier or load an existing classifier or none
-          - we run inference with the chosen classifier, or not?
-          - we could save the trained classifier for future use or not
-
-        Other minor params:
-        - method: classification method (default rbf)
-        - neg_factor: how many negative samples per positive sample to use
-        """
-        images = set()
-        if cur_ids is not None:
-            cur_ids = set(int(i) for i in cur_ids)
-            to_cls = [f'{id}:image' for id in cur_ids]
-        else:
-            to_cls = [k for k in self.embs if k.endswith(':image')]
-        with db_session:
-            # first get pos images from likes
-            images.update(Rel.get_likes(valid_types=['image']))
-            # filter down to only those with embeddings
-            pos = [img for img in images if img.embed_ts and img.embed_ts > 0]
-            pos_ids = [p.id for p in pos]
-            # get a bunch of random negative images
-            neg = list(Item.select(lambda c: c.otype == 'image' and c.embed_ts > 0 and c.id not in pos_ids))
-            # remove any to_cls from it
-            if cur_ids is not None:
-                neg = [n for n in neg if n.id not in cur_ids]
-            neg = random.sample(neg, min(len(neg), len(pos)*neg_factor))
-        # train and run the classifier
-        pos = [f'{r.id}:image' for r in pos]
-        neg = [f'{r.id}:image' for r in neg]
-        # Run the blocking operation in a thread pool
-        loop = asyncio.get_event_loop()
-        t0 = time.time()
-        cls, scores, times_dict = await loop.run_in_executor(
-            None,
-            lambda: self.embs.train_and_run_classifier(pos=pos, neg=neg, to_cls=to_cls, method=method, return_times=True)
-        )
-        t1 = time.time()
-        scores = {k.split(':')[0]: v for k, v in scores.items()}
-        self.write(dict(
-            msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s (training: {times_dict["training"]:.2f}s, inference: {times_dict["inference"]:.2f}s)',
-            pos=pos, neg=neg, scores=scores, times=times_dict))
 
     async def post(self):
         #self.embs.reload_keys()
