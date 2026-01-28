@@ -424,7 +424,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             save_data['created_at'] = time.time()
         # Save using joblib
         joblib.dump(save_data, path)
-        logger.info(f"Saved classifier to {path}")
+        logger.debug(f"Saved classifier to {path}")
         return save_data
 
     @staticmethod
