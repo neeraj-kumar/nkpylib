@@ -76,48 +76,59 @@ class AuthorizationFailure(Exception):
 
 
 class BrightDataSearch(Searcher):
+    PROXY_HOST = 'brd.superproxy.io'
+    PROXY_PORT = 33335
+
     def __init__(self, site:str='google', api_key_env_var: str='BRIGHTDATA_API_KEY'):
         self.api_key = os.getenv(api_key_env_var)
         self.zone_name = 'serp_api1'
         self.site = site
 
-    def _url_by_query(self, query: str, site: str='') -> str:
+    def _url_by_query(self, query: str, site: str='', page:int= 0) -> str:
         if self.site == 'google':
             q = quote_plus(query)
             if site:
                 q += f'+site:{quote_plus(site)}'
-            url = f'https://www.google.com/search?brd_json=1&q={q}'
+            url = f'https://www.google.com/search?brd_json=1&q={q}&start={page*10}'
         else:
             raise NotImplementedError(f'Unsupported site: {self.site}')
         return url
 
 
-    def search(self, query: str, site: str='', **kw) -> Iterable[SearchResult]:
+    def search(self, query: str, site: str='', page: int=0, **kw) -> Iterable[SearchResult]:
         url = 'https://api.brightdata.com/request'
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.api_key}',
         }
-        payload = dict(zone=self.zone_name, format='json', url=self._url_by_query(query, site))
-        logger.debug(f'Making bright req: {url}, {headers}, {payload}')
-        resp = make_request(url=url, method='post', headers=headers, json=payload)
-        if resp.status_code == 407:
-            raise AuthorizationFailure('BrightData Authorization failed, check your API key')
-        #resp.raise_for_status()
-        try:
-            data = json.loads(resp.json()['body'])
-        except Exception as e:
-            logger.info(f'Error parsing response: {e}, full response: {resp.text}')
-            raise
-        logger.debug(f'Searching {self.site} for: {query}, got {resp.url} -> {json.dumps(data, indent=2)}')
-        results = []
+        proxy = '' #TODO not using this yet
+        proxies = {
+            'http': proxy,
+            'https': proxy,
+        }
         sr_map = dict(title='title', url='link', description='description', image_url='image_base64')
-        for r in data.get('organic', []):
-            r = {k: r.get(v, '') for k, v in sr_map.items()}
-            # extract the site from the url field
-            r['site'] = urlparse(r['url']).netloc
-            sr = SearchResult(**r)
-            yield sr
+        # iterate over pages
+        while page < 10:
+            payload_url = self._url_by_query(query, site, page=page)
+            payload = dict(zone=self.zone_name, format='json', url=payload_url)
+            logger.debug(f'Making bright req: {url}, {headers}, {payload}')
+            resp = make_request(url=url, method='post', headers=headers, json=payload)
+            if resp.status_code == 407:
+                raise AuthorizationFailure('BrightData Authorization failed, check your API key')
+            #resp.raise_for_status()
+            try:
+                data = json.loads(resp.json()['body'])
+            except Exception as e:
+                logger.info(f'Error parsing response: {e}, full response: {resp.text}')
+                raise
+            logger.debug(f'Searching {self.site} for: {query}, p={page}, got {resp.url} -> {json.dumps(data, indent=2)}')
+            for r in data.get('organic', []):
+                r = {k: r.get(v, '') for k, v in sr_map.items()}
+                # extract the site from the url field
+                r['site'] = urlparse(r['url']).netloc
+                sr = SearchResult(**r)
+                yield sr
+            page += 1
 
 
 class BingWebSearch(Searcher):
@@ -191,6 +202,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('query', help='The query to search for')
     parser.add_argument('-s', '--site', help='The site to search within', default='')
+    parser.add_argument('-p', '--page', help='Page number to start at', default=0)
     args = parser.parse_args()
 
     w = DefaultWebSearch()
