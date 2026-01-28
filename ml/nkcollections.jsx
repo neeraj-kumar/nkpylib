@@ -133,6 +133,10 @@ const STYLES = `
   border-color: #4CAF50;
 }
 
+.object.liked {
+  border-style: dashed;
+}
+
 .object.single-col {
   max-width: 400px!important;
 }
@@ -819,6 +823,9 @@ const Obj = (props) => {
   let classes = ['object', otype, `source-${source}`, `otype-${otype}`];
   if (score !== undefined && score > 0) {
     classes.push('positive');
+  }
+  if (liked) {
+    classes.push('liked');
   }
   let cClasses = ['icon-button', 'classify-icon', (pos.includes(id) ? 'selected' : '')];
   if (mode !== 'multicol') {
