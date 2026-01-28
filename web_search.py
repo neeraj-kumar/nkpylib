@@ -83,9 +83,10 @@ class BrightDataSearch(Searcher):
 
     def _url_by_query(self, query: str, site: str='') -> str:
         if self.site == 'google':
-            url = f'https://www.google.com/search?brd_json=1&q={quote_plus(query)}'
+            q = quote_plus(query)
             if site:
-                url += f'+site:{quote_plus(site)}'
+                q += f'+site:{quote_plus(site)}'
+            url = f'https://www.google.com/search?brd_json=1&q={q}'
         else:
             raise NotImplementedError(f'Unsupported site: {self.site}')
         return url
@@ -98,17 +99,17 @@ class BrightDataSearch(Searcher):
             'Authorization': f'Bearer {self.api_key}',
         }
         payload = dict(zone=self.zone_name, format='json', url=self._url_by_query(query, site))
-        logger.debug(f'Payload: {payload}')
-        req = make_request(url=url, method='post', headers=headers, json=payload)
-        if req.status_code == 407:
+        logger.debug(f'Making bright req: {url}, {headers}, {payload}')
+        resp = make_request(url=url, method='post', headers=headers, json=payload)
+        if resp.status_code == 407:
             raise AuthorizationFailure('BrightData Authorization failed, check your API key')
-        #req.raise_for_status()
+        #resp.raise_for_status()
         try:
-            data = json.loads(req.json()['body'])
+            data = json.loads(resp.json()['body'])
         except Exception as e:
-            logger.info(f'Error parsing response: {e}, full response: {req.text}')
+            logger.info(f'Error parsing response: {e}, full response: {resp.text}')
             raise
-        logger.debug(f'Searching {self.site} for: {query}, got {req.url} -> {json.dumps(data, indent=2)}')
+        logger.debug(f'Searching {self.site} for: {query}, got {resp.url} -> {json.dumps(data, indent=2)}')
         results = []
         sr_map = dict(title='title', url='link', description='description', image_url='image_base64')
         for r in data.get('organic', []):
@@ -189,8 +190,14 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     parser = ArgumentParser()
     parser.add_argument('query', help='The query to search for')
+    parser.add_argument('-s', '--site', help='The site to search within', default='')
     args = parser.parse_args()
 
     w = DefaultWebSearch()
-    for result in w.search(args.query):
-        print(json.dumps(asdict(result), indent=2))
+    for result in w.search(args.query, site=args.site):
+        # trim long fields
+        r = asdict(result)
+        for field in r:
+            if isinstance(r[field], str) and len(r[field]) > 200:
+                r[field] = r[field][:200] + '...'
+        print(json.dumps(r, indent=2))
