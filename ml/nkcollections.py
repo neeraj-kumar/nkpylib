@@ -236,6 +236,9 @@ class LikesWorker(BackgroundWorker):
 
         # Ensure classifiers directory exists
         os.makedirs(self.classifiers_dir, exist_ok=True)
+        
+        # Set classifier path
+        self.classifier_path = join(self.classifiers_dir, 'likes.joblib')
 
         # Load existing classifier and run inference on initialization
         self._load_and_run_initial_inference()
@@ -331,9 +334,8 @@ class LikesWorker(BackgroundWorker):
             t1 = time.time()
             self.scores = {k.split(':')[0]: v for k, v in scores.items()}
             #classifier_path = join(self.classifiers_dir, f'likes/{int(time.time())}.joblib')
-            classifier_path = join(self.classifiers_dir, f'likes.joblib')
             saved_classifier = self.embs.save_classifier(
-                classifier_path,
+                self.classifier_path,
                 classifier,
                 method=self.method,
                 neg_factor=self.neg_factor,
@@ -350,13 +352,13 @@ class LikesWorker(BackgroundWorker):
                 'saved_classifier': saved_classifier,
                 'classifier_version': saved_classifier['created_at'],
             })
-            logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {classifier_path}, v{self.last['classifier_version']}")
+            logger.info(f"Updated likes classifier in {t1-t0:.2f}s, saved to {self.classifier_path}, v{self.last['classifier_version']}")
             return dict(
                 status='updated',
                 pos_count=len(pos),
                 neg_count=len(neg),
                 scores_count=len(self.scores),
-                classifier_path=classifier_path,
+                classifier_path=self.classifier_path,
                 **other_stuff
             )
         except Exception as e:
@@ -371,13 +373,12 @@ class LikesWorker(BackgroundWorker):
     def _load_and_run_initial_inference(self) -> None:
         """Load existing classifier on initialization and populate scores from saved data."""
         try:
-            classifier_path = join(self.classifiers_dir, 'likes.joblib')
-            if not exists(classifier_path):
+            if not exists(self.classifier_path):
                 logger.info("No existing classifier found, starting fresh")
                 return
 
             # Load the classifier and metadata
-            saved_data = self.embs.load_and_setup_classifier(classifier_path)
+            saved_data = self.embs.load_and_setup_classifier(self.classifier_path)
 
             # Update our state with the loaded classifier info
             self.last.update({
@@ -426,7 +427,6 @@ class LikesWorker(BackgroundWorker):
 
                 # Save the classifier with updated scores
                 try:
-                    classifier_path = join(self.classifiers_dir, 'likes.joblib')
                     if self.last['saved_classifier']:
                         # Load the existing classifier data and update scores
                         saved_data = self.last['saved_classifier'].copy()
@@ -434,7 +434,7 @@ class LikesWorker(BackgroundWorker):
 
                         # Save the updated classifier data
                         self.embs.save_classifier(
-                            classifier_path,
+                            self.classifier_path,
                             saved_data.pop('classifier'),
                             **saved_data
                         )
@@ -454,8 +454,7 @@ class LikesWorker(BackgroundWorker):
         """The blocking part of inference that runs in a thread pool."""
         try:
             # Load the classifier
-            classifier_path = join(self.classifiers_dir, 'likes.joblib')
-            saved_data = self.embs.load_and_setup_classifier(classifier_path)
+            saved_data = self.embs.load_and_setup_classifier(self.classifier_path)
             classifier = saved_data['classifier']
 
             to_cls = [f'{id}:image' for id in unclassified_ids]
