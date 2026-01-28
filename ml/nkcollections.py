@@ -19,6 +19,18 @@
 #TODO grouping by sim
 #TODO post
 #TODO text queue
+#TODO more like this
+#TODO quick zoom
+#TODO img preview with queued
+#TODO video dblclick
+#TODO show dwell times
+#TODO tags in sql
+#TODO get tag list from descs
+#TODO favicon
+#TODO vid indicator on linked imgs
+#TODO dislike
+#TODO svm scores fir close to many nn
+#TODO detect broken img
 
 from __future__ import annotations
 
