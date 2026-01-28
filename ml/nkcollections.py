@@ -31,6 +31,11 @@
 #TODO dislike
 #TODO svm scores fir close to many nn
 #TODO detect broken img
+#TODO tumblr 404
+#TODO desc error
+#TODO user tags
+#TODO descs if no images
+#TODO dwell time overlay
 
 from __future__ import annotations
 
