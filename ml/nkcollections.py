@@ -5,6 +5,7 @@
 #TODO propagate likes to source sites if possible
 #TODO fast scanning/detector of all images?
 #TODO list of recent users
+#TODO remove bad images
 
 from __future__ import annotations
 
@@ -961,31 +962,30 @@ class Source(abc.ABC):
 
         Note that this doesn't modify the lmdb at all, only the sqlite.
         """
-        #TODO remove bad images
         db = NumpyLmdb.open(lmdb_path, flag='r')
         keys_in_db = set(db.keys())
         n_missing = 0
         n_done = 0
         with db_session:
             # first deal with embeddings wrongly marked as done in sqlite but missing in lmdb
-            def process_wrongly_done(rows: list[Item], key_suffix: str, ts_field: str):
-                nonlocal n_missing
+            def process_wrongly_done(rows: list[Item], key_suffix: str, ts_field: str) -> int:
+                n = 0
                 for row in rows:
                     key = f'{row.id}:{key_suffix}'
                     if key not in keys_in_db:
                         logger.debug(f'Cleaning up {row} with missing key {key}')
                         setattr(row, ts_field, None)
-                        n_missing += 1
+                        n += 1
 
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype in ('text', 'link'))
-            process_wrongly_done(rows, 'text', 'embed_ts')
+            n_missing += process_wrongly_done(rows, 'text', 'embed_ts')
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype == 'image')
-            process_wrongly_done(rows, 'image', 'embed_ts')
+            n_missing += process_wrongly_done(rows, 'image', 'embed_ts')
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is not None and c.explored_ts > 0)
-            process_wrongly_done(rows, 'text', 'explored_ts')
+            n_missing += process_wrongly_done(rows, 'text', 'explored_ts')
             # now deal with embeddings present in lmdb but not marked done in sqlite
-            def process_missing_done(rows: list[Item], key_suffix: str, ts_field: str):
-                nonlocal n_done
+            def process_missing_done(rows: list[Item], key_suffix: str, ts_field: str) -> int:
+                n = 0
                 for row in rows:
                     key = f'{row.id}:{key_suffix}'
                     if key in keys_in_db:
@@ -993,14 +993,14 @@ class Source(abc.ABC):
                         d = db.md_get(key)
                         ts = d.get('embed_ts', d.get('embedding_ts', int(time.time())))
                         setattr(row, ts_field, int(time.time()))
-                        n_done += 1
+                        n += 1
 
             rows = Item.select(lambda c: c.otype in ('text', 'link') and c.embed_ts is None)
-            process_missing_done(rows, 'text', 'embed_ts')
+            n_done += process_missing_done(rows, 'text', 'embed_ts')
             rows = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None)
-            process_missing_done(rows, 'image', 'embed_ts')
+            n_done += process_missing_done(rows, 'image', 'embed_ts')
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is None)
-            process_missing_done(rows, 'text', 'explored_ts')
+            n_done += process_missing_done(rows, 'text', 'explored_ts')
         del db
         logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
 
