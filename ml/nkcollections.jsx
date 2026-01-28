@@ -909,6 +909,18 @@ const Obj = (props) => {
         >
           🔗
         </div>
+        {props.parent_url && (
+          <div
+            className="icon-button parent-icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.open(props.parent_url, '_blank');
+            }}
+            title="Open parent URL"
+          >
+            ⬆️
+          </div>
+        )}
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
         {/* Cluster buttons - only show in cluster mode */}
