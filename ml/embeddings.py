@@ -428,13 +428,12 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         return save_data
 
     @staticmethod
-    def load_and_setup_classifier(path: str) -> tuple[BaseEstimator, dict[str, Any]]:
-        """Load classifier from `path`, returning `(classifier, other_kwargs)`"""
+    def load_and_setup_classifier(path: str) -> dict[str, Any]:
+        """Load classifier from `path`, returning the saved data dict"""
         # Load the saved data
         saved_data = joblib.load(path)
         logger.debug(f"Loaded classifier from {path}")
-        classifier = saved_data.pop('classifier')
-        return classifier, saved_data
+        return saved_data
 
 
 # hashable bound

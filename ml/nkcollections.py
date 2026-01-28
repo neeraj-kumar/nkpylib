@@ -382,16 +382,16 @@ class LikesWorker(BackgroundWorker):
                 return
 
             # Load the classifier and metadata
-            classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
+            saved_data = self.embs.load_and_setup_classifier(classifier_path)
 
             # Update our state with the loaded classifier info
             self.last.update({
-                'saved_classifier': dict(classifier=classifier, **other_data),
-                'classifier_version': other_data.get('created_at', 0),
+                'saved_classifier': saved_data,
+                'classifier_version': saved_data.get('created_at', 0),
             })
 
             # Load scores from saved classifier data
-            saved_scores = other_data.get('scores', {})
+            saved_scores = saved_data.get('scores', {})
             self.scores = saved_scores.copy()
             logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores")
 
@@ -459,7 +459,8 @@ class LikesWorker(BackgroundWorker):
         try:
             # Load the classifier
             classifier_path = join(self.classifiers_dir, 'likes.joblib')
-            classifier, other_data = self.embs.load_and_setup_classifier(classifier_path)
+            saved_data = self.embs.load_and_setup_classifier(classifier_path)
+            classifier = saved_data['classifier']
 
             to_cls = [f'{id}:image' for id in unclassified_ids]
 
@@ -472,7 +473,7 @@ class LikesWorker(BackgroundWorker):
                 normed=False,
                 scale_mean=True,
                 scale_std=True,
-                scaler=other_data.get('scaler', None),
+                scaler=saved_data.get('scaler', None),
                 return_scaler=True,
             )
 
