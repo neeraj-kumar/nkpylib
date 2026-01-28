@@ -13,6 +13,12 @@
 #TODO transfer likes between related items (e.g., from post to images)
 #TODO add likes toggle functionality in bulk operations
 #TODO next queue
+#TODO quality scores
+#TODO fast cls
+#TODO show tags
+#TODO grouping by sim
+#TODO post
+#TODO text queue
 
 from __future__ import annotations
 
