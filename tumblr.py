@@ -74,7 +74,7 @@ class Tumblr(Source):
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = json.load(f)
-        logger.info(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
+        logger.debug(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
         self.csrf = ''
 
     @classmethod
@@ -483,8 +483,8 @@ class Tumblr(Source):
     def update_embeddings(self, **kw):
         """Updates embeddings for our tumblr collection."""
         # first compute basic image/text
-        super().update_embeddings(**kw)
-        return #FIXME fix the rest of this
+        counts = super().update_embeddings(**kw)
+        return counts #FIXME fix the rest of this
         # now compute post embeddings based on their content blocks
         limit = kw.get('limit', 0)
         if limit <= 0:

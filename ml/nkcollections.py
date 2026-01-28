@@ -53,13 +53,13 @@ import time
 import traceback
 
 from argparse import ArgumentParser
-from collections import defaultdict
+from collections import defaultdict, Counter
 from functools import cache
 from os.path import abspath, exists, join, dirname
 from pprint import pprint
 from queue import Queue, Empty
 from threading import Thread
-from typing import Any
+from typing import Any, Callable
 
 import joblib
 import termcolor
@@ -745,7 +745,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                           vlm_model: str='fastvlm',
                           limit: int=-1,
                           fetch_delay: float=0.1,
-                          **kw) -> int:
+                          **kw) -> dict[str, int]:
         """Updates the embeddings for all relevant rows in our table.
 
         This does embeddings of:
@@ -773,7 +773,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
         Any kw are passed to the subfunctions, some of which call `batch_extract_embeddings`.
 
-        We return the total number of embeddings updated.
+        We return a dict with the number of embeddings updated for each type
         """
         if limit <= 0:
             limit = 10000000
@@ -795,8 +795,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                                           limit=limit,
                                           **common_kw)
         )
-        n_text, n_images, n_descs = await asyncio.gather(text_task, image_task, desc_task)
-        return n_text + n_images + n_descs
+        ret = {}
+        ret['n_text'], ret['n_images'], ret['n_descs'] = await asyncio.gather(text_task, image_task, desc_task)
+        return ret
 
     @classmethod
     def update_embeddings(cls,
@@ -808,9 +809,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                           vlm_model: str='fastvlm',
                           limit: int=-1,
                           fetch_delay: float=0.1,
-                          **kw) -> int:
+                          **kw) -> dict[str, int]:
         """Calls the async version"""
-        #return # FIXME
         return run_async(cls.update_embeddings_async(
             lmdb_path=lmdb_path,
             images_dir=images_dir,
@@ -1044,7 +1044,7 @@ class Source(abc.ABC):
                 for otype, items in by_type.items():
                     ids.extend([item.id for item in items])
                 logger.info(f'Found {n} liked undone items for source {self.name}, prioritizing {len(ids)}')
-        Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, ids=ids, **kw)
+        return Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, ids=ids, **kw)
 
 
 class MyBaseHandler(BaseHandler):
@@ -1366,23 +1366,38 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
                                 more_kw=kw,
                                 on_start=on_start)
 
-def embeddings_main(batch_size: int=20, loop_delay: float=10, **kw):
+def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Callable|None=None,
+                    **kw):
     """Runs embedding updates from the command line in an infinite loop.
 
     You probably want to call this from your subclass, after having initialized your Source.
+
+    Params:
+    - batch_size: The number of embeddings to process per source per otype per loop iteration
+    - loop_delay: The desired max delay between loop iterations, in seconds
+    - loop_callback: An optional callback to call at the end of each loop iteration, given the
+      counts of embeddings updated. If this returns a dict, then we replace our kw with those.
+    - kw: Any other kw are passed to Source.update_embeddings
     """
     sources = list(Source._registry.values())
     logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
     for s in sources:
         s.cleanup_embeddings(s.lmdb_path)
     while 1:
+        counts = Counter()
         t0 = time.time()
         try:
             for s in sources:
-                s.update_embeddings(limit=batch_size, **kw)
+                cur = s.update_embeddings(limit=batch_size, **kw)
+                for k, v in cur.items():
+                    counts[k] += v
         except Exception as e:
             logger.warning(f'Error in embeddings main loop: {e}')
             print(traceback.format_exc())
+        if loop_callback:
+            out = loop_callback(counts)
+            if isinstance(out, dict):
+                kw = out
         elapsed = time.time() - t0
         diff = loop_delay - elapsed
         time.sleep(max(0, diff))
