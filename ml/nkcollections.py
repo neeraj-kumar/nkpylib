@@ -967,40 +967,45 @@ class Source(abc.ABC):
         n_missing = 0
         n_done = 0
         with db_session:
+            def process_embedding_sync(rows: list[Item], key_suffix: str, ts_field: str, fix_missing: bool) -> int:
+                """Process embedding synchronization between sqlite and lmdb.
+                
+                - fix_missing: If True, fix items marked done in sqlite but missing in lmdb
+                - fix_missing: If False, fix items present in lmdb but not marked done in sqlite
+                """
+                n = 0
+                for row in rows:
+                    key = f'{row.id}:{key_suffix}'
+                    if fix_missing:
+                        # Fix wrongly marked as done in sqlite but missing in lmdb
+                        if key not in keys_in_db:
+                            logger.debug(f'Cleaning up {row} with missing key {key}')
+                            setattr(row, ts_field, None)
+                            n += 1
+                    else:
+                        # Fix present in lmdb but not marked done in sqlite
+                        if key in keys_in_db:
+                            logger.debug(f'Marking done for {row} with existing key {key}')
+                            d = db.md_get(key)
+                            ts = d.get('embed_ts', d.get('embedding_ts', int(time.time())))
+                            setattr(row, ts_field, int(time.time()))
+                            n += 1
+                return n
+
             # first deal with embeddings wrongly marked as done in sqlite but missing in lmdb
-            def process_wrongly_done(rows: list[Item], key_suffix: str, ts_field: str) -> int:
-                n = 0
-                for row in rows:
-                    key = f'{row.id}:{key_suffix}'
-                    if key not in keys_in_db:
-                        logger.debug(f'Cleaning up {row} with missing key {key}')
-                        setattr(row, ts_field, None)
-                        n += 1
-
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype in ('text', 'link'))
-            n_missing += process_wrongly_done(rows, 'text', 'embed_ts')
+            n_missing += process_embedding_sync(rows, 'text', 'embed_ts', fix_missing=True)
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype == 'image')
-            n_missing += process_wrongly_done(rows, 'image', 'embed_ts')
+            n_missing += process_embedding_sync(rows, 'image', 'embed_ts', fix_missing=True)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is not None and c.explored_ts > 0)
-            n_missing += process_wrongly_done(rows, 'text', 'explored_ts')
+            n_missing += process_embedding_sync(rows, 'text', 'explored_ts', fix_missing=True)
             # now deal with embeddings present in lmdb but not marked done in sqlite
-            def process_missing_done(rows: list[Item], key_suffix: str, ts_field: str) -> int:
-                n = 0
-                for row in rows:
-                    key = f'{row.id}:{key_suffix}'
-                    if key in keys_in_db:
-                        logger.debug(f'Marking done for {row} with existing key {key}')
-                        d = db.md_get(key)
-                        ts = d.get('embed_ts', d.get('embedding_ts', int(time.time())))
-                        setattr(row, ts_field, int(time.time()))
-                        n += 1
-
             rows = Item.select(lambda c: c.otype in ('text', 'link') and c.embed_ts is None)
-            n_done += process_missing_done(rows, 'text', 'embed_ts')
+            n_done += process_embedding_sync(rows, 'text', 'embed_ts', fix_missing=False)
             rows = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None)
-            n_done += process_missing_done(rows, 'image', 'embed_ts')
+            n_done += process_embedding_sync(rows, 'image', 'embed_ts', fix_missing=False)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is None)
-            n_done += process_missing_done(rows, 'text', 'explored_ts')
+            n_done += process_embedding_sync(rows, 'text', 'explored_ts', fix_missing=False)
         del db
         logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
 
