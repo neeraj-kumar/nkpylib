@@ -7,6 +7,11 @@
 #TODO list of recent users
 #TODO remove bad images
 #TODO aggregate like scores per user
+#TODO import likes from external sources (e.g., social media exports)
+#TODO handle reblog keys for tumblr posts to enable proper reblogging
+#TODO link videos to their poster images for better media organization
+#TODO transfer likes between related items (e.g., from post to images)
+#TODO add likes toggle functionality in bulk operations
 
 from __future__ import annotations
 
