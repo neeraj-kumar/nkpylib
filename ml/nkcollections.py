@@ -364,6 +364,7 @@ class LikesWorker(BackgroundWorker):
             )
         except Exception as e:
             logger.error(f"Error updating likes classifier: {e}")
+            print(traceback.format_exc())
             return dict(status='error', error=str(e))
 
     def get_scores(self) -> dict[str, float]:
@@ -967,11 +968,11 @@ class Source(abc.ABC):
         n_missing = 0
         n_done = 0
         with db_session:
-            def process_embedding_sync(rows: list[Item], key_suffix: str, ts_field: str, fix_missing: bool) -> int:
-                """Process embedding synchronization between sqlite and lmdb.
-                
-                - fix_missing: If True, fix items marked done in sqlite but missing in lmdb
-                - fix_missing: If False, fix items present in lmdb but not marked done in sqlite
+            def fix(rows: list[Item], key_suffix: str, ts_field: str, fix_missing: bool) -> int:
+                """Fix synchronization between sqlite and lmdb.
+
+                - fix_missing: If True, fix items marked done in sqlite but missing in lmdb. If
+                  False, fix items present in lmdb but not marked done in sqlite
                 """
                 n = 0
                 for row in rows:
@@ -994,18 +995,18 @@ class Source(abc.ABC):
 
             # first deal with embeddings wrongly marked as done in sqlite but missing in lmdb
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype in ('text', 'link'))
-            n_missing += process_embedding_sync(rows, 'text', 'embed_ts', fix_missing=True)
+            n_missing += fix(rows, 'text', 'embed_ts', fix_missing=True)
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype == 'image')
-            n_missing += process_embedding_sync(rows, 'image', 'embed_ts', fix_missing=True)
+            n_missing += fix(rows, 'image', 'embed_ts', fix_missing=True)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is not None and c.explored_ts > 0)
-            n_missing += process_embedding_sync(rows, 'text', 'explored_ts', fix_missing=True)
+            n_missing += fix(rows, 'text', 'explored_ts', fix_missing=True)
             # now deal with embeddings present in lmdb but not marked done in sqlite
             rows = Item.select(lambda c: c.otype in ('text', 'link') and c.embed_ts is None)
-            n_done += process_embedding_sync(rows, 'text', 'embed_ts', fix_missing=False)
+            n_done += fix(rows, 'text', 'embed_ts', fix_missing=False)
             rows = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None)
-            n_done += process_embedding_sync(rows, 'image', 'embed_ts', fix_missing=False)
+            n_done += fix(rows, 'image', 'embed_ts', fix_missing=False)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is None)
-            n_done += process_embedding_sync(rows, 'text', 'explored_ts', fix_missing=False)
+            n_done += fix(rows, 'text', 'explored_ts', fix_missing=False)
         del db
         logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
 

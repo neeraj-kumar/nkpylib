@@ -586,6 +586,9 @@ const STYLES = `
   .object {
     max-width: calc(100vw - 20px)!important;
   }
+  .source-from-clipboard-btn {
+    display: none;
+  }
 }
 `;
 
@@ -964,20 +967,38 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
       return newCols;
     });
   }
-  const goToTop = () => {
-    window.scrollTo({top: 0, behavior: 'smooth'});
+  const goTo = (name) => {
+    switch (name) {
+      case 'top': // top of page
+        window.scrollTo({top: 0, behavior: 'smooth'});
+        break;
+      case 'mid': // middle of page
+        window.scrollTo({top: document.body.scrollHeight / 2, behavior: 'smooth'});
+        break;
+      case 'bot': // bottom of page
+        window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+        break;
+    }
   }
-  const goToBottom = () => {
-    window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
-  }
+  // sort scores and compute stats
   curIds = curIds || [];
   const n = curIds.length;
   const nWithScores = curIds.filter(id => scores[id] !== undefined).length;
-  const nWithEmbeds = curIds.map(id => rowById[id].embed_ts).filter(ts => (ts && ts > 0)).length;
   const nWithLikes = curIds.map(id => rowById[id].rels && rowById[id].rels.like).filter(like => like).length;
+  let sscores = [];
+  if (n > 0) {
+    sscores = curIds.map(id => scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
+  }
+  //console.log('got sscores', sscores, curIds, scores);
+  const nPos = (sscores.length > 0) ? sscores.filter((s) => s > 0).length : 0;
+  const pPos = (sscores.length > 0) ? 100.0 * nPos / sscores.length : 0;
   return (
     <div className="infobar">
-      <div>{n} items ({nWithScores} scored, {nWithEmbeds} embedded, {nWithLikes} liked) </div>
+      <div>{n} items ({nWithScores} scored, {nWithLikes} liked) </div>
+      {sscores.length > 0 && (
+        <div className="score-stats">
+          , {nPos} ({pPos.toFixed(1)}%) pos
+        </div>)}
       <div className="control refresh-masonry">
         <button onClick={refreshMasonry}>Refresh layout</button>
       </div>
@@ -1027,8 +1048,9 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
           Like Classifier
         </button>
       </div>
-      <div className="control go-to-top"><button onClick={goToTop}>Top</button></div>
-      <div className="control go-to-bottom"><button onClick={goToBottom}>Bottom</button></div>
+      <div className="control go-to-top"><button onClick={() => goTo('top')}>Top</button></div>
+      <div className="control go-to-mid"><button onClick={() => goTo('mid')}>Mid</button></div>
+      <div className="control go-to-bot"><button onClick={() => goTo('bot')}>Bot</button></div>
     </div>
   );
 }
@@ -1079,15 +1101,6 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
     }
   };
 
-  // sort scores and compute stats
-  const n = (curIds) ? curIds.length : 0;
-  let sscores = [];
-  if (n > 0) {
-    sscores = curIds.map(id => scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
-  }
-  //console.log('got sscores', sscores, curIds, scores);
-  const nPos = (sscores.length > 0) ? sscores.filter((s) => s > 0).length : 0;
-  const pPos = (sscores.length > 0) ? 100.0 * nPos / sscores.length : 0;
   return (
     <div className="controls">
       <div className="control text-fields">
@@ -1101,7 +1114,7 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
           size="52"
         />
         <button onClick={() => doSource()}>Set Source</button>
-        <button onClick={doSourceFromClipboard}>Source from Clipboard</button>
+        <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard}>Source from Clipboard</button>
         <input
           type="text"
           className="filter-input"
@@ -1155,11 +1168,6 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
       <div className="control message-display">
         <span>{message}</span>
       </div>
-      <div className="control flex-break"></div>
-      {sscores.length > 0 && (
-        <div className="score-stats">
-          {nPos} ({pPos.toFixed(1)}%) pos / {sscores.length} scored
-        </div>)}
     </div>
   );
 }
