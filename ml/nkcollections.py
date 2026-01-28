@@ -1189,7 +1189,7 @@ class ActionHandler(MyBaseHandler):
         # create a new rel
         with db_session:
             me = Item.get_me()
-            print(f'Got me={me}')
+            logger.debug(f'Got me={me}')
             get_kw = dict(src=me, tgt=Item[int(data['id'])], rtype=action)
             match action:
                 case 'like': # create or update the rel (only 1 like possible)

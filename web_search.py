@@ -64,6 +64,16 @@ class SearchResult:
     snippet_list: list[str] = None
     image_url: str = '' # image url for result (optional)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Converts this result to a dict"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SearchResult:
+        """Converts a dict into a `SearchResult` object"""
+        return cls(**d)
+
+
 class Searcher(ABC):
     """An abstract class for searching the web."""
     @abstractmethod
