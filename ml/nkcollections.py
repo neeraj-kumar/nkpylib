@@ -296,12 +296,12 @@ class LikesWorker(BackgroundWorker):
         current_pos_ids = self._get_current_pos_ids()
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
-            # Run inference synchronously
+            # Run inference
             last = self.last.copy()
             last.pop('scores', '')
             last.get('saved_classifier', {}).pop('scores', '')
             #print(f'running inference sync...: {last}')
-            self.run_inference_sync()
+            self.run_inference()
             return dict(status='no_change', pos_count=len(current_pos_ids))
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
