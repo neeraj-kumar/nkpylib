@@ -135,6 +135,7 @@ const STYLES = `
 
 .object.liked {
   border-style: dashed;
+  border-width: 3px;
 }
 
 .object.single-col {
