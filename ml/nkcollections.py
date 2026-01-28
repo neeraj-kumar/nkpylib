@@ -394,7 +394,7 @@ class LikesWorker(BackgroundWorker):
         except Exception as e:
             logger.warning(f"Failed to load existing classifier: {e}")
 
-    async def run_inference(self) -> dict[str, Any]:
+    def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
 
         Assumes all items in self.scores have been classified with the current classifier version.
@@ -407,7 +407,7 @@ class LikesWorker(BackgroundWorker):
             return dict(status='no_classifier')
 
         try:
-            # Get all image IDs that have embeddings (quick DB operation)
+            # Get all image IDs that have embeddings
             all_ids = self._get_all_image_ids()
             classified_ids = set(int(id) for id in self.scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
@@ -415,15 +415,10 @@ class LikesWorker(BackgroundWorker):
             if not unclassified_ids:
                 return dict(status='all_classified', classifier_version=self.last['classifier_version'])
 
-            # Move the heavy lifting to a thread pool
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                self._run_inference_blocking,
-                unclassified_ids
-            )
+            # Run inference directly (no longer async)
+            result = self._run_inference_blocking(unclassified_ids)
 
-            # Update scores in main thread if successful
+            # Update scores if successful
             if result['status'] == 'inference_completed':
                 self.scores.update(result['new_scores'])
                 logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.scores)} total scores")
@@ -453,16 +448,6 @@ class LikesWorker(BackgroundWorker):
             logger.error(f"Error running inference: {e}")
             traceback.print_exc()
             return dict(status='error', error=str(e))
-
-    def run_inference_sync(self) -> dict[str, Any]:
-        """Synchronous wrapper for run_inference that handles event loop setup."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(self.run_inference())
-            return result
-        finally:
-            loop.close()
 
     def _run_inference_blocking(self, unclassified_ids: list[int]) -> dict[str, Any]:
         """The blocking part of inference that runs in a thread pool."""
