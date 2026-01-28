@@ -695,7 +695,7 @@ const TumblrPostContent = (props) => {
   );
 };
 
-const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
+const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) => {
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
   // Calculate max height based on image metadata
@@ -742,6 +742,12 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex}) => {
             src={imageUrl}
             alt={`Image ${data.id}`}
             onClick={handleImageClick}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const liked = Boolean(data.rels && data.rels.like);
+              setLiked(data.id, !liked);
+            }}
             style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
           />
         );
@@ -928,7 +934,15 @@ const Obj = (props) => {
           )}
           {otype === 'image' && (
             <div className="content">
-              <img src={props.local_path ? `/data/${props.local_path}` : url} alt={`Image ${id}`} />
+              <img 
+                src={props.local_path ? `/data/${props.local_path}` : url} 
+                alt={`Image ${id}`}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setLiked(id, !liked);
+                }}
+              />
             </div>
           )}
           {otype === 'video' && (
@@ -950,6 +964,7 @@ const Obj = (props) => {
           mediaBlocks={media_blocks}
           currentIndex={currentMediaIndex}
           setCurrentIndex={setCurrentMediaIndex}
+          setLiked={setLiked}
         />
       )}
 
