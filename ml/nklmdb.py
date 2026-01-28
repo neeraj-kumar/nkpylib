@@ -121,14 +121,14 @@ class MetadataLmdb(PickleableLmdb):
         - 'c': read and write, create if not exists
         - 'n': read and write, overwrite
 
-        By default, we set `map_size` to 2 ** 25, which is 32 MiB. LMDB only grows up to 12 factors,
-        which would be 2 ** 25 * 2 ** 12 = 16 TiB, so this is a reasonable default.
+        By default, we set `map_size` to 2 ** 30, which is 1 GiB. LMDB only grows up to 12 factors,
+        which would be 2 ** 30 * 2 ** 12 = 4 TiB, so this is a reasonable default.
 
         Note that as the original code says, keeping autogrow=True (the default) means that there
         could be problems with multiple writers.
         """
         if 'map_size' not in kw:
-            kw['map_size'] = 2 ** 25 # lmdbm only grows up to 12 factors, and defaults to 2e20
+            kw['map_size'] = 2 ** 30 # lmdbm only grows up to 12 factors, and defaults to 2e20
         # make dirs if needed
         if flag != 'r':
             try:
