@@ -213,7 +213,7 @@ class LikesWorker(BackgroundWorker):
                  classifiers_dir: str,
                  name: str = "LikesWorker",
                  method: str = 'sgd',
-                 max_pos: int = 6000,
+                 max_pos: int = 10000,
                  neg_factor: float = 10,
                  sleep_interval: float = 10.0,
                  exclude_top_n: int = 2000):
@@ -229,7 +229,6 @@ class LikesWorker(BackgroundWorker):
         # State tracking
         self.scores: dict[str, float] = {}
         self.last: dict[str, Any] = {
-            'computed_time': 0.0,
             'pos_ids': frozenset(),
             'saved_classifier': None,
             'classifier_version': 0.0,
@@ -299,10 +298,6 @@ class LikesWorker(BackgroundWorker):
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
             # Run inference
-            last = self.last.copy()
-            last.pop('scores', '')
-            last.get('saved_classifier', {}).pop('scores', '')
-            #print(f'running inference sync...: {last}')
             r = self.run_inference()
             logging.debug(f'Running inference result: {r}')
             return dict(status='no_change', pos_count=len(current_pos_ids))
@@ -342,6 +337,7 @@ class LikesWorker(BackgroundWorker):
                 classifier,
                 method=self.method,
                 neg_factor=self.neg_factor,
+                pos_ids=sorted(current_pos_ids),
                 pos_count=len(pos),
                 neg_count=len(neg),
                 total_classified=len(to_cls),
@@ -350,7 +346,6 @@ class LikesWorker(BackgroundWorker):
             )
             # Update state
             self.last.update({
-                'computed_time': time.time(),
                 'pos_ids': current_pos_ids,
                 'saved_classifier': saved_classifier,
                 'classifier_version': saved_classifier['created_at'],
@@ -388,6 +383,7 @@ class LikesWorker(BackgroundWorker):
             self.last.update({
                 'saved_classifier': saved_data,
                 'classifier_version': saved_data.get('created_at', 0),
+                'pos_ids': frozenset(saved_data.get('pos_ids', [])),
             })
 
             # Load scores from saved classifier data
