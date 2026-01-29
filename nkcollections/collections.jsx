@@ -937,7 +937,7 @@ const Obj = (props) => {
           className="icon-button queue-icon"
           onClick={(e) => {
             e.stopPropagation();
-            ctx.actions.doQueue(id);
+            ctx.actions.setQueued(id);
           }}
           title="Add to queue"
         >
@@ -1276,6 +1276,19 @@ const AppProvider = ({ children }) => {
   const autoLikesTimerRef = React.useRef(null);
   const [autoLikesElapsed, setAutoLikesElapsed] = React.useState(0);
 
+  // initial init
+  React.useEffect(() => {
+    document.title = 'NK Collections';
+    // insert styles
+    const styleEl = document.createElement('style');
+    styleEl.innerHTML = STYLES;
+    document.head.appendChild(styleEl);
+    // call doSource initially
+    if (sourceStr) {
+      setTimeout(() => doSource(), 500);
+    }
+  }, []);
+
   // Set up global reference to setMessage
   React.useEffect(() => {
     globalSetMessage = setMessage;
@@ -1336,19 +1349,14 @@ const AppProvider = ({ children }) => {
     };
   }, [autoLikesMode, doLikeClassifier, setMessage]);
 
-  // Refs to access current values in debounced callbacks
+  // state and functions for debounced fields
   const filterStrRef = React.useRef(filterStr);
   const searchStrRef = React.useRef(searchStr);
-
-  // Debounce timers
   const searchTimeoutRef = React.useRef(null);
   const filterTimeoutRef = React.useRef(null);
-
-  // Update refs when state changes
   React.useEffect(() => {
     filterStrRef.current = filterStr;
   }, [filterStr]);
-
   React.useEffect(() => {
     searchStrRef.current = searchStr;
   }, [searchStr]);
@@ -1376,18 +1384,8 @@ const AppProvider = ({ children }) => {
 
   const updateSearchStr = createDebouncedUpdater(setSearchStr, searchTimeoutRef, doSearch);
   const updateFilterStr = createDebouncedUpdater(setFilterStr, filterTimeoutRef, doFilter);
-  React.useEffect(() => {
-    document.title = 'NK Collections';
-    // insert styles
-    const styleEl = document.createElement('style');
-    styleEl.innerHTML = STYLES;
-    document.head.appendChild(styleEl);
-    // call doSource initially
-    if (sourceStr) {
-      setTimeout(() => doSource(), 500);
-    }
-  }, []);
 
+  // Mode changes
   React.useEffect(() => {
     // if mode changes away from multicol, set nCols to 1
     if (mode !== 'multicol') {
@@ -1395,6 +1393,7 @@ const AppProvider = ({ children }) => {
     }
   }, [mode, setNCols]);
 
+  // Setup masonry for tight grid
   React.useEffect(() => {
     const grid = document.querySelector('.objects');
     if (grid && window.Masonry) {
@@ -1445,41 +1444,23 @@ const AppProvider = ({ children }) => {
     }
   }, [curIds, nCols, mode]); // Re-run when items or columns change
 
-  // Throttled scroll handler for infinite scroll
-  /*
-  React.useEffect(() => {
-    let ticking = false;
-    const handleScroll = () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          const isAtBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 100;
-          if (isAtBottom) {
-            console.log('User scrolled to bottom - fetch more data');
-            // TODO: Implement fetchMoreData function
-          }
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
+  const updateRowById = React.useCallback((updatedRows) => {
+    // use immer to update rowById
+    setRowById((rowById) => immer.produce(rowById, (draft) => {
+      Object.entries(updatedRows).forEach(([id, row]) => {
+        draft[id] = row;
+      });
+    }));
+  }, [setRowById]);
 
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-*/
-
+  // called whenever main data updates
   const updateData = React.useCallback((data, resetData=false) => {
     console.log('got data', data);
     if (resetData) {
       setRowById({});
       setClusters({});
     }
-    // use immer to update rowById
-    setRowById((rowById) => immer.produce(rowById, (draft) => {
-      Object.entries(data.row_by_id).forEach(([id, row]) => {
-        draft[id] = row;
-      });
-    }));
+    updateRowById(data.row_by_id);
     setCurIds(Object.keys(data.row_by_id));
     setAllOtypes(data.allOtypes);
 
@@ -1496,11 +1477,11 @@ const AppProvider = ({ children }) => {
         return newClusters;
       });
     }
-  }, [setRowById, setCurIds, setAllOtypes, mode, setClusters]);
+  }, [updateRowById, setCurIds, setAllOtypes, mode, setClusters]);
 
-  // fetch data when otypes changes
+  // setup initial data fetch
   React.useEffect(() => {
-    // fetch objects from the server
+    console.log('doing initial data fetch??')
     api.get({
       otype: curOtypes,
       added_ts: '>=' + (Math.floor(Date.now() / 1000) - (24*3600)), // added within the last day
@@ -1520,29 +1501,23 @@ const AppProvider = ({ children }) => {
     });
   });
 
+  // generic action handler
   const doAction = React.useCallback(async (ids, action) => {
     console.log('performing action', action, 'on ids', ids);
-    try {
-      const response = await api.action(ids, action);
-      if (response.updated_rows) {
-        // Update rowById with the server response
-        setRowById((rowById) => {
-          return immer.produce(rowById, (draft) => {
-            Object.entries(response.updated_rows).forEach(([id, updatedRow]) => {
-              draft[id] = updatedRow;
-            });
-          });
-        });
-      }
-      return response;
-    } catch (error) {
-      console.error('Action failed:', error);
-      throw error;
+    const resp = await api.action(ids, action);
+    if (resp.updated_rows) {
+      updateRowById(resp.updated_rows);
     }
-  }, [setRowById]);
+    return resp;
+  }, [updateRowById]);
 
   const setLiked = React.useCallback((id, likedState) => {
     const action = likedState ? 'like' : 'unlike';
+    doAction([id], action);
+  }, [doAction]);
+
+  const setQueued = React.useCallback((id, queueState) => {
+    const action = queueState ? 'queue' : 'dequeue';
     doAction([id], action);
   }, [doAction]);
 
@@ -1655,6 +1630,7 @@ const AppProvider = ({ children }) => {
     }
   }, []);
 
+  // Call like-based classifier
   const doLikeClassifier = React.useCallback(() => {
     const options = {
       type: 'likes',
@@ -1682,6 +1658,7 @@ const AppProvider = ({ children }) => {
     });
   }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
 
+  // Done with all state and effects, now preparing for rendering
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
   // Organize all state and functions into nested groups
@@ -1720,7 +1697,7 @@ const AppProvider = ({ children }) => {
       togglePos,
       doSource,
       doLikeClassifier,
-      doQueue,
+      setQueued,
       setCluster
     },
     classification: {
