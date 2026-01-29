@@ -1520,24 +1520,31 @@ const AppProvider = ({ children }) => {
     });
   });
 
-  const setLiked = React.useCallback((id, likedState) => {
-    console.log('setting liked for', id, likedState);
-    // send to server
-    api.action([id], likedState ? 'like' : 'unlike');
-    // update rowById
-    setRowById((rowById) => {
-      return immer.produce(rowById, (draft) => {
-        if (!draft[id]) return;
-        if (likedState) {
-          // set like to current ts (seconds since epoch)
-          draft[id].rels.like = Math.floor(Date.now() / 1000);
-        } else {
-          // delete like from rels (if it exists)
-          delete draft[id].rels.like;
-        }
-      });
-    });
+  const doAction = React.useCallback(async (ids, action) => {
+    console.log('performing action', action, 'on ids', ids);
+    try {
+      const response = await api.action(ids, action);
+      if (response.updated_rows) {
+        // Update rowById with the server response
+        setRowById((rowById) => {
+          return immer.produce(rowById, (draft) => {
+            Object.entries(response.updated_rows).forEach(([id, updatedRow]) => {
+              draft[id] = updatedRow;
+            });
+          });
+        });
+      }
+      return response;
+    } catch (error) {
+      console.error('Action failed:', error);
+      throw error;
+    }
   }, [setRowById]);
+
+  const setLiked = React.useCallback((id, likedState) => {
+    const action = likedState ? 'like' : 'unlike';
+    doAction([id], action);
+  }, [doAction]);
 
   // sets an individual item's cluster
   const setCluster = React.useCallback((id, clusterNum) => {
@@ -1713,6 +1720,7 @@ const AppProvider = ({ children }) => {
       togglePos,
       doSource,
       doLikeClassifier,
+      doQueue,
       setCluster
     },
     classification: {
