@@ -157,11 +157,57 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             ancestor = ancestor.parent
         # deal with rels
         R = self['rels'] = {}
+        
+        # Group rels by type for special processing
+        rels_by_type = {}
         for rel in rels:
-            md = dict(ts=rel.ts)
-            if rel.md:
-                md.update(rel.md)
-            R[rel.rtype] = md
+            if rel.rtype not in rels_by_type:
+                rels_by_type[rel.rtype] = []
+            rels_by_type[rel.rtype].append(rel)
+        
+        # Process each rel type
+        for rtype, rel_list in rels_by_type.items():
+            if rtype in ('queue', 'unqueue'):
+                # Special processing for queue/unqueue rels
+                # Sort by timestamp
+                rel_list.sort(key=lambda r: r.ts)
+                
+                # Find the latest unqueue (if any)
+                latest_unqueue_idx = -1
+                for i, rel in enumerate(rel_list):
+                    if rel.rtype == 'unqueue':
+                        latest_unqueue_idx = i
+                
+                # Remove all rels up to and including the latest unqueue
+                if latest_unqueue_idx >= 0:
+                    rel_list = rel_list[latest_unqueue_idx + 1:]
+                
+                # Filter to only queue rels (unqueue rels should be gone now)
+                queue_rels = [rel for rel in rel_list if rel.rtype == 'queue']
+                
+                if queue_rels:
+                    # Keep only the latest queue rel, but add count
+                    latest_queue = max(queue_rels, key=lambda r: r.ts)
+                    md = dict(ts=latest_queue.ts, count=len(queue_rels))
+                    if latest_queue.md:
+                        md.update(latest_queue.md)
+                    R['queue'] = md
+                # If no queue rels remain, don't add anything to R
+                
+            elif rtype == 'like':
+                # For likes, keep only the latest one (highest ts)
+                latest_like = max(rel_list, key=lambda r: r.ts)
+                md = dict(ts=latest_like.ts)
+                if latest_like.md:
+                    md.update(latest_like.md)
+                R[rtype] = md
+            else:
+                # For other rel types, just use the latest one
+                latest_rel = max(rel_list, key=lambda r: r.ts)
+                md = dict(ts=latest_rel.ts)
+                if latest_rel.md:
+                    md.update(latest_rel.md)
+                R[rtype] = md
 
     @classmethod
     async def update_text_embeddings(cls, q: Query, limit: int, lmdb_path: str, **kw) -> int:
