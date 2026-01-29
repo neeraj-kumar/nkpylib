@@ -119,6 +119,49 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         path = abspath(join(images_dir, f'{mk}.{ext}'))
         return path
 
+    def for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
+        """Cleans up this item for web use.
+
+        The web representation of this object is in `r`, which this modifies. Also pass in the list
+        of `rels` where this item is the target (for now we assume the src was 'me').
+        - for images with embeddings, adds 'local_path' relative to cwd
+        - if this item has a parent, adds 'parent_url' with the parent's url
+        - if this item has an ancestor that's a 'user', adds 'user_name' and 'user_url'
+
+        We also deal with rels:
+        - adds a 'rels' sub-dict to `r` with keys being the rtype and values being dicts
+        - each rel dict has 'ts' and any metadata from the rel's md
+        - special processing:
+          - for 'like' rels, we only keep the latest one (highest ts)
+          - for 'queue'/'unqueue' rels:
+            - anytime we see an 'unqueue', we remove it and all 'queue' rels before it
+            - for the remaining queues, we keep only the latest one (highest ts), but add a 'count'
+        """
+        # add local image path if we have it
+        if self.otype == 'image' and self.embed_ts and self.embed_ts > 0:
+            # Find the appropriate source to get images_dir
+            source = Source._registry.get(self.source)
+            if source:
+                local_path = self.image_path(self, images_dir=source.images_dir)
+                r['local_path'] = os.path.relpath(local_path)
+        # Add parent_url if self has a parent
+        if self.parent:
+            r['parent_url'] = self.parent.url
+        # Add user_name and user_url if we have an ancestor user
+        ancestor = self.parent
+        while ancestor:
+            if ancestor.otype == 'user':
+                r['user_name'] = ancestor.name
+                r['user_url'] = ancestor.url
+                break
+            ancestor = ancestor.parent
+        # deal with rels
+        R = self['rels'] = {}
+        for rel in rels:
+            md = dict(ts=rel.ts)
+            if rel.md:
+                md.update(rel.md)
+            R[rel.rtype] = md
 
     @classmethod
     async def update_text_embeddings(cls, q: Query, limit: int, lmdb_path: str, **kw) -> int:
@@ -414,6 +457,29 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             for child in r.tgt.children.select():
                 maybe_add(child)
         return list(ret)
+
+
+    @classmethod
+    @db_session
+    def handle_me_action(cls, items: list[Item], action: str, **kw) -> None:
+        """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`."""
+        me = Item.get_me()
+        ts = int(time.time())
+        for item in items:
+            get_kw = dict(src=me, rtype=action, tgt=item)
+            match action:
+                case 'like': # create or update the rel (only 1 like possible)
+                    r = Rel.upsert(get_kw=get_kw, ts=ts)
+                case 'unlike': # delete the rel if it exists
+                    get_kw['rtype'] = 'like'
+                    r = Rel.get(**get_kw)
+                    if r:
+                        r.delete()
+                case 'queue' | 'unqueue': # add a 'queue' or 'unqueue' rel (even if it was there before)
+                    r = Rel.upsert(get_kw=get_kw, ts=ts)
+                case _:
+                    logger.info(f'Unknown me action {action}')
+
 
 def init_sql_db(path: str) -> Database:
     """Initializes the sqlite database at the given `path`"""
