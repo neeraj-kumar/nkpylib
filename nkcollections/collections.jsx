@@ -106,6 +106,7 @@ const api = {
   action: (id, action) => fetchEndpoint('/action', { id, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
+  queue: (id) => fetchEndpoint('/queue', { id }),
 };
 
 const STYLES = `
@@ -797,7 +798,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
 };
 
 const Obj = (props) => {
-  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks, mode, clusters, setCluster} = props;
+  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks, mode, clusters, setCluster, doQueue} = props;
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
@@ -922,6 +923,15 @@ const Obj = (props) => {
           }}
         >
           🔗
+        </div>
+        <div
+          className="icon-button queue-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            doQueue(id);
+          }}
+        >
+          📋
         </div>
         {props.parent_url && (
           <div
@@ -1652,11 +1662,17 @@ const App = () => {
     });
   }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
 
+  const doQueue = React.useCallback((id) => {
+    console.log('queueing item', id);
+    // For now, just print to console as requested
+    // In the future, this could call api.queue(id)
+  }, []);
+
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
   const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
     sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
     setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, autoLikesElapsed, mode, setMode, refreshMasonry,
-    clusters, setCluster, doLikeClassifier, message, scores, curIds: ids, rowById};
+    clusters, setCluster, doLikeClassifier, doQueue, message, scores, curIds: ids, rowById};
   console.log('rowById', rowById, curIds, pos, scores);
 
   // Group objects by cluster for cluster mode
