@@ -113,6 +113,7 @@ class MyBaseHandler(BaseHandler):
             otypes = list(select(r.otype for r in Item)) # type: ignore[attr-defined]
             return otypes
 
+
 class GetHandler(MyBaseHandler):
     @db_session
     def build_query(self, data: dict[str, Any]) -> Query:
@@ -193,30 +194,37 @@ class GetHandler(MyBaseHandler):
             q = q.limit(int(data['limit']))
         return q
 
+
+    @classmethod
+    def query_to_web(cls, q: Query, assemble_posts:bool=True) -> dict[int, dict]:
+        """Converts a query to a dict of items suitable for web output."""
+        items = q[:]
+        if assemble_posts:
+            ret = {r['id']: r for r in Source.assemble_posts(items)}
+        else:
+            ret = {r.id: recursive_to_dict(r) for r in items}
+        cur_ids = list(ret.keys())
+        # fetch all rels with source = me and tgt in ids
+        me = Item.get_me()
+        rels_by_tgt = defaultdict(list)
+        for r in Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids):
+            rels_by_tgt[r.tgt.id].append(r)
+        # prepare items for web
+        for item in items:
+            item.for_web(ret[item.id], rels=rels_by_tgt[item.id])
+        return ret
+
     def post(self):
         data = json.loads(self.request.body)
         print(f'GetHandler got data={data}')
         # Build query conditions
         with db_session:
             q = self.build_query(data)
-            items = q[:]
-            if data.get('assemble_posts', False):
-                rows = {r['id']: r for r in Source.assemble_posts(items)}
-            else:
-                rows = {r.id: recursive_to_dict(r) for r in q}
-            cur_ids = list(rows.keys())
-            # fetch all rels with source = me and tgt in ids
-            me = Item.get_me()
-            rels_by_tgt = defaultdict(list)
-            for r in Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids):
-                rels_by_tgt[r.tgt.id].append(r)
-            # prepare items for web
-            for item in items:
-                item.for_web(rows[item.id], rels=rels_by_tgt[item.id])
+            rows = self.query_to_web(q, assemble_posts=data.get('assemble_posts', True))
             # count the number of un-embedded images
             n_unembedded = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None) .count()
         msg = f'Got {len(rows)} items, {n_unembedded} un-embedded images'
-        self.write(dict(msg=msg, rows=rows, allOtypes=self.all_otypes))
+        self.write(dict(msg=msg, row_by_id=rows, allOtypes=self.all_otypes))
 
 class SourceHandler(MyBaseHandler):
     def post(self):
@@ -241,27 +249,23 @@ class DwellHandler(MyBaseHandler):
 
 
 class ActionHandler(MyBaseHandler):
-    """The user took some action, which we will store in our `rels` table"""
+    """The user took some action, which we will store in our `rels` table."""
     def post(self):
+        """Input data should include 'action' and 'ids' (of the target items)."""
         data = json.loads(self.request.body)
-        action = data.get('action', '')
+        action = data.pop('action', '')
         print(f'ActionHandler got action={action}, {data}')
-        self.write(dict(action=action, status='ok'))
-        # create a new rel
         with db_session:
-            me = Item.get_me()
-            logger.debug(f'Got me={me}')
-            get_kw = dict(src=me, tgt=Item[int(data['id'])], rtype=action)
-            match action:
-                case 'like': # create or update the rel (only 1 like possible)
-                    r = Rel.upsert(get_kw=get_kw, ts=int(time.time()))
-                case 'unlike': # delete the rel if it exists
-                    get_kw['rtype'] = 'like'
-                    r = Rel.get(**get_kw)
-                    if r:
-                        r.delete()
-                case _:
-                    print(f'Unknown action {action}')
+            ids = [int(i) for i in data.pop('ids')]
+            items = Item.select(lambda c: c.id in ids)[:]
+            Rel.handle_me_action(items=items, action=action, **data)
+            q = Item.select(lambda c: c.id in ids)
+            updated_rows = GetHandler.query_to_web(q)
+        self.write(dict(
+            action=action,
+            msg=f'Took action {action} on {ids}',
+            updated_rows=updated_rows,
+        ))
 
 class ClassifyHandler(MyBaseHandler):
     def _handle_pos(self, pos):
