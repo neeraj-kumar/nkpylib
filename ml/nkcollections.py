@@ -1,41 +1,31 @@
-"""An abstraction over collections to make it easy to filter/sort/etc
+"""An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO Embeddings status page
 #TODO propagate likes to source sites if possible
 #TODO fast scanning/detector of all images?
 #TODO list of recent users
 #TODO remove bad images
 #TODO aggregate like scores per user
-#TODO import likes from external sources (e.g., social media exports)
-#TODO handle reblog keys for tumblr posts to enable proper reblogging
-#TODO link videos to their poster images for better media organization
-#TODO transfer likes between related items (e.g., from post to images)
-#TODO add likes toggle functionality in bulk operations
-#TODO next queue
+#TODO import tumblr likes
+#TODO import google history
+#TODO handle reblog keys
+#TODO link videos to their poster images
+#TODO transfer likes between related items
+#TODO next items queue
+#TODO   with img previews
+#TODO search texts queue
 #TODO quality scores
-#TODO fast cls
-#TODO show tags
-#TODO grouping by sim
-#TODO post
-#TODO text queue
-#TODO more like this
-#TODO quick zoom
-#TODO img preview with queued
-#TODO video dblclick
-#TODO show dwell times
-#TODO tags in sql
-#TODO get tag list from descs
-#TODO favicon
-#TODO vid indicator on linked imgs
-#TODO dislike
-#TODO svm scores fir close to many nn
-#TODO detect broken img
-#TODO tumblr 404
-#TODO desc error
-#TODO user tags
-#TODO descs if no images
-#TODO dwell time overlay
+#TODO multiple searches
+#TODO   more like this on objects
+#TODO   clickable tags
+#TODO   custom search text
+#TODO put tags in sql
+#TODO   aggregate to user
+#TODO   get tag list from descs
+#TODO are svm scores higher if close to many nn?
+#TODO   use NN aggregation for high svm scores
+#TODO compute dwell times
+#TODO debug desc errors
 
 from __future__ import annotations
 
