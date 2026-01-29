@@ -157,21 +157,18 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             ancestor = ancestor.parent
         # deal with rels
         R = self['rels'] = {}
-        
         # Group rels by type for special processing
         rels_by_type = {}
         for rel in rels:
             if rel.rtype not in rels_by_type:
                 rels_by_type[rel.rtype] = []
             rels_by_type[rel.rtype].append(rel)
-        
         # Process each rel type
         for rtype, rel_list in rels_by_type.items():
             if rtype in ('queue', 'unqueue'):
                 # Special processing for queue/unqueue rels
                 # Sort by timestamp
                 rel_list.sort(key=lambda r: r.ts)
-                
                 # Find the latest unqueue (if any)
                 latest_unqueue_idx = -1
                 for i, rel in enumerate(rel_list):
