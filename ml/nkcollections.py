@@ -1,31 +1,37 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO propagate likes to source sites if possible
-#TODO fast scanning/detector of all images?
-#TODO list of recent users
-#TODO remove bad images
-#TODO aggregate like scores per user
-#TODO import tumblr likes
-#TODO import google history
-#TODO handle reblog keys
-#TODO link videos to their poster images
-#TODO transfer likes between related items
 #TODO next items queue
 #TODO   with img previews
 #TODO search texts queue
+#TODO rels cleanup as Rel or Item method
+#TODO fast scanning/detector of all images?
+#TODO   explore grid segmentation - there are various options for the actual segmentation
+#TODO   explore grid clip
+#TODO   explore multimachine processing - prolly around $10/day for a good compute machine
+#TODO   explore external api
+#TODO   it seems like the way to go to get 10x speedup is to use mobilenet v3 embeddings -- see chatgpt for code
+#TODO remove bad images
+#TODO handle reblog keys
+#TODO are svm scores higher if close to many nn?
+#TODO   use NN aggregation for high svm scores
+#TODO put tags in sql
+#TODO   get tag list from descs
+#TODO   aggregate to user
+#TODO link videos to their poster images
+#TODO transfer likes between related items
 #TODO quality scores
 #TODO multiple searches
 #TODO   more like this on objects
 #TODO   clickable tags
 #TODO   custom search text
-#TODO put tags in sql
-#TODO   aggregate to user
-#TODO   get tag list from descs
-#TODO are svm scores higher if close to many nn?
-#TODO   use NN aggregation for high svm scores
 #TODO compute dwell times
+#TODO aggregate like scores per user
+#TODO list of recent users - figure out how to display these in ux
 #TODO debug desc errors
+#TODO propagate likes to source sites if possible
+#TODO import tumblr likes
+#TODO import google history
 
 from __future__ import annotations
 
