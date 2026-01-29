@@ -117,8 +117,8 @@ class MyBaseHandler(BaseHandler):
 
 class GetHandler(MyBaseHandler):
     @db_session
-    def build_query(self, data: dict[str, Any]) -> Query:
-        """Builds up the database query to get items matching the given data filters.
+    def build_query(self, kw: dict[str, Any]) -> Query:
+        """Builds up the database query to get items matching the given kw filters.
 
         For string fields, the value can be a string (exact match) or a list of strings (any of).
         For numeric fields, the value can be a number (exact match) or a string with an operator
@@ -126,24 +126,24 @@ class GetHandler(MyBaseHandler):
         """
         q = Item.select()
         # Handle ids parameter (num spec)
-        if 'ids' in data:
-            ids = parse_num_spec(data['ids'])
+        if 'ids' in kw:
+            ids = parse_num_spec(kw['ids'])
             q = q.filter(lambda c: c.id in ids)
         # Handle string fields
         string_fields = ['source', 'stype', 'otype', 'url', 'name']
         for field in string_fields:
-            if field in data:
-                value = data[field]
+            if field in kw:
+                value = kw[field]
                 if isinstance(value, list):
                     q = q.filter(lambda c: getattr(c, field) in value)
                 else:
                     q = q.filter(lambda c: getattr(c, field) == value)
         # Handle parent field
-        if 'parent' in data:
-            parent_id = int(data['parent'])
+        if 'parent' in kw:
+            parent_id = int(kw['parent'])
             q = q.filter(lambda c: c.parent and c.parent.id == parent_id)
-        if 'ancestor' in data:
-            ancestor_id = int(data['ancestor'])
+        if 'ancestor' in kw:
+            ancestor_id = int(kw['ancestor'])
             def has_ancestor(c):
                 p = c.parent
                 while p:
@@ -158,8 +158,8 @@ class GetHandler(MyBaseHandler):
         # Handle numeric fields
         numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
         for field in numeric_fields:
-            if field in data:
-                value = data[field]
+            if field in kw:
+                value = kw[field]
                 if isinstance(value, str): # Parse operator
                     value = value.replace(' ', '')
                     if value.startswith('>='):
@@ -181,9 +181,9 @@ class GetHandler(MyBaseHandler):
                         q = q.filter(lambda c: getattr(c, field) == float(value))
                 else: # Exact match
                     q = q.filter(lambda c: getattr(c, field) == value)
-        if 'order' in data: # check for ordering info
+        if 'order' in kw: # check for ordering info
             # order value will be a field name, optionally prefixed by - for descending
-            order_field = data['order']
+            order_field = kw['order']
             if order_field.startswith('-'):
                 q = q.order_by(lambda c: desc(getattr(c, order_field[1:])))
             else:
@@ -191,8 +191,8 @@ class GetHandler(MyBaseHandler):
         else: # sort by id descending
             q = q.order_by(lambda c: desc(c.id))
         # if there was a limit parameter, set it
-        if 'limit' in data:
-            q = q.limit(int(data['limit']))
+        if 'limit' in kw:
+            q = q.limit(int(kw['limit']))
         return q
 
 
