@@ -277,6 +277,10 @@ const STYLES = `
   color: #666;
 }
 
+.queue-icon {
+  color: #666;
+}
+
 /* Tumblr-specific styles */
 .source-tumblr.otype-post {
 }
