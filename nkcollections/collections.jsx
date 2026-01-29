@@ -1141,6 +1141,51 @@ const InfoBar = () => {
 }
 
 
+const DebouncedInput = ({ 
+  value, 
+  onChange, 
+  onDebouncedChange, 
+  delay = 2000, 
+  placeholder = "", 
+  className = "",
+  title = ""
+}) => {
+  const [localValue, setLocalValue] = React.useState(value);
+  const timeoutRef = React.useRef(null);
+
+  // Update local value when prop changes
+  React.useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  const handleChange = (e) => {
+    const newValue = e.target.value;
+    setLocalValue(newValue);
+    onChange(newValue); // Immediate update for UI
+    
+    // Clear existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    // Set new timeout for debounced action
+    timeoutRef.current = setTimeout(() => {
+      onDebouncedChange(newValue);
+    }, delay);
+  };
+
+  return (
+    <input
+      type="text"
+      className={className}
+      placeholder={placeholder}
+      value={localValue}
+      onChange={handleChange}
+      title={title}
+    />
+  );
+};
+
 const Controls = () => {
   const ctx = React.useContext(AppContext);
   // add a "return" key handler for the source input
@@ -1201,21 +1246,23 @@ const Controls = () => {
           <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
         )}
         <button className="queued--btn" onClick={() => ctx.actions.doSource('{"rels.queue":true}')} title="Show queued">Show queued</button>
-        <input
-          type="text"
-          className="filter-input"
-          placeholder="Filter..."
+        <DebouncedInput
           value={ctx.filters.filterStr}
-          onChange={(e) => ctx.filters.updateFilterStr(e.target.value)}
+          onChange={ctx.filters.setFilterStr}
+          onDebouncedChange={ctx.filters.doFilter}
+          placeholder="Filter..."
+          className="filter-input"
           title="Filter items by text"
+          delay={DEBOUNCE_MS}
         />
-        <input
-          type="text"
-          className="search-input"
-          placeholder="Search..."
+        <DebouncedInput
           value={ctx.filters.searchStr}
-          onChange={(e) => ctx.filters.updateSearchStr(e.target.value)}
+          onChange={ctx.filters.setSearchStr}
+          onDebouncedChange={ctx.filters.doSearch}
+          placeholder="Search..."
+          className="search-input"
           title="Search items by text (not yet implemented)"
+          delay={DEBOUNCE_MS}
         />
       </div>
       <div className="control otype-filters">
@@ -1363,45 +1410,19 @@ const AppProvider = ({ children }) => {
     };
   }, [autoLikesMode, doLikeClassifier, setMessage]);
 
-  // state and functions for debounced fields
-  const filterStrRef = React.useRef(filterStr);
-  const searchStrRef = React.useRef(searchStr);
-  const searchTimeoutRef = React.useRef(null);
-  const filterTimeoutRef = React.useRef(null);
-  React.useEffect(() => {
-    filterStrRef.current = filterStr;
-  }, [filterStr]);
-  React.useEffect(() => {
-    searchStrRef.current = searchStr;
-  }, [searchStr]);
-
-  // Generic debounced function factory
-  const createDebouncedUpdater = React.useCallback((setter, timeoutRef, onTrigger, delay = DEBOUNCE_MS) => {
-    return (value) => {
-      setter(value);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => onTrigger(value), delay);
-    };
-  }, []);
-
   const doSearch = React.useCallback((value) => {
-    console.log('searching for', value, filterStrRef.current, searchStrRef.current);
+    console.log('searching for', value);
     //TODO implement
   }, []);
 
   const doFilter = React.useCallback((value) => {
-    console.log('filtering for', value, filterStrRef.current, searchStrRef.current);
+    console.log('filtering for', value);
     //TODO implement
     api.filter(value, curIds).then((resp) => {
       console.log('got filter resp', resp);
       updateScores(resp.scores, {reset: false});
     });
   }, [curIds, updateScores]);
-
-  const updateSearchStr = createDebouncedUpdater(setSearchStr, searchTimeoutRef, doSearch);
-  const updateFilterStr = createDebouncedUpdater(setFilterStr, filterTimeoutRef, doFilter);
 
   // Mode changes
   React.useEffect(() => {
@@ -1706,11 +1727,13 @@ const AppProvider = ({ children }) => {
       setCurOtypes,
       setCurIds,
       filterStr,
-      updateFilterStr,
+      setFilterStr,
       searchStr,
-      updateSearchStr,
+      setSearchStr,
       sourceStr,
-      setSourceStr
+      setSourceStr,
+      doFilter,
+      doSearch
     },
     actions: {
       setLiked,
