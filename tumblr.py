@@ -40,6 +40,17 @@ J = lambda obj: json.dumps(obj, indent=2)
 
 DEFAULT_CONFIG_PATH = '.tumblr_config.json'
 
+def obj_get(path: str, obj: dict, default: Any=None) -> Any:
+    """Gets a nested object value from a dict given a dot-separated path."""
+    parts = path.split('.')
+    cur = obj
+    for part in parts:
+        if part in cur:
+            cur = cur[part]
+        else:
+            return default
+    return cur
+
 class Tumblr(Source):
     NAME = 'tumblr'
     MIN_DELAY = 0.3 # between requests
@@ -138,7 +149,7 @@ class Tumblr(Source):
         with open(self.config_path, 'w') as f:
             json.dump(self.config, f, indent=2)
 
-    def make_web_req(self, endpoint: str, **kw) -> dict:
+    def make_web_req(self, endpoint: str, referer:str='', **kw) -> dict:
         """Make a request to the Tumblr web interface"""
         url = endpoint if 'tumblr.com' in endpoint else f'https://www.tumblr.com/{endpoint}'
         #print(f'Hitting url: {url}')
@@ -146,7 +157,12 @@ class Tumblr(Source):
             "Authorization": f'Bearer {self.api_token}',
             **self.COMMON_HEADERS
         }
+        if referer:
+            headers['Referer'] = referer
         resp = make_request(url, cookies=self.cookies, headers=headers, min_delay=self.MIN_DELAY, **kw)
+        req = resp.request
+        logger.debug(f'Made a {req.method.upper()} to {req.url} with status {resp.status_code}')
+        logger.debug(f'Req Headers: {J(dict(req.headers))}\n{req._cookies}')
         if resp.cookies:
             logger.info(f'  Resp cookies: {resp.cookies}')
             # update the 'sid' cookie in our config
@@ -162,14 +178,17 @@ class Tumblr(Source):
             pass
         with open(resp_path, 'w') as f:
             f.write(resp.text)
-        doc = pq(resp.text)
-        # find the script tag with the initial state
-        state = doc('script#___INITIAL_STATE___').text()
         try:
-            obj = json.loads(state)
-        except Exception as e:
-            logger.warning(f'Failed to parse initial state JSON: {e}: {resp.text[:100]}')
-            raise ValueError(f'Failed to parse initial state JSON: {e}')
+            obj = resp.json()
+        except Exception:
+            doc = pq(resp.text)
+            # find the script tag with the initial state
+            state = doc('script#___INITIAL_STATE___').text()
+            try:
+                obj = json.loads(state)
+            except Exception as e:
+                logger.warning(f'Failed to parse initial state JSON: {e}: {resp.text[:100]}')
+                raise ValueError(f'Failed to parse initial state JSON: {e}')
         if 'csrfToken' in obj:
             self.csrf = obj["csrfToken"]
         return obj
@@ -227,8 +246,6 @@ class Tumblr(Source):
         post_data['media_blocks'] = media_blocks
         return post_data
 
-
-
     def like_post(self, post_id: str, reblog_key: str) -> dict:
         """Like a post by ID and reblog key"""
         data = dict(
@@ -250,8 +267,8 @@ class Tumblr(Source):
     def get_dashboard(self) -> list[dict]:
         """Returns our "dashboard". Useful for updating the csrf"""
         obj = self.make_web_req('')
-        print(J(obj)[:500])
-        return obj['PeeprRoute']['initialDashboard']['posts']
+        logger.debug(J(obj)[:500])
+        return obj['Dashboard']
 
     def get_blog_content(self, blog_name: str, n_posts: int=20) -> list[dict]:
         """Get blog content from the web interface.
@@ -525,6 +542,44 @@ class Tumblr(Source):
         updater.commit()
         logger.info(f'Updated embeddings for {n} tumblr posts')
 
+    def get_post_notes(self, blog_name: str, post_id: int, n_notes: int=40, mode: str='reblogs_only') -> list[dict]:
+        """Returns notes related to a post.
+
+        Reblogs look like this:
+        {
+          "type": "reblog",
+          "timestamp": 1769703415,
+          "blogName": "...", # the blog that reblogged
+          "blogUuid": "t:...",
+          "blogUrl": "https://....tumblr.com/",
+          "followed": true, # whether we follow the reblogger
+          "avatarUrl": { # reblogger's avatar
+            "64": "https://64.media.tumblr.com/....pnj",
+            "128": "https://64.media.tumblr.com/....pnj"
+          },
+          "blogTitle": "...", # reblogger's blog title
+          "postId": "{post_id}", # post id on the reblogger's blog, i.e. tumblr.com/{blogName}/{postId}
+          "reblogParentBlogName": "..." # only reference to who this was reblogged from
+        }
+        """
+        dash = self.get_dashboard()
+        before_timestamp = 0
+        ret = []
+        referer = f'https://www.tumblr.com/{blog_name}/{post_id}'
+        while len(ret) < n_notes:
+            endpoint = f'api/v2/blog/{blog_name}/notes?id={post_id}&mode={mode}&sort=desc'
+            if before_timestamp:
+                endpoint += f'&before_timestamp={before_timestamp}'
+            #print(endpoint)
+            obj = self.make_web_req(endpoint, method='get', referer=referer)
+            notes = obj['response'].pop('notes', [])
+            #print(J(obj)[:1500])
+            if not notes:
+                break
+            ret.extend(notes)
+            before_timestamp = obj_get('response.links.next.queryParams.beforeTimestamp', obj, 0)
+            logger.debug(f'got {len(notes)} notes, total {len(ret)}, next before_timestamp: {before_timestamp}')
+        return ret
 
 def process_posts(posts):
     for i, p in enumerate(posts):
@@ -553,6 +608,7 @@ def process_posts(posts):
             print('Liking this post...')
             like_post(post_id=p['id'], reblog_key=p['reblogKey'])
 
+
 def simple_test(config_path: str, **kw):
     tumblr = Tumblr(config_path)
     name = tumblr.config['blogs'][0]
@@ -578,8 +634,13 @@ def update_blogs(config_path: str, **kw):
     tumblr = Tumblr(config_path)
     tumblr.update_blogs()
 
+def test_post(config_path: str, **kw):
+    tumblr = Tumblr()
+    notes = tumblr.get_post_notes('zegalba', 701480526115192832)
+    print(f'Got {len(notes)} notes: {J(notes)[:3000]}')
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([simple_test, update_blogs],
+    cli_runner([simple_test, update_blogs, test_post],
                config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))
