@@ -345,7 +345,7 @@ class GetHandler(MyBaseHandler):
 
     def post(self):
         data = json.loads(self.request.body)
-        print(f'GetHandler got data={data}')
+        logger.info(f'GetHandler got data={data}')
         # Build query conditions
         with db_session:
             q = self.build_query(data)
@@ -360,10 +360,10 @@ class SourceHandler(MyBaseHandler):
         """Set a source url to parse."""
         data = json.loads(self.request.body)
         url = data.pop('url', '')
-        print(f'SourceHandler got url={url}, {data}')
+        logger.info(f'SourceHandler got url={url}, {data}')
         # find a source that can parse this url
         parsed = Source.handle_url(url, **data)
-        print(f'parsed to {parsed}')
+        logger.info(f'parsed to {parsed}')
         if 0:
             parsed_params = '&'.join([f'{k}={v}' for k, v in parsed.items()])
             self.redirect(f"/get/0-100000?{parsed_params}")
@@ -383,7 +383,7 @@ class ActionHandler(MyBaseHandler):
         """Input data should include 'action' and 'ids' (of the target items)."""
         data = json.loads(self.request.body)
         action = data.pop('action', '')
-        print(f'ActionHandler got action={action}, {data}')
+        logger.info(f'ActionHandler got action={action}, {data}')
         assert action in 'like unlike queue unqueue'.split()
         with db_session:
             ids = [int(i) for i in data.pop('ids')]
@@ -397,6 +397,24 @@ class ActionHandler(MyBaseHandler):
             updated_rows=updated_rows,
         ))
 
+class FilterHandler(MyBaseHandler):
+    def post(self):
+        data = json.loads(self.request.body)
+        q, cur_ids = data.pop('q'), data.pop('cur_ids')
+        if not q.strip():
+            self.write(dict(msg='No query provided', q=q, scores={}))
+            return
+        logger.info(f'FilterHandler got q {q}, {len(cur_ids)} cur ids, {data}')
+        # embed the query
+        q_emb = embed_text.single(q, model='clip')
+        self.embs.reload_keys()
+        all_keys = [f'{id}:image' for id in cur_ids]
+        results = self.embs.simple_nearest_neighbors(pos=[q_emb], n_neighbors=1000, metric='cosine', all_keys=all_keys)
+        # returns list of (score, key)
+        scores = {key.split(':')[0]: score**(1.0/5) for score, key in results}
+        msg = f'FilterHandler got {len(scores)} scores for query "{q}"'
+        self.write(dict(msg=msg, q=q, scores=scores))
+
 class ClassifyHandler(MyBaseHandler):
     def _handle_pos(self, pos):
         """Simple positive only classifier"""
@@ -405,10 +423,10 @@ class ClassifyHandler(MyBaseHandler):
             otype = Item[pos[0]].otype
         pos = [f'{p}:{otype}' for p in pos]
         all_keys = [k for k in self.embs if k.endswith(f':{otype}')]
-        print(f'ClassifyHandler got pos={pos}, {otype}, {len(all_keys)} total keys: {all_keys[:5]}...')
+        logger.info(f'ClassifyHandler got pos={pos}, {otype}, {len(all_keys)} total keys: {all_keys[:5]}...')
          # get similar from embs
         ret = self.embs.similar(pos, all_keys=all_keys, method='nn')
-        print(f'Got ret {ret}')
+        logger.info(f'Got ret {ret}')
         scores, curIds = zip(*ret)
         curIds = [p.split(':')[0] for p in curIds]
         self.write(dict(pos=pos,
@@ -453,7 +471,7 @@ class ClusterHandler(MyBaseHandler):
     """
     def post(self):
         data = json.loads(self.request.body)
-        print(f'In clustering, got manual clusters {data["clusters"]}')
+        logger.info(f'In clustering, got manual clusters {data["clusters"]}')
         # randomly assign cluster nums and scores for now, making sure that the manually labeled
         # clusters are preserved
         self.embs.reload_keys()
@@ -489,7 +507,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
     #FIXME add images dir and make it accessible via a static path
     kw = {}
     def post_parse_fn(args):
-        print(f'Got args {args}')
+        logger.info(f'Got args {args}')
 
     def on_start(app, args):
         app.sql_db = init_sql_db(args.sqlite_path)
@@ -518,6 +536,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         (r'/action', ActionHandler),
         (r'/dwell', DwellHandler),
         (r'/classify', ClassifyHandler),
+        (r'/filter', FilterHandler),
         (r'/cluster', ClusterHandler),
     ]
 

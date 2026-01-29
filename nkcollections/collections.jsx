@@ -106,6 +106,7 @@ const api = {
   action: (ids, action) => fetchEndpoint('/action', { ids, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
+  filter: (q, cur_ids) => fetchEndpoint('/filter', { q, cur_ids }),
 };
 
 const STYLES = `
@@ -210,7 +211,7 @@ const STYLES = `
   margin-right: 10px;
 }
 
-.filter-input, .search-input {
+.search-input {
   display: none;
 }
 
@@ -1206,7 +1207,7 @@ const Controls = () => {
           placeholder="Filter..."
           value={ctx.filters.filterStr}
           onChange={(e) => ctx.filters.updateFilterStr(e.target.value)}
-          title="Filter items by text (not yet implemented)"
+          title="Filter items by text"
         />
         <input
           type="text"
@@ -1393,7 +1394,11 @@ const AppProvider = ({ children }) => {
   const doFilter = React.useCallback((value) => {
     console.log('filtering for', value, filterStrRef.current, searchStrRef.current);
     //TODO implement
-  }, []);
+    api.filter(value, curIds).then((resp) => {
+      console.log('got filter resp', resp);
+      updateScores(resp.scores, {reset: false});
+    });
+  }, [curIds, updateScores]);
 
   const updateSearchStr = createDebouncedUpdater(setSearchStr, searchTimeoutRef, doSearch);
   const updateFilterStr = createDebouncedUpdater(setFilterStr, filterTimeoutRef, doFilter);
@@ -1491,6 +1496,57 @@ const AppProvider = ({ children }) => {
       });
     }
   }, [updateRowById, setCurIds, setAllOtypes, mode, setClusters]);
+
+  // Function to manually refresh Masonry layout
+  const refreshMasonry = React.useCallback(() => {
+    const grid = document.querySelector('.objects');
+    if (grid && window.Masonry && grid.masonry) {
+      setTimeout(() => {
+        grid.masonry.reloadItems();
+        grid.masonry.layout();
+      }, 100);
+    }
+  }, []);
+
+  // update scores for items on page
+  const updateScores = React.useCallback((newScores, options) => {
+    if (!newScores) return;
+    const {reset=true} = options || {};
+    let curScores = {};
+    if (reset) {
+      curScores = newScores;
+    } else {
+      Object.entries(newScores).forEach(([id, score]) => {
+        const s = scores[id] || 1.0;
+        curScores[id] = s * score;
+      });
+    }
+    setScores(curScores);
+    //console.log('current ids before', curIds, curScores);
+    const nScoredIds = curIds.filter(id => (curScores[id] !== undefined)).length;
+    // sort cur ids by score desc, if we have it for that item
+    const sortedIds = curIds.sort((a, b) => {
+      const scoreA = curScores[a] || -1000;
+      const scoreB = curScores[b] || -1000;
+      return scoreB - scoreA;
+    });
+    //console.log('cur ids vs new', curIds, sortedIds);
+    setCurIds(sortedIds);
+    refreshMasonry()
+  }, [scores, setScores, setCurIds, curIds, refreshMasonry]);
+
+  // Call like-based classifier
+  const doLikeClassifier = React.useCallback(() => {
+    const options = {
+      type: 'likes',
+      otypes:['image'],
+      cur_ids: curIds,
+    };
+    api.classifyLikes(options).then((resp) => {
+      console.log('got like classifier response', resp);
+      updateScores(resp.scores);
+    });
+  }, [curIds]);
 
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
@@ -1621,45 +1677,6 @@ const AppProvider = ({ children }) => {
     }
   }, [sourceStr, updateData, setMessage]);
 
-
-  // Function to manually refresh Masonry layout
-  const refreshMasonry = React.useCallback(() => {
-    const grid = document.querySelector('.objects');
-    if (grid && window.Masonry && grid.masonry) {
-      setTimeout(() => {
-        grid.masonry.reloadItems();
-        grid.masonry.layout();
-      }, 100);
-    }
-  }, []);
-
-  // Call like-based classifier
-  const doLikeClassifier = React.useCallback(() => {
-    const options = {
-      type: 'likes',
-      otypes:['image'],
-      cur_ids: curIds,
-    };
-    api.classifyLikes(options).then((resp) => {
-      console.log('got like classifier response', resp);
-      if (resp.scores) {
-        setScores(resp.scores);
-        console.log('current ids before', curIds, resp.scores);
-        const nScoredIds = curIds.filter(id => (resp.scores[id] !== undefined)).length;
-        // sort cur ids by score desc, if we have it for that item
-        const sortedIds = curIds.sort((a, b) => {
-          const scoreA = resp.scores[a] || -1000;
-          const scoreB = resp.scores[b] || -1000;
-          return scoreB - scoreA;
-        });
-        console.log('cur ids vs new', curIds, sortedIds);
-        setCurIds(sortedIds);
-        refreshMasonry()
-      }
-    }).catch(() => {
-      // Error already handled by fetchEndpoint
-    });
-  }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
 
   // Done with all state and effects, now preparing for rendering
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));

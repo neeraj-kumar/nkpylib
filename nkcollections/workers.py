@@ -41,7 +41,6 @@ from pony.orm import (
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
-from nkpylib.ml.client import call_vlm, embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
