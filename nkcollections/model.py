@@ -157,40 +157,36 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             ancestor = ancestor.parent
         # deal with rels
         R = self['rels'] = {}
-        # Group rels by type for special processing
+        
+        # First pass: Remove unqueue rels and preceding queue rels (process in reverse chronological order)
+        filtered_rels = []
+        rels_sorted = sorted(rels, key=lambda r: r.ts, reverse=True)
+        
+        for rel in rels_sorted:
+            if rel.rtype == 'unqueue':
+                # Remove this unqueue and all queue rels that came before it (later in our reverse list)
+                filtered_rels = [r for r in filtered_rels if r.rtype != 'queue']
+                # Don't add the unqueue rel itself
+                continue
+            else:
+                filtered_rels.append(rel)
+        
+        # Group remaining rels by type for processing
         rels_by_type = {}
-        for rel in rels:
+        for rel in filtered_rels:
             if rel.rtype not in rels_by_type:
                 rels_by_type[rel.rtype] = []
             rels_by_type[rel.rtype].append(rel)
-        # Process each rel type
+        
+        # Second pass: Process each rel type generically
         for rtype, rel_list in rels_by_type.items():
-            if rtype in ('queue', 'unqueue'):
-                # Special processing for queue/unqueue rels
-                # Sort by timestamp
-                rel_list.sort(key=lambda r: r.ts)
-                # Find the latest unqueue (if any)
-                latest_unqueue_idx = -1
-                for i, rel in enumerate(rel_list):
-                    if rel.rtype == 'unqueue':
-                        latest_unqueue_idx = i
-                
-                # Remove all rels up to and including the latest unqueue
-                if latest_unqueue_idx >= 0:
-                    rel_list = rel_list[latest_unqueue_idx + 1:]
-                
-                # Filter to only queue rels (unqueue rels should be gone now)
-                queue_rels = [rel for rel in rel_list if rel.rtype == 'queue']
-                
-                if queue_rels:
-                    # Keep only the latest queue rel, but add count
-                    latest_queue = max(queue_rels, key=lambda r: r.ts)
-                    md = dict(ts=latest_queue.ts, count=len(queue_rels))
-                    if latest_queue.md:
-                        md.update(latest_queue.md)
-                    R['queue'] = md
-                # If no queue rels remain, don't add anything to R
-                
+            if rtype == 'queue':
+                # For queue rels, keep only the latest one but add count
+                latest_queue = max(rel_list, key=lambda r: r.ts)
+                md = dict(ts=latest_queue.ts, count=len(rel_list))
+                if latest_queue.md:
+                    md.update(latest_queue.md)
+                R['queue'] = md
             elif rtype == 'like':
                 # For likes, keep only the latest one (highest ts)
                 latest_like = max(rel_list, key=lambda r: r.ts)
