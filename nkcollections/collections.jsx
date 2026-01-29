@@ -1188,6 +1188,11 @@ const DebouncedInput = ({
 
 const Controls = () => {
   const ctx = React.useContext(AppContext);
+  
+  // Local state for search and filter strings
+  const [filterStr, setFilterStr] = React.useState('');
+  const [searchStr, setSearchStr] = React.useState('');
+  
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -1247,18 +1252,18 @@ const Controls = () => {
         )}
         <button className="queued--btn" onClick={() => ctx.actions.doSource('{"rels.queue":true}')} title="Show queued">Show queued</button>
         <DebouncedInput
-          value={ctx.filters.filterStr}
-          onChange={ctx.filters.setFilterStr}
-          onDebouncedChange={ctx.filters.doFilter}
+          value={filterStr}
+          onChange={setFilterStr}
+          onDebouncedChange={ctx.actions.doFilter}
           placeholder="Filter..."
           className="filter-input"
           title="Filter items by text"
           delay={DEBOUNCE_MS}
         />
         <DebouncedInput
-          value={ctx.filters.searchStr}
-          onChange={ctx.filters.setSearchStr}
-          onDebouncedChange={ctx.filters.doSearch}
+          value={searchStr}
+          onChange={setSearchStr}
+          onDebouncedChange={ctx.actions.doSearch}
           placeholder="Search..."
           className="search-input"
           title="Search items by text (not yet implemented)"
@@ -1321,8 +1326,6 @@ const AppProvider = ({ children }) => {
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
-  const [filterStr, setFilterStr] = React.useState('');
-  const [searchStr, setSearchStr] = React.useState('');
   const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "embed_ts":">1", "otype": "image"}');
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
@@ -1726,14 +1729,8 @@ const AppProvider = ({ children }) => {
       curOtypes,
       setCurOtypes,
       setCurIds,
-      filterStr,
-      setFilterStr,
-      searchStr,
-      setSearchStr,
       sourceStr,
-      setSourceStr,
-      doFilter,
-      doSearch
+      setSourceStr
     },
     actions: {
       setLiked,
@@ -1741,7 +1738,9 @@ const AppProvider = ({ children }) => {
       doSource,
       doLikeClassifier,
       setQueued,
-      setCluster
+      setCluster,
+      doFilter,
+      doSearch
     },
     classification: {
       autoLikesMode,
