@@ -1510,6 +1510,7 @@ const AppProvider = ({ children }) => {
   const doAction = React.useCallback(async (ids, action) => {
     console.log('performing action', action, 'on ids', ids);
     const resp = await api.action(ids, action);
+    console.log('action resp', resp);
     if (resp.updated_rows) {
       updateRowById(resp.updated_rows);
     }
@@ -1522,7 +1523,7 @@ const AppProvider = ({ children }) => {
   }, [doAction]);
 
   const setQueued = React.useCallback((id, queueState) => {
-    const action = queueState ? 'queue' : 'dequeue';
+    const action = queueState ? 'queue' : 'unqueue';
     doAction([id], action);
   }, [doAction]);
 

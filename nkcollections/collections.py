@@ -32,6 +32,7 @@
 #TODO propagate likes to source sites if possible
 #TODO import tumblr likes
 #TODO import google history
+#TODO similar users
 
 from __future__ import annotations
 
@@ -255,6 +256,7 @@ class ActionHandler(MyBaseHandler):
         data = json.loads(self.request.body)
         action = data.pop('action', '')
         print(f'ActionHandler got action={action}, {data}')
+        assert action in 'like unlike queue unqueue'.split()
         with db_session:
             ids = [int(i) for i in data.pop('ids')]
             items = Item.select(lambda c: c.id in ids)[:]

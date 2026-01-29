@@ -178,7 +178,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             md = R[rel.rtype] = dict(ts=rel.ts)
             if rel.md:
                 md.update(rel.md)
-            if rtype == 'queue': # for queue rels, keep only the latest one but add count
+            if rel.rtype == 'queue': # for queue rels, keep only the latest one but add count
                 md['count'] = 1
                 if prev:
                     md['count'] += prev['count']
