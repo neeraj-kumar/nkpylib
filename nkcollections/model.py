@@ -163,29 +163,12 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
     def rels_for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
         """Deal with rels for web representation."""
-        # 1st pass: Remove unqueue rels and preceding queue rels
-        filtered_rels = []
-        for rel in rels:
-            if rel.rtype == 'unqueue':
-                # Remove all queue rels that came before it
-                filtered_rels = [r2 for r2 in filtered_rels if r2.rtype != 'queue']
-                # Don't add the unqueue rel itself
-                continue
-            else:
-                filtered_rels.append(rel)
-        rels = filtered_rels
-        # 2nd pass: actual processing
         R = r['rels'] = {}
         for rel in rels:
             # all rels should map from rtype to a dict, including at least the ts
-            prev = R.get(rel.rtype, None)
             md = R[rel.rtype] = dict(ts=rel.ts)
             if rel.md:
                 md.update(rel.md)
-            if rel.rtype == 'queue': # for queue rels, keep only the latest one but add count
-                md['count'] = 1
-                if prev:
-                    md['count'] += prev['count']
 
     @classmethod
     async def update_text_embeddings(cls, q: Query, limit: int, lmdb_path: str, **kw) -> int:
@@ -490,17 +473,32 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         me = Item.get_me()
         ts = int(time.time())
         for item in items:
-            get_kw = dict(src=me, rtype=action, tgt=item)
             match action:
                 case 'like': # create or update the rel (only 1 like possible)
+                    get_kw = dict(src=me, rtype='like', tgt=item)
                     r = Rel.upsert(get_kw=get_kw, ts=ts)
                 case 'unlike': # delete the rel if it exists
-                    get_kw['rtype'] = 'like'
+                    get_kw = dict(src=me, rtype='like', tgt=item)
                     r = Rel.get(**get_kw)
                     if r:
                         r.delete()
-                case 'queue' | 'unqueue': # add a 'queue' or 'unqueue' rel (even if it was there before)
-                    r = Rel.upsert(get_kw=get_kw, ts=ts)
+                case 'queue': # increment count or create new queue rel
+                    get_kw = dict(src=me, rtype='queue', tgt=item)
+                    r = Rel.get(**get_kw)
+                    if r:
+                        # Increment count
+                        if not r.md:
+                            r.md = {}
+                        r.md['count'] = r.md.get('count', 1) + 1
+                        r.ts = ts  # Update timestamp
+                    else:
+                        # Create new queue rel with count=1
+                        r = Rel.upsert(get_kw=get_kw, ts=ts, md=dict(count=1))
+                case 'unqueue': # remove the queue rel entirely
+                    get_kw = dict(src=me, rtype='queue', tgt=item)
+                    r = Rel.get(**get_kw)
+                    if r:
+                        r.delete()
                 case _:
                     logger.info(f'Unknown me action {action}')
 
