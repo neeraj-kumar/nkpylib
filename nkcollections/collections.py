@@ -117,14 +117,72 @@ class MyBaseHandler(BaseHandler):
 
 class GetHandler(MyBaseHandler):
     @db_session
+    def _apply_rel_filters(self, q: Query, rel_filters: dict[str, Any]) -> Query:
+        """Apply rel-based filters to the query.
+        
+        Handles filters like:
+        - rels.like=True/False (existence)
+        - rels.queue.count>=2 (rel metadata)
+        - rels.queue.ts>1234567890 (rel timestamp)
+        """
+        me = Item.get_me()
+        
+        for filter_key, filter_value in rel_filters.items():
+            # Parse the filter key: rels.{rtype}[.{property}]
+            parts = filter_key.split('.')
+            if len(parts) < 2:
+                continue
+                
+            rtype = parts[1]  # e.g., 'like', 'queue'
+            
+            if len(parts) == 2:
+                # Simple existence check: rels.like=True/False
+                if isinstance(filter_value, bool):
+                    if filter_value:
+                        # Must have this rel type
+                        q = q.filter(lambda c: Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype).exists())
+                    else:
+                        # Must NOT have this rel type
+                        q = q.filter(lambda c: not Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype).exists())
+            
+            elif len(parts) == 3:
+                # Property-based filter: rels.queue.count>=2
+                property_name = parts[2]  # e.g., 'count', 'ts'
+                
+                # For complex rel filters, we need to post-process since we can't easily
+                # filter on processed rel data in the SQL query. We'll get candidate items
+                # that have the rel type, then filter in Python.
+                if property_name in ['count', 'ts']:
+                    # First filter to items that have this rel type
+                    q = q.filter(lambda c: Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype).exists())
+                    
+                    # Store the property filter for post-processing
+                    if not hasattr(q, '_rel_property_filters'):
+                        q._rel_property_filters = []
+                    q._rel_property_filters.append((rtype, property_name, filter_value))
+        
+        return q
+
+    @db_session
     def build_query(self, kw: dict[str, Any]) -> Query:
         """Builds up the database query to get items matching the given kw filters.
 
         For string fields, the value can be a string (exact match) or a list of strings (any of).
         For numeric fields, the value can be a number (exact match) or a string with an operator
         such as '>=123', '<=456', '>789', '<1011', '!=1213'.
+        
+        For rel-based filters, use rels.{rtype}.{property} format:
+        - rels.like=True/False (existence)
+        - rels.queue.count>=2 (rel metadata)
+        - rels.queue.ts>1234567890 (rel timestamp)
         """
         q = Item.select()
+        
+        # Handle rel-based filters first (they may need to modify the query significantly)
+        rel_filters = {k: v for k, v in kw.items() if k.startswith('rels.')}
+        if rel_filters:
+            q = self._apply_rel_filters(q, rel_filters)
+        
         # Handle ids parameter (num spec)
         if 'ids' in kw:
             ids = parse_num_spec(kw['ids'])
@@ -200,6 +258,11 @@ class GetHandler(MyBaseHandler):
     def query_to_web(cls, q: Query, assemble_posts:bool=True) -> dict[int, dict]:
         """Converts a query to a dict of items suitable for web output."""
         items = q[:]
+        
+        # Apply post-processing rel property filters if any
+        if hasattr(q, '_rel_property_filters'):
+            items = cls._apply_rel_property_filters(items, q._rel_property_filters)
+        
         if assemble_posts:
             ret = {r['id']: r for r in Source.assemble_posts(items)}
         else:
@@ -214,6 +277,82 @@ class GetHandler(MyBaseHandler):
         for item in items:
             item.for_web(ret[item.id], rels=rels_by_tgt[item.id])
         return ret
+
+    @classmethod
+    @db_session
+    def _apply_rel_property_filters(cls, items: list[Item], property_filters: list[tuple[str, str, Any]]) -> list[Item]:
+        """Apply rel property filters that couldn't be done in SQL."""
+        if not property_filters:
+            return items
+            
+        me = Item.get_me()
+        filtered_items = []
+        
+        for item in items:
+            # Get all rels for this item
+            rels = list(Rel.select(lambda r: r.src == me and r.tgt == item))
+            
+            # Create a temporary dict to hold processed rels (like rels_for_web does)
+            temp_dict = {'rels': {}}
+            item.rels_for_web(temp_dict, rels)
+            processed_rels = temp_dict['rels']
+            
+            # Check if item passes all property filters
+            passes_all_filters = True
+            for rtype, property_name, filter_value in property_filters:
+                if rtype not in processed_rels:
+                    passes_all_filters = False
+                    break
+                    
+                rel_data = processed_rels[rtype]
+                actual_value = rel_data.get(property_name)
+                
+                if actual_value is None:
+                    passes_all_filters = False
+                    break
+                
+                # Apply the filter based on the operator in filter_value
+                if isinstance(filter_value, str) and any(op in filter_value for op in ['>=', '<=', '!=', '>', '<']):
+                    filter_value = filter_value.replace(' ', '')
+                    if filter_value.startswith('>='):
+                        threshold = float(filter_value[2:])
+                        if not (actual_value >= threshold):
+                            passes_all_filters = False
+                            break
+                    elif filter_value.startswith('<='):
+                        threshold = float(filter_value[2:])
+                        if not (actual_value <= threshold):
+                            passes_all_filters = False
+                            break
+                    elif filter_value.startswith('!='):
+                        threshold = float(filter_value[2:])
+                        if not (actual_value != threshold):
+                            passes_all_filters = False
+                            break
+                    elif filter_value.startswith('>'):
+                        threshold = float(filter_value[1:])
+                        if not (actual_value > threshold):
+                            passes_all_filters = False
+                            break
+                    elif filter_value.startswith('<'):
+                        threshold = float(filter_value[1:])
+                        if not (actual_value < threshold):
+                            passes_all_filters = False
+                            break
+                    else:
+                        if actual_value != float(filter_value):
+                            passes_all_filters = False
+                            break
+                else:
+                    # Direct comparison
+                    if actual_value != filter_value:
+                        passes_all_filters = False
+                        break
+            
+            if passes_all_filters:
+                filtered_items.append(item)
+        
+        return filtered_items
 
     def post(self):
         data = json.loads(self.request.body)
