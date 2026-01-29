@@ -205,27 +205,14 @@ class GetHandler(MyBaseHandler):
             else:
                 rows = {r.id: recursive_to_dict(r) for r in q}
             cur_ids = list(rows.keys())
-            # Add local_path for images with positive embed_ts and parent_url for items with parents
-            for item in items:
-                if item.otype == 'image' and item.embed_ts and item.embed_ts > 0:
-                    # Find the appropriate source to get images_dir
-                    source = Source._registry.get(item.source)
-                    if source:
-                        local_path = Item.image_path(item, images_dir=source.images_dir)
-                        rows[item.id]['local_path'] = os.path.relpath(local_path)
-                # Add parent_url if item has a parent
-                if item.parent:
-                    rows[item.id]['parent_url'] = item.parent.url
-            # fetch all rels with source = me and tgt in ids and update the appropriate rows
+            # fetch all rels with source = me and tgt in ids
             me = Item.get_me()
-            rels = Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids)
-            for rel in rels:
-                tgt_id = rel.tgt.id
-                if 'rels' not in rows[tgt_id]:
-                    rows[tgt_id]['rels'] = {}
-                rel_md = rel.md or {}
-                rel_md['ts'] = rel.ts
-                rows[tgt_id]['rels'][rel.rtype] = rel_md
+            rels_by_tgt = defaultdict(list)
+            for r in Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids):
+                rels_by_tgt[r.tgt.id].append(r)
+            # prepare items for web
+            for item in items:
+                item.for_web(rows[item.id], rels=rels_by_tgt[item.id])
             # count the number of un-embedded images
             n_unembedded = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None) .count()
         msg = f'Got {len(rows)} items, {n_unembedded} un-embedded images'

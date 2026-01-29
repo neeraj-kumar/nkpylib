@@ -123,7 +123,10 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         """Cleans up this item for web use.
 
         The web representation of this object is in `r`, which this modifies. Also pass in the list
-        of `rels` where this item is the target (for now we assume the src was 'me').
+        of `rels` where this item is the target (for now we assume the src was 'me'). We assume rels
+        is in sorted order.
+
+        Item changes:
         - for images with embeddings, adds 'local_path' relative to cwd
         - if this item has a parent, adds 'parent_url' with the parent's url
         - if this item has an ancestor that's a 'user', adds 'user_name' and 'user_url'
@@ -156,51 +159,29 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 break
             ancestor = ancestor.parent
         # deal with rels
-        R = self['rels'] = {}
-        
-        # First pass: Remove unqueue rels and preceding queue rels (process in reverse chronological order)
+        # 1st pass: Remove unqueue rels and preceding queue rels
         filtered_rels = []
-        rels_sorted = sorted(rels, key=lambda r: r.ts, reverse=True)
-        
-        for rel in rels_sorted:
+        for rel in rels:
             if rel.rtype == 'unqueue':
-                # Remove this unqueue and all queue rels that came before it (later in our reverse list)
-                filtered_rels = [r for r in filtered_rels if r.rtype != 'queue']
+                # Remove all queue rels that came before it
+                filtered_rels = [r2 for r2 in filtered_rels if r2.rtype != 'queue']
                 # Don't add the unqueue rel itself
                 continue
             else:
                 filtered_rels.append(rel)
-        
-        # Group remaining rels by type for processing
-        rels_by_type = {}
-        for rel in filtered_rels:
-            if rel.rtype not in rels_by_type:
-                rels_by_type[rel.rtype] = []
-            rels_by_type[rel.rtype].append(rel)
-        
-        # Second pass: Process each rel type generically
-        for rtype, rel_list in rels_by_type.items():
-            if rtype == 'queue':
-                # For queue rels, keep only the latest one but add count
-                latest_queue = max(rel_list, key=lambda r: r.ts)
-                md = dict(ts=latest_queue.ts, count=len(rel_list))
-                if latest_queue.md:
-                    md.update(latest_queue.md)
-                R['queue'] = md
-            elif rtype == 'like':
-                # For likes, keep only the latest one (highest ts)
-                latest_like = max(rel_list, key=lambda r: r.ts)
-                md = dict(ts=latest_like.ts)
-                if latest_like.md:
-                    md.update(latest_like.md)
-                R[rtype] = md
-            else:
-                # For other rel types, just use the latest one
-                latest_rel = max(rel_list, key=lambda r: r.ts)
-                md = dict(ts=latest_rel.ts)
-                if latest_rel.md:
-                    md.update(latest_rel.md)
-                R[rtype] = md
+        rels = filtered_rels
+        # 2nd pass: actual processing
+        R = r['rels'] = {}
+        for rel in rels:
+            # all rels should map from rtype to a dict, including at least the ts
+            prev = R.get(rel.rtype, None)
+            md = R[rel.rtype] = dict(ts=rel.ts)
+            if rel.md:
+                md.update(rel.md)
+            if rtype == 'queue': # for queue rels, keep only the latest one but add count
+                md['count'] = 1
+                if prev:
+                    md['count'] += prev['count']
 
     @classmethod
     async def update_text_embeddings(cls, q: Query, limit: int, lmdb_path: str, **kw) -> int:
