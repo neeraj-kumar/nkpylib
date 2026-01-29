@@ -152,6 +152,11 @@ const STYLES = `
   border-width: 3px;
 }
 
+.object.queued {
+  border-color: orange;
+  border-width: 3px;
+}
+
 .object.single-col {
   max-width: 400px!important;
 }
@@ -613,9 +618,6 @@ const STYLES = `
   .object {
     max-width: calc(100vw - 20px)!important;
   }
-  .source-from-clipboard-btn {
-    display: none!important;
-  }
 }
 `;
 
@@ -854,6 +856,9 @@ const Obj = (props) => {
   if (liked) {
     classes.push('liked');
   }
+  if (queued) {
+    classes.push('queued');
+  }
   let cClasses = ['icon-button', 'classify-icon', (ctx.data.pos.includes(id) ? 'selected' : '')];
   if (ctx.ui.mode !== 'multicol') {
     classes.push('single-col');
@@ -938,16 +943,6 @@ const Obj = (props) => {
         >
           🔗
         </div>
-        <div
-          className={`icon-button queue-icon ${queued ? 'queued' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            ctx.actions.setQueued(id, !queued);
-          }}
-          title={queued ? "Remove from queue" : "Add to queue"}
-        >
-          {queued ? '➖' : '➕'}
-        </div>
         {props.parent_url && (
           <div
             className="icon-button parent-icon"
@@ -960,6 +955,16 @@ const Obj = (props) => {
             ⬆️
           </div>
         )}
+        <div
+          className={`icon-button queue-icon ${queued ? 'queued' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            ctx.actions.setQueued(id, !queued);
+          }}
+          title={queued ? "Remove from queue" : "Add to queue"}
+        >
+          {queued ? '➖' : '➕'}
+        </div>
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
         {/* Cluster buttons - only show in cluster mode */}
@@ -1191,7 +1196,10 @@ const Controls = () => {
           size="52"
         />
         <button onClick={() => ctx.actions.doSource()} title="Load data from the source string">Set Source</button>
-        <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
+        {!IS_MOBILE && (
+          <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
+        )}
+        <button className="queued--btn" onClick={() => ctx.actions.doSource('{"rels.queue":true}')} title="Show queued">Show queued</button>
         <input
           type="text"
           className="filter-input"
@@ -1267,8 +1275,8 @@ const AppProvider = ({ children }) => {
   const [pos, setPos] = React.useState([]);
   const [filterStr, setFilterStr] = React.useState('');
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "image", "order": "-ts"}');
-  //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "assemble_posts": true, "embed_ts":">1", "otype": "post", "order": "-ts"}');
+  const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "embed_ts":">1", "otype": "image"}');
+  //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
   const [simpleMode, setSimpleMode] = React.useState(false);
@@ -1483,17 +1491,6 @@ const AppProvider = ({ children }) => {
       });
     }
   }, [updateRowById, setCurIds, setAllOtypes, mode, setClusters]);
-
-  // setup initial data fetch
-  React.useEffect(() => {
-    console.log('doing initial data fetch??')
-    api.get({
-      otype: curOtypes,
-      added_ts: '>=' + (Math.floor(Date.now() / 1000) - (24*3600)), // added within the last day
-      assemble_posts: true,
-      limit: 500,
-    }).then(updateData)
-  }, [updateData]);
 
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
