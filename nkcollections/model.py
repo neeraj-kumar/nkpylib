@@ -154,11 +154,15 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         ancestor = self.parent
         while ancestor:
             if ancestor.otype == 'user':
+                r['user_id'] = ancestor.id
                 r['user_name'] = ancestor.name
                 r['user_url'] = ancestor.url
                 break
             ancestor = ancestor.parent
-        # deal with rels
+        self.rels_for_web(r, rels)
+
+    def rels_for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
+        """Deal with rels for web representation."""
         # 1st pass: Remove unqueue rels and preceding queue rels
         filtered_rels = []
         for rel in rels:
