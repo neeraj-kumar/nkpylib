@@ -543,10 +543,10 @@ const STYLES = `
 /* Auto likes timer progress styling */
 .like-classifier button.timer-active {
   background: linear-gradient(
-    to right, 
-    #007bff 0%, 
-    #007bff var(--progress, 0%), 
-    #f8f9fa var(--progress, 0%), 
+    to right,
+    #007bff 0%,
+    #007bff var(--progress, 0%),
+    #f8f9fa var(--progress, 0%),
     #f8f9fa 100%
   );
   transition: background 0.1s ease;
@@ -673,7 +673,7 @@ const TwitterPostContent = (props) => {
 
 const TumblrContentBlock = ({block}) => {
   const {type, data} = block;
-  
+
   switch (type) {
     case 'text':
       return <div className="tumblr-text-block">{data.md.text}</div>;
@@ -904,8 +904,8 @@ const Obj = (props) => {
   }
 
   return (
-    <div 
-      id={`id-${id}`} 
+    <div
+      id={`id-${id}`}
       className={classes.join(' ')}
       style={ctx.ui.mode === 'cluster' && ctx.data.clusters[id] ? {
         '--cluster-score': normalizedScore
@@ -1000,8 +1000,8 @@ const Obj = (props) => {
           )}
           {otype === 'image' && (
             <div className="content">
-              <img 
-                src={props.local_path ? `/data/${props.local_path}` : url} 
+              <img
+                src={props.local_path ? `/data/${props.local_path}` : url}
                 alt={`Image ${id}`}
                 onDoubleClick={(e) => {
                   e.preventDefault();
@@ -1124,7 +1124,7 @@ const InfoBar = () => {
         </label>
       </div>
       <div className="control like-classifier">
-        <button 
+        <button
           className={ctx.classification.autoLikesMode ? 'timer-active' : ''}
           style={ctx.classification.autoLikesMode ? {'--progress': `${(ctx.classification.autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
           onClick={ctx.actions.doLikeClassifier}
@@ -1141,12 +1141,12 @@ const InfoBar = () => {
 }
 
 
-const DebouncedInput = ({ 
-  value, 
-  onChange, 
-  onDebouncedChange, 
-  delay = 2000, 
-  placeholder = "", 
+const DebouncedInput = ({
+  value,
+  onChange,
+  onDebouncedChange,
+  delay = DEBOUNCE_MS,
+  placeholder = "",
   className = "",
   title = ""
 }) => {
@@ -1162,12 +1162,12 @@ const DebouncedInput = ({
     const newValue = e.target.value;
     setLocalValue(newValue);
     onChange(newValue); // Immediate update for UI
-    
+
     // Clear existing timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-    
+
     // Set new timeout for debounced action
     timeoutRef.current = setTimeout(() => {
       onDebouncedChange(newValue);
