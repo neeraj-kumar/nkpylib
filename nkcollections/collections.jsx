@@ -824,6 +824,7 @@ const Obj = (props) => {
         e.stopPropagation();
         setCurrentMediaIndex(currentMediaIndex === 0 ? media_blocks.length - 1 : currentMediaIndex - 1);
       }}
+      title="Previous media"
     >
       ←
     </div>),
@@ -836,6 +837,7 @@ const Obj = (props) => {
         e.stopPropagation();
         setCurrentMediaIndex(currentMediaIndex === media_blocks.length - 1 ? 0 : currentMediaIndex + 1);
       }}
+      title="Next media"
     >
       →
     </div>),
@@ -908,6 +910,7 @@ const Obj = (props) => {
             e.stopPropagation();
             ctx.actions.setLiked(id, !liked);
           }}
+          title={liked ? "Unlike this item" : "Like this item"}
         >
           ♥
         </div>
@@ -917,6 +920,7 @@ const Obj = (props) => {
             e.stopPropagation();
             ctx.actions.togglePos(id);
           }}
+          title={ctx.data.pos.includes(id) ? "Remove from positive examples" : "Add to positive examples"}
         >
           🎯
         </div>
@@ -926,6 +930,7 @@ const Obj = (props) => {
             e.stopPropagation();
             window.open(url, '_blank');
           }}
+          title="Open original URL in new tab"
         >
           🔗
         </div>
@@ -935,6 +940,7 @@ const Obj = (props) => {
             e.stopPropagation();
             ctx.actions.doQueue(id);
           }}
+          title="Add to queue"
         >
           📋
         </div>
@@ -963,6 +969,7 @@ const Obj = (props) => {
                   e.stopPropagation();
                   ctx.actions.setCluster(id, currentCluster === clusterNum ? null : clusterNum);
                 }}
+                title={currentCluster === clusterNum ? `Remove from cluster ${clusterNum}` : `Assign to cluster ${clusterNum}`}
               >
                 {clusterNum}
               </div>
@@ -1065,12 +1072,12 @@ const InfoBar = () => {
           , {nPos} ({pPos.toFixed(1)}%) pos
         </div>)}
       <div className="control refresh-masonry">
-        <button onClick={ctx.ui.refreshMasonry}>Refresh layout</button>
+        <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">Refresh layout</button>
       </div>
       <span>Cols:</span>
-      <div className="control decr-cols"><button onClick={() => incrCols(-1)}>-</button></div>
+      <div className="control decr-cols"><button onClick={() => incrCols(-1)} title="Decrease number of columns">-</button></div>
       <span>{ctx.ui.nCols}</span>
-      <div className="control incr-cols"><button onClick={() => incrCols(1)}>+</button></div>
+      <div className="control incr-cols"><button onClick={() => incrCols(1)} title="Increase number of columns">+</button></div>
       <div className="control randomize-btn">
         <button onClick={() => {
           // shuffle curIds
@@ -1082,24 +1089,26 @@ const InfoBar = () => {
             }
             return shuffled;
           });
-        }}>Randomize</button>
+        }} title="Randomize the order of items">Randomize</button>
       </div>
       <div className="control simple-mode">
-        <label>
+        <label title="Hide detailed information like scores and IDs">
           <input
             type="checkbox"
             checked={ctx.ui.simpleMode}
             onChange={(e) => ctx.ui.setSimpleMode(e.target.checked)}
+            title="Hide detailed information like scores and IDs"
           />
           Simple
         </label>
       </div>
       <div className="control auto-likes-mode">
-        <label>
+        <label title="Automatically run the likes classifier every 15 seconds">
           <input
             type="checkbox"
             checked={ctx.classification.autoLikesMode}
             onChange={(e) => {ctx.classification.setAutoLikesMode(e.target.checked); ctx.actions.doLikeClassifier()}}
+            title="Automatically run the likes classifier every 15 seconds"
           />
           Auto Likes
         </label>
@@ -1109,13 +1118,14 @@ const InfoBar = () => {
           className={ctx.classification.autoLikesMode ? 'timer-active' : ''}
           style={ctx.classification.autoLikesMode ? {'--progress': `${(ctx.classification.autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
           onClick={ctx.actions.doLikeClassifier}
+          title="Run the likes-based classifier to score items"
         >
           Like Classifier
         </button>
       </div>
-      <div className="control go-to-top"><button onClick={() => goTo('top')}>Top</button></div>
-      <div className="control go-to-mid"><button onClick={() => goTo('mid')}>Mid</button></div>
-      <div className="control go-to-bot"><button onClick={() => goTo('bot')}>Bot</button></div>
+      <div className="control go-to-top"><button onClick={() => goTo('top')} title="Scroll to top of page">Top</button></div>
+      <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
+      <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
     </div>
   );
 }
@@ -1176,14 +1186,15 @@ const Controls = () => {
           onKeyDown={keyHandler}
           size="52"
         />
-        <button onClick={() => ctx.actions.doSource()}>Set Source</button>
-        <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard}>Source from Clipboard</button>
+        <button onClick={() => ctx.actions.doSource()} title="Load data from the source string">Set Source</button>
+        <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
         <input
           type="text"
           className="filter-input"
           placeholder="Filter..."
           value={ctx.filters.filterStr}
           onChange={(e) => ctx.filters.updateFilterStr(e.target.value)}
+          title="Filter items by text (not yet implemented)"
         />
         <input
           type="text"
@@ -1191,6 +1202,7 @@ const Controls = () => {
           placeholder="Search..."
           value={ctx.filters.searchStr}
           onChange={(e) => ctx.filters.updateSearchStr(e.target.value)}
+          title="Search items by text (not yet implemented)"
         />
       </div>
       <div className="control otype-filters">
@@ -1208,6 +1220,7 @@ const Controls = () => {
                 }
               });
             }}
+            title={`Show/hide ${otype} items`}
           />
           {otype}
         </label>
@@ -1219,6 +1232,7 @@ const Controls = () => {
           value={ctx.ui.mode}
           onChange={(e) => ctx.ui.setMode(e.target.value)}
           style={{marginLeft: '5px'}}
+          title="Switch between multi-column and cluster view modes"
         >
           {MODES.map((modeOption) => (
             <option key={modeOption} value={modeOption}>
