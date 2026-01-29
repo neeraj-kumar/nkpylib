@@ -103,10 +103,9 @@ const api = {
   get: (params) => fetchEndpoint('/get', params),
   classify: (pos) => fetchEndpoint('/classify', { pos }),
   classifyLikes: (options) => fetchEndpoint('/classify', options),
-  action: (id, action) => fetchEndpoint('/action', { id, action }),
+  action: (ids, action) => fetchEndpoint('/action', { ids, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
-  queue: (id) => fetchEndpoint('/queue', { id }),
 };
 
 const STYLES = `
@@ -611,7 +610,7 @@ const STYLES = `
     max-width: calc(100vw - 20px)!important;
   }
   .source-from-clipboard-btn {
-    display: none;
+    display: none!important;
   }
 }
 `;
@@ -769,7 +768,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
             onDoubleClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              const liked = Boolean(data.rels && data.rels.like);
+              const liked = Boolean(data.rels.like);
               setLiked(data.id, !liked);
             }}
             style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
@@ -942,7 +941,7 @@ const Obj = (props) => {
           }}
           title="Add to queue"
         >
-          📋
+          ➕
         </div>
         {props.parent_url && (
           <div
@@ -1056,7 +1055,7 @@ const InfoBar = () => {
   const curIds = ctx.data.curIds || [];
   const n = curIds.length;
   const nWithScores = curIds.filter(id => ctx.data.scores[id] !== undefined).length;
-  const nWithLikes = curIds.map(id => ctx.data.rowById[id].rels && ctx.data.rowById[id].rels.like).filter(like => like).length;
+  const nWithLikes = curIds.map(id => ctx.data.rowById[id].rels.like).filter(like => like).length;
   let sscores = [];
   if (n > 0) {
     sscores = curIds.map(id => ctx.data.scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
@@ -1477,14 +1476,11 @@ const AppProvider = ({ children }) => {
     }
     // use immer to update rowById
     setRowById((rowById) => immer.produce(rowById, (draft) => {
-      Object.entries(data.rows).forEach(([id, row]) => {
-        if (!row.rels) {
-          row.rels = {};
-        }
+      Object.entries(data.row_by_id).forEach(([id, row]) => {
         draft[id] = row;
       });
     }));
-    setCurIds(Object.keys(data.rows));
+    setCurIds(Object.keys(data.row_by_id));
     setAllOtypes(data.allOtypes);
 
     // In clustering mode, initialize clusters for new objects
@@ -1510,9 +1506,7 @@ const AppProvider = ({ children }) => {
       added_ts: '>=' + (Math.floor(Date.now() / 1000) - (24*3600)), // added within the last day
       assemble_posts: true,
       limit: 500,
-    }).then(updateData).catch(() => {
-      // Error already handled by fetchEndpoint
-    });
+    }).then(updateData)
   }, [updateData]);
 
   // toggles the given id in the pos array
@@ -1529,9 +1523,7 @@ const AppProvider = ({ children }) => {
   const setLiked = React.useCallback((id, likedState) => {
     console.log('setting liked for', id, likedState);
     // send to server
-    api.action(id, likedState ? 'like' : 'unlike').catch(() => {
-      // Error already handled by fetchEndpoint
-    });
+    api.action([id], likedState ? 'like' : 'unlike');
     // update rowById
     setRowById((rowById) => {
       return immer.produce(rowById, (draft) => {
@@ -1683,12 +1675,6 @@ const AppProvider = ({ children }) => {
     });
   }, [setCurIds, setScores, curIds, refreshMasonry, setMessage]);
 
-  const doQueue = React.useCallback((id) => {
-    console.log('queueing item', id);
-    // For now, just print to console as requested
-    // In the future, this could call api.queue(id)
-  }, []);
-
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
 
   // Organize all state and functions into nested groups
@@ -1727,7 +1713,6 @@ const AppProvider = ({ children }) => {
       togglePos,
       doSource,
       doLikeClassifier,
-      doQueue,
       setCluster
     },
     classification: {
