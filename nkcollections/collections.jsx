@@ -280,6 +280,10 @@ const STYLES = `
   color: #666;
 }
 
+.queue-icon.queued {
+  color: #007bff;
+}
+
 /* Tumblr-specific styles */
 .source-tumblr.otype-post {
 }
@@ -806,6 +810,7 @@ const Obj = (props) => {
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
+  const queued = Boolean(rels.queue);
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
 
@@ -934,14 +939,14 @@ const Obj = (props) => {
           🔗
         </div>
         <div
-          className="icon-button queue-icon"
+          className={`icon-button queue-icon ${queued ? 'queued' : ''}`}
           onClick={(e) => {
             e.stopPropagation();
-            ctx.actions.setQueued(id);
+            ctx.actions.setQueued(id, !queued);
           }}
-          title="Add to queue"
+          title={queued ? "Remove from queue" : "Add to queue"}
         >
-          ➕
+          {queued ? '➖' : '➕'}
         </div>
         {props.parent_url && (
           <div
