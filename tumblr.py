@@ -27,7 +27,7 @@ from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
-from nkpylib.ml.nkcollections import Item, init_sql_db, Source
+from nkpylib.nkcollections.collections import Item, init_sql_db, Source
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
