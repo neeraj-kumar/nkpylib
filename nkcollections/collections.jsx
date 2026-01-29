@@ -1041,6 +1041,9 @@ const Obj = (props) => {
 // A floating info/control panel
 const InfoBar = () => {
   const ctx = React.useContext(AppContext);
+  
+  // Local state for filter string
+  const [filterStr, setFilterStr] = React.useState('');
   const incrCols = (incr) => {
     ctx.ui.setNCols((nCols) => {
       let newCols = nCols + incr;
@@ -1133,6 +1136,17 @@ const InfoBar = () => {
           Like Classifier
         </button>
       </div>
+      <div className="control filter-control">
+        <DebouncedInput
+          value={filterStr}
+          onChange={setFilterStr}
+          onDebouncedChange={ctx.actions.doFilter}
+          placeholder="Filter..."
+          className="filter-input"
+          title="Filter items by text"
+          delay={DEBOUNCE_MS}
+        />
+      </div>
       <div className="control go-to-top"><button onClick={() => goTo('top')} title="Scroll to top of page">Top</button></div>
       <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
       <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
@@ -1189,8 +1203,7 @@ const DebouncedInput = ({
 const Controls = () => {
   const ctx = React.useContext(AppContext);
   
-  // Local state for search and filter strings
-  const [filterStr, setFilterStr] = React.useState('');
+  // Local state for search string
   const [searchStr, setSearchStr] = React.useState('');
   
   // add a "return" key handler for the source input
@@ -1251,15 +1264,6 @@ const Controls = () => {
           <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
         )}
         <button className="queued--btn" onClick={() => ctx.actions.doSource('{"rels.queue":true}')} title="Show queued">Show queued</button>
-        <DebouncedInput
-          value={filterStr}
-          onChange={setFilterStr}
-          onDebouncedChange={ctx.actions.doFilter}
-          placeholder="Filter..."
-          className="filter-input"
-          title="Filter items by text"
-          delay={DEBOUNCE_MS}
-        />
         <DebouncedInput
           value={searchStr}
           onChange={setSearchStr}
