@@ -802,7 +802,8 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
 };
 
 const Obj = (props) => {
-  let {id, otype, url, md, togglePos, score, rels, setLiked, source, pos, media_blocks, mode, clusters, setCluster, doQueue} = props;
+  const ctx = React.useContext(AppContext);
+  let {id, otype, url, md, score, rels, source, media_blocks} = props;
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
@@ -847,39 +848,39 @@ const Obj = (props) => {
   if (liked) {
     classes.push('liked');
   }
-  let cClasses = ['icon-button', 'classify-icon', (pos.includes(id) ? 'selected' : '')];
-  if (mode !== 'multicol') {
+  let cClasses = ['icon-button', 'classify-icon', (ctx.data.pos.includes(id) ? 'selected' : '')];
+  if (ctx.ui.mode !== 'multicol') {
     classes.push('single-col');
   } else {
     cClasses.push('hidden');
   }
-  if (isHovered && mode === 'cluster') {
+  if (isHovered && ctx.ui.mode === 'cluster') {
     classes.push('keyboard-active');
   }
 
   // Current cluster for this object
-  const currentCluster = (clusters[id]) ? clusters[id].num : null;
-  const clusterScore = (clusters[id]) ? clusters[id].score : 0;
-  const isManualCluster = (clusters[id]) ? clusters[id].score === 1000 : false;
-  const isUnlabeled = (clusters[id]) ? clusters[id].score === 0 : false;
+  const currentCluster = (ctx.data.clusters[id]) ? ctx.data.clusters[id].num : null;
+  const clusterScore = (ctx.data.clusters[id]) ? ctx.data.clusters[id].score : 0;
+  const isManualCluster = (ctx.data.clusters[id]) ? ctx.data.clusters[id].score === 1000 : false;
+  const isUnlabeled = (ctx.data.clusters[id]) ? ctx.data.clusters[id].score === 0 : false;
   const normalizedScore = isManualCluster ? 1.0 : clusterScore; // Manual clusters get full opacity
   // Keyboard event handler for cluster assignment
   React.useEffect(() => {
-    if (!isHovered || mode !== 'cluster') return;
+    if (!isHovered || ctx.ui.mode !== 'cluster') return;
     const handleKeyPress = (e) => {
       const num = parseInt(e.key);
       if (num >= 0 && num <= 5) {
         e.preventDefault();
-        setCluster(id, currentCluster === num ? null : num);
+        ctx.actions.setCluster(id, currentCluster === num ? null : num);
       }
     };
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [isHovered, mode, id, currentCluster, setCluster]);
+  }, [isHovered, ctx.ui.mode, id, currentCluster, ctx.actions.setCluster]);
 
   // Add cluster assignment visual indicators
-  if (mode === 'cluster') {
-    if (clusters[id]) {
+  if (ctx.ui.mode === 'cluster') {
+    if (ctx.data.clusters[id]) {
       if (isManualCluster) {
         classes.push('manual-cluster');
       } else if (isUnlabeled) {
@@ -894,7 +895,7 @@ const Obj = (props) => {
     <div 
       id={`id-${id}`} 
       className={classes.join(' ')}
-      style={mode === 'cluster' && clusters[id] ? {
+      style={ctx.ui.mode === 'cluster' && ctx.data.clusters[id] ? {
         '--cluster-score': normalizedScore
       } : {}}
       onMouseEnter={() => setIsHovered(true)}
@@ -905,7 +906,7 @@ const Obj = (props) => {
           className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
           onClick={(e) => {
             e.stopPropagation();
-            setLiked(id, !liked);
+            ctx.actions.setLiked(id, !liked);
           }}
         >
           ♥
@@ -914,7 +915,7 @@ const Obj = (props) => {
           className={cClasses.join(' ')}
           onClick={(e) => {
             e.stopPropagation();
-            togglePos(id);
+            ctx.actions.togglePos(id);
           }}
         >
           🎯
@@ -932,7 +933,7 @@ const Obj = (props) => {
           className="icon-button queue-icon"
           onClick={(e) => {
             e.stopPropagation();
-            doQueue(id);
+            ctx.actions.doQueue(id);
           }}
         >
           📋
@@ -952,7 +953,7 @@ const Obj = (props) => {
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
         {/* Cluster buttons - only show in cluster mode */}
-        {mode === 'cluster' && (
+        {ctx.ui.mode === 'cluster' && (
           <div className="cluster-buttons" title={`Cluster ${currentCluster}: ${clusterScore}`}>
             {[1, 2, 3, 4, 5].map(clusterNum => (
               <div
@@ -960,7 +961,7 @@ const Obj = (props) => {
                 className={`cluster-button ${currentCluster === clusterNum ? 'active' : ''} ${isManualCluster && currentCluster === clusterNum ? 'manual' : 'automatic'}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setCluster(id, currentCluster === clusterNum ? null : clusterNum);
+                  ctx.actions.setCluster(id, currentCluster === clusterNum ? null : clusterNum);
                 }}
               >
                 {clusterNum}
@@ -988,7 +989,7 @@ const Obj = (props) => {
                 onDoubleClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setLiked(id, !liked);
+                  ctx.actions.setLiked(id, !liked);
                 }}
               />
             </div>
@@ -1012,7 +1013,7 @@ const Obj = (props) => {
           mediaBlocks={media_blocks}
           currentIndex={currentMediaIndex}
           setCurrentIndex={setCurrentMediaIndex}
-          setLiked={setLiked}
+          setLiked={ctx.actions.setLiked}
         />
       )}
 
@@ -1021,9 +1022,10 @@ const Obj = (props) => {
 }
 
 // A floating info/control panel
-const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, autoLikesElapsed, doLikeClassifier, scores, rowById}) => {
+const InfoBar = () => {
+  const ctx = React.useContext(AppContext);
   const incrCols = (incr) => {
-    setNCols((nCols) => {
+    ctx.ui.setNCols((nCols) => {
       let newCols = nCols + incr;
       if (newCols < 1) newCols = 1;
       if (newCols > 20) newCols = 20;
@@ -1044,13 +1046,13 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
     }
   }
   // sort scores and compute stats
-  curIds = curIds || [];
+  const curIds = ctx.data.curIds || [];
   const n = curIds.length;
-  const nWithScores = curIds.filter(id => scores[id] !== undefined).length;
-  const nWithLikes = curIds.map(id => rowById[id].rels && rowById[id].rels.like).filter(like => like).length;
+  const nWithScores = curIds.filter(id => ctx.data.scores[id] !== undefined).length;
+  const nWithLikes = curIds.map(id => ctx.data.rowById[id].rels && ctx.data.rowById[id].rels.like).filter(like => like).length;
   let sscores = [];
   if (n > 0) {
-    sscores = curIds.map(id => scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
+    sscores = curIds.map(id => ctx.data.scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
   }
   //console.log('got sscores', sscores, curIds, scores);
   const nPos = (sscores.length > 0) ? sscores.filter((s) => s > 0).length : 0;
@@ -1063,16 +1065,16 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
           , {nPos} ({pPos.toFixed(1)}%) pos
         </div>)}
       <div className="control refresh-masonry">
-        <button onClick={refreshMasonry}>Refresh layout</button>
+        <button onClick={ctx.ui.refreshMasonry}>Refresh layout</button>
       </div>
       <span>Cols:</span>
       <div className="control decr-cols"><button onClick={() => incrCols(-1)}>-</button></div>
-      <span>{nCols}</span>
+      <span>{ctx.ui.nCols}</span>
       <div className="control incr-cols"><button onClick={() => incrCols(1)}>+</button></div>
       <div className="control randomize-btn">
         <button onClick={() => {
           // shuffle curIds
-          setCurIds((curIds) => {
+          ctx.filters.setCurIds((curIds) => {
             const shuffled = [...curIds];
             for (let i = shuffled.length - 1; i > 0; i--) {
               const j = Math.floor(Math.random() * (i + 1));
@@ -1086,8 +1088,8 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
         <label>
           <input
             type="checkbox"
-            checked={simpleMode}
-            onChange={(e) => setSimpleMode(e.target.checked)}
+            checked={ctx.ui.simpleMode}
+            onChange={(e) => ctx.ui.setSimpleMode(e.target.checked)}
           />
           Simple
         </label>
@@ -1096,17 +1098,17 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
         <label>
           <input
             type="checkbox"
-            checked={autoLikesMode}
-            onChange={(e) => {setAutoLikesMode(e.target.checked); doLikesClassifier()}}
+            checked={ctx.classification.autoLikesMode}
+            onChange={(e) => {ctx.classification.setAutoLikesMode(e.target.checked); ctx.actions.doLikeClassifier()}}
           />
           Auto Likes
         </label>
       </div>
       <div className="control like-classifier">
         <button 
-          className={autoLikesMode ? 'timer-active' : ''}
-          style={autoLikesMode ? {'--progress': `${(autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
-          onClick={doLikeClassifier}
+          className={ctx.classification.autoLikesMode ? 'timer-active' : ''}
+          style={ctx.classification.autoLikesMode ? {'--progress': `${(ctx.classification.autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
+          onClick={ctx.actions.doLikeClassifier}
         >
           Like Classifier
         </button>
@@ -1119,14 +1121,12 @@ const InfoBar = ({curIds, refreshMasonry, nCols, setNCols, setCurIds, simpleMode
 }
 
 
-const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores,
-  sourceStr, setSourceStr, doSource,
-  filterStr, updateFilterStr, searchStr, updateSearchStr,
-  mode, setMode, message, ...props}) => {
+const Controls = () => {
+  const ctx = React.useContext(AppContext);
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
-      doSource();
+      ctx.actions.doSource();
     }
   }
 
@@ -1143,21 +1143,21 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
         return;
       }
       const str = clipboardText.trim();
-      setSourceStr(str);
-      doSource(str);
+      ctx.filters.setSourceStr(str);
+      ctx.actions.doSource(str);
     } catch (error) {
       console.error('Failed to read clipboard:', error);
     }
-  }, [setSourceStr, doSource]);
+  }, [ctx.filters.setSourceStr, ctx.actions.doSource]);
 
   // Determine the CSS class for the source input based on its contents
   const getSourceInputClass = () => {
-    if (!sourceStr) return 'src-input';
-    if (sourceStr.startsWith('http')) {
+    if (!ctx.filters.sourceStr) return 'src-input';
+    if (ctx.filters.sourceStr.startsWith('http')) {
       return 'src-input url-input';
     }
     try {
-      JSON.parse(sourceStr);
+      JSON.parse(ctx.filters.sourceStr);
       return 'src-input valid-json';
     } catch (error) {
       return 'src-input invalid-json';
@@ -1171,36 +1171,36 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
           type="text"
           className={getSourceInputClass()}
           placeholder="Source..."
-          value={sourceStr}
-          onChange={(e) => setSourceStr(e.target.value)}
+          value={ctx.filters.sourceStr}
+          onChange={(e) => ctx.filters.setSourceStr(e.target.value)}
           onKeyDown={keyHandler}
           size="52"
         />
-        <button onClick={() => doSource()}>Set Source</button>
+        <button onClick={() => ctx.actions.doSource()}>Set Source</button>
         <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard}>Source from Clipboard</button>
         <input
           type="text"
           className="filter-input"
           placeholder="Filter..."
-          value={filterStr}
-          onChange={(e) => updateFilterStr(e.target.value)}
+          value={ctx.filters.filterStr}
+          onChange={(e) => ctx.filters.updateFilterStr(e.target.value)}
         />
         <input
           type="text"
           className="search-input"
           placeholder="Search..."
-          value={searchStr}
-          onChange={(e) => updateSearchStr(e.target.value)}
+          value={ctx.filters.searchStr}
+          onChange={(e) => ctx.filters.updateSearchStr(e.target.value)}
         />
       </div>
       <div className="control otype-filters">
-      {allOtypes.map((otype) => (
+      {ctx.data.allOtypes.map((otype) => (
         <label key={otype} style={{marginRight: '10px'}}>
           <input
             type="checkbox"
-            checked={curOtypes.includes(otype)}
+            checked={ctx.filters.curOtypes.includes(otype)}
             onChange={(e) => {
-              setCurOtypes((curOtypes) => {
+              ctx.filters.setCurOtypes((curOtypes) => {
                 if (e.target.checked) {
                   return [...curOtypes, otype];
                 } else {
@@ -1216,8 +1216,8 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
       <div className="control mode-select">
         <label>Mode:</label>
         <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value)}
+          value={ctx.ui.mode}
+          onChange={(e) => ctx.ui.setMode(e.target.value)}
           style={{marginLeft: '5px'}}
         >
           {MODES.map((modeOption) => (
@@ -1229,14 +1229,17 @@ const Controls = ({allOtypes, curOtypes, setCurOtypes, setCurIds, curIds, scores
       </div>
       <div className="control flex-break"></div>
       <div className="control message-display">
-        <span>{message}</span>
+        <span>{ctx.ui.message}</span>
       </div>
     </div>
   );
 }
 
 
-const App = () => {
+// Create the App Context
+const AppContext = React.createContext();
+
+const AppProvider = ({ children }) => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
   //const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
@@ -1673,17 +1676,70 @@ const App = () => {
   }, []);
 
   const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
-  const funcs = {allOtypes, curOtypes, togglePos, setCurOtypes, setCurIds,
-    sourceStr, setSourceStr, doSource, filterStr, updateFilterStr, searchStr, updateSearchStr,
-    setLiked, nCols, setNCols, pos, simpleMode, setSimpleMode, autoLikesMode, setAutoLikesMode, autoLikesElapsed, mode, setMode, refreshMasonry,
-    clusters, setCluster, doLikeClassifier, doQueue, message, scores, curIds: ids, rowById};
+
+  // Organize all state and functions into nested groups
+  const contextValue = {
+    data: {
+      rowById,
+      allOtypes,
+      curIds: ids,
+      scores,
+      clusters,
+      pos
+    },
+    ui: {
+      nCols,
+      setNCols,
+      simpleMode,
+      setSimpleMode,
+      mode,
+      setMode,
+      message,
+      refreshMasonry
+    },
+    filters: {
+      curOtypes,
+      setCurOtypes,
+      setCurIds,
+      filterStr,
+      updateFilterStr,
+      searchStr,
+      updateSearchStr,
+      sourceStr,
+      setSourceStr
+    },
+    actions: {
+      setLiked,
+      togglePos,
+      doSource,
+      doLikeClassifier,
+      doQueue,
+      setCluster
+    },
+    classification: {
+      autoLikesMode,
+      setAutoLikesMode,
+      autoLikesElapsed
+    }
+  };
+
   console.log('rowById', rowById, curIds, pos, scores);
+
+  return (
+    <AppContext.Provider value={contextValue}>
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+const App = () => {
+  const ctx = React.useContext(AppContext);
 
   // Group objects by cluster for cluster mode
   const renderClusterColumns = () => {
     const clusterGroups = {1: [], 2: [], 3: [], 4: [], 5: []};
-    ids.forEach(id => {
-      const clusterNum = clusters[id].num || 1;
+    ctx.data.curIds.forEach(id => {
+      const clusterNum = ctx.data.clusters[id].num || 1;
       clusterGroups[clusterNum].push(id);
     });
 
@@ -1695,7 +1751,7 @@ const App = () => {
           >
             <h4>Cluster {clusterNum}</h4>
             {clusterGroups[clusterNum].map(id => (
-              <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />
+              <Obj key={id} score={ctx.data.scores[id]} {...ctx.data.rowById[id]} />
             ))}
           </div>
         ))}
@@ -1708,25 +1764,29 @@ const App = () => {
       <h3>Collections</h3>
       <h4>Labeled</h4>
       <div className="labeled">
-        {pos.map((id) => <Obj key={id} {...funcs} {...rowById[id]} />)}
+        {ctx.data.pos.map((id) => <Obj key={id} {...ctx.data.rowById[id]} />)}
       </div>
-      <Controls {...funcs} />
-      <InfoBar {...funcs} />
-      {mode === 'cluster' ? (
+      <Controls />
+      <InfoBar />
+      {ctx.ui.mode === 'cluster' ? (
         renderClusterColumns()
       ) : (
         <div
           className="objects"
           style={{
-            gridTemplateColumns: `repeat(${nCols}, 1fr)`,
-            '--n-cols': nCols
+            gridTemplateColumns: `repeat(${ctx.ui.nCols}, 1fr)`,
+            '--n-cols': ctx.ui.nCols
           }}
         >
-          {ids.map((id) => <Obj key={id} score={scores[id]} {...funcs} {...rowById[id]} />)}
+          {ctx.data.curIds.map((id) => <Obj key={id} score={ctx.data.scores[id]} {...ctx.data.rowById[id]} />)}
         </div>
       )}
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("main")).render(<App />);
+ReactDOM.createRoot(document.getElementById("main")).render(
+  <AppProvider>
+    <App />
+  </AppProvider>
+);
