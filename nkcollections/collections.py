@@ -9,19 +9,16 @@
 #TODO   explore external api
 #TODO   it seems like the way to go to get 10x speedup is to use mobilenet v3 embeddings -- see chatgpt for code
 #TODO remove bad images
+#TODO diversity on likes classifier?
 #TODO handle reblog keys
-#TODO are svm scores higher if close to many nn?
-#TODO   use NN aggregation for high svm scores
 #TODO put tags in sql
 #TODO   get tag list from descs
 #TODO   aggregate to user
-#TODO link videos to their poster images
 #TODO transfer likes between related items
 #TODO quality scores
 #TODO multiple searches
 #TODO   more like this on objects
 #TODO   clickable tags
-#TODO   custom search text
 #TODO compute dwell times
 #TODO aggregate like scores per user
 #TODO list of recent users - figure out how to display these in ux
@@ -30,6 +27,9 @@
 #TODO import tumblr likes
 #TODO import google history
 #TODO similar users
+#TODO adding custom clip embeddings
+#TODO faster embeddings retrieval/norms for get_keys_embeddings()
+#TODO backups
 
 from __future__ import annotations
 
@@ -401,17 +401,29 @@ class FilterHandler(MyBaseHandler):
     def post(self):
         data = json.loads(self.request.body)
         q, cur_ids = data.pop('q'), data.pop('cur_ids')
+        q = q.strip()
         if not q.strip():
             self.write(dict(msg='No query provided', q=q, scores={}))
             return
         logger.info(f'FilterHandler got q {q}, {len(cur_ids)} cur ids, {data}')
         # embed the query
+        if q.startswith('-') or q.startswith('not '):
+            is_neg = True
+            if q.startswith('-'):
+                q = q[1:].strip()
+            elif q.startswith('not '):
+                q = q[4:].strip()
+        else:
+            is_neg = False
         q_emb = embed_text.single(q, model='clip')
         self.embs.reload_keys()
         all_keys = [f'{id}:image' for id in cur_ids]
         results = self.embs.simple_nearest_neighbors(pos=[q_emb], n_neighbors=1000, metric='cosine', all_keys=all_keys)
         # returns list of (score, key)
         scores = {key.split(':')[0]: score**(1.0/5) for score, key in results}
+        if is_neg:
+            # invert scores
+            scores = {id: 1.0 - score for id, score in scores.items()}
         msg = f'FilterHandler got {len(scores)} scores for query "{q}"'
         self.write(dict(msg=msg, q=q, scores=scores))
 
@@ -442,6 +454,10 @@ class ClassifyHandler(MyBaseHandler):
                             **kw):
         """Gets the latest likes scores"""
         scores = self.likes_worker.get_scores()
+        # filter down to cur_ids if given
+        if cur_ids is not None:
+            cur_ids = [int(id) for id in cur_ids]
+            scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
         #logger.info(f'Got {len(scores)} scores {list(scores.items())[:10]}')
         self.write(dict(
             msg=f'Likes scores for {len(scores)} items',
