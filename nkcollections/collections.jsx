@@ -1772,6 +1772,11 @@ const AppProvider = ({ children }) => {
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback((inputStr) => {
     if (!inputStr) return;
+    // Unfocus the source input
+    const sourceInput = document.querySelector('.src-input');
+    if (sourceInput) {
+      sourceInput.blur();
+    }
     const isUrl = inputStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
       api.sourceUrl(inputStr).then((params) => {
