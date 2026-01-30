@@ -1488,6 +1488,11 @@ const AppProvider = ({ children }) => {
     const styleEl = document.createElement('style');
     styleEl.innerHTML = STYLES;
     document.head.appendChild(styleEl);
+    // add favicon
+    const faviconEl = document.createElement('link');
+    faviconEl.rel = 'icon';
+    faviconEl.href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖼️</text></svg>";
+    document.head.appendChild(faviconEl);
   }, []);
 
   // Set up global reference to setMessage
