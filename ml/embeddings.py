@@ -403,6 +403,51 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         clf.fit(X, y, sample_weight=weights)
         return clf
 
+    def rescore_by_nn(self,
+                     scores: dict[KeyT, float],
+                     pos: list[KeyT],
+                     min_score: float=1.0,
+                     k: int=20,
+                     metric: str='l2') -> dict[KeyT, float]:
+        """Given some existing `scores`, reweight the high ones based on number of NN in `radius`.
+
+        This is typically for SVMs, for which high scores are not discriminative enough (i.e., not
+        based on density of nearby positives), since it's optimizing for pos/neg separation.
+
+        So for all scores higher than `min_score`, we instead compute `k`-nearest neighbors and use
+        the median distance to get a new score.
+        """
+        nn = NearestNeighbors(n_neighbors=k, metric=metric)
+        all_keys = set(pos)
+        n_high = 0
+        for key, s in scores.items():
+            if s >= min_score: # we only care about those above min_score
+                n_high += 1
+                all_keys.add(key)
+        keys, embs = self.get_keys_embeddings(keys=list(all_keys), normed=True, scale_mean=False, scale_std=False)
+        logger.info(f'In rescore, {len(scores)} scores, {n_high} high (>= {min_score}), {len(pos)} pos, {len(all_keys)} all keys -> {embs.shape}')
+        logger.info(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
+        if len(embs) == 0:
+            return scores
+        nn.fit(embs)
+        search_indices = [i for i, key in enumerate(keys) if key in scores and scores[key] >= min_score]
+        logger.info(f'Got {len(search_indices)} search indices for rescoring: {search_indices[:5]}, {[keys[x] for x in search_indices[:5]]}.')
+        to_search = np.vstack([embs[i] for i in search_indices])
+        logger.debug(f'Searching {to_search.shape} embeddings for {k} neighbors')
+        distances, indices = nn.kneighbors(to_search, n_neighbors=min(k, len(to_search)), return_distance=True)
+        logging.debug(f'New dists: {distances}')
+        distances = np.array([np.sum(row) for row in np.exp(-distances)]) / k
+        logging.debug(f'Scaled dists: {distances}')
+        #logging.info(f'New dists: {np.array([len(ind) for ind in indices])}')
+        # add these as increments on min_score to existing high scores
+        ret: dict[KeyT, float] = dict(**scores)
+        for dist, idx in zip(distances, search_indices):
+            key = keys[idx]
+            ret[key] = min_score + float(dist)
+            assert ret[key] <= scores[key]+1.0, f'Rescored {key} too high: {ret[key]} vs {scores[key]}, min={min_score}'
+            #logger.info(f'  Rescored {key} ({min_score}, {dist}): {scores[key]} -> {ret[key]}')
+        return ret
+
     def save_classifier(self, path: str, classifier: BaseEstimator, **kw) -> dict[str, Any]:
         """Save classifier with additional metadata using joblib.
 
