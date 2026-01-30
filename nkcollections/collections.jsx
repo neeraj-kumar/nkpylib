@@ -784,14 +784,34 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
       case 'video':
         const posterUrl = data.md.poster_url && data.local_path ? `/data/${data.local_path}` : data.md.poster_url;
         return (
-          <a href={data.url} target="_blank" rel="noreferrer" className="video-link">
+          <div className="video-link" style={{position: 'relative'}}>
             <img
               src={posterUrl}
               alt={`Video ${data.id} poster`}
               onClick={handleImageClick}
               style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
             />
-          </a>
+            <a 
+              href={data.url} 
+              target="_blank" 
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                top: '5px',
+                right: '5px',
+                background: 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                fontSize: '12px',
+                padding: '2px 4px',
+                borderRadius: '3px',
+                textDecoration: 'none',
+                pointerEvents: 'auto'
+              }}
+            >
+              ▶
+            </a>
+          </div>
         );
       default:
         return null;
@@ -1013,9 +1033,29 @@ const Obj = (props) => {
           )}
           {otype === 'video' && (
             <div className="content">
-              <a href={url} target="_blank" rel="noreferrer" className="video-link">
+              <div className="video-link" style={{position: 'relative'}}>
                 <img src={md.poster_url} alt={`Video ${id} poster`} />
-              </a>
+                <a 
+                  href={url} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: 'absolute',
+                    top: '5px',
+                    right: '5px',
+                    background: 'rgba(0, 0, 0, 0.7)',
+                    color: 'white',
+                    fontSize: '12px',
+                    padding: '2px 4px',
+                    borderRadius: '3px',
+                    textDecoration: 'none',
+                    pointerEvents: 'auto'
+                  }}
+                >
+                  ▶
+                </a>
+              </div>
             </div>
           )}
           {!props.simpleMode && <p className="score">ID: {id}</p>}
