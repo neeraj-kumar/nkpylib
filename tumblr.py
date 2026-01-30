@@ -22,7 +22,7 @@ from urllib.parse import urlencode, urlparse
 import numpy as np
 import requests
 
-from pony.orm import db_session, select
+from pony.orm import db_session, flush, select
 from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
@@ -361,6 +361,7 @@ class Tumblr(Source):
                     otype='user',
                     url=f'https://{blog_name}.tumblr.com/'
                 ),
+                name=blog_name,
                 md=dict(
                     blog_name=blog_name,
                     **kw
@@ -370,7 +371,10 @@ class Tumblr(Source):
         return users_by_name[blog_name]
 
     @db_session
-    def create_collection_from_posts(self, posts: list[dict], next_link=None, **kw) -> list[Entity]:
+    def create_collection_from_posts(self,
+                                     posts: list[dict],
+                                     next_link=None,
+                                     **kw) -> list[Entity]:
         """Creates `Item` rows from tumblr posts.
 
         This creates separate rows (with appropriate types) for each:
@@ -382,6 +386,8 @@ class Tumblr(Source):
         """
         print(f'creating collection with next_link: {next_link}')
         ret = []
+        ts = time.time()
+        ids_to_update = {}
         for post in posts:
             # get the user item
             blog_name = post['blog']['name']
@@ -391,6 +397,10 @@ class Tumblr(Source):
                     description=post['blog'].get('description', ''),
                     uuid=post['blog'].get('uuid', ''),
             )
+            if not u.explored_ts:
+                u.explored_ts = ts
+            # update the seen time to now for this user
+            u.seen_ts = ts
             if next_link:
                 u.md['next_link'] = next_link
             ret.append(u)
@@ -434,19 +444,20 @@ class Tumblr(Source):
                     case 'video':
                         media = c.get('media', c)
                         url = media['url']
-                        poster = c['poster'][0]
-                        poster_url = poster['url'].replace('.pnj', '.png')
-                        poster_media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
-                        while isinstance(poster_media_key, (list, tuple)):
-                            poster_media_key = poster_media_key[0]
                         md = dict(
                             w=media.get('width'),
                             h=media.get('height'),
                             media_key=media['url'].split('/')[3],
                             provider=c.get('provider', ''),
-                            poster_url=poster_url,
-                            poster_media_key=poster_media_key,
                         )
+                        if 'poster' in c:
+                            video_url = media['url']
+                            poster = c['poster'][0]
+                            poster_url = poster['url'].replace('.pnj', '.png')
+                            poster_media_key=poster.get('mediaKey', poster['url'].split('/')[3].rsplit('.', 1)[0]),
+                            while isinstance(poster_media_key, (list, tuple)):
+                                poster_media_key = poster_media_key[0]
+                            md.update(poster_url=poster_url, poster_media_key=poster_media_key)
                     case 'text':
                         url = f"{pi.url}#text_{i}"
                         md = dict(
@@ -475,6 +486,7 @@ class Tumblr(Source):
                     parent=pi
                 )
                 ret.append(cc)
+                flush() # so that we can get cc.id
                 # if it was a video, also add the poster as a separate image collection
                 if content_type == 'video' and 'poster' in c:
                     poster_md = dict(
@@ -482,6 +494,7 @@ class Tumblr(Source):
                         h=poster.get('height'),
                         media_key=poster_media_key,
                         poster_for=cc.id, # type: ignore[attr-defined]
+                        video_url=video_url,
                     )
                     pcc = Item.upsert(get_kw=dict(
                             source=pi.source,
