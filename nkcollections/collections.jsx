@@ -1121,8 +1121,65 @@ const Obj = (props) => {
 // A floating info/control panel
 const InfoBar = () => {
   const ctx = React.useContext(AppContext);
-  // Local state for filter string
+  // Local state for filter string and auto-likes timer
   const [filterStr, setFilterStr] = React.useState('');
+  const [autoLikesElapsed, setAutoLikesElapsed] = React.useState(0);
+  const autoLikesTimerRef = React.useRef(null);
+
+  // Auto likes mode timer effect
+  React.useEffect(() => {
+    if (ctx.classification.autoLikesMode) {
+      // Reset elapsed time and start tracking
+      setAutoLikesElapsed(0);
+      const startTime = Date.now();
+      // Start the recurring timer for classifier
+      autoLikesTimerRef.current = setInterval(() => {
+        ctx.actions.doLikeClassifier();
+        setAutoLikesElapsed(0); // Reset elapsed time after each run
+      }, AUTO_LIKES_DELAY_MS);
+
+      // Start elapsed time tracking (update every 100ms for smooth progress)
+      const elapsedTimer = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const cycleElapsed = elapsed % AUTO_LIKES_DELAY_MS;
+        setAutoLikesElapsed(cycleElapsed);
+      }, 100);
+
+      // Store both timers for cleanup
+      autoLikesTimerRef.current = {
+        classifierTimer: autoLikesTimerRef.current,
+        elapsedTimer: elapsedTimer
+      };
+
+      ctx.ui.setMessage(`Auto likes mode enabled - will run classifier every ${AUTO_LIKES_DELAY_MS/1000}s`);
+    } else {
+      // Clear the timers if they exist
+      if (autoLikesTimerRef.current) {
+        if (autoLikesTimerRef.current.classifierTimer) {
+          clearInterval(autoLikesTimerRef.current.classifierTimer);
+        }
+        if (autoLikesTimerRef.current.elapsedTimer) {
+          clearInterval(autoLikesTimerRef.current.elapsedTimer);
+        }
+        autoLikesTimerRef.current = null;
+        setAutoLikesElapsed(0);
+        ctx.ui.setMessage('Auto likes mode disabled');
+      }
+    }
+
+    // Cleanup function to clear timers on unmount
+    return () => {
+      if (autoLikesTimerRef.current) {
+        if (autoLikesTimerRef.current.classifierTimer) {
+          clearInterval(autoLikesTimerRef.current.classifierTimer);
+        }
+        if (autoLikesTimerRef.current.elapsedTimer) {
+          clearInterval(autoLikesTimerRef.current.elapsedTimer);
+        }
+        autoLikesTimerRef.current = null;
+      }
+    };
+  }, [ctx.classification.autoLikesMode, ctx.actions.doLikeClassifier, ctx.ui.setMessage]);
   const incrCols = (incr) => {
     ctx.ui.setNCols((nCols) => {
       let newCols = nCols + incr;
@@ -1199,7 +1256,7 @@ const InfoBar = () => {
           <input
             type="checkbox"
             checked={ctx.classification.autoLikesMode}
-            onChange={(e) => {ctx.classification.setAutoLikesMode(e.target.checked); ctx.actions.doLikeClassifier()}}
+            onChange={(e) => {ctx.classification.setAutoLikesMode(e.target.checked); if (e.target.checked) ctx.actions.doLikeClassifier();}}
             title="Automatically run the likes classifier every 15 seconds"
           />
           Auto Likes
@@ -1208,7 +1265,7 @@ const InfoBar = () => {
       <div className="control like-classifier">
         <button
           className={ctx.classification.autoLikesMode ? 'timer-active' : ''}
-          style={ctx.classification.autoLikesMode ? {'--progress': `${(ctx.classification.autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
+          style={ctx.classification.autoLikesMode ? {'--progress': `${(autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
           onClick={ctx.actions.doLikeClassifier}
           title="Run the likes-based classifier to score items"
         >
@@ -1427,10 +1484,6 @@ const AppProvider = ({ children }) => {
   const [autoLikesMode, setAutoLikesMode] = React.useState(false);
   const [message, setMessage] = React.useState('Messages show up here');
 
-  // Auto likes timer ref and elapsed time tracking
-  const autoLikesTimerRef = React.useRef(null);
-  const [autoLikesElapsed, setAutoLikesElapsed] = React.useState(0);
-
   // initial init
   React.useEffect(() => {
     document.title = 'NK Collections';
@@ -1445,60 +1498,6 @@ const AppProvider = ({ children }) => {
     globalSetMessage = setMessage;
   }, [setMessage]);
 
-  // Auto likes mode timer effect
-  React.useEffect(() => {
-    if (autoLikesMode) {
-      // Reset elapsed time and start tracking
-      setAutoLikesElapsed(0);
-      const startTime = Date.now();
-      // Start the recurring timer for classifier
-      autoLikesTimerRef.current = setInterval(() => {
-        doLikeClassifier();
-        setAutoLikesElapsed(0); // Reset elapsed time after each run
-      }, AUTO_LIKES_DELAY_MS);
-
-      // Start elapsed time tracking (update every 100ms for smooth progress)
-      const elapsedTimer = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const cycleElapsed = elapsed % AUTO_LIKES_DELAY_MS;
-        setAutoLikesElapsed(cycleElapsed);
-      }, 100);
-
-      // Store both timers for cleanup
-      autoLikesTimerRef.current = {
-        classifierTimer: autoLikesTimerRef.current,
-        elapsedTimer: elapsedTimer
-      };
-
-      setMessage(`Auto likes mode enabled - will run classifier every ${AUTO_LIKES_DELAY_MS/1000}s`);
-    } else {
-      // Clear the timers if they exist
-      if (autoLikesTimerRef.current) {
-        if (autoLikesTimerRef.current.classifierTimer) {
-          clearInterval(autoLikesTimerRef.current.classifierTimer);
-        }
-        if (autoLikesTimerRef.current.elapsedTimer) {
-          clearInterval(autoLikesTimerRef.current.elapsedTimer);
-        }
-        autoLikesTimerRef.current = null;
-        setAutoLikesElapsed(0);
-        setMessage('Auto likes mode disabled');
-      }
-    }
-
-    // Cleanup function to clear timers on unmount
-    return () => {
-      if (autoLikesTimerRef.current) {
-        if (autoLikesTimerRef.current.classifierTimer) {
-          clearInterval(autoLikesTimerRef.current.classifierTimer);
-        }
-        if (autoLikesTimerRef.current.elapsedTimer) {
-          clearInterval(autoLikesTimerRef.current.elapsedTimer);
-        }
-        autoLikesTimerRef.current = null;
-      }
-    };
-  }, [autoLikesMode, doLikeClassifier, setMessage]);
 
   const doSearch = React.useCallback((value) => {
     console.log('searching for', value);
@@ -1808,6 +1807,7 @@ const AppProvider = ({ children }) => {
       mode,
       setMode,
       message,
+      setMessage,
       refreshMasonry
     },
     filters: {
@@ -1827,8 +1827,7 @@ const AppProvider = ({ children }) => {
     },
     classification: {
       autoLikesMode,
-      setAutoLikesMode,
-      autoLikesElapsed
+      setAutoLikesMode
     }
   };
 
