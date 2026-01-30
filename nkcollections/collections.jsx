@@ -1,15 +1,12 @@
 /* NK Collections React App
  *
  * TODO likes toggle on page
- * TODO Embeddings status page
  * TODO show tags on posts
  * TODO grouping by sim
  * TODO grouping by post
  * TODO quick zoom
- * TODO video dblclick
  * TODO show dwell times
  * TODO favicon
- * TODO vid indicator on linked imgs
  * TODO detect broken img
  * TODO dislike btn?
  * TODO better tumblr 404 handling
