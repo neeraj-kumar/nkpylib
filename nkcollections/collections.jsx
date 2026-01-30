@@ -1150,6 +1150,10 @@ const InfoBar = () => {
       <div className="control go-to-top"><button onClick={() => goTo('top')} title="Scroll to top of page">Top</button></div>
       <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
       <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
+      <div className="flex-break"></div>
+      <div className="control message-display" style={{fontSize: '0.8em'}}>
+        <span>{ctx.ui.message}</span>
+      </div>
     </div>
   );
 }
@@ -1311,9 +1315,6 @@ const Controls = () => {
         </select>
       </div>
       <div className="control flex-break"></div>
-      <div className="control message-display">
-        <span>{ctx.ui.message}</span>
-      </div>
     </div>
   );
 }
