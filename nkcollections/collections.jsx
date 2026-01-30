@@ -6,7 +6,6 @@
  * TODO grouping by post
  * TODO quick zoom
  * TODO show dwell times
- * TODO favicon
  * TODO detect broken img
  * TODO dislike btn?
  * TODO better tumblr 404 handling
@@ -1210,6 +1209,16 @@ const InfoBar = () => {
   //console.log('got sscores', sscores, curIds, scores);
   const nPos = (sscores.length > 0) ? sscores.filter((s) => s > 0).length : 0;
   const pPos = (sscores.length > 0) ? 100.0 * nPos / sscores.length : 0;
+  const doFilter = (v) => {
+    ctx.actions.doFilter(v);
+    setFilterStr('');
+    // also unfocus the input
+    const inputElem = document.querySelector('.filter-input');
+    if (inputElem) {
+      inputElem.blur();
+    }
+  }
+
   return (
     <div className="infobar">
       <div>{n} items ({nWithScores} scored, {nWithLikes} liked) </div>
@@ -1273,7 +1282,7 @@ const InfoBar = () => {
         <DebouncedInput
           value={filterStr}
           onChange={setFilterStr}
-          onDebouncedChange={(v)=>{ctx.actions.doFilter(v); setFilterStr('');}}
+          onDebouncedChange={doFilter}
           placeholder="Filter..."
           className="filter-input"
           title="Filter items by text"
