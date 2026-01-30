@@ -1041,7 +1041,6 @@ const Obj = (props) => {
 // A floating info/control panel
 const InfoBar = () => {
   const ctx = React.useContext(AppContext);
-  
   // Local state for filter string
   const [filterStr, setFilterStr] = React.useState('');
   const incrCols = (incr) => {
@@ -1140,7 +1139,7 @@ const InfoBar = () => {
         <DebouncedInput
           value={filterStr}
           onChange={setFilterStr}
-          onDebouncedChange={ctx.actions.doFilter}
+          onDebouncedChange={(v)=>{ctx.actions.doFilter(v); setFilterStr('');}}
           placeholder="Filter..."
           className="filter-input"
           title="Filter items by text"
@@ -1424,8 +1423,8 @@ const AppProvider = ({ children }) => {
   }, []);
 
   const doFilter = React.useCallback((value) => {
+    if (!value || value.trim() === '') return;
     console.log('filtering for', value);
-    //TODO implement
     api.filter(value, curIds).then((resp) => {
       console.log('got filter resp', resp);
       updateScores(resp.scores, {reset: false});
