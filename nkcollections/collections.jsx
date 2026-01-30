@@ -1286,13 +1286,23 @@ const DebouncedInput = ({
 const Controls = () => {
   const ctx = React.useContext(AppContext);
   
-  // Local state for search string
+  // Local state for search string and source string
   const [searchStr, setSearchStr] = React.useState('');
+  const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "embed_ts":">1", "otype": "image"}');
+  //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
+  //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
+
+  // Initial load effect
+  React.useEffect(() => {
+    if (sourceStr) {
+      setTimeout(() => ctx.actions.doSource(sourceStr), 500);
+    }
+  }, []); // Only run once on mount
   
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
-      ctx.actions.doSource();
+      ctx.actions.doSource(sourceStr);
     }
   }
 
@@ -1309,21 +1319,21 @@ const Controls = () => {
         return;
       }
       const str = clipboardText.trim();
-      ctx.filters.setSourceStr(str);
+      setSourceStr(str);
       ctx.actions.doSource(str);
     } catch (error) {
       console.error('Failed to read clipboard:', error);
     }
-  }, [ctx.filters.setSourceStr, ctx.actions.doSource]);
+  }, [ctx.actions.doSource]);
 
   // Determine the CSS class for the source input based on its contents
   const getSourceInputClass = () => {
-    if (!ctx.filters.sourceStr) return 'src-input';
-    if (ctx.filters.sourceStr.startsWith('http')) {
+    if (!sourceStr) return 'src-input';
+    if (sourceStr.startsWith('http')) {
       return 'src-input url-input';
     }
     try {
-      JSON.parse(ctx.filters.sourceStr);
+      JSON.parse(sourceStr);
       return 'src-input valid-json';
     } catch (error) {
       return 'src-input invalid-json';
@@ -1337,12 +1347,12 @@ const Controls = () => {
           type="text"
           className={getSourceInputClass()}
           placeholder="Source..."
-          value={ctx.filters.sourceStr}
-          onChange={(e) => ctx.filters.setSourceStr(e.target.value)}
+          value={sourceStr}
+          onChange={(e) => setSourceStr(e.target.value)}
           onKeyDown={keyHandler}
           size="52"
         />
-        <button onClick={() => ctx.actions.doSource()} title="Load data from the source string">Set Source</button>
+        <button onClick={() => ctx.actions.doSource(sourceStr)} title="Load data from the source string">Set Source</button>
         {!IS_MOBILE && (
           <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
         )}
@@ -1410,9 +1420,6 @@ const AppProvider = ({ children }) => {
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
-  const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "embed_ts":">1", "otype": "image"}');
-  //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
-  //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
   const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
@@ -1431,10 +1438,6 @@ const AppProvider = ({ children }) => {
     const styleEl = document.createElement('style');
     styleEl.innerHTML = STYLES;
     document.head.appendChild(styleEl);
-    // call doSource initially
-    if (sourceStr) {
-      setTimeout(() => doSource(), 500);
-    }
   }, []);
 
   // Set up global reference to setMessage
@@ -1757,13 +1760,11 @@ const AppProvider = ({ children }) => {
   }, [pos]);
 
   // the source string can be either a url or a JSON string of parameters
-  const doSource = React.useCallback((newSourceStr=null) => {
-    const inputStr = newSourceStr || sourceStr;
+  const doSource = React.useCallback((inputStr) => {
+    if (!inputStr) return;
     const isUrl = inputStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
       api.sourceUrl(inputStr).then((params) => {
-        // save the params, serialized, to sourceStr
-        //setSourceStr(JSON.stringify(params));
         return api.get(params);
       }).then((data) => {
         updateData(data, true);
@@ -1783,7 +1784,7 @@ const AppProvider = ({ children }) => {
         setMessage(`Invalid JSON in source string: ${error.message}`);
       }
     }
-  }, [sourceStr, updateData, setMessage]);
+  }, [updateData, setMessage]);
 
 
   // Done with all state and effects, now preparing for rendering
@@ -1812,9 +1813,7 @@ const AppProvider = ({ children }) => {
     filters: {
       curOtypes,
       setCurOtypes,
-      setCurIds,
-      sourceStr,
-      setSourceStr
+      setCurIds
     },
     actions: {
       setLiked,
