@@ -307,11 +307,17 @@ class LikesWorker(BackgroundWorker):
             logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
             # Train and run classifier
             t0 = time.time()
-            classifier, scores, other_stuff = self.embs.train_and_run_classifier(
-                pos=pos, neg=neg, to_cls=to_cls, method=self.method
-            )
+            if 1:
+                classifier, scores, other_stuff = self.embs.train_and_run_classifier(
+                    pos=pos, neg=neg, to_cls=to_cls, method=self.method
+                )
+                joblib.dump(dict(classifier=classifier, scores=scores, other_stuff=other_stuff), 'blah.joblib')
+            else:
+                l = joblib.load('blah.joblib')
+                classifier, scores, other_stuff = l['classifier'], l['scores'], l['other_stuff']
             t1 = time.time()
-            self.scores = {k.split(':')[0]: v for k, v in scores.items()}
+            new_scores = self.rescore(scores=scores, pos=pos)
+            self.scores = {k.split(':')[0]: v for k, v in new_scores.items()}
             saved_classifier = self.embs.save_classifier(
                 self.classifier_path,
                 classifier,
@@ -348,18 +354,41 @@ class LikesWorker(BackgroundWorker):
         """Get current classifier scores."""
         return self.scores.copy()
 
+    def rescore(self, scores: dict[str, float], pos: list[int]) -> dict[str, float]:
+        """Rescores `scores` using nearest neighbors from positive IDs."""
+        #return scores
+        fix = lambda k: k if (isinstance(k, int) or ':' in k) else f'{k}:image'
+        scores = {fix(k): v for k, v in scores.items()}
+        pos = [fix(id) for id in pos]
+        logger.info(f'running rescore on {len(scores)} scores with {len(pos)} positives')
+        logger.info(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
+        new_scores = self.embs.rescore_by_nn(scores=scores, pos=pos, min_score=1.0, metric='l2')
+        logger.debug(f'  Output scores: {list(new_scores.items())[:5]}')
+        max_score = 2.0
+        assert frozenset(new_scores) == frozenset(scores)
+        for k, v in new_scores.items():
+            assert v <= max_score, f"(a) Rescored value {v} for {k} exceeds {max_score}"
+        ret = {k.split(':')[0]: v for k, v in new_scores.items()}
+        for k, v in ret.items():
+            assert v <= max_score, f"(b) Rescored value {v} for {k} exceeds {max_score}"
+        #logger.info('EXITING!!!'); sys.exit()
+        return ret
+
     def _load_and_run_initial_inference(self) -> None:
         """Load existing classifier on initialization and populate scores from saved data."""
         try:
             saved_data = self.embs.load_and_setup_classifier(self.classifier_path)
+            pos_ids = [int(id) for id in saved_data.get('pos_ids', [])]
             self.last.update({
                 'saved_classifier': saved_data,
                 'classifier_version': saved_data.get('created_at', 0),
-                'pos_ids': frozenset(saved_data.get('pos_ids', [])),
+                'pos_ids': frozenset(pos_ids),
             })
             # Load scores from saved classifier data
-            saved_scores = saved_data.get('scores', {})
-            self.scores = saved_scores.copy()
+            self.scores = {}
+            for k, v in saved_data.get('scores', {}).items():
+                self.scores[int(k)] = float(v)
+            # note that these have already been rescored, so we don't redo it.
             logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores")
         except Exception as e:
             logger.warning(f"Failed to load existing classifier: {e}\n{traceback.format_exc()}")
@@ -375,7 +404,6 @@ class LikesWorker(BackgroundWorker):
         if not self.last['saved_classifier'] or self.last['classifier_version'] == 0:
             logger.info("No classifier available for inference")
             return dict(status='no_classifier')
-
         try:
             # Get all image IDs that have embeddings
             all_ids = self._get_all_image_ids()
@@ -438,6 +466,8 @@ class LikesWorker(BackgroundWorker):
             scores_array = classifier.decision_function(embs)
             new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
             t1 = time.time()
+            # rescore
+            new_scores = self.rescore(new_scores, list(self.last['pos_ids']))
 
             return dict(
                 status='inference_completed',
