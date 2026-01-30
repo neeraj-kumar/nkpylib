@@ -459,6 +459,20 @@ const STYLES = `
   margin-top: 3px;
 }
 
+/* Video overlay icon */
+.video-overlay {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
 /* Video link overlay icon */
 .video-link {
   position: relative;
@@ -725,6 +739,25 @@ const TumblrPostContent = (props) => {
   );
 };
 
+const VideoOverlay = ({videoUrl, onClick}) => {
+  if (!videoUrl) return null;
+  
+  return (
+    <a 
+      href={videoUrl} 
+      target="_blank" 
+      rel="noreferrer"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (onClick) onClick(e);
+      }}
+      className="video-overlay"
+    >
+      ▶
+    </a>
+  );
+};
+
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) => {
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
@@ -767,19 +800,23 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
     switch (type) {
       case 'image':
         const imageUrl = data.local_path ? `/data/${data.local_path}` : data.url;
+        const videoUrl = data.md && data.md.video_url;
         return (
-          <img
-            src={imageUrl}
-            alt={`Image ${data.id}`}
-            onClick={handleImageClick}
-            onDoubleClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const liked = Boolean(data.rels.like);
-              setLiked(data.id, !liked);
-            }}
-            style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
-          />
+          <div style={{position: 'relative'}}>
+            <img
+              src={imageUrl}
+              alt={`Image ${data.id}`}
+              onClick={handleImageClick}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const liked = Boolean(data.rels.like);
+                setLiked(data.id, !liked);
+              }}
+              style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
+            />
+            <VideoOverlay videoUrl={videoUrl} />
+          </div>
         );
       case 'video':
         const posterUrl = data.md.poster_url && data.local_path ? `/data/${data.local_path}` : data.md.poster_url;
@@ -1020,15 +1057,18 @@ const Obj = (props) => {
           )}
           {otype === 'image' && (
             <div className="content">
-              <img
-                src={props.local_path ? `/data/${props.local_path}` : url}
-                alt={`Image ${id}`}
-                onDoubleClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  ctx.actions.setLiked(id, !liked);
-                }}
-              />
+              <div style={{position: 'relative'}}>
+                <img
+                  src={props.local_path ? `/data/${props.local_path}` : url}
+                  alt={`Image ${id}`}
+                  onDoubleClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    ctx.actions.setLiked(id, !liked);
+                  }}
+                />
+                <VideoOverlay videoUrl={md && md.video_url} />
+              </div>
             </div>
           )}
           {otype === 'video' && (
