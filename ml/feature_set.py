@@ -43,11 +43,11 @@ class FeatureSet(Mapping, Generic[KeyT]):
         We compute the intersection of the keys in all inputs, and use that as our list of _keys.
         """
         self.orig_inputs = inputs
+        self.cache: dict[KeyT, np.ndarray] = dict()
         # remap any path inputs to NumpyLmdb objects
         self.dtype = dtype
         self.inputs = [NumpyLmdb.open(inp, flag='r', dtype=dtype) if isinstance(inp, str) else inp
                        for inp in inputs]
-        self.cached: dict[str, Any] = dict()
         self.reload_keys(reload_lmdb=False)
 
     def reload_keys(self, reload_lmdb:bool=True) -> None:
@@ -120,7 +120,10 @@ class FeatureSet(Mapping, Generic[KeyT]):
         return key in self._keys
 
     def __getitem__(self, key: KeyT) -> np.ndarray:
-        return np.hstack([inp[key] for inp in self.inputs])
+        if key not in self.cache:
+            cur = np.hstack([inp[key] for inp in self.inputs])
+            self.cache[key] = cur
+        return self.cache[key]
 
     def get_keys_embeddings(self,
                             keys: list[KeyT]|None=None,
@@ -149,14 +152,12 @@ class FeatureSet(Mapping, Generic[KeyT]):
         If you set `return_scaler` to True, we also return the scaler object used for scaling as the
         last item in the return tuple.
         """
+        times = [time.time()]
         if keys is None:
-            if 0: #TODO caching temporarily disabled
-                cache_kw = dict(normed=normed, scale_mean=scale_mean, scale_std=scale_std)
-                if self.cached and all(self.cached[k] == v for k, v in cache_kw.items()):
-                    return self.cached['keys'], self.cached['embs']
             _keys, _embs = zip(*list(self.items()))
             keys = list(_keys)
             embs = np.vstack(_embs)
+            times.append(time.time())
         else:
             keys = [k for k in keys if k in self]
             if not keys:
@@ -165,17 +166,31 @@ class FeatureSet(Mapping, Generic[KeyT]):
                     return (keys, embs, scaler)
                 else:
                     return (keys, embs)
-            embs = np.vstack([self[k] for k in keys])
+            #TODO parallelize this?
+            #TODO i think we're currently doing a lmdb transaction per key. lmdbm.items() does the right thing, but i think with our layers of abstraction we're losing that
+            if 1:
+                embs = np.vstack([self[k] for k in keys])
+            else:
+                v_dict = {k: v for k, v in self.items() if k in keys}
+                embs = np.vstack([v_dict[k] for k in keys])
+            times.append(time.time())
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
+        times.append(time.time())
         if scaler is None:
             if scale_mean or scale_std:
                 scaler = StandardScaler(with_mean=scale_mean, with_std=scale_std)
                 embs = scaler.fit_transform(embs)
         else:
             embs = scaler.transform(embs)
-        if 0 and len(keys) == len(self): # cache these
-            self.cached.update(keys=keys, embs=embs, scaler=scaler, **cache_kw)
+        times.append(time.time())
+        timings = dict(
+            get_keys_embeddings=times[1]-times[0],
+            norming=times[2]-times[1],
+            scaling=times[3]-times[2],
+            cache_size=len(self.cache),
+        )
+        logger.info(f'timings: {timings}')
         if return_scaler:
             return keys, embs, scaler
         else:
