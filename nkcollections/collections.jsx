@@ -1226,9 +1226,6 @@ const InfoBar = () => {
         <div className="score-stats">
           , {nPos} ({pPos.toFixed(1)}%) pos
         </div>)}
-      <div className="control refresh-masonry">
-        <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">Refresh layout</button>
-      </div>
       <span>Cols:</span>
       <div className="control decr-cols"><button onClick={() => incrCols(-1)} title="Decrease number of columns">-</button></div>
       <span>{ctx.ui.nCols}</span>
@@ -1257,7 +1254,7 @@ const InfoBar = () => {
           Simple
         </label>
       </div>
-      <div className="control auto-likes-mode">
+      <div className="control auto-likes-mode hidden">
         <label title="Automatically run the likes classifier every 15 seconds">
           <input
             type="checkbox"
@@ -1465,6 +1462,9 @@ const Controls = () => {
             </option>
           ))}
         </select>
+      </div>
+      <div className="control refresh-masonry">
+        <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">Refresh layout</button>
       </div>
       <div className="control flex-break"></div>
     </div>
