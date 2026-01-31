@@ -63,7 +63,7 @@ import uuid
 
 from abc import ABC, abstractmethod
 from collections import Counter, OrderedDict
-from concurrent.futures import ProcessPoolExecutor, Future
+from concurrent.futures import ProcessPoolExecutor, Future, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from hashlib import sha256
 from pprint import pformat
@@ -360,6 +360,7 @@ def process_messages(messages: list[Msg]) -> list[dict]:
     fix_msg = lambda m: {'role': m[0], 'content': m[1]} if isinstance(m, tuple) else m
     return [fix_msg(m) for m in messages]
 
+
 @Singleton
 class VLMModel(ChatModel):
     """Model subclass for handling VLM models."""
@@ -386,6 +387,7 @@ class VLMModel(ChatModel):
         self.postprocess(input, ret, **kw)
         return ret
 
+
 class EmbeddingModel(Model):
     """Base class for text embeddings.
 
@@ -407,20 +409,91 @@ class EmbeddingModel(Model):
             n_dims=len(embedding),
         )
 
+def load_mobilenet():
+    """Loads mobilenetv2 and returns (model, preprocess_image, device)"""
+    import torch
+    from torchvision import models, transforms
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
+    model.eval()
+    # Remove classification head
+    # model.features -> conv backbone
+    # model.avgpool -> global average pooling
+    # model.classifier -> remove
+    model.classifier = torch.nn.Identity()
+    model.to(device)
+    preprocess_image = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+    ])
+    return (model, preprocess_image, device)
+
+def run_mobilenet(input, model, preprocess_image, device: str) -> np.ndarray:
+    import torch
+    times = [time.time()]
+    if isinstance(input, str):
+        if input.startswith('http'):
+            image = Image.open(requests.get(input, stream=True).raw).convert('RGB')
+        else:
+            image = Image.open(input).convert('RGB')
+    else:
+        image = input.convert('RGB')
+    times.append(time.time())
+    input_tensor = preprocess_image(image).unsqueeze(0).to(device)  # create a mini-batch as expected by the model
+    times.append(time.time())
+    with torch.no_grad():
+        embedding = model(input_tensor).squeeze(0).cpu().numpy()
+    times.append(time.time())
+    #print(f'Mobilenet embedding run in {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
+    return embedding
+
+
 def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
     """Class method that handles both loading and execution"""
     global PROC_MODELS
+    times = [time.time()]
     if model_name not in PROC_MODELS:
         logger.info(f"Loading {model_name} in process {os.getpid()}")
         if 'clip' in model_name:
             PROC_MODELS[model_name] = load_clip(model_name)
-        elif 'jina':
+        elif 'jina' in model_name:
             PROC_MODELS[model_name] = load_jina(model_name)
+        elif 'mobilenet' in model_name:
+            PROC_MODELS[model_name] = load_mobilenet()
+            assert mode == 'image', "MobileNet only supports image embeddings"
         else:
             raise NotImplementedError(f"Unsupported ImageTextEmbeddingModel: {model_name}")
-    text_func, image_func = PROC_MODELS[model_name]
-    func = text_func if mode == 'text' else image_func
-    return func(input_data)
+    times.append(time.time())
+    if 'mobilenet' in model_name:
+        # special case for mobilenet
+        model, preprocess_image, device = PROC_MODELS[model_name]
+        embedding = run_mobilenet(input_data, model, preprocess_image, device)
+        ret = embedding
+    else:
+        text_func, image_func = PROC_MODELS[model_name]
+        func = text_func if mode == 'text' else image_func
+        ret = func(input_data)
+    times.append(time.time())
+    #logger.info(f"Process {os.getpid()} ran {model_name} ({mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
+    #print(f"Process {os.getpid()} ran {model_name} ({mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
+    return ret
+
+
+@Singleton
+class OldMobileNetEmbeddingModel(EmbeddingModel):
+    """Model subclass for handling MobileNet image embeddings."""
+    async def _load(self, **kw) -> Any:
+        return load_mobilenet()
+
+    async def _run(self, input: Any, **kw) -> dict:
+        model, preprocess_image, device = self.model
+        embedding = run_mobilenet(input, model, preprocess_image, device)
+        return self.postprocess(embedding)
 
 
 class ImageTextEmbeddingModel(EmbeddingModel):
@@ -430,6 +503,7 @@ class ImageTextEmbeddingModel(EmbeddingModel):
         assert mode in ('text', 'image')
         self.mode = mode
         self.executor = ProcessPoolExecutor(max_workers=n_procs)
+        #self.executor = ThreadPoolExecutor(max_workers=n_procs)
         _EXECUTORS.append(self.executor)  # Track for cleanup
 
     def __del__(self):
@@ -451,7 +525,9 @@ class ImageTextEmbeddingModel(EmbeddingModel):
 
     async def _run(self, input: Any, **kw) -> dict:
         try:
+            times = [time.time()]
             loop = asyncio.get_event_loop()
+            times.append(time.time())
             ret = await loop.run_in_executor(
                 self.executor,
                 image_text_embedding_worker,
@@ -459,19 +535,34 @@ class ImageTextEmbeddingModel(EmbeddingModel):
                 self.mode,
                 input
             )
+            times.append(time.time())
             # Use thread-based execution (original behavior)
             #ret = await asyncio.to_thread(self.model, input)
             if not isinstance(ret, np.ndarray):
                 ret = ret.numpy()
-            return self.postprocess(ret)
+            times.append(time.time())
+            ret = self.postprocess(ret)
+            times.append(time.time())
+            #logger.warning(f"Ran {self.model_name} ({self.mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
+            return ret
         except Exception as e:
             logger.error(f"Error running {self.model_name} embedding model: {e}")
             return {}
 
 @Singleton
+class MobileNetEmbeddingModel(ImageTextEmbeddingModel):
+    """Model subclass for handling MobileNet image embeddings."""
+    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
+        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
+
+    async def load_feature_funcs(self):
+        """Returns two functions: one for text features, one for image features."""
+        raise NotImplementedError()
+
+@Singleton
 class ClipTextEmbeddingModel(ImageTextEmbeddingModel):
     """Model subclass for handling CLIP text embeddings."""
-    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
+    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=1, **kw):
         super().__init__(mode='text', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
@@ -481,7 +572,7 @@ class ClipTextEmbeddingModel(ImageTextEmbeddingModel):
 @Singleton
 class ClipImageEmbeddingModel(ImageTextEmbeddingModel):
     """Model subclass for handling CLIP text/image embeddings."""
-    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
+    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=1, **kw):
         super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
@@ -753,6 +844,10 @@ async def image_embeddings(req: ImageEmbeddingRequest):
         Cls = ClipImageEmbeddingModel
     elif req.model == _default('jina'):
         Cls = JinaImageEmbeddingModel
+    elif req.model == _default('mobilenet'):
+        Cls = MobileNetEmbeddingModel
+    elif req.model == _default('oldmobilenet'):
+        Cls = OldMobileNetEmbeddingModel
     else:
         raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
     model = Cls(model_name=req.model, use_cache=req.use_cache)

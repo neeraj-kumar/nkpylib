@@ -580,15 +580,21 @@ def quick_test():
         print(call_llm.single('summarize it in 3 sentences', **kwargs))
     if 'imgemb' in test:
         for url in [image_path, image_url, image]:
+            model = 'oldmobilenet'
+            model = 'mobilenet'
             model = 'clip'
             if 0:
                 ret = embed_image.single(url, model=model, use_cache=False)
                 print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
             else:
-                futures = embed_image.batch_futures([url]*20, model=model, use_cache=False)
+                num = 10
+                t0 = time.time()
+                futures = embed_image.batch_futures([url]*num, model=model, use_cache=False)
                 results = [f.result() for f in futures]
+                t1 = time.time()
                 ret = results[-1]
-                print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
+                each = (t1 - t0) / num
+                print(f'{model} Embedding for {url} with {len(ret)} dims in {t1-t0:.4f}s/{num}={each:.4f}s/img: {ret[:10]}')
                 break
             # for 20 images, 8 procs: 38 secs with init, 28 without
             # slower with 12 procs

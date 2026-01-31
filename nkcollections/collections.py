@@ -1,7 +1,6 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO search texts queue
 #TODO fast scanning/detector of all images?
 #TODO   explore grid segmentation - there are various options for the actual segmentation
 #TODO   explore grid clip
@@ -14,6 +13,7 @@
 #TODO put tags in sql
 #TODO   get tag list from descs
 #TODO   aggregate to user
+#TODO search texts queue
 #TODO transfer likes between related items
 #TODO quality scores
 #TODO multiple searches
@@ -28,7 +28,7 @@
 #TODO import google history
 #TODO similar users
 #TODO adding custom clip embeddings
-#TODO faster embeddings retrieval/norms for get_keys_embeddings()
+#TODO faster embeddings scaling for get_keys_embeddings()
 #TODO backups
 
 from __future__ import annotations

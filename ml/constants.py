@@ -33,6 +33,9 @@ DEFAULT_MODELS = dict(
     # clip for image <-> text embeddings in same space
     clip=ModelConfig("openai/clip-vit-large-patch14"),
     image=ModelConfig('openai/clip-vit-large-patch14'),
+    # fast image model is mobilenet
+    mobilenet=ModelConfig('mobilenet_v3'),
+    fast_image=ModelConfig('mobilenet_v3'),
     # jina-clip-v2 for better image <-> text embeddings in the same space
     # - Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance
     #   at all (and might even slightly improve it for some tasks).
