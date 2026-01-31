@@ -43,7 +43,6 @@ class FeatureSet(Mapping, Generic[KeyT]):
         We compute the intersection of the keys in all inputs, and use that as our list of _keys.
         """
         self.orig_inputs = inputs
-        self.cache: dict[KeyT, np.ndarray] = dict()
         # remap any path inputs to NumpyLmdb objects
         self.dtype = dtype
         self.inputs = [NumpyLmdb.open(inp, flag='r', dtype=dtype) if isinstance(inp, str) else inp
@@ -120,10 +119,15 @@ class FeatureSet(Mapping, Generic[KeyT]):
         return key in self._keys
 
     def __getitem__(self, key: KeyT) -> np.ndarray:
-        if key not in self.cache:
-            cur = np.hstack([inp[key] for inp in self.inputs])
-            self.cache[key] = cur
-        return self.cache[key]
+        cur = np.hstack([inp[key] for inp in self.inputs])
+        return cur
+
+    def fast_get_multi(self, keys: list[KeyT]) -> dict[KeyT, np.ndarray]:
+        """A faster way to get multiple keys"""
+        assert len(self.inputs) == 1 and isinstance(self.inputs[0], PickleableLmdb), "fast_get_multi only supports single-input FeatureSets"
+        inp = self.inputs[0]
+        key_set = set(keys)
+        return {k: v for k, v in inp.items() if k in key_set}
 
     def get_keys_embeddings(self,
                             keys: list[KeyT]|None=None,
@@ -159,20 +163,17 @@ class FeatureSet(Mapping, Generic[KeyT]):
             embs = np.vstack(_embs)
             times.append(time.time())
         else:
-            keys = [k for k in keys if k in self]
+            self_keys = set(self._keys)
+            times.append(time.time())
+            keys = [k for k in keys if k in self_keys]
+            times.append(time.time())
             if not keys:
                 embs = np.zeros((0, self.n_dims), dtype=self.dtype)
                 if return_scaler:
                     return (keys, embs, scaler)
                 else:
                     return (keys, embs)
-            #TODO parallelize this?
-            #TODO i think we're currently doing a lmdb transaction per key. lmdbm.items() does the right thing, but i think with our layers of abstraction we're losing that
-            if 1:
-                embs = np.vstack([self[k] for k in keys])
-            else:
-                v_dict = {k: v for k, v in self.items() if k in keys}
-                embs = np.vstack([v_dict[k] for k in keys])
+            embs = np.vstack([self[k] for k in keys])
             times.append(time.time())
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
@@ -184,13 +185,9 @@ class FeatureSet(Mapping, Generic[KeyT]):
         else:
             embs = scaler.transform(embs)
         times.append(time.time())
-        timings = dict(
-            get_keys_embeddings=times[1]-times[0],
-            norming=times[2]-times[1],
-            scaling=times[3]-times[2],
-            cache_size=len(self.cache),
-        )
-        logger.info(f'timings: {timings}')
+        time_names = ['get_keys_embeddings', 'filter_keys', 'fetch_embeddings', 'norming', 'scaling']
+        timings = {n: times[i+1]-times[i] for i, n in enumerate(time_names)}
+        logger.debug(f'timings: {timings}')
         if return_scaler:
             return keys, embs, scaler
         else:
