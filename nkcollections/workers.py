@@ -336,7 +336,8 @@ class LikesWorker(BackgroundWorker):
                 'saved_classifier': saved_classifier,
                 'classifier_version': saved_classifier['created_at'],
             })
-            logger.info(f"Updated likes classifier in {t1-t0:.2f}s, v{self.last['classifier_version']}")
+            t2 = time.time()
+            logger.info(f"Updated likes classifier in {t1-t0:.2f}s+{t2-t1:.2f}s, v{self.last['classifier_version']}")
             return dict(
                 status='updated',
                 pos_count=len(pos),
@@ -360,8 +361,8 @@ class LikesWorker(BackgroundWorker):
         fix = lambda k: k if (isinstance(k, int) or ':' in k) else f'{k}:image'
         scores = {fix(k): v for k, v in scores.items()}
         pos = [fix(id) for id in pos]
-        logger.info(f'running rescore on {len(scores)} scores with {len(pos)} positives')
-        logger.info(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
+        logger.debug(f'running rescore on {len(scores)} scores with {len(pos)} positives')
+        logger.debug(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
         new_scores = self.embs.rescore_by_nn(scores=scores, pos=pos, min_score=1.0, metric='l2')
         logger.debug(f'  Output scores: {list(new_scores.items())[:5]}')
         max_score = 2.0

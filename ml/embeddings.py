@@ -27,6 +27,7 @@ from collections import Counter
 from os.path import abspath, dirname, exists, join
 from typing import Any, Sequence, Generic, TypeVar, Hashable
 
+import faiss
 import joblib
 import numpy as np
 
@@ -417,7 +418,6 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         So for all scores higher than `min_score`, we instead compute `k`-nearest neighbors and use
         the median distance to get a new score.
         """
-        nn = NearestNeighbors(n_neighbors=k, metric=metric)
         all_keys = set(pos)
         n_high = 0
         for key, s in scores.items():
@@ -426,15 +426,28 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 all_keys.add(key)
         keys, embs = self.get_keys_embeddings(keys=list(all_keys), normed=True, scale_mean=False, scale_std=False)
         logger.info(f'In rescore, {len(scores)} scores, {n_high} high (>= {min_score}), {len(pos)} pos, {len(all_keys)} all keys -> {embs.shape}')
-        logger.info(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
+        logger.debug(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
         if len(embs) == 0:
             return scores
-        nn.fit(embs)
         search_indices = [i for i, key in enumerate(keys) if key in scores and scores[key] >= min_score]
-        logger.info(f'Got {len(search_indices)} search indices for rescoring: {search_indices[:5]}, {[keys[x] for x in search_indices[:5]]}.')
+        logger.debug(f'Got {len(search_indices)} search indices for rescoring: {search_indices[:5]}, {[keys[x] for x in search_indices[:5]]}.')
         to_search = np.vstack([embs[i] for i in search_indices])
         logger.debug(f'Searching {to_search.shape} embeddings for {k} neighbors')
-        distances, indices = nn.kneighbors(to_search, n_neighbors=min(k, len(to_search)), return_distance=True)
+        if 0:
+            nn = NearestNeighbors(n_neighbors=k, metric=metric)
+            nn.fit(embs)
+            distances, indices = nn.kneighbors(to_search, n_neighbors=min(k, len(to_search)), return_distance=True)
+        else: # faiss
+            times = [time.time()]
+            # IndexFlatIP(d) for cosine sim with normed vectors
+            # IndexHNSWFlat(d, 32) for faster approximate search
+            # IndexFlatL2(d) for l2 distance
+            index = faiss.IndexHNSWFlat(embs.shape[1], 32)
+            index.add(embs)
+            times.append(time.time())
+            distances, indices = index.search(to_search, min(k, len(to_search)))
+            times.append(time.time())
+            logger.debug(f'Faiss {index} times: {[(t1-t0) for t0, t1 in zip(times, times[1:])]}')
         logging.debug(f'New dists: {distances}')
         distances = np.array([np.sum(row) for row in np.exp(-distances)]) / k
         logging.debug(f'Scaled dists: {distances}')
