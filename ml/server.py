@@ -79,7 +79,15 @@ from PIL import Image
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from nkpylib.ml.constants import DEFAULT_MAX_TOKENS, DEFAULT_MODELS, LOCAL_MODELS, Role, Msg, data_url_from_file
+from nkpylib.ml.constants import (
+    data_url_from_file,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MODELS,
+    LOCAL_MODELS,
+    Msg,
+    Role,
+)
+from nkpylib.ml.ml_types import nparray1d, array1d, array2d
 from nkpylib.ml.providers import call_external, call_provider
 from nkpylib.ml.text import get_text
 from nkpylib.thread_utils import Singleton
@@ -129,6 +137,24 @@ def _default(name: str) -> str:
         return name
     return DEFAULT_MODELS[name].name
 
+
+async def pil_image_from_input(image_or_path: Union[str, Image.Image], force_rgb: bool=False) -> Image.Image:
+    """Loads and returns a PIL Image from a URL, local path, or PIL Image.
+
+    If you set `force_rgb=True`, converts the image to RGB mode.
+    """
+    if isinstance(image_or_path, str):
+        if image_or_path.startswith('http'):
+            resp = await make_request_async(image_or_path, method='get', stream=True)
+            image = Image.open(resp.raw)
+        else:
+            image = Image.open(image_or_path)
+    else:
+        image = image_or_path
+    if force_rgb and image.mode != 'RGB':
+        image = image.convert('RGB')
+    return image
+
 @functools.cache
 def load_clip(model_name=_default('clip')):
     """Loads CLIP model and returns embedding functions.
@@ -141,17 +167,11 @@ def load_clip(model_name=_default('clip')):
     import torch
     from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
     model = CLIPModel.from_pretrained(model_name)
-    torch.compiler.is_compiling = lambda: False
+    torch.compiler.is_compiling = lambda: False # temporary hack needed for `use_fast`
     processor = CLIPProcessor.from_pretrained(model_name, use_fast=True)
 
     def get_image_features(image_or_path):
-        if isinstance(image_or_path, str):
-            if image_or_path.startswith('http'):
-                image = Image.open(requests.get(image_or_path, stream=True).raw)
-            else:
-                image = Image.open(image_or_path)
-        else:
-            image = image_or_path
+        image = pil_image_from_input(image_or_path)
         with torch.no_grad():
             return model.get_image_features(**processor(images=image, return_tensors="pt"))[0]
 
@@ -222,7 +242,7 @@ class Model(ABC):
     - `_run()`: Runs the model on the given input and returns a dict.
 
     Optionally, you can also override:
-    - `_run_batch_optimized()`: Runs a batch of inputs in an optimized way.
+    - `_run_batch()`: Runs a batch of inputs in an optimized way.
     - `update_kw()`: Updates input keyword arguments with model-specific defaults.
       - For example, if you want to set a default `max_tokens` parameter for text models.
     - `postprocess()`: Postprocesses the raw output dict from `_run()` into a standard format.
@@ -232,8 +252,8 @@ class Model(ABC):
                  model_name: str='',
                  use_cache: bool=True,
                  max_cache_entries: int=RESULTS_CACHE_LIMIT,
-                 enable_auto_batching: bool=False,
-                 max_batch_size: int=100,
+                 enable_auto_batching: bool=True,
+                 max_batch_size: int=10,
                  max_wait_ms: float=50,
                  **kw):
         self.model_cfg = DEFAULT_MODELS.get(model_name)
@@ -373,7 +393,7 @@ class Model(ABC):
             ret = self.cache[cache_key].copy()
             self.timing['n_cache_hits'] += 1
             self.cache.move_to_end(cache_key)  # move to end to keep it fresh
-            self.update_timings(ret, req_start_time=req_start_time)
+            self.update_timings(ret, req_start_time=req_start_time, cache_key=cache_key)
             return ret
         else: # no caching, or cache miss
             if cache_key is not None: # cache miss
@@ -390,7 +410,7 @@ class Model(ABC):
                     ret = await self._batched_run(input, req_start_time=req_start_time, **kw)
                 else:
                     ret = await self._single_run(input, **kw)
-                    self.update_timings(ret, req_start_time=req_start_time)
+                    self.update_timings(ret, req_start_time=req_start_time, cache_key=cache_key)
                 return ret
             finally:
                 # Common cleanup
@@ -404,7 +424,7 @@ class Model(ABC):
                     async with self.condition:
                         self.condition.notify_all()
 
-    async def _single_run(self, input: Any, *, **kw) -> dict:
+    async def _single_run(self, input: Any, **kw) -> dict:
         """Run a single input through the model, with caching and timing, etc.
 
         - input: Input data to process
@@ -498,7 +518,7 @@ class Model(ABC):
             if not item['future'].done():
                 item['future'].set_result(result)
 
-    def update_timings(self, ret: dict, *, req_start_time: float) -> None:
+    def update_timings(self, ret: dict, *, cache_key:str|None, req_start_time: float) -> None:
         """Updates timing statistics after a cache hit or single model run.
 
         - ret: Result dict to augment with timing info
@@ -528,6 +548,12 @@ class ChatModel(Model):
     - Sets default `max_tokens` parameter
     - Defines cache key based on `max_tokens` and input
     - Includes postprocessing for chat completion format
+
+    Input messages can be provided as:
+    - A single string (mapped to a single user message)
+    - A list of `Msg` tuples (role, content)
+    - A list of dicts in OpenAI API format:
+        [{"role": role, "content": content}, ...]
     """
     def update_kw(self, input: Any, **kw) -> dict:
         """Updates keyword arguments with chat model defaults.
@@ -561,6 +587,24 @@ class ChatModel(Model):
         #print(f'Sending back response: {pformat(ret)}')
         return ret
 
+    @classmethod
+    def process_messages(cls, messages: list[Msg]|str) -> list[dict]:
+        """Processes messages into OpenAI API format.
+
+        - messages: List of `Msg` tuples or dicts, or a single string
+
+        Converts:
+        - Single string -> [{"role": "user", "content": string}]
+        - List of (role, content) tuples -> List of {"role": role, "content": content} dicts
+        - Passes through existing dict format unchanged
+        """
+        # if we have a single string -> map to a single user message
+        if isinstance(messages, str):
+            messages = [('user', messages)]
+        # map list of Msg tuples to list of dicts
+        fix_msg = lambda m: {'role': m[0], 'content': m[1]} if isinstance(m, tuple) else m
+        return [fix_msg(m) for m in messages]
+
 
 class LocalChatModel(ChatModel):
     """Model subclass for handling local chat models.
@@ -592,8 +636,7 @@ class LocalChatModel(ChatModel):
 class ExternalChatModel(ChatModel):
     """Model subclass for handling external chat models.
 
-    Routes requests to external API providers (OpenAI, Anthropic, etc.)
-    via the provider system. Supports all standard chat completion parameters.
+    Routes requests to external API providers (OpenAI, Anthropic, etc.) via the provider system.
     """
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running external model: {self.model_name} on input: {input} with kw {kw}')
@@ -602,26 +645,12 @@ class ExternalChatModel(ChatModel):
         else:
             model = self.model_name
         kw = kw or {}
-        kw['messages'] = process_messages(input)
-        ret = await call_external(endpoint='/chat/completions', provider_name=kw.pop('provider', ''), model=model, **kw)
+        kw['messages'] = self.process_messages(input)
+        ret = await call_external(endpoint='/chat/completions',
+                                  provider_name=kw.pop('provider', ''),
+                                  model=model,
+                                  **kw)
         return self.postprocess(input, ret, **kw)
-
-def process_messages(messages: list[Msg]) -> list[dict]:
-    """Processes messages into OpenAI API format.
-
-    - messages: List of `Msg` tuples or dicts, or a single string
-
-    Converts:
-    - Single string → [{"role": "user", "content": string}]
-    - List of (role, content) tuples → List of {"role": role, "content": content} dicts
-    - Passes through existing dict format unchanged
-    """
-    # if we have a single string -> map to a single user message
-    if isinstance(messages, str):
-        messages = [('user', messages)]
-    # map list of Msg tuples to list of dicts
-    fix_msg = lambda m: {'role': m[0], 'content': m[1]} if isinstance(m, tuple) else m
-    return [fix_msg(m) for m in messages]
 
 
 @Singleton
@@ -629,17 +658,21 @@ class VLMModel(ChatModel):
     """Model subclass for handling Vision-Language Models.
 
     Supports multimodal chat with both text and images.
-    Images can be provided as URLs, local paths, or data URLs.
+    The input should be `(image, messages)`. Images can be provided as URLs, local paths, or data
+    URLs. The messages are processed as in `ChatModel`.
     """
+    #TODO figure out image scaling options?
     async def _get_cache_key(self, input: Any, **kw) -> str:
-        image, prompts = input
-        return f"{kw['max_tokens']}:{image}:{str(prompts)}"
+        """Returns cache key based on max_tokens, image, and prompts."""
+        image, messages = input
+        return f"{kw['max_tokens']}:{image}:{str(messages)}"
 
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running VLM model: {self.model_name} on input: {input} with kw {kw}')
         image, messages = input
         kw = kw or {}
-        kw['messages'] = process_messages(messages)
+        kw['messages'] = self.process_messages(messages)
+        # vlms are run externally and need a data url
         if not image.startswith('http') and not image.startswith('data:'):
             with open(image, 'rb') as f:
                 image = data_url_from_file(f)
@@ -650,7 +683,10 @@ class VLMModel(ChatModel):
                 msg['content'] = [{"type": "text", "text": cur_text},
                                   {"type": "image_url", "image_url": {"url": image}}]
                 break
-        ret = await call_external(endpoint='/chat/completions', provider_name=kw.get('provider', ''), model=self.model_name, **kw)
+        ret = await call_external(endpoint='/chat/completions',
+                                  provider_name=kw.get('provider', ''),
+                                  model=self.model_name,
+                                  **kw)
         self.postprocess(input, ret, **kw)
         return ret
 
@@ -666,79 +702,17 @@ class EmbeddingModel(Model):
         assert isinstance(input, str)
         return input
 
-    def postprocess(self, embedding) -> dict:
+    def postprocess(self, embedding: nparray1d) -> dict:
         """Converts embedding to OpenAI-compatible format.
-
-        - embedding: Numpy array containing the embedding vector
 
         Returns dict with OpenAI embeddings API structure.
         """
         return dict(
             object='list',
-            data=[dict(
-                object='embedding',
-                index=0,
-                embedding=embedding.tolist(),
-            )],
+            data=[dict(object='embedding', index=0, embedding=embedding.tolist())],
             model=self.model_name,
             n_dims=len(embedding),
         )
-
-def load_mobilenet():
-    """Loads MobileNetV3 model for image embeddings.
-
-    Returns tuple of (model, preprocess_transform, device).
-    The model has its classification head removed to output feature embeddings.
-    """
-    import torch
-    from torchvision import models, transforms
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
-    model.eval()
-    # Remove classification head
-    # model.features -> conv backbone
-    # model.avgpool -> global average pooling
-    # model.classifier -> remove
-    model.classifier = torch.nn.Identity()
-    model.to(device)
-    preprocess_image = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        ),
-    ])
-    return (model, preprocess_image, device)
-
-def run_mobilenet(input, model, preprocess_image, device: str) -> np.ndarray:
-    """Runs MobileNet inference on a single image.
-
-    - input: Image path, URL, or PIL Image object
-    - model: Loaded PyTorch model
-    - preprocess_image: Image preprocessing transform
-    - device: Device string ('cuda' or 'cpu')
-
-    Returns numpy array containing the image embedding.
-    """
-    import torch
-    times = [time.time()]
-    if isinstance(input, str):
-        if input.startswith('http'):
-            image = Image.open(requests.get(input, stream=True).raw).convert('RGB')
-        else:
-            image = Image.open(input).convert('RGB')
-    else:
-        image = input.convert('RGB')
-    times.append(time.time())
-    input_tensor = preprocess_image(image).unsqueeze(0).to(device)  # create a mini-batch as expected by the model
-    times.append(time.time())
-    with torch.no_grad():
-        embedding = model(input_tensor).squeeze(0).cpu().numpy()
-    times.append(time.time())
-    #print(f'Mobilenet embedding run in {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
-    return embedding
 
 
 def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
@@ -759,21 +733,12 @@ def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
             PROC_MODELS[model_name] = load_clip(model_name)
         elif 'jina' in model_name:
             PROC_MODELS[model_name] = load_jina(model_name)
-        elif 'mobilenet' in model_name:
-            PROC_MODELS[model_name] = load_mobilenet()
-            assert mode == 'image', "MobileNet only supports image embeddings"
         else:
             raise NotImplementedError(f"Unsupported ImageTextEmbeddingModel: {model_name}")
     times.append(time.time())
-    if 'mobilenet' in model_name:
-        # special case for mobilenet
-        model, preprocess_image, device = PROC_MODELS[model_name]
-        embedding = run_mobilenet(input_data, model, preprocess_image, device)
-        ret = embedding
-    else:
-        text_func, image_func = PROC_MODELS[model_name]
-        func = text_func if mode == 'text' else image_func
-        ret = func(input_data)
+    text_func, image_func = PROC_MODELS[model_name]
+    func = text_func if mode == 'text' else image_func
+    ret = func(input_data)
     times.append(time.time())
     #logger.info(f"Process {os.getpid()} ran {model_name} ({mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
     #print(f"Process {os.getpid()} ran {model_name} ({mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
@@ -781,24 +746,48 @@ def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
 
 
 @Singleton
-class OldMobileNetEmbeddingModel(EmbeddingModel):
-    """Model subclass for MobileNet image embeddings with optional auto-batching.
-
-    Loads MobileNetV3 locally and processes images to feature embeddings.
-    Supports optimized batch processing when auto-batching is enabled.
-    """
-    def __init__(self, enable_auto_batching: bool=False, **kw):
-        super().__init__(enable_auto_batching=enable_auto_batching, **kw)
+class MobileNetEmbeddingModel(EmbeddingModel):
+    """Model subclass for MobileNet image embeddings."""
+    def __init__(self, **kw):
+        super().__init__(max_batch_size=10, **kw)
 
     async def _load(self, **kw) -> Any:
-        return load_mobilenet()
+        """Loads MobileNetV3 model for image embeddings.
+
+        The model has its classification head removed to output feature embeddings.
+        Returns tuple of `(model, preprocess_transform, device)`.
+        """
+        import torch
+        from torchvision import models, transforms
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
+        model.eval()
+        # Remove classification head
+        # model.features -> conv backbone
+        # model.avgpool -> global average pooling
+        # model.classifier -> remove
+        model.classifier = torch.nn.Identity()
+        model.to(device)
+        preprocess_image = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ])
+        return (model, preprocess_image, device)
 
     async def _run(self, input: Any, **kw) -> dict:
-        model, preprocess_image, device = self.model
-        embedding = run_mobilenet(input, model, preprocess_image, device)
-        return self.postprocess(embedding)
+        """Runs MobileNet embedding inference on a single image.
 
-    async def _run_batch_optimized(self, batch):
+        This just calls the batched version with a single input.
+        """
+        ret = await self._run_batch([dict(input=input, kw=kw)])
+        return ret[0]
+
+    async def _run_batch(self, batch):
         """Optimized batch processing for MobileNet.
 
         - batch: List of (input, caller, kw, future, cache_key) tuples
@@ -809,35 +798,20 @@ class OldMobileNetEmbeddingModel(EmbeddingModel):
         3. Concurrent execution without blocking the event loop
         """
         import torch
-
-        # Extract inputs and metadata
-        inputs = [item[0] for item in batch]
-
-        # Parallel preprocessing
-        async def preprocess_single(input_data):
-            model, preprocess_image, device = self.model
-
-            def sync_preprocess():
-                if isinstance(input_data, str):
-                    if input_data.startswith('http'):
-                        image = Image.open(requests.get(input_data, stream=True).raw).convert('RGB')
-                    else:
-                        image = Image.open(input_data).convert('RGB')
-                else:
-                    image = input_data.convert('RGB')
-                return preprocess_image(image)
-
-            return await asyncio.to_thread(sync_preprocess)
-
+        logger.debug(f'Running MobileNet batch of size {len(batch)}')
+        model, preprocess_image, device = self.model
+        inputs = [item['input'] for item in batch]
         # Preprocess all images concurrently
+        async def preprocess_single(input_data):
+            """Preprocesses a single image input asynchronously."""
+            image = await pil_image_from_input(input_data, force_rgb=True)
+            return await asyncio.to_thread(preprocess_image, image)
+
         t0 = time.time()
         preprocess_tasks = [preprocess_single(inp) for inp in inputs]
         preprocessed_tensors = await asyncio.gather(*preprocess_tasks)
         t1 = time.time()
-
         # Batch inference
-        model, _, device = self.model
-
         def batch_inference():
             batch_tensor = torch.stack(preprocessed_tensors).to(device)
             with torch.no_grad():
@@ -856,15 +830,14 @@ class OldMobileNetEmbeddingModel(EmbeddingModel):
                 generate=t2 - t0,
                 preprocess_time=(t1 - t0) / len(inputs),
                 inference_time=(t2 - t1),
-                batch_size=len(inputs),
             )
             results.append(result)
-        logger.debug(f"Processed batch of {len(inputs)} in {t2-t0:.2f}s")
+        logger.info(f"Processed batch of {len(inputs)} in {t2-t0:.2f}s")
         return results
 
 
 class ImageTextEmbeddingModel(EmbeddingModel):
-    """Model subclass for joint text/image embeddings using multiprocessing.
+    """Model subclass for image or text (or joint image/text) embeddings.
 
     Uses a `ProcessPoolExecutor` to run embedding models in separate processes,
     avoiding GIL limitations. Supports CLIP, Jina, and MobileNet models.
@@ -923,23 +896,6 @@ class ImageTextEmbeddingModel(EmbeddingModel):
         except Exception as e:
             logger.error(f"Error running {self.model_name} embedding model: {e}")
             return {}
-
-@Singleton
-class MobileNetEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for MobileNet image embeddings using multiprocessing.
-
-    Uses the process-based approach for MobileNet inference.
-    Consider using `OldMobileNetEmbeddingModel` for better performance.
-    """
-    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
-        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
-
-    async def load_feature_funcs(self):
-        """MobileNet only supports image embeddings.
-
-        Raises `NotImplementedError` as this should not be called.
-        """
-        raise NotImplementedError()
 
 @Singleton
 class ClipTextEmbeddingModel(ImageTextEmbeddingModel):

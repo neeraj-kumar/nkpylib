@@ -580,14 +580,13 @@ def quick_test():
         print(call_llm.single('summarize it in 3 sentences', **kwargs))
     if 'imgemb' in test:
         for url in [image_path, image_url, image]:
-            model = 'oldmobilenet'
-            model = 'mobilenet'
             model = 'clip'
+            model = 'mobilenet'
             if 0:
                 ret = embed_image.single(url, model=model, use_cache=False)
                 print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
             else:
-                num = 10
+                num = 100
                 t0 = time.time()
                 futures = embed_image.batch_futures([url]*num, model=model, use_cache=False)
                 results = [f.result() for f in futures]

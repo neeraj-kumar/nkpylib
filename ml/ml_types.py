@@ -15,4 +15,3 @@ nparray2d = np.ndarray
 
 array1d = nparray1d | Sequence[float]
 array2d = nparray2d | Sequence[Sequence[float]]
-
