@@ -114,14 +114,26 @@ RunFuncT = Callable[[Any, Any], dict]
 PROC_MODELS: dict[str, tuple] = {}  # {model_name: (text_func, image_func)}
 
 def _default(name: str) -> str:
-    """Returns the default model full name"""
+    """Returns the default model full name.
+    
+    - name: Short model name or full model name
+    
+    If the name is a key in `DEFAULT_MODELS`, returns the full model name.
+    Otherwise returns the name unchanged.
+    """
     if name not in DEFAULT_MODELS:
         return name
     return DEFAULT_MODELS[name].name
 
 @functools.cache
 def load_clip(model_name=_default('clip')):
-    """Loads clip and returns two embedding functions: one for text, one for images"""
+    """Loads CLIP model and returns embedding functions.
+    
+    - model_name: CLIP model name to load
+    
+    Returns a tuple of (text_embedding_func, image_embedding_func).
+    Both functions return torch tensors with the embeddings.
+    """
     import torch
     from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
     model = CLIPModel.from_pretrained(model_name)
@@ -147,8 +159,14 @@ def load_clip(model_name=_default('clip')):
 
 @functools.cache
 def load_jina(model_name=_default('jina'), dims:int =DEFAULT_MODELS['jina'].default_dims):
-    """Loads jina and returns two embedding functions: one for text, one for images.
-
+    """Loads Jina CLIP model and returns embedding functions.
+    
+    - model_name: Jina model name to load
+    - dims: Embedding dimensions (max 1024)
+    
+    Returns a tuple of (text_embedding_func, image_embedding_func).
+    Both functions return normalized numpy arrays.
+    
     Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance at
     all (and might even slightly improve it for some tasks).
     """
@@ -223,7 +241,13 @@ class Model(ABC):
         return self.model_name
 
     async def load(self, **kw) -> bool:
-        """Loads our model if not already loaded, returning if we actually loaded it"""
+        """Loads the model if not already loaded.
+        
+        - **kw: Additional keyword arguments for loading
+        
+        Returns `True` if the model was actually loaded, `False` if it was already cached.
+        Uses a global model cache to avoid reloading the same model multiple times.
+        """
         model_cache_key = (self.__class__, self.model_name)
         async with self.lock:
             if self.model is None:
@@ -243,7 +267,13 @@ class Model(ABC):
         return False
 
     def update_kw(self, input, **kw) -> dict:
-        """Updates the `kw` input dict with default parameters, etc."""
+        """Updates the keyword arguments with default parameters.
+        
+        - input: The input data being processed
+        - **kw: Keyword arguments to update
+        
+        Override this method in subclasses to add model-specific defaults.
+        """
         return kw
 
     @abstractmethod
@@ -264,7 +294,14 @@ class Model(ABC):
             return await self._original_run(input, caller, **kw)
     
     async def _original_run(self, input: Any, caller: str='', **kw) -> dict:
-        """Original run implementation"""
+        """Original run implementation without auto-batching.
+        
+        - input: Input data to process
+        - caller: Identifier for the calling code (for tracking)
+        - **kw: Additional keyword arguments
+        
+        Handles caching, timing, and coordination between concurrent requests.
+        """
         t0 = time.time()
         cache_key = None
         kw = self.update_kw(input, **kw)
@@ -309,7 +346,15 @@ class Model(ABC):
         return ret
     
     async def _auto_batched_run(self, input: Any, caller: str='', **kw) -> dict:
-        """Auto-batching version of run()"""
+        """Auto-batching version of run().
+        
+        - input: Input data to process
+        - caller: Identifier for the calling code (for tracking)
+        - **kw: Additional keyword arguments
+        
+        Checks cache first, then adds uncached items to a batch for processing.
+        Batches are flushed when full or after a timeout.
+        """
         t0 = time.time()
         kw = self.update_kw(input, **kw)
         
@@ -353,14 +398,23 @@ class Model(ABC):
         return result
     
     async def _batch_timeout(self):
-        """Timer to flush partial batches"""
+        """Timer to flush partial batches.
+        
+        Waits for `max_wait_ms` milliseconds, then flushes any pending requests
+        to avoid indefinite waiting for small batches.
+        """
         await asyncio.sleep(self.max_wait_ms / 1000)
         async with self.batch_lock:
             if self.pending_requests:
                 await self._flush_batch()
     
     async def _flush_batch(self):
-        """Process the current batch"""
+        """Process the current batch of pending requests.
+        
+        Uses optimized batch processing if available (`_run_batch_optimized`),
+        otherwise falls back to concurrent individual processing.
+        Handles caching, timing, and error recovery.
+        """
         if not self.pending_requests:
             return
             
@@ -415,7 +469,13 @@ class Model(ABC):
                 future.set_result(result)
     
     async def _process_batch_individually(self, batch):
-        """Fallback: process batch items individually but concurrently"""
+        """Fallback: process batch items individually but concurrently.
+        
+        - batch: List of (input, caller, kw, future, cache_key, start_time) tuples
+        
+        Used when `_run_batch_optimized` is not available or fails.
+        Processes all items concurrently using `asyncio.gather`.
+        """
         async def process_single(input_data, caller, kw, future, cache_key, start_time):
             return await self._run(input_data, **kw)
         
@@ -425,12 +485,20 @@ class Model(ABC):
 
 class ChatModel(Model):
     """Base class for chat models.
-
-    This currently just sets a default value for `max_tokens`, and defines the cache key as
-    the `max_tokens` and the input string(s).
+    
+    Provides common functionality for text generation models:
+    - Sets default `max_tokens` parameter
+    - Defines cache key based on `max_tokens` and input
+    - Includes postprocessing for chat completion format
     """
     def update_kw(self, input: Any, **kw) -> dict:
-        """Updates the `kw` input dict with default parameters, etc."""
+        """Updates keyword arguments with chat model defaults.
+        
+        - input: Input messages
+        - **kw: Keyword arguments to update
+        
+        Sets default `max_tokens` if not provided.
+        """
         if 'max_tokens' not in kw or not kw['max_tokens']:
             kw['max_tokens'] = self.max_tokens
         return kw
@@ -439,7 +507,14 @@ class ChatModel(Model):
         return f"{kw['max_tokens']}:{str(input)}"
 
     def postprocess(self, input, ret, **kw) -> dict:
-        """Augments the output with additional information."""
+        """Augments the output with chat completion metadata.
+        
+        - input: Original input messages
+        - ret: Raw model output
+        - **kw: Additional parameters used
+        
+        Adds standard OpenAI-compatible fields like model name, timestamp, etc.
+        """
         ret['messages'] = input
         ret['model'] = self.model_name.split('/', 1)[-1]
         ret['max_tokens'] = kw['max_tokens']
@@ -451,11 +526,11 @@ class ChatModel(Model):
 
 class LocalChatModel(ChatModel):
     """Model subclass for handling local chat models.
-
-    This runs llama locally using llama-cpp-python.
-
-    Note this is extremely slow on my current machine (mini-pc, no gpu), and in general I think
-    people recommend using ollama or vllm instead these days.
+    
+    Uses llama-cpp-python to run models locally. Supports GGUF format models.
+    
+    Note: This is extremely slow on machines without GPU acceleration.
+    Consider using ollama or vllm for better performance.
     """
     async def _load(self, **kw) -> Any:
         from llama_cpp import Llama
@@ -477,7 +552,11 @@ class LocalChatModel(ChatModel):
 
 @Singleton
 class ExternalChatModel(ChatModel):
-    """Model subclass for handling external chat models."""
+    """Model subclass for handling external chat models.
+    
+    Routes requests to external API providers (OpenAI, Anthropic, etc.)
+    via the provider system. Supports all standard chat completion parameters.
+    """
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running external model: {self.model_name} on input: {input} with kw {kw}')
         if self.model_name.startswith('models/'):
@@ -490,7 +569,15 @@ class ExternalChatModel(ChatModel):
         return self.postprocess(input, ret, **kw)
 
 def process_messages(messages: list[Msg]) -> list[dict]:
-    """Processes a list of Msg tuples into the format expected by the API."""
+    """Processes messages into OpenAI API format.
+    
+    - messages: List of `Msg` tuples or dicts, or a single string
+    
+    Converts:
+    - Single string → [{"role": "user", "content": string}]
+    - List of (role, content) tuples → List of {"role": role, "content": content} dicts
+    - Passes through existing dict format unchanged
+    """
     # if we have a single string -> map to a single user message
     if isinstance(messages, str):
         messages = [('user', messages)]
@@ -501,7 +588,11 @@ def process_messages(messages: list[Msg]) -> list[dict]:
 
 @Singleton
 class VLMModel(ChatModel):
-    """Model subclass for handling VLM models."""
+    """Model subclass for handling Vision-Language Models.
+    
+    Supports multimodal chat with both text and images.
+    Images can be provided as URLs, local paths, or data URLs.
+    """
     async def _get_cache_key(self, input: Any, **kw) -> str:
         image, prompts = input
         return f"{kw['max_tokens']}:{image}:{str(prompts)}"
@@ -527,15 +618,23 @@ class VLMModel(ChatModel):
 
 
 class EmbeddingModel(Model):
-    """Base class for text embeddings.
-
-    This includes a postprocess() function.
+    """Base class for embedding models.
+    
+    Provides common functionality for text and image embedding models:
+    - Cache key based on input string
+    - Postprocessing to OpenAI-compatible embedding format
     """
     async def _get_cache_key(self, input: Any, **kw) -> str:
         assert isinstance(input, str)
         return input
 
     def postprocess(self, embedding) -> dict:
+        """Converts embedding to OpenAI-compatible format.
+        
+        - embedding: Numpy array containing the embedding vector
+        
+        Returns dict with OpenAI embeddings API structure.
+        """
         return dict(
             object='list',
             data=[dict(
@@ -548,7 +647,11 @@ class EmbeddingModel(Model):
         )
 
 def load_mobilenet():
-    """Loads mobilenetv2 and returns (model, preprocess_image, device)"""
+    """Loads MobileNetV3 model for image embeddings.
+    
+    Returns tuple of (model, preprocess_transform, device).
+    The model has its classification head removed to output feature embeddings.
+    """
     import torch
     from torchvision import models, transforms
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -572,6 +675,15 @@ def load_mobilenet():
     return (model, preprocess_image, device)
 
 def run_mobilenet(input, model, preprocess_image, device: str) -> np.ndarray:
+    """Runs MobileNet inference on a single image.
+    
+    - input: Image path, URL, or PIL Image object
+    - model: Loaded PyTorch model
+    - preprocess_image: Image preprocessing transform
+    - device: Device string ('cuda' or 'cpu')
+    
+    Returns numpy array containing the image embedding.
+    """
     import torch
     times = [time.time()]
     if isinstance(input, str):
@@ -592,7 +704,15 @@ def run_mobilenet(input, model, preprocess_image, device: str) -> np.ndarray:
 
 
 def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
-    """Class method that handles both loading and execution"""
+    """Worker function for processing embeddings in separate processes.
+    
+    - model_name: Name of the model to use
+    - mode: Either 'text' or 'image'
+    - input_data: Input text string or image path/URL
+    
+    Handles model loading (with caching) and inference execution.
+    Used by `ImageTextEmbeddingModel` for multiprocessing.
+    """
     global PROC_MODELS
     times = [time.time()]
     if model_name not in PROC_MODELS:
@@ -624,7 +744,11 @@ def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
 
 @Singleton
 class OldMobileNetEmbeddingModel(EmbeddingModel):
-    """Model subclass for handling MobileNet image embeddings."""
+    """Model subclass for MobileNet image embeddings with optional auto-batching.
+    
+    Loads MobileNetV3 locally and processes images to feature embeddings.
+    Supports optimized batch processing when auto-batching is enabled.
+    """
     def __init__(self, enable_auto_batching: bool=False, **kw):
         super().__init__(enable_auto_batching=enable_auto_batching, **kw)
     
@@ -637,7 +761,15 @@ class OldMobileNetEmbeddingModel(EmbeddingModel):
         return self.postprocess(embedding)
     
     async def _run_batch_optimized(self, batch):
-        """Optimized batch processing for MobileNet"""
+        """Optimized batch processing for MobileNet.
+        
+        - batch: List of (input, caller, kw, future, cache_key, start_time) tuples
+        
+        Processes multiple images efficiently by:
+        1. Parallel image preprocessing using `asyncio.to_thread`
+        2. Batched model inference using `torch.stack`
+        3. Concurrent execution without blocking the event loop
+        """
         import torch
         
         # Extract inputs and metadata
@@ -694,7 +826,11 @@ class OldMobileNetEmbeddingModel(EmbeddingModel):
 
 
 class ImageTextEmbeddingModel(EmbeddingModel):
-    """Model subclass for handling joint text/image embeddings."""
+    """Model subclass for joint text/image embeddings using multiprocessing.
+    
+    Uses a `ProcessPoolExecutor` to run embedding models in separate processes,
+    avoiding GIL limitations. Supports CLIP, Jina, and MobileNet models.
+    """
     def __init__(self, mode='text', model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
         super().__init__(model_name=model_name, use_cache=use_cache, **kw)
         assert mode in ('text', 'image')
@@ -708,7 +844,11 @@ class ImageTextEmbeddingModel(EmbeddingModel):
             self.executor.shutdown(wait=False)
 
     async def load_feature_funcs(self):
-        """Returns two functions: one for text features, one for image features."""
+        """Returns embedding functions for text and images.
+        
+        Should be overridden in subclasses to return a tuple of
+        (text_embedding_func, image_embedding_func).
+        """
         raise NotImplementedError("This method should be overridden in subclasses")
 
     async def _load(self, **kw) -> Any:
@@ -748,27 +888,45 @@ class ImageTextEmbeddingModel(EmbeddingModel):
 
 @Singleton
 class MobileNetEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for handling MobileNet image embeddings."""
+    """Model subclass for MobileNet image embeddings using multiprocessing.
+    
+    Uses the process-based approach for MobileNet inference.
+    Consider using `OldMobileNetEmbeddingModel` for better performance.
+    """
     def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
         super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
-        """Returns two functions: one for text features, one for image features."""
+        """MobileNet only supports image embeddings.
+        
+        Raises `NotImplementedError` as this should not be called.
+        """
         raise NotImplementedError()
 
 @Singleton
 class ClipTextEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for handling CLIP text embeddings."""
+    """Model subclass for CLIP text embeddings using multiprocessing.
+    
+    Processes text through CLIP's text encoder to generate embeddings
+    compatible with CLIP's image embeddings.
+    """
     def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=1, **kw):
         super().__init__(mode='text', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
-        """Returns two functions: one for text features, one for image features."""
+        """Loads CLIP model functions.
+        
+        Returns tuple of (text_embedding_func, image_embedding_func).
+        """
         return load_clip()
 
 @Singleton
 class ClipImageEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for handling CLIP text/image embeddings."""
+    """Model subclass for CLIP image embeddings using multiprocessing.
+    
+    Processes images through CLIP's image encoder to generate embeddings
+    compatible with CLIP's text embeddings.
+    """
     def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=1, **kw):
         super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
@@ -779,18 +937,29 @@ class ClipImageEmbeddingModel(ImageTextEmbeddingModel):
 
 @Singleton
 class JinaTextEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for handling Jina text embeddings."""
+    """Model subclass for Jina text embeddings using multiprocessing.
+    
+    Uses Jina CLIP v2 model for text embeddings. Generally higher quality
+    than OpenAI CLIP but slower to compute.
+    """
     def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
         super().__init__(mode='text', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
     async def load_feature_funcs(self):
-        """Returns two functions: one for text features, one for image features."""
+        """Loads Jina model functions.
+        
+        Returns tuple of (text_embedding_func, image_embedding_func).
+        """
         return load_jina()
 
 
 @Singleton
 class JinaImageEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for handling Jina image embeddings."""
+    """Model subclass for Jina image embeddings using multiprocessing.
+    
+    Uses Jina CLIP v2 model for image embeddings. Generally higher quality
+    than OpenAI CLIP but slower to compute.
+    """
     def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
         super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
 
@@ -801,7 +970,11 @@ class JinaImageEmbeddingModel(ImageTextEmbeddingModel):
 
 @Singleton
 class SentenceTransformerModel(EmbeddingModel):
-    """Model subclass for handling SentenceTransformer embeddings."""
+    """Model subclass for SentenceTransformer text embeddings.
+    
+    Uses the sentence-transformers library for high-quality text embeddings.
+    Default model is 'BAAI/bge-large-en-v1.5' which performs well on benchmarks.
+    """
     async def _load(self, **kw) -> Any:
         from sentence_transformers import SentenceTransformer # type: ignore
         return SentenceTransformer(self.model_name)
@@ -813,7 +986,11 @@ class SentenceTransformerModel(EmbeddingModel):
 
 @Singleton
 class ExternalEmbeddingModel(EmbeddingModel):
-    """Model subclass for handling external API text embeddings."""
+    """Model subclass for external API text embeddings.
+    
+    Routes embedding requests to external providers (OpenAI, etc.)
+    via the provider system.
+    """
     async def _run(self, input: Any, **kw) -> dict:
         ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
         ret['input'] = input
@@ -822,7 +999,14 @@ class ExternalEmbeddingModel(EmbeddingModel):
 
 @Singleton
 class TextExtractionModel(Model):
-    """Model subclass for extracting text from URLs or file paths."""
+    """Model subclass for extracting text from various sources.
+    
+    Supports text extraction from:
+    - PDF files
+    - Images (via OCR)
+    - Web pages
+    - Plain text files
+    """
     async def _get_cache_key(self, input: Any, **kw) -> str:
         assert isinstance(input, str)
         return input
@@ -838,11 +1022,12 @@ class TextExtractionModel(Model):
 
 
 class TranscriptionModel(Model):
-    """Base class for transcription models.
-
-    This checks that the input is a valid path, and uses the hash of the file as the cache key.
-    It also includes the language (default 'en') and 'chunk_level' (default 'segment') in the cache
-    key.
+    """Base class for speech transcription models.
+    
+    Provides common functionality for audio transcription:
+    - Cache key based on file hash, language, and chunk level
+    - Support for various audio formats
+    - Language detection and specification
     """
     async def _get_cache_key(self, input: Any, **kw) -> str:
         with open(input, 'rb') as f:
@@ -851,7 +1036,11 @@ class TranscriptionModel(Model):
 
 
 class LocalTranscriptionModel(TranscriptionModel):
-    """A local transcription model using faster-whisper."""
+    """Local speech transcription using faster-whisper.
+    
+    Runs Whisper models locally using the faster-whisper library
+    for improved performance over the original OpenAI implementation.
+    """
     async def _load(self, n_threads=12, **kw) -> Any: # type: ignore[override]
         from faster_whisper import WhisperModel # type: ignore
         model_name = 'large-v3'
@@ -877,7 +1066,11 @@ class LocalTranscriptionModel(TranscriptionModel):
 
 @Singleton
 class ExternalTranscriptionModel(TranscriptionModel):
-    """Model subclass for handling speech transcription."""
+    """External speech transcription via API providers.
+    
+    Routes transcription requests to external providers
+    that support Whisper or similar models.
+    """
     async def _run(self, input: Any, **kw) -> dict:
         logger.debug(f'Running transcription model: {self.model_name} with {input}, {kw}')
         ret = await call_provider(
@@ -904,7 +1097,14 @@ ALL_SINGLETON_MODELS = [
 
 @app.get("/v1/status")
 async def status():
-    """Returns various kinds of status"""
+    """Returns server status and model information.
+    
+    Provides information about:
+    - Loaded models and their cache status
+    - Timing statistics for each model instance
+    - Current active requests and callers
+    - Cache sizes and hit rates
+    """
     ret = dict(
         ts=time.time(),
         MODEL_CACHE=[str(k) for k in MODEL_CACHE],
@@ -955,7 +1155,13 @@ class ChatRequest(BaseRequest):
 
 
 async def chat_impl(req: ChatRequest):
-    """Generates chat response for the given messages using the given model."""
+    """Implementation for chat completion endpoints.
+    
+    - req: `ChatRequest` containing messages and parameters
+    
+    Routes to either local or external chat models based on model name.
+    Supports both `/v1/chat` and `/v1/chat/completions` endpoints.
+    """
     logger.debug(f'running chat model')
     # note that we only need to look up the default model to know whether to use local or external
     if req.model in DEFAULT_MODELS:
@@ -976,12 +1182,22 @@ async def chat_impl(req: ChatRequest):
 
 @app.post("/v1/chat")
 async def chat(req: ChatRequest):
-    """Generates chat response for the given messages using the given model."""
+    """Chat completion endpoint.
+    
+    - req: `ChatRequest` with messages and model parameters
+    
+    Returns OpenAI-compatible chat completion response.
+    """
     return await chat_impl(req)
 
 @app.post("/v1/chat/completions")
 async def chat_completion(req: ChatRequest):
-    """Generates chat response for the given messages using the given model."""
+    """OpenAI-compatible chat completions endpoint.
+    
+    - req: `ChatRequest` with messages and model parameters
+    
+    Returns OpenAI-compatible chat completion response.
+    """
     return await chat_impl(req)
 
 # setup fastapi VLM endpoint
@@ -994,7 +1210,13 @@ class VLMRequest(BaseRequest):
 
 @app.post("/v1/vlm")
 async def vlm(req: VLMRequest):
-    """Generates VLM chat response for the given image and messages using the given model."""
+    """Vision-Language Model endpoint for multimodal chat.
+    
+    - req: `VLMRequest` with image, messages, and model parameters
+    
+    Processes both image and text inputs to generate contextual responses.
+    Images can be URLs, local paths, or data URLs.
+    """
     # note that we don't need to look up the default model, since it's always external
     model = VLMModel(model_name=req.model, use_cache=req.use_cache)
     print(f'Running VLM model {req.model} on image {req.image} and messages {req.messages}')
@@ -1015,7 +1237,13 @@ class TextEmbeddingRequest(BaseRequest):
 
 @app.post("/v1/embeddings")
 async def text_embeddings(req: TextEmbeddingRequest):
-    """Generates embeddings for the given text using the given model."""
+    """Text embedding endpoint.
+    
+    - req: `TextEmbeddingRequest` with input text and model name
+    
+    Returns OpenAI-compatible embedding response with vector data.
+    Supports CLIP, Jina, SentenceTransformers, and external models.
+    """
     req.model = _default(req.model)
     model_class_by_name = {
         _default('clip'): lambda **kw: ClipTextEmbeddingModel(**kw),
@@ -1035,7 +1263,13 @@ class ImageEmbeddingRequest(BaseRequest):
 
 @app.post("/v1/image_embeddings")
 async def image_embeddings(req: ImageEmbeddingRequest):
-    """Generates embeddings for the given image url (or local path) using the given model."""
+    """Image embedding endpoint.
+    
+    - req: `ImageEmbeddingRequest` with image URL/path and model name
+    
+    Returns embedding response with vector data for the input image.
+    Supports CLIP, Jina, and MobileNet models.
+    """
     req.model = _default(req.model)
     if req.model == _default('clip'):
         Cls = ClipImageEmbeddingModel
@@ -1059,7 +1293,13 @@ class StrSimRequest(BaseRequest):
 
 @app.post("/v1/strsim")
 async def strsim(req: StrSimRequest):
-    """Computes the strsim between `a` and `b` (higher is more similar)"""
+    """String similarity endpoint using embedding cosine similarity.
+    
+    - req: `StrSimRequest` with two strings and model name
+    
+    Embeds both strings and computes cosine similarity.
+    Returns similarity score (higher = more similar) and timing information.
+    """
     req.model = _default(req.model)
     # embed both texts by calling the text_embeddings function
     timings: dict[str, float] = {}
@@ -1093,7 +1333,13 @@ class GetTextRequest(BaseRequest):
 
 @app.post("/v1/get_text")
 async def get_text_api(req: GetTextRequest):
-    """Gets the text from the given URL or path of pdf, image, or text."""
+    """Text extraction endpoint.
+    
+    - req: `GetTextRequest` with URL or file path
+    
+    Extracts text from various sources including PDFs, images, and web pages.
+    Returns extracted text or error information.
+    """
     model = TextExtractionModel(model_name='text', use_cache=req.use_cache)
     ret = await model.run(input=req.url, caller=req.caller, **(req.kwargs or {}))
     return ret
@@ -1108,7 +1354,13 @@ class TranscriptionRequest(BaseRequest):
 
 @app.post("/v1/transcription")
 async def speech_transcription(req: TranscriptionRequest):
-    """Generates a transcription object for the given audio (path, url, or bytes)."""
+    """Speech transcription endpoint.
+    
+    - req: `TranscriptionRequest` with audio URL/path and parameters
+    
+    Transcribes audio to text using Whisper models (local or external).
+    Supports language specification and different chunk levels.
+    """
     ModelClass = LocalTranscriptionModel if req.model == 'local-transcription' else ExternalTranscriptionModel
     logger.info(f'In speech transcription, got model {req.model} and cls {ModelClass}')
     model = ModelClass(model_name=req.model, use_cache=req.use_cache)
@@ -1125,13 +1377,21 @@ async def speech_transcription(req: TranscriptionRequest):
 
 @app.get("/test")
 async def test_api():
+    """Simple test endpoint for server health checks.
+    
+    Returns a basic "Hello world" response to verify the server is running.
+    """
     print(f'got request for test: {time.time()}')
     #await asyncio.sleep(10)
     return "Hello world\n"
 
 
 def cleanup_executors():
-    """Clean up all executors more aggressively"""
+    """Clean up all process executors on server shutdown.
+    
+    Shuts down all tracked `ProcessPoolExecutor` instances to prevent
+    hanging processes when the server restarts or shuts down.
+    """
     for executor in _EXECUTORS:
         try:
             executor.shutdown(wait=False)
