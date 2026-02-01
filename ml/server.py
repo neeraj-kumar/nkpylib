@@ -170,7 +170,13 @@ def load_jina(model_name=_default('jina'), dims:int =DEFAULT_MODELS['jina'].defa
 
 class Model(ABC):
     """Base class for models, providing a common interface for loading and running models."""
-    def __init__(self, model_name: str='', use_cache: bool=True, enable_auto_batching: bool=False, batch_size: int=4, max_wait_ms: int=50, **kw):
+    def __init__(self,
+                 model_name: str='',
+                 use_cache: bool=True,
+                 enable_auto_batching: bool=False,
+                 max_batch_size: int=4,
+                 max_wait_ms: float=50,
+                 **kw):
         self.model_cfg = DEFAULT_MODELS.get(model_name)
         if self.model_cfg:
             model_name = self.model_cfg.name
@@ -201,7 +207,7 @@ class Model(ABC):
         
         # Auto-batching setup
         self.enable_auto_batching = enable_auto_batching
-        self.batch_size = batch_size
+        self.max_batch_size = max_batch_size
         self.max_wait_ms = max_wait_ms
         if enable_auto_batching:
             self.pending_requests: list = []
@@ -334,7 +340,7 @@ class Model(ABC):
                 self.batch_timer = asyncio.create_task(self._batch_timeout())
             
             # Process batch if full
-            if len(self.pending_requests) >= self.batch_size:
+            if len(self.pending_requests) >= self.max_batch_size:
                 await self._flush_batch()
         
         result = await future
@@ -669,13 +675,11 @@ class OldMobileNetEmbeddingModel(EmbeddingModel):
         
         batch_embeddings = await asyncio.to_thread(batch_inference)
         t2 = time.time()
-        
         # Create individual results with proper timing/metadata
         results = []
         for i, input_data in enumerate(inputs):
             embedding = batch_embeddings[i]
             result = self.postprocess(embedding)
-            
             # Add timing info (shared across batch)
             result['timing'] = dict(
                 model=self.model_name,
@@ -685,7 +689,6 @@ class OldMobileNetEmbeddingModel(EmbeddingModel):
                 batch_size=len(inputs),
             )
             results.append(result)
-        
         logger.debug(f"Processed batch of {len(inputs)} in {t2-t0:.2f}s")
         return results
 
