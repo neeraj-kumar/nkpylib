@@ -331,8 +331,24 @@ class Model(ABC):
 
     @abstractmethod
     async def _run(self, input: Any, **kw) -> dict:
-        """Run implementation. Override this in your subclass"""
+        """Run implementation for a single `input`. Override this in your subclass"""
         ...
+
+    async def _run_batch(self, batch):
+        """Process a batch of items individually but async-concurrently.
+
+        Each item in the `batch` is a dict containing:
+        - input: Input data
+        - kw: Keyword arguments
+
+        Override this to provide optimized batch processing.
+        """
+        async def process_single(input, kw):
+            return await self._run(input_data, **kw)
+
+        tasks = [process_single(item['input'], item['kw']) for item in batch]
+        return await asyncio.gather(*tasks)
+
 
     async def run(self, input: Any, caller: str='', **kw) -> dict:
         """Runs the model with given `input` and `kw`.
@@ -341,35 +357,13 @@ class Model(ABC):
 
         This calls either _single_run() or _batched_run() depending on whether auto-batching is
         enabled or not.
+
+        This handles some of the common functionality like timing, caching, etc.
         """
-        # Common initialization
-        t0 = time.time()
+        req_start_time = time.time()
         kw = self.update_kw(input, **kw)
-        self.callers[caller] += 1
-        
-        try:
-            # Route to appropriate implementation
-            if self.enable_auto_batching:
-                result = await self._batched_run(input, caller, kw, t0)
-            else:
-                result = await self._single_run(input, caller, kw, t0)
-            return result
-        finally:
-            # Common cleanup
-            self.callers[caller] -= 1
-
-    async def _single_run(self, input: Any, caller: str, kw: dict, t0: float) -> dict:
-        """Run a single input through the model, with caching and timing, etc.
-
-        - input: Input data to process
-        - caller: Identifier for the calling code (for tracking)
-        - kw: Keyword arguments (already processed)
-        - t0: Start time
-
-        Handles caching, timing, and coordination between concurrent requests.
-        """
-        cache_key = None
         # get the cache key and load the model concurrently (only if needed)
+        cache_key = None
         if self.use_cache or self.model is None:
             cache_key, self.timing['did_load'] = await asyncio.gather(
                 self._get_cache_key(input, **kw) if self.use_cache else asyncio.sleep(0),
@@ -379,7 +373,9 @@ class Model(ABC):
             ret = self.cache[cache_key].copy()
             self.timing['n_cache_hits'] += 1
             self.cache.move_to_end(cache_key)  # move to end to keep it fresh
-        else:
+            self.update_timings(ret, req_start_time=req_start_time)
+            return ret
+        else: # no caching, or cache miss
             if cache_key is not None: # cache miss
                 # make sure no one else is running this exact input
                 if cache_key in self.current:
@@ -387,79 +383,77 @@ class Model(ABC):
                         await self.condition.wait_for(lambda: cache_key not in self.current)
                 self.timing['n_cache_misses'] += 1
                 self.current.add(cache_key)
-            t2 = time.time()
-            ret = await self._run(input, **kw)
-            t3 = time.time()
-            self.timing['n_inferences'] += 1
-            self.timing['inference_time'] += (t3 - t2)
-            if cache_key is not None: # add to cache
-                self.cache[cache_key] = ret.copy()
-                while len(self.cache) > self.max_cache_entries:
-                    self.cache.popitem(last=False)
-                self.current.remove(cache_key)
-                async with self.condition:
-                    self.condition.notify_all()
-        t1 = time.time()
-        self.timing['n_calls'] += 1
-        self.timing['generate_all'] += t1 - t0
-        self.timing['load_elapsed'] = t1 - self.timing.get('load_ts', t0)
-        self.timing['throughput'] = self.timing['n_inferences'] / self.timing['load_elapsed'] if self.timing['load_elapsed'] > 0 else 0
-        self.timing['avg_generate'] = self.timing['generate_all'] / (self.timing['n_inferences']+1)
-        ret['timing'] = dict(
-            self.timing,
-            generate=t1-t0,
-            found_cache=cache_key and cache_key in self.cache,
+            self.callers[caller] += 1
+            try:
+                # Route to appropriate implementation
+                if self.enable_auto_batching:
+                    ret = await self._batched_run(input, req_start_time=req_start_time, **kw)
+                else:
+                    ret = await self._single_run(input, **kw)
+                    self.update_timings(ret, req_start_time=req_start_time)
+                return ret
+            finally:
+                # Common cleanup
+                self.callers[caller] -= 1
+                # update cache
+                if cache_key is not None:
+                    self.cache[cache_key] = ret.copy()
+                    while len(self.cache) > self.max_cache_entries:
+                        self.cache.popitem(last=False)
+                    self.current.pop(cache_key, None)
+                    async with self.condition:
+                        self.condition.notify_all()
+
+    async def _single_run(self, input: Any, *, **kw) -> dict:
+        """Run a single input through the model, with caching and timing, etc.
+
+        - input: Input data to process
+        - kw: Keyword arguments (already processed)
+
+        Handles caching, timing, and coordination between concurrent requests.
+        """
+        t2 = time.time()
+        ret = await self._run(input, **kw)
+        t3 = time.time()
+        ret.setdefault('timing', {}).update(
+            run_start=t2,
+            run_end=t3,
+            run_time=t3 - t2,
+            from_batch=False,
         )
-        logger.debug(f"Model {self.model_name} run in {t1-t0:.2f}s")
+        self.timing['n_inferences'] += 1
+        self.timing['inference_time'] += (t3 - t2)
         return ret
 
-    async def _batched_run(self, input: Any, caller: str, kw: dict, t0: float) -> dict:
+    async def _batched_run(self, input: Any, *, req_start_time: float, **kw) -> dict:
         """Runs the model with auto-batching.
 
-        - input: Input data to process (perhaps not immediately)
-        - caller: Identifier for the calling code (for tracking)
-        - kw: Keyword arguments (already processed)
-        - t0: Start time
+        - input: Input data to process
+        - kw: Keyword arguments
+        - req_start_time: Start time
 
-        Checks cache first, then adds uncached items to a batch for processing.
         Batches are flushed when full or after a timeout.
         """
-        cache_key = None
-        if self.use_cache:
-            cache_key = await self._get_cache_key(input, **kw)
-            if cache_key in self.cache:
-                ret = self.cache[cache_key].copy()
-                ret['timing'] = dict(self.timing, generate=time.time() - t0, found_cache=True, from_batch=False)
-                self.timing['n_cache_hits'] += 1
-                self.cache.move_to_end(cache_key)
-                return ret
-
-        # Ensure model is loaded
-        await self.load(**kw)
-
-        # Batch uncached items
         future = asyncio.Future()
         batch_start_time = time.time()
-
         async with self.batch_lock:
-            self.pending_requests.append((input, caller, kw, future, cache_key, batch_start_time))
-
-            # Start timer if this is the first request
+            req = dict(
+                input=input,
+                kw=kw,
+                future=future,
+            )
+            self.pending_requests.append(req)
+            # start timer if this is the first request
             if len(self.pending_requests) == 1:
                 self.batch_timer = asyncio.create_task(self._batch_timeout())
-
-            # Process batch if full
+            # process batch if full
             if len(self.pending_requests) >= self.max_batch_size:
                 await self._flush_batch()
-
-        result = await future
-
-        # Add individual timing
-        total_time = time.time() - t0
-        result['timing']['total_generate'] = total_time
-        result['timing']['wait_time'] = result['timing'].get('batch_start', batch_start_time) - t0
-
-        return result
+        ret = await future
+        total_time = time.time() - req_start_time
+        ret['timing']['total_generate'] = total_time
+        ret['timing']['wait_time'] = ret['timing'].get('batch_start', batch_start_time) - req_start_time
+        return ret
 
     async def _batch_timeout(self):
         """Timer to flush partial batches.
@@ -473,78 +467,58 @@ class Model(ABC):
                 await self._flush_batch()
 
     async def _flush_batch(self):
-        """Process the current batch of pending requests.
-
-        Uses optimized batch processing if available (`_run_batch_optimized`),
-        otherwise falls back to concurrent individual processing.
-        Handles caching, timing, and error recovery.
+        """Process the current batch of pending requests, handling caching, timing, etc.
         """
         if not self.pending_requests:
             return
-
         batch = self.pending_requests[:]
         self.pending_requests.clear()
         if self.batch_timer:
             self.batch_timer.cancel()
             self.batch_timer = None
-
         batch_start_time = time.time()
-
-        # Use optimized batch processing if available
-        try:
-            if hasattr(self, '_run_batch_optimized'):
-                results = await self._run_batch_optimized(batch)
-            else:
-                # Fallback: process individually but concurrently
-                results = await self._process_batch_individually(batch)
-        except Exception as e:
-            logger.warning(f"Batch processing failed: {e}, falling back to individual")
-            results = await self._process_batch_individually(batch)
-
+        results = await self._run_batch(batch)
         batch_end_time = time.time()
         batch_inference_time = batch_end_time - batch_start_time
-
         # Update global timing stats
         self.timing['n_batch_calls'] += 1
         self.timing['n_batch_inferences'] += len(batch)
         self.timing['inference_time'] += batch_inference_time
-
-        # Cache and distribute results with proper timing
-        for (input_data, caller, kw, future, cache_key, start_time), result in zip(batch, results):
-            # Cache result
-            if cache_key and self.use_cache:
-                self.cache[cache_key] = result.copy()
-                while len(self.cache) > RESULTS_CACHE_LIMIT:
-                    self.cache.popitem(last=False)
-
-            # Add timing metadata
-            result['timing'].update(dict(
+        # update each item's timing and set the result
+        for item, result in zip(batch, results):
+            result.setdefault('timing', {}).update(
                 batch_start=batch_start_time,
                 batch_end=batch_end_time,
                 batch_size=len(batch),
-                batch_inference_time=batch_inference_time / len(batch),
+                avg_inference_time=batch_inference_time / len(batch),
                 from_batch=True,
                 found_cache=False,
-            ))
-
-            self.callers[caller] += 1
+            )
             self.timing['n_calls'] += 1
-            if not future.done():
-                future.set_result(result)
+            if not item['future'].done():
+                item['future'].set_result(result)
 
-    async def _process_batch_individually(self, batch):
-        """Fallback: process batch items individually but concurrently.
+    def update_timings(self, ret: dict, *, req_start_time: float) -> None:
+        """Updates timing statistics after a cache hit or single model run.
 
-        - batch: List of (input, caller, kw, future, cache_key, start_time) tuples
-
-        Used when `_run_batch_optimized` is not available or fails.
-        Processes all items concurrently using `asyncio.gather`.
+        - ret: Result dict to augment with timing info
+        - req_start_time: Start time of the request
         """
-        async def process_single(input_data, caller, kw, future, cache_key, start_time):
-            return await self._run(input_data, **kw)
-
-        tasks = [process_single(*item) for item in batch]
-        return await asyncio.gather(*tasks)
+        t1 = time.time()
+        self.timing['n_calls'] += 1
+        self.timing['generate_all'] += t1 - req_start_time
+        self.timing['load_elapsed'] = t1 - self.timing.get('load_ts', req_start_time)
+        if self.timing['load_elapsed'] > 0:
+            self.timing['throughput'] = self.timing['n_inferences'] / self.timing['load_elapsed']
+        else:
+            self.timing['throughput'] = 0
+        self.timing['avg_generate'] = self.timing['generate_all'] / (self.timing['n_inferences']+1)
+        ret.setdefault('timing', {}).update(
+            self.timing,
+            generate=t1-req_start_time,
+            found_cache=cache_key and cache_key in self.cache,
+        )
+        logger.debug(f"Model {self.model_name} run in {t1-req_start_time:.2f}s")
 
 
 class ChatModel(Model):
@@ -827,7 +801,7 @@ class OldMobileNetEmbeddingModel(EmbeddingModel):
     async def _run_batch_optimized(self, batch):
         """Optimized batch processing for MobileNet.
 
-        - batch: List of (input, caller, kw, future, cache_key, start_time) tuples
+        - batch: List of (input, caller, kw, future, cache_key) tuples
 
         Processes multiple images efficiently by:
         1. Parallel image preprocessing using `asyncio.to_thread`
