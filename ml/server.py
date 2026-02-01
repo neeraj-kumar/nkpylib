@@ -226,7 +226,7 @@ class Model(ABC):
                  model_name: str='',
                  use_cache: bool=True,
                  max_cache_entries: int=RESULTS_CACHE_LIMIT,
-                 enable_auto_batching: bool=True,
+                 enable_auto_batching: bool=False,
                  max_batch_size: int=10,
                  max_wait_ms: float=50,
                  **kw):
@@ -340,7 +340,7 @@ class Model(ABC):
         Override this to provide optimized batch processing.
         """
         async def process_single(input, kw):
-            return await self._run(input_data, **kw)
+            return await self._run(input, **kw)
 
         tasks = [process_single(item['input'], item['kw']) for item in batch]
         return await asyncio.gather(*tasks)
@@ -676,6 +676,10 @@ class EmbeddingModel(Model):
     - Cache key based on input string
     - Postprocessing to OpenAI-compatible embedding format
     """
+    def __init__(self, **kw):
+        enable_auto_batching = kw.pop('enable_auto_batching', True)
+        super().__init__(enable_auto_batching=enable_auto_batching, **kw)
+
     async def _get_cache_key(self, input: Any, **kw) -> str:
         assert isinstance(input, str)
         return input
@@ -739,9 +743,6 @@ class EmbeddingModel(Model):
 @Singleton
 class MobileNetEmbeddingModel(EmbeddingModel):
     """Model subclass for MobileNet image embeddings."""
-    def __init__(self, **kw):
-        super().__init__(max_batch_size=10, **kw)
-
     async def _load(self, **kw) -> Any:
         """Loads MobileNetV3 model for image embeddings.
 
@@ -856,6 +857,9 @@ class ExternalEmbeddingModel(EmbeddingModel):
     Routes embedding requests to external providers (OpenAI, etc.)
     via the provider system.
     """
+    def __init__(self, **kw):
+        super().__init__(enable_auto_batching=True, **kw)
+
     async def _run(self, input: Any, **kw) -> dict:
         ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
         ret['input'] = input
@@ -1082,7 +1086,8 @@ async def vlm(req: VLMRequest):
     """
     # note that we don't need to look up the default model, since it's always external
     model = VLMModel(model_name=req.model, use_cache=req.use_cache)
-    print(f'Running VLM model {req.model} on image {req.image} and messages {req.messages}')
+    print(f'Running VLM model {req.model} on image {req.image}')
+    #print(f'Running VLM model {req.model} on image {req.image} and messages {req.messages}')
     ret = await model.run(
         input=(req.image, req.messages),
         max_tokens=req.max_tokens,
