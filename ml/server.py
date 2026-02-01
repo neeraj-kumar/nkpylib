@@ -342,22 +342,33 @@ class Model(ABC):
         This calls either _single_run() or _batched_run() depending on whether auto-batching is
         enabled or not.
         """
-        func = self._batched_run if self.enable_auto_batching else self._single_run
-        return await func(input, caller=caller, **kw)
+        # Common initialization
+        t0 = time.time()
+        kw = self.update_kw(input, **kw)
+        self.callers[caller] += 1
+        
+        try:
+            # Route to appropriate implementation
+            if self.enable_auto_batching:
+                result = await self._batched_run(input, caller, kw, t0)
+            else:
+                result = await self._single_run(input, caller, kw, t0)
+            return result
+        finally:
+            # Common cleanup
+            self.callers[caller] -= 1
 
-    async def _single_run(self, input: Any, caller: str='', **kw) -> dict:
+    async def _single_run(self, input: Any, caller: str, kw: dict, t0: float) -> dict:
         """Run a single input through the model, with caching and timing, etc.
 
         - input: Input data to process
         - caller: Identifier for the calling code (for tracking)
-        - **kw: Additional keyword arguments
+        - kw: Keyword arguments (already processed)
+        - t0: Start time
 
         Handles caching, timing, and coordination between concurrent requests.
         """
-        t0 = time.time()
         cache_key = None
-        kw = self.update_kw(input, **kw)
-        self.callers[caller] += 1
         # get the cache key and load the model concurrently (only if needed)
         if self.use_cache or self.model is None:
             cache_key, self.timing['did_load'] = await asyncio.gather(
@@ -389,7 +400,6 @@ class Model(ABC):
                 async with self.condition:
                     self.condition.notify_all()
         t1 = time.time()
-        self.callers[caller] -= 1
         self.timing['n_calls'] += 1
         self.timing['generate_all'] += t1 - t0
         self.timing['load_elapsed'] = t1 - self.timing.get('load_ts', t0)
@@ -403,18 +413,17 @@ class Model(ABC):
         logger.debug(f"Model {self.model_name} run in {t1-t0:.2f}s")
         return ret
 
-    async def _batched_run(self, input: Any, caller: str='', **kw) -> dict:
+    async def _batched_run(self, input: Any, caller: str, kw: dict, t0: float) -> dict:
         """Runs the model with auto-batching.
 
         - input: Input data to process (perhaps not immediately)
         - caller: Identifier for the calling code (for tracking)
-        - **kw: Additional keyword arguments
+        - kw: Keyword arguments (already processed)
+        - t0: Start time
 
         Checks cache first, then adds uncached items to a batch for processing.
         Batches are flushed when full or after a timeout.
         """
-        t0 = time.time()
-        kw = self.update_kw(input, **kw)
         cache_key = None
         if self.use_cache:
             cache_key = await self._get_cache_key(input, **kw)
@@ -422,7 +431,6 @@ class Model(ABC):
                 ret = self.cache[cache_key].copy()
                 ret['timing'] = dict(self.timing, generate=time.time() - t0, found_cache=True, from_batch=False)
                 self.timing['n_cache_hits'] += 1
-                self.callers[caller] += 1
                 self.cache.move_to_end(cache_key)
                 return ret
 
