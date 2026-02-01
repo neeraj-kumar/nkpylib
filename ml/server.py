@@ -34,15 +34,13 @@ Current ML types and models:
     'BAAI/bge-large-en-v1.5', which is a large English model, and performs well on benchmarks for longish text.
   - `clip`: The OpenAI CLIP model, which can embed both text and images. Use this for cases where
     you expect to be matching text against images. Note that the text cannot be too long.
-  - `jina`: The jina-clip-v2 model, which can embed both text and images. This is a better version
-    of CLIP.
 - String similarity:
   - This embeds two strings using any of the text embedding models, and then computes the cosine
     similarity between the two embeddings. Higher is more similar.
 - Image embeddings:
   - `clip`: The OpenAI CLIP model, which can embed both text and images (in the same space).
-  - `jina`: The jina-clip-v2 model, which can embed both text and images (in the same space). Prefer
     this to clip, except that it's quite a bit slower.
+  - `mobilenet`: A MobileNetV3 model that provides reasonably good image embeddings quickly.
 """
 
 from __future__ import annotations
@@ -74,6 +72,7 @@ import anyio
 import fastapi
 import numpy as np
 import requests
+import torch
 
 from PIL import Image
 from pydantic import BaseModel
@@ -145,7 +144,7 @@ async def pil_image_from_input(image_or_path: Union[str, Image.Image], force_rgb
     """
     if isinstance(image_or_path, str):
         if image_or_path.startswith('http'):
-            resp = await make_request_async(image_or_path, method='get', stream=True)
+            resp = await make_request_async(image_or_path, method='get', stream=True, min_delay=0.1)
             image = Image.open(resp.raw)
         else:
             image = Image.open(image_or_path)
@@ -154,32 +153,6 @@ async def pil_image_from_input(image_or_path: Union[str, Image.Image], force_rgb
     if force_rgb and image.mode != 'RGB':
         image = image.convert('RGB')
     return image
-
-@functools.cache
-def load_clip(model_name=_default('clip')):
-    """Loads CLIP model and returns embedding functions.
-
-    - model_name: CLIP model name to load
-
-    Returns a tuple of (text_embedding_func, image_embedding_func).
-    Both functions return torch tensors with the embeddings.
-    """
-    import torch
-    from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
-    model = CLIPModel.from_pretrained(model_name)
-    torch.compiler.is_compiling = lambda: False # temporary hack needed for `use_fast`
-    processor = CLIPProcessor.from_pretrained(model_name, use_fast=True)
-
-    def get_image_features(image_or_path):
-        image = pil_image_from_input(image_or_path)
-        with torch.no_grad():
-            return model.get_image_features(**processor(images=image, return_tensors="pt"))[0]
-
-    def get_text_features(text):
-        with torch.no_grad():
-            return model.get_text_features(**processor(text=text, return_tensors="pt"))[0]
-
-    return get_text_features, get_image_features
 
 @functools.cache
 def load_jina(model_name=_default('jina'), dims:int =DEFAULT_MODELS['jina'].default_dims):
@@ -194,6 +167,7 @@ def load_jina(model_name=_default('jina'), dims:int =DEFAULT_MODELS['jina'].defa
     Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance at
     all (and might even slightly improve it for some tasks).
     """
+    #FIXME this seems to be semi-broken on my machine
     from sentence_transformers import SentenceTransformer
     cfg = DEFAULT_MODELS['jina']
     assert dims <= cfg.max_dims, "Jina-clip-v2 only supports up to 1024 dimensions"
@@ -294,6 +268,8 @@ class Model(ABC):
             self.batch_lock = Lock()
             self.batch_timer: Optional[asyncio.Task] = None
 
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__}:{self.model_name}>'
 
     async def _load(self, **kw) -> Any:
         """Load implementation.
@@ -354,7 +330,7 @@ class Model(ABC):
         """Run implementation for a single `input`. Override this in your subclass"""
         ...
 
-    async def _run_batch(self, batch):
+    async def _run_batch(self, batch: list[dict]) -> list[dict]:
         """Process a batch of items individually but async-concurrently.
 
         Each item in the `batch` is a dict containing:
@@ -411,13 +387,14 @@ class Model(ABC):
                 else:
                     ret = await self._single_run(input, **kw)
                     self.update_timings(ret, req_start_time=req_start_time, cache_key=cache_key)
+                if cache_key is not None:
+                    self.cache[cache_key] = ret.copy()
                 return ret
             finally:
                 # Common cleanup
                 self.callers[caller] -= 1
                 # update cache
                 if cache_key is not None:
-                    self.cache[cache_key] = ret.copy()
                     while len(self.cache) > self.max_cache_entries:
                         self.cache.popitem(last=False)
                     self.current.pop(cache_key, None)
@@ -702,6 +679,49 @@ class EmbeddingModel(Model):
         assert isinstance(input, str)
         return input
 
+    async def _run(self, input: Any, **kw) -> dict:
+        """Embedding models run faster in batches, so this just calls that"""
+        ret = await self._run_batch([dict(input=input, kw=kw)])
+        return ret[0]
+
+    async def _preprocess_single(self, input: Any) -> Any:
+        raise NotImplementedError("_preprocess_single must be implemented in subclass")
+
+    def _batch_inference(self, batch_inputs: list[Any]) -> list[Any]:
+        raise NotImplementedError("_batch_inference must be implemented in subclass")
+
+    async def _run_batch(self, batch: list[dict]) -> dict:
+        """Generic optimized batch processing for embedding models.
+
+        - batch: List of dicts with 'input' and 'kw'
+
+        This generic version processes multiple inputs concurrently and efficiently:
+        1. First runs `_preprocess_single` concurrently using `asyncio.gather` on all inputs
+        2. Batches the preprocessed inputs and runs `_batch_inference` in a thread
+        """
+        logger.debug(f'Running {self} embeddings batch of size {len(batch)}')
+        inputs = [item['input'] for item in batch]
+        t0 = time.time()
+        tasks = [self._preprocess_single(inp) for inp in inputs]
+        preprocessed_inputs = await asyncio.gather(*tasks)
+        t1 = time.time()
+        batch_embeddings = await asyncio.to_thread(self._batch_inference, preprocessed_inputs)
+        t2 = time.time()
+        results = []
+        for i, input_data in enumerate(inputs):
+            embedding = batch_embeddings[i]
+            result = self.postprocess(embedding)
+            # Add timing info (shared across batch)
+            result['timing'] = dict(
+                model=self.model_name,
+                generate=t2 - t0,
+                preprocess_time=(t1 - t0) / len(inputs),
+                inference_time=(t2 - t1),
+            )
+            results.append(result)
+        logger.debug(f'Processed batch of {len(inputs)} in {t2-t0:.2f}s')
+        return results
+
     def postprocess(self, embedding: nparray1d) -> dict:
         """Converts embedding to OpenAI-compatible format.
 
@@ -713,36 +733,6 @@ class EmbeddingModel(Model):
             model=self.model_name,
             n_dims=len(embedding),
         )
-
-
-def image_text_embedding_worker(model_name: str, mode: str, input_data: Any):
-    """Worker function for processing embeddings in separate processes.
-
-    - model_name: Name of the model to use
-    - mode: Either 'text' or 'image'
-    - input_data: Input text string or image path/URL
-
-    Handles model loading (with caching) and inference execution.
-    Used by `ImageTextEmbeddingModel` for multiprocessing.
-    """
-    global PROC_MODELS
-    times = [time.time()]
-    if model_name not in PROC_MODELS:
-        logger.info(f"Loading {model_name} in process {os.getpid()}")
-        if 'clip' in model_name:
-            PROC_MODELS[model_name] = load_clip(model_name)
-        elif 'jina' in model_name:
-            PROC_MODELS[model_name] = load_jina(model_name)
-        else:
-            raise NotImplementedError(f"Unsupported ImageTextEmbeddingModel: {model_name}")
-    times.append(time.time())
-    text_func, image_func = PROC_MODELS[model_name]
-    func = text_func if mode == 'text' else image_func
-    ret = func(input_data)
-    times.append(time.time())
-    #logger.info(f"Process {os.getpid()} ran {model_name} ({mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
-    #print(f"Process {os.getpid()} ran {model_name} ({mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
-    return ret
 
 
 @Singleton
@@ -757,7 +747,6 @@ class MobileNetEmbeddingModel(EmbeddingModel):
         The model has its classification head removed to output feature embeddings.
         Returns tuple of `(model, preprocess_transform, device)`.
         """
-        import torch
         from torchvision import models, transforms
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
@@ -779,187 +768,66 @@ class MobileNetEmbeddingModel(EmbeddingModel):
         ])
         return (model, preprocess_image, device)
 
-    async def _run(self, input: Any, **kw) -> dict:
-        """Runs MobileNet embedding inference on a single image.
+    async def _preprocess_single(self, input_data):
+        """Preprocesses a single image input asynchronously."""
+        _, preprocess_image, _ = self.model
+        image = await pil_image_from_input(input_data, force_rgb=True)
+        return await asyncio.to_thread(preprocess_image, image)
 
-        This just calls the batched version with a single input.
-        """
-        ret = await self._run_batch([dict(input=input, kw=kw)])
-        return ret[0]
-
-    async def _run_batch(self, batch):
-        """Optimized batch processing for MobileNet.
-
-        - batch: List of (input, caller, kw, future, cache_key) tuples
-
-        Processes multiple images efficiently by:
-        1. Parallel image preprocessing using `asyncio.to_thread`
-        2. Batched model inference using `torch.stack`
-        3. Concurrent execution without blocking the event loop
-        """
-        import torch
-        logger.debug(f'Running MobileNet batch of size {len(batch)}')
-        model, preprocess_image, device = self.model
-        inputs = [item['input'] for item in batch]
-        # Preprocess all images concurrently
-        async def preprocess_single(input_data):
-            """Preprocesses a single image input asynchronously."""
-            image = await pil_image_from_input(input_data, force_rgb=True)
-            return await asyncio.to_thread(preprocess_image, image)
-
-        t0 = time.time()
-        preprocess_tasks = [preprocess_single(inp) for inp in inputs]
-        preprocessed_tensors = await asyncio.gather(*preprocess_tasks)
-        t1 = time.time()
-        # Batch inference
-        def batch_inference():
-            batch_tensor = torch.stack(preprocessed_tensors).to(device)
-            with torch.no_grad():
-                return model(batch_tensor).cpu().numpy()
-
-        batch_embeddings = await asyncio.to_thread(batch_inference)
-        t2 = time.time()
-        # Create individual results with proper timing/metadata
-        results = []
-        for i, input_data in enumerate(inputs):
-            embedding = batch_embeddings[i]
-            result = self.postprocess(embedding)
-            # Add timing info (shared across batch)
-            result['timing'] = dict(
-                model=self.model_name,
-                generate=t2 - t0,
-                preprocess_time=(t1 - t0) / len(inputs),
-                inference_time=(t2 - t1),
-            )
-            results.append(result)
-        logger.info(f"Processed batch of {len(inputs)} in {t2-t0:.2f}s")
-        return results
+    def _batch_inference(self, batch_inputs: list[Any]):
+        """Runs batch inference on preprocessed image tensors."""
+        model, _, device = self.model
+        batch_tensor = torch.stack(batch_inputs).to(device)
+        with torch.no_grad():
+            return model(batch_tensor).cpu().numpy()
 
 
-class ImageTextEmbeddingModel(EmbeddingModel):
-    """Model subclass for image or text (or joint image/text) embeddings.
-
-    Uses a `ProcessPoolExecutor` to run embedding models in separate processes,
-    avoiding GIL limitations. Supports CLIP, Jina, and MobileNet models.
-    """
-    def __init__(self, mode='text', model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
-        super().__init__(model_name=model_name, use_cache=use_cache, **kw)
-        assert mode in ('text', 'image')
-        self.mode = mode
-        self.executor = ProcessPoolExecutor(max_workers=n_procs)
-        #self.executor = ThreadPoolExecutor(max_workers=n_procs)
-        _EXECUTORS.append(self.executor)  # Track for cleanup
-
-    def __del__(self):
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=False)
-
-    async def load_feature_funcs(self):
-        """Returns embedding functions for text and images.
-
-        Should be overridden in subclasses to return a tuple of
-        (text_embedding_func, image_embedding_func).
-        """
-        raise NotImplementedError("This method should be overridden in subclasses")
-
+class ClipEmbeddingModel(EmbeddingModel):
+    """Model subclass for CLIP text or image embeddings"""
     async def _load(self, **kw) -> Any:
-        return None #TODO remove following code once we test process version
-        get_text_features, get_image_features = await self.load_feature_funcs()
-        if self.mode == 'text':
-            return get_text_features
-        elif self.mode == 'image':
-            return get_image_features
-        raise NotImplementedError(f"Unsupported mode: {self.mode}")
+        from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
+        model = CLIPModel.from_pretrained(self.model_name)
+        torch.compiler.is_compiling = lambda: False # temporary hack needed for `use_fast`
+        processor = CLIPProcessor.from_pretrained(self.model_name, use_fast=True)
+        return (model, processor)
 
-    async def _run(self, input: Any, **kw) -> dict:
-        try:
-            times = [time.time()]
-            loop = asyncio.get_event_loop()
-            times.append(time.time())
-            ret = await loop.run_in_executor(
-                self.executor,
-                image_text_embedding_worker,
-                self.model_name,
-                self.mode,
-                input
-            )
-            times.append(time.time())
-            # Use thread-based execution (original behavior)
-            #ret = await asyncio.to_thread(self.model, input)
-            if not isinstance(ret, np.ndarray):
-                ret = ret.numpy()
-            times.append(time.time())
-            ret = self.postprocess(ret)
-            times.append(time.time())
-            #logger.warning(f"Ran {self.model_name} ({self.mode}) in {[t1-t0 for t0, t1 in zip(times, times[1:])]}")
-            return ret
-        except Exception as e:
-            logger.error(f"Error running {self.model_name} embedding model: {e}")
-            return {}
+    def feature_func(self, **kw):
+        """Returns our model's feature extraction function"""
+        raise NotImplementedError("feature_func must be implemented in subclass")
 
-@Singleton
-class ClipTextEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for CLIP text embeddings using multiprocessing.
-
-    Processes text through CLIP's text encoder to generate embeddings
-    compatible with CLIP's image embeddings.
-    """
-    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=1, **kw):
-        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
-
-    async def load_feature_funcs(self):
-        """Loads CLIP model functions.
-
-        Returns tuple of (text_embedding_func, image_embedding_func).
-        """
-        return load_clip()
-
-@Singleton
-class ClipImageEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for CLIP image embeddings using multiprocessing.
-
-    Processes images through CLIP's image encoder to generate embeddings
-    compatible with CLIP's text embeddings.
-    """
-    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=1, **kw):
-        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
-
-    async def load_feature_funcs(self):
-        """Returns two functions: one for text features, one for image features."""
-        return load_clip()
+    def _batch_inference(self, batch_inputs: Any):
+        batch_dict = {}
+        for key in batch_inputs[0]:
+            batch_dict[key] = torch.cat([item[key] for item in batch_inputs], dim=0)
+        with torch.no_grad():
+            return self.feature_func(**batch_dict).cpu().numpy()
 
 
 @Singleton
-class JinaTextEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for Jina text embeddings using multiprocessing.
+class ClipTextEmbeddingModel(ClipEmbeddingModel):
+    """Generate CLIP text embeddings"""
+    async def _preprocess_single(self, input_data):
+        _, processor = self.model
+        with torch.no_grad():
+            return processor(text=input_data, return_tensors="pt")
 
-    Uses Jina CLIP v2 model for text embeddings. Generally higher quality
-    than OpenAI CLIP but slower to compute.
-    """
-    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
-        super().__init__(mode='text', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
-
-    async def load_feature_funcs(self):
-        """Loads Jina model functions.
-
-        Returns tuple of (text_embedding_func, image_embedding_func).
-        """
-        return load_jina()
+    def feature_func(self, **kw):
+        model, _ = self.model
+        return model.get_text_features(**kw)
 
 
 @Singleton
-class JinaImageEmbeddingModel(ImageTextEmbeddingModel):
-    """Model subclass for Jina image embeddings using multiprocessing.
+class ClipImageEmbeddingModel(ClipEmbeddingModel):
+    """Generate CLIP image embeddings"""
+    async def _preprocess_single(self, input_data):
+        _, processor = self.model
+        image = await pil_image_from_input(input_data)
+        with torch.no_grad():
+            return processor(images=image, return_tensors="pt")
 
-    Uses Jina CLIP v2 model for image embeddings. Generally higher quality
-    than OpenAI CLIP but slower to compute.
-    """
-    def __init__(self, model_name: str='', use_cache: bool=True, n_procs: int=8, **kw):
-        super().__init__(mode='image', model_name=model_name, use_cache=use_cache, n_procs=n_procs, **kw)
-
-    async def load_feature_funcs(self):
-        """Returns two functions: one for text features, one for image features."""
-        return load_jina()
+    def feature_func(self, **kw):
+        model, _ = self.model
+        return model.get_image_features(**kw)
 
 
 @Singleton
@@ -973,9 +841,11 @@ class SentenceTransformerModel(EmbeddingModel):
         from sentence_transformers import SentenceTransformer # type: ignore
         return SentenceTransformer(self.model_name)
 
-    async def _run(self, input: Any, **kw) -> dict:
-        embedding = self.model.encode([input], normalize_embeddings=True)[0]
-        return self.postprocess(embedding)
+    async def _run_batch(self, batch: list[dict]) -> list[dict]:
+        inputs = [item['input'] for item in batch]
+        embeddings = self.model.encode(inputs, normalize_embeddings=True)
+        ret = [self.postprocess(embedding) for embedding in embeddings]
+        return ret
 
 
 @Singleton
@@ -1079,10 +949,9 @@ class ExternalTranscriptionModel(TranscriptionModel):
 ALL_SINGLETON_MODELS = [
     ExternalChatModel,
     VLMModel,
+    MobileNetEmbeddingModel,
     ClipTextEmbeddingModel,
     ClipImageEmbeddingModel,
-    JinaTextEmbeddingModel,
-    JinaImageEmbeddingModel,
     SentenceTransformerModel,
     ExternalEmbeddingModel,
     TextExtractionModel,
@@ -1145,7 +1014,6 @@ class ChatRequest(BaseRequest):
     messages: str|list[Msg]|list[dict[str,str]]
     model: str='chat' # this will get mapped based on DEFAULT_MODELS['chat']
     max_tokens: int=0
-
 
 
 async def chat_impl(req: ChatRequest):
@@ -1236,12 +1104,11 @@ async def text_embeddings(req: TextEmbeddingRequest):
     - req: `TextEmbeddingRequest` with input text and model name
 
     Returns OpenAI-compatible embedding response with vector data.
-    Supports CLIP, Jina, SentenceTransformers, and external models.
+    Supports CLIP, SentenceTransformers, and external models.
     """
     req.model = _default(req.model)
     model_class_by_name = {
         _default('clip'): lambda **kw: ClipTextEmbeddingModel(**kw),
-        _default('jina'): lambda **kw: JinaTextEmbeddingModel(**kw),
         _default('sentence'): SentenceTransformerModel,
     }
     ModelClass: Any = model_class_by_name.get(req.model, ExternalEmbeddingModel)
@@ -1262,17 +1129,13 @@ async def image_embeddings(req: ImageEmbeddingRequest):
     - req: `ImageEmbeddingRequest` with image URL/path and model name
 
     Returns embedding response with vector data for the input image.
-    Supports CLIP, Jina, and MobileNet models.
+    Supports CLIP and MobileNet models.
     """
     req.model = _default(req.model)
     if req.model == _default('clip'):
         Cls = ClipImageEmbeddingModel
-    elif req.model == _default('jina'):
-        Cls = JinaImageEmbeddingModel
     elif req.model == _default('mobilenet'):
         Cls = MobileNetEmbeddingModel
-    elif req.model == _default('oldmobilenet'):
-        Cls = OldMobileNetEmbeddingModel
     else:
         raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
     model = Cls(model_name=req.model, use_cache=req.use_cache)

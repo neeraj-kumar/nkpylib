@@ -581,6 +581,7 @@ def quick_test():
     if 'imgemb' in test:
         for url in [image_path, image_url, image]:
             model = 'clip'
+            model = 'st'
             model = 'mobilenet'
             if 0:
                 ret = embed_image.single(url, model=model, use_cache=False)
@@ -588,7 +589,10 @@ def quick_test():
             else:
                 num = 100
                 t0 = time.time()
-                futures = embed_image.batch_futures([url]*num, model=model, use_cache=False)
+                if 1: # image
+                    futures = embed_image.batch_futures([url]*num, model=model, use_cache=False)
+                else: # text
+                    futures = embed_text.batch_futures([url]*num, model=model, use_cache=False)
                 results = [f.result() for f in futures]
                 t1 = time.time()
                 ret = results[-1]
