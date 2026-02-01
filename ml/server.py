@@ -397,7 +397,8 @@ class Model(ABC):
                 if cache_key is not None:
                     while len(self.cache) > self.max_cache_entries:
                         self.cache.popitem(last=False)
-                    self.current.pop(cache_key, None)
+                    if cache_key in self.current:
+                        self.current.remove(cache_key)
                     async with self.condition:
                         self.condition.notify_all()
 
@@ -431,7 +432,7 @@ class Model(ABC):
 
         Batches are flushed when full or after a timeout.
         """
-        future = asyncio.Future()
+        future = asyncio.Future() # type: ignore[var-annotated]
         batch_start_time = time.time()
         async with self.batch_lock:
             req = dict(
@@ -690,7 +691,7 @@ class EmbeddingModel(Model):
     def _batch_inference(self, batch_inputs: list[Any]) -> list[Any]:
         raise NotImplementedError("_batch_inference must be implemented in subclass")
 
-    async def _run_batch(self, batch: list[dict]) -> dict:
+    async def _run_batch(self, batch: list[dict]) -> list[dict]:
         """Generic optimized batch processing for embedding models.
 
         - batch: List of dicts with 'input' and 'kw'
@@ -747,7 +748,7 @@ class MobileNetEmbeddingModel(EmbeddingModel):
         The model has its classification head removed to output feature embeddings.
         Returns tuple of `(model, preprocess_transform, device)`.
         """
-        from torchvision import models, transforms
+        from torchvision import models, transforms # type: ignore
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.IMAGENET1K_V1)
         model.eval()
@@ -787,7 +788,7 @@ class ClipEmbeddingModel(EmbeddingModel):
     async def _load(self, **kw) -> Any:
         from transformers import CLIPProcessor, CLIPModel, AutoProcessor, AutoTokenizer # type: ignore
         model = CLIPModel.from_pretrained(self.model_name)
-        torch.compiler.is_compiling = lambda: False # temporary hack needed for `use_fast`
+        torch.compiler.is_compiling = lambda: False # type: ignore # temporary hack needed for `use_fast`
         processor = CLIPProcessor.from_pretrained(self.model_name, use_fast=True)
         return (model, processor)
 
@@ -1094,7 +1095,7 @@ async def vlm(req: VLMRequest):
 
 class TextEmbeddingRequest(BaseRequest):
     input: str
-    model: str=DEFAULT_MODELS['st']
+    model: str=DEFAULT_MODELS['st'].name
 
 
 @app.post("/v1/embeddings")
@@ -1132,6 +1133,7 @@ async def image_embeddings(req: ImageEmbeddingRequest):
     Supports CLIP and MobileNet models.
     """
     req.model = _default(req.model)
+    Cls: type[EmbeddingModel]
     if req.model == _default('clip'):
         Cls = ClipImageEmbeddingModel
     elif req.model == _default('mobilenet'):
