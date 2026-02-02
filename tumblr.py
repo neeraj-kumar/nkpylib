@@ -78,6 +78,7 @@ class TumblrApi:
         "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
     }
 
+    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH, **kw):
         """Initializes the Tumblr API wrapper.
 
         Expects a config JSON file with at least:
@@ -95,7 +96,6 @@ class TumblrApi:
             self.config = json.load(f)
         logger.debug(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
         self.csrf = ''
-
 
     @property
     def api_token(self) -> str:
@@ -192,36 +192,6 @@ class TumblrApi:
             raise Exception(f'Failed to fetch {url}: {obj["meta"]}')
         return obj['response']
 
-    @classmethod
-    def assemble_post(cls, post, children) -> dict:
-        """Assemble a complete Tumblr post with all content blocks"""
-        post_data = recursive_to_dict(post)
-        # Find videos and their corresponding poster images to remove
-        ignore = set()
-        for c in children:
-            if c.otype == 'video' and c.md and 'poster_media_key' in c.md:
-                ignore.add(c.md['poster_media_key'])
-        # Group children by type, maintaining order, but skip 'ignore' media_keys
-        content_blocks = []
-        media_blocks = []
-        for child in sorted(children, key=lambda c: c.id):
-            if child.md and 'media_key' in child.md and child.md['media_key'] in ignore:
-                continue
-            block = dict(
-                type=child.otype,
-                data=recursive_to_dict(child)
-            )
-            content_blocks.append(block)
-            # Also add to media_blocks if it's media
-            if child.otype in ['image', 'video']:
-                # Skip poster images (they're already handled by their parent video)
-                if child.otype == 'image' and child.md and 'poster_for' in child.md:
-                    continue
-                media_blocks.append(block)
-        post_data['content_blocks'] = content_blocks
-        post_data['media_blocks'] = media_blocks
-        return post_data
-
     async def like_post(self, post_id: str, reblog_key: str) -> dict:
         """Like a post by ID and reblog key"""
         data = dict(
@@ -315,43 +285,65 @@ class TumblrApi:
                     break
         return (posts, offset, total)
 
-    async def update_blogs(self):
-        blogs = self.config['blogs']
-        for i, name in enumerate(blogs):
-            print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
-            now = time.time()
-            with db_session:
-                u = self.get_blog_user(name)
-                if u.explored_ts and u.explored_ts < 0: # skip inaccessible blogs
-                    continue
-                diff = now - (u.explored_ts or 0)
-                if diff < 3600*24:
-                    print(f'  Last explored was {diff//3600} hours ago, skipping until 24 hours')
-                    continue
-            try:
-                posts, next_link, total = await self.get_blog_archive(name)
-                cols = self.create_collection_from_posts(posts, blog_name=name)
-                print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
-            except Exception as e:
-                logger.warning(f'Failed to process blog {name}: {e}')
-                print(traceback.format_exc())
-                continue
-
-    async def get_likes(self):
+    async def get_my_likes(self):
         """Returns our likes"""
         #https://www.tumblr.com/api/v2/user/likes?fields[blogs]=?advertiser_name,?avatar,?blog_view_url,?can_be_booped,?can_be_followed,?can_show_badges,?description_npf,?followed,?is_adult,?is_member,name,?primary,?theme,?title,?tumblrmart_accessories,url,?uuid&limit=21&reblog_info=true
         obj = await self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
         print(J(obj)[:500])
+
+    async def get_post_notes(self, blog_name: str, post_id: int, n_notes: int=40, mode: str='reblogs_only') -> list[dict]:
+        """Returns notes related to a post.
+
+        Reblogs look like this:
+        {
+          "type": "reblog",
+          "timestamp": 1769703415,
+          "blogName": "...", # the blog that reblogged
+          "blogUuid": "t:...",
+          "blogUrl": "https://....tumblr.com/",
+          "followed": true, # whether we follow the reblogger
+          "avatarUrl": { # reblogger's avatar
+            "64": "https://64.media.tumblr.com/....pnj",
+            "128": "https://64.media.tumblr.com/....pnj"
+          },
+          "blogTitle": "...", # reblogger's blog title
+          "postId": "{post_id}", # post id on the reblogger's blog, i.e. tumblr.com/{blogName}/{postId}
+          "reblogParentBlogName": "..." # only reference to who this was reblogged from
+        }
+        """
+        dash = await self.get_dashboard()
+        before_timestamp = 0
+        ret = []
+        referer = f'https://www.tumblr.com/{blog_name}/{post_id}'
+        while len(ret) < n_notes:
+            endpoint = f'api/v2/blog/{blog_name}/notes?id={post_id}&mode={mode}&sort=desc'
+            if before_timestamp:
+                endpoint += f'&before_timestamp={before_timestamp}'
+            #print(endpoint)
+            obj = await self.make_web_req(endpoint, method='get', referer=referer)
+            notes = obj['response'].pop('notes', [])
+            #print(J(obj)[:1500])
+            if not notes:
+                break
+            ret.extend(notes)
+            before_timestamp = obj_get('response.links.next.queryParams.beforeTimestamp', obj, 0)
+            logger.debug(f'got {len(notes)} notes, total {len(ret)}, next before_timestamp: {before_timestamp}')
+        return ret
 
 
 class Tumblr(TumblrApi, Source):
     """Tumblr integration with the collections system"""
     NAME = 'tumblr'
 
-    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH, **kw):
+    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH, explore_likes:bool=True, **kw):
+        """Initializes the Tumblr source.
+
+        If you set `explore_likes` to True, then when the user likes a post, we will explore it.
+        """
         data_dir = kw.pop('data_dir', 'db/tumblr')
         TumblrApi.__init__(self, config_path=config_path, data_dir=data_dir, **kw)
         Source.__init__(self, name=self.NAME, data_dir=data_dir, **kw)
+        self.explore_likes = explore_likes
 
     @classmethod
     def can_parse(cls, url: str) -> bool:
@@ -417,7 +409,12 @@ class Tumblr(TumblrApi, Source):
           1. in rels: keep track of users related to this post, with associated counts
           2. in items: for each user, increment counts
         """
-        if action != 'queue':
+        explore = False
+        if action == 'queue':
+            explore = True
+        if action == 'like' and self.explore_likes:
+            explore = True
+        if not explore:
             return
         logger.info(f'Tumblr handling action {action}: {rels_by_item}')
         me = Item.get_me()
@@ -431,9 +428,11 @@ class Tumblr(TumblrApi, Source):
             post_id = post.md['post_id']
             post.explored_ts = time.time()
             try:
+                commit()
                 notes = await self.get_post_notes(post.md['blog_name'], post_id)
             except Exception as e:
                 logger.warning(f'  Failed to get notes for post {post.md["post_id"]}: {e}')
+                post.explored_ts = -1
                 continue
             logger.debug(f'  Got {len(notes)} notes for post {post_id}: {J(notes)[:5000]}')
             # add notes summary to our database
@@ -470,6 +469,36 @@ class Tumblr(TumblrApi, Source):
                                 via_post_id=post.id,
                             ),
                         )
+
+    @classmethod
+    def assemble_post(cls, post, children) -> dict:
+        """Assemble a complete Tumblr post with all content blocks"""
+        post_data = recursive_to_dict(post)
+        # Find videos and their corresponding poster images to remove
+        ignore = set()
+        for c in children:
+            if c.otype == 'video' and c.md and 'poster_media_key' in c.md:
+                ignore.add(c.md['poster_media_key'])
+        # Group children by type, maintaining order, but skip 'ignore' media_keys
+        content_blocks = []
+        media_blocks = []
+        for child in sorted(children, key=lambda c: c.id):
+            if child.md and 'media_key' in child.md and child.md['media_key'] in ignore:
+                continue
+            block = dict(
+                type=child.otype,
+                data=recursive_to_dict(child)
+            )
+            content_blocks.append(block)
+            # Also add to media_blocks if it's media
+            if child.otype in ['image', 'video']:
+                # Skip poster images (they're already handled by their parent video)
+                if child.otype == 'image' and child.md and 'poster_for' in child.md:
+                    continue
+                media_blocks.append(block)
+        post_data['content_blocks'] = content_blocks
+        post_data['media_blocks'] = media_blocks
+        return post_data
 
     @db_session
     def create_collection_from_posts(self,
@@ -609,6 +638,29 @@ class Tumblr(TumblrApi, Source):
                     ret.append(pcc)
         return ret
 
+    async def update_blogs(self):
+        """Updates all blogs in our config."""
+        blogs = self.config['blogs']
+        for i, name in enumerate(blogs):
+            print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
+            now = time.time()
+            with db_session:
+                u = self.get_blog_user(name)
+                if u.explored_ts and u.explored_ts < 0: # skip inaccessible blogs
+                    continue
+                diff = now - (u.explored_ts or 0)
+                if diff < 3600*24:
+                    print(f'  Last explored was {diff//3600} hours ago, skipping until 24 hours')
+                    continue
+            try:
+                posts, next_link, total = await self.get_blog_archive(name)
+                cols = self.create_collection_from_posts(posts, blog_name=name)
+                print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
+            except Exception as e:
+                logger.warning(f'Failed to process blog {name}: {e}')
+                print(traceback.format_exc())
+                continue
+
     @db_session
     def update_embeddings(self, **kw):
         """Updates embeddings for our tumblr collection."""
@@ -655,44 +707,6 @@ class Tumblr(TumblrApi, Source):
         updater.commit()
         logger.info(f'Updated embeddings for {n} tumblr posts')
 
-    async def get_post_notes(self, blog_name: str, post_id: int, n_notes: int=40, mode: str='reblogs_only') -> list[dict]:
-        """Returns notes related to a post.
-
-        Reblogs look like this:
-        {
-          "type": "reblog",
-          "timestamp": 1769703415,
-          "blogName": "...", # the blog that reblogged
-          "blogUuid": "t:...",
-          "blogUrl": "https://....tumblr.com/",
-          "followed": true, # whether we follow the reblogger
-          "avatarUrl": { # reblogger's avatar
-            "64": "https://64.media.tumblr.com/....pnj",
-            "128": "https://64.media.tumblr.com/....pnj"
-          },
-          "blogTitle": "...", # reblogger's blog title
-          "postId": "{post_id}", # post id on the reblogger's blog, i.e. tumblr.com/{blogName}/{postId}
-          "reblogParentBlogName": "..." # only reference to who this was reblogged from
-        }
-        """
-        dash = await self.get_dashboard()
-        before_timestamp = 0
-        ret = []
-        referer = f'https://www.tumblr.com/{blog_name}/{post_id}'
-        while len(ret) < n_notes:
-            endpoint = f'api/v2/blog/{blog_name}/notes?id={post_id}&mode={mode}&sort=desc'
-            if before_timestamp:
-                endpoint += f'&before_timestamp={before_timestamp}'
-            #print(endpoint)
-            obj = await self.make_web_req(endpoint, method='get', referer=referer)
-            notes = obj['response'].pop('notes', [])
-            #print(J(obj)[:1500])
-            if not notes:
-                break
-            ret.extend(notes)
-            before_timestamp = obj_get('response.links.next.queryParams.beforeTimestamp', obj, 0)
-            logger.debug(f'got {len(notes)} notes, total {len(ret)}, next before_timestamp: {before_timestamp}')
-        return ret
 
 def process_posts(posts):
     for i, p in enumerate(posts):
@@ -734,7 +748,7 @@ async def simple_test(config_path: str, **kw):
             print(p['id'])
         break
         await tumblr.get_dashboard()
-        await tumblr.get_likes()
+        await tumblr.get_my_likes()
         #posts = tumblr.get_blog_content(name)
         print(f'{tumblr.csrf}: {len(posts)} posts: {J(posts)[:500]}...')
         break

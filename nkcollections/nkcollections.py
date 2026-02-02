@@ -1,6 +1,7 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
+#TODO tumblr explore user
 #TODO benchmark mobilenet
 #TODO remove bad images
 #TODO diversity on likes classifier?
@@ -73,7 +74,7 @@ from nkpylib.ml.client import call_vlm, embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source
+from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J
 from nkpylib.nkcollections.workers import LikesWorker
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
@@ -415,10 +416,10 @@ class ActionHandler(MyBaseHandler):
         action = data.pop('action', '')
         logger.info(f'ActionHandler got action={action}, {data}')
         assert action in 'like unlike queue unqueue'.split()
+        ids = [int(i) for i in data.pop('ids')]
+        await Rel.handle_me_action(ids=ids, action=action, **data)
         with db_session:
-            ids = [int(i) for i in data.pop('ids')]
             items = Item.select(lambda c: c.id in ids)[:]
-            r = await Rel.handle_me_action(items=items, action=action, **data)
             q = Item.select(lambda c: c.id in ids)
             updated_rows, _ = GetHandler.query_to_web(q)
             self.write(dict(

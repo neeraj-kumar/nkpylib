@@ -29,6 +29,7 @@ import tornado.web
 from tornado.web import RequestHandler
 from pony.orm import (
     composite_index,
+    commit,
     Database,
     db_session,
     desc,
@@ -510,10 +511,11 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 maybe_add(child)
         return list(ret)
 
-
     @classmethod
-    async def handle_me_action(cls, items: list[Item], action: str, **kw) -> None:
+    @db_session
+    async def handle_me_action(cls, ids: list[int], action: str, **kw) -> None:
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`."""
+        items = Item.select(lambda c: c.id in ids)[:]
         me = Item.get_me()
         ts = int(time.time())
         rels_by_item_by_source = defaultdict(dict)
@@ -522,7 +524,9 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             match action:
                 case 'like': # create or update the rel (only 1 like possible)
                     get_kw = dict(src=me, rtype='like', tgt=item)
-                    r = Rel.upsert(get_kw=get_kw, ts=ts)
+                    print(f'in like, got get_kw={get_kw}')
+                    if not Rel.get(**get_kw):
+                        r = Rel(**get_kw, ts=ts)
                 case 'unlike': # delete the rel if it exists
                     get_kw = dict(src=me, rtype='like', tgt=item)
                     r = Rel.get(**get_kw)
@@ -531,15 +535,13 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 case 'queue': # increment count or create new queue rel
                     get_kw = dict(src=me, rtype='queue', tgt=item)
                     r = Rel.get(**get_kw)
-                    if r:
-                        # Increment count
+                    if r: # Increment count
                         if not r.md:
                             r.md = {}
                         r.md['count'] = r.md.get('count', 1) + 1
                         r.ts = ts  # Update timestamp
-                    else:
-                        # Create new queue rel with count=1
-                        r = Rel.upsert(get_kw=get_kw, ts=ts, md=dict(count=1))
+                    else: # Create new queue rel with count=1
+                        r = Rel(**get_kw, ts=ts, md=dict(count=1))
                 case 'unqueue': # remove the queue rel entirely
                     get_kw = dict(src=me, rtype='queue', tgt=item)
                     r = Rel.get(**get_kw)
@@ -555,6 +557,7 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         for source, rels_by_item in rels_by_item_by_source.items():
             src = Source._registry.get(source)
             if src:
+                commit()
                 await src.handle_me_action(rels_by_item, action, **kw)
 
 
