@@ -379,7 +379,7 @@ class DwellHandler(MyBaseHandler):
 
 class ActionHandler(MyBaseHandler):
     """The user took some action, which we will store in our `rels` table."""
-    def post(self):
+    async def post(self):
         """Input data should include 'action' and 'ids' (of the target items)."""
         data = json.loads(self.request.body)
         action = data.pop('action', '')
@@ -388,14 +388,14 @@ class ActionHandler(MyBaseHandler):
         with db_session:
             ids = [int(i) for i in data.pop('ids')]
             items = Item.select(lambda c: c.id in ids)[:]
-            Rel.handle_me_action(items=items, action=action, **data)
+            r = await Rel.handle_me_action(items=items, action=action, **data)
             q = Item.select(lambda c: c.id in ids)
             updated_rows = GetHandler.query_to_web(q)
-        self.write(dict(
-            action=action,
-            msg=f'Took action {action} on {ids}',
-            updated_rows=updated_rows,
-        ))
+            self.write(dict(
+                action=action,
+                msg=f'Took action {action} on {ids}',
+                updated_rows=updated_rows,
+            ))
 
 class FilterHandler(MyBaseHandler):
     async def post(self):

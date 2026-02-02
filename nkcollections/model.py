@@ -486,12 +486,13 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
 
     @classmethod
-    @db_session
-    def handle_me_action(cls, items: list[Item], action: str, **kw) -> None:
+    async def handle_me_action(cls, items: list[Item], action: str, **kw) -> None:
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`."""
         me = Item.get_me()
         ts = int(time.time())
+        rels_by_item_by_source = defaultdict(dict)
         for item in items:
+            r: None|Rel = None
             match action:
                 case 'like': # create or update the rel (only 1 like possible)
                     get_kw = dict(src=me, rtype='like', tgt=item)
@@ -520,6 +521,15 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                         r.delete()
                 case _:
                     logger.info(f'Unknown me action {action}')
+            by_src = rels_by_item_by_source[item.source]
+            by_src[item] = []
+            if r is not None:
+                by_src[item].append(r)
+        # now call this method on each source for custom handling
+        for source, rels_by_item in rels_by_item_by_source.items():
+            src = Source._registry.get(source)
+            if src:
+                await src.handle_me_action(rels_by_item, action, **kw)
 
 
 def init_sql_db(path: str) -> Database:
@@ -564,6 +574,11 @@ class Source(abc.ABC):
         return f'Source<{self.name}>'
 
     @classmethod
+    def iter_sources(cls) -> list[Source]:
+        """Iterates over all registered Source subclasses."""
+        return list(cls._registry.values())
+
+    @classmethod
     def can_parse(cls, url: str) -> bool:
         """Returns if this source can parse the given url"""
         return False
@@ -571,6 +586,16 @@ class Source(abc.ABC):
     def parse(self, url: str, **kw) -> Any:
         """Parses the given url and does whatever it wants."""
         raise NotImplementedError()
+
+    async def handle_me_action(self, rels_by_item: dict[Item, list[Rel]], action: str, **kw) -> None:
+        """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`.
+
+        This is called after generic processing, with the dict mapping from original item to list of
+        rels created/deleted/updated for that item.
+
+        The default implementation does nothing, but subclasses can override this.
+        """
+        pass
 
     @staticmethod
     def handle_url(url: str, **data) -> dict[str, Any]:
