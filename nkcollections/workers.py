@@ -473,4 +473,13 @@ class LikesWorker(BackgroundWorker):
             traceback.print_exc()
             return dict(status='error', error=str(e))
 
+    def gen_benchmark(self, name: str='', **kw):
+        """Generate a benchmark set based on likes.
+
+        Get training data (exactly like _update_classifier), then for those Items in the sqlite
+        database, set `md[name] = {label}`, where label is either +1 or -1 for pos/neg examples,
+        respectively.
+        """
+        if not name:
+            name = 'like-benchmark-' + time.strftime('%Y%m%d-%H%M%S')
 
