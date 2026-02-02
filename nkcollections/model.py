@@ -777,4 +777,5 @@ class Source(abc.ABC):
                 for otype, items in by_type.items():
                     ids.extend([item.id for item in items])
                 logger.info(f'Found {n} liked undone items for source {self.name}, prioritizing {len(ids)}')
+        logger.info(f'In {self}, updating embeddings for {len(ids)} items')
         return Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, ids=ids, **kw)
