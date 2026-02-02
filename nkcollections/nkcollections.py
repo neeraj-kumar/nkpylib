@@ -398,7 +398,7 @@ class ActionHandler(MyBaseHandler):
         ))
 
 class FilterHandler(MyBaseHandler):
-    def post(self):
+    async def post(self):
         data = json.loads(self.request.body)
         q, cur_ids = data.pop('q'), data.pop('cur_ids')
         q = q.strip()
@@ -415,7 +415,7 @@ class FilterHandler(MyBaseHandler):
                 q = q[4:].strip()
         else:
             is_neg = False
-        q_emb = embed_text.single(q, model='clip')
+        q_emb = await embed_text.single_async(q, model='clip')
         self.embs.reload_keys()
         all_keys = [f'{id}:image' for id in cur_ids]
         results = self.embs.simple_nearest_neighbors(pos=[q_emb], n_neighbors=1000, metric='cosine', all_keys=all_keys)
