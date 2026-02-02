@@ -356,7 +356,6 @@ class Tumblr(Source):
         obj = self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
         print(J(obj)[:500])
 
-    @db_session
     def get_blog_user(self, blog_name: str, users_by_name: dict= {}, **kw) -> Entity:
         """Returns the blog user item for the given `blog_name`.
 
