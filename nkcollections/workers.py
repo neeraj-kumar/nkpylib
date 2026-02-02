@@ -29,6 +29,7 @@ import tornado.web
 from tornado.web import RequestHandler
 from pony.orm import (
     composite_index,
+    commit,
     Database,
     db_session,
     desc,
@@ -274,36 +275,42 @@ class LikesWorker(BackgroundWorker):
                 neg_ids = neg_ids[self.exclude_top_n:]
         return neg_ids
 
-    def _update_classifier(self) -> dict[str, Any]:
+    def _get_training_set(self, current_pos_ids: list[int]|None=None) -> tuple[list[str], list[str]]:
+        """Generates a training set based on current likes.
+
+        Returns `(pos, neg)`, where each are lists of keys like `['123:image', ...]`.
+        """
+        self.embs.reload_keys()
+        if current_pos_ids is None:
+            current_pos_ids = self._get_current_pos_ids()
+        pos = [f'{id}:image' for id in sorted(current_pos_ids)]
+        # randomly sample max_pos of these
+        if len(pos) > self.max_pos: #TODO recency bias?
+            pos = random.sample(pos, self.max_pos)
+        # Prepare negative samples (exclude positives and most recent IDs)
+        neg_ids = self._get_negative_candidate_ids(current_pos_ids)
+        # Sample negatives
+        neg_sample_size = min(len(neg_ids), int(len(pos) * self.neg_factor))
+        neg_ids = random.sample(neg_ids, neg_sample_size)
+        neg = [f'{id}:image' for id in neg_ids]
+        return pos, neg
+
+    def _update_classifier(self) -> None:
         """Update the classifier if needed."""
         current_pos_ids = self._get_current_pos_ids()
+        if not current_pos_ids:
+            logger.info("No liked images found, skipping classifier update")
+            return
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
             # Run inference
             r = self.run_inference()
             logging.debug(f'Running inference result: {r}')
             return dict(status='no_change', pos_count=len(current_pos_ids))
-        if not current_pos_ids:
-            logger.info("No liked images found, skipping classifier update")
-            return dict(status='no_positives', pos_count=0)
         try:
-            # Reload embeddings keys
-            self.embs.reload_keys()
-            # Get all image IDs for classification
+            pos, neg = self._get_training_set(current_pos_ids=current_pos_ids)
             all_ids = self._get_all_image_ids()
             to_cls = [f'{id}:image' for id in all_ids]
-            # Prepare positive samples
-            pos = [f'{id}:image' for id in sorted(current_pos_ids)]
-            # randomly sample max_pos of these
-            if len(pos) > self.max_pos:
-                #pos = random.sample(pos, self.max_pos)
-                pos = pos[-self.max_pos:]
-            # Prepare negative samples (exclude positives and most recent IDs)
-            neg_ids = self._get_negative_candidate_ids(current_pos_ids)
-            # Sample negatives
-            neg_sample_size = min(len(neg_ids), int(len(pos) * self.neg_factor))
-            neg_ids = random.sample(neg_ids, neg_sample_size)
-            neg = [f'{id}:image' for id in neg_ids]
             logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
             # Train and run classifier
             t0 = time.time()
@@ -473,7 +480,7 @@ class LikesWorker(BackgroundWorker):
             traceback.print_exc()
             return dict(status='error', error=str(e))
 
-    def gen_benchmark(self, name: str='', **kw):
+    def gen_benchmark_set(self, name: str='', **kw):
         """Generate a benchmark set based on likes.
 
         Get training data (exactly like _update_classifier), then for those Items in the sqlite
@@ -481,55 +488,26 @@ class LikesWorker(BackgroundWorker):
         respectively.
         """
         if not name:
-            name = 'like-benchmark-' + time.strftime('%Y%m%d-%H%M%S')
-        
+            name = 'like-benchmark-' + time.strftime('%Y%m%d')
         logger.info(f'Generating benchmark dataset: {name}')
-        
-        # Get current positive IDs (liked images)
-        current_pos_ids = self._get_current_pos_ids()
-        if not current_pos_ids:
-            logger.warning("No liked images found, cannot generate benchmark")
-            return dict(status='no_positives', name=name)
-        
-        # Get negative candidate IDs (excluding positives and most recent)
-        neg_ids = self._get_negative_candidate_ids(current_pos_ids)
-        
-        # Sample negatives to match positives roughly
-        neg_sample_size = min(len(neg_ids), len(current_pos_ids) * 2)
-        neg_ids = random.sample(neg_ids, neg_sample_size)
-        
-        logger.info(f'Benchmark {name}: {len(current_pos_ids)} positives, {len(neg_ids)} negatives')
-        
+        pos, neg = self._get_training_set()
+        logger.info(f'Benchmark {name}: {len(pos)} positives, {len(neg)} negatives')
+        label_by_id = {(key.split(':')[0]): 1 for key in pos}
+        label_by_id.update({int(key.split(':')[0]): -1 for key in neg})
         # Update database with benchmark labels
         with db_session:
             n_updated = 0
-            # Mark positive examples
-            for item_id in current_pos_ids:
-                item = Item.get(id=item_id)
+            for item_id, label in label_by_id.items():
+                item = Item[item_id]
                 if item:
-                    if not item.md:
+                    if item.md is None:
                         item.md = {}
-                    item.md[name] = +1
+                    item.md[name] = label
                     n_updated += 1
-            
-            # Mark negative examples  
-            for item_id in neg_ids:
-                item = Item.get(id=item_id)
-                if item:
-                    if not item.md:
-                        item.md = {}
-                    item.md[name] = -1
-                    n_updated += 1
-            
-            commit()
-        
         logger.info(f'Updated {n_updated} items with benchmark labels for {name}')
-        
-        return dict(
-            status='success',
-            name=name,
-            n_positives=len(current_pos_ids),
-            n_negatives=len(neg_ids),
-            n_updated=n_updated
-        )
 
+    def run_benchmark(self, name: str) -> None:
+        """Runs benchmark evaluation for the given benchmark set `name`.
+
+        Computes accuracy, balanced accuracy, precision, recall, F1, etc.
+        """
