@@ -518,7 +518,10 @@ async def async_run_search(q: str,
 
 class BaseHandler(RequestHandler):
     """A base tornado handler that sets up some common functionality.
+
     - CORS headers
+    - Default OPTIONS handler
+    - Run a background task
     """
     def set_default_headers(self):
         """allow CORS"""
@@ -531,6 +534,18 @@ class BaseHandler(RequestHandler):
         # `*args` is for route with `path arguments` supports
         self.set_status(204) # "no content"
         self.finish()
+
+    @classmethod
+    def background_task(cls, coroutine) -> None:
+        """Runs a task in the background, ignore the result and errors"""
+        async def bg_task(coroutine):
+            try:
+                await coroutine
+            except Exception as e:
+                logger.warning(f'Error in background task: {e}')
+                logger.info(traceback.format_exc())
+        asyncio.create_task(bg_task(coroutine))
+
 
 INDEX_HTML_FMT = '''<!doctype html>
 <html>
