@@ -1,12 +1,7 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO fast scanning/detector of all images?
-#TODO   explore grid segmentation - there are various options for the actual segmentation
-#TODO   explore grid clip
-#TODO   explore multimachine processing - prolly around $10/day for a good compute machine
-#TODO   explore external api
-#TODO   it seems like the way to go to get 10x speedup is to use mobilenet v3 embeddings -- see chatgpt for code
+#TODO benchmark mobilenet
 #TODO remove bad images
 #TODO diversity on likes classifier?
 #TODO handle reblog keys
@@ -21,7 +16,6 @@
 #TODO   clickable tags
 #TODO compute dwell times
 #TODO aggregate like scores per user
-#TODO list of recent users - figure out how to display these in ux
 #TODO debug desc errors
 #TODO propagate likes to source sites if possible
 #TODO import tumblr likes

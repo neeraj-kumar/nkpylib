@@ -181,6 +181,10 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         # if this is a user, add compact and detailed strings
         if self.otype == 'user':
             compact = f'{self.source}: {self.name or self.url}'
+            if self.seen_ts:
+                compact += f'<br>Last seen: {time.ctime(self.seen_ts)}'
+            else:
+                compact += f'<br>Never seen'
             qrbs = self.md.get('n_queued_reblogs', 0)
             if qrbs:
                 compact += f'<br>queued reblogs: {qrbs}'

@@ -168,6 +168,10 @@ const STYLES = `
   max-width: 400px!important;
 }
 
+.user-compact {
+  font-size: 0.8em;
+}
+
 .gridobjects {
   display: grid;
   grid-auto-flow: dense;
