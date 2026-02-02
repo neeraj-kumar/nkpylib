@@ -482,4 +482,54 @@ class LikesWorker(BackgroundWorker):
         """
         if not name:
             name = 'like-benchmark-' + time.strftime('%Y%m%d-%H%M%S')
+        
+        logger.info(f'Generating benchmark dataset: {name}')
+        
+        # Get current positive IDs (liked images)
+        current_pos_ids = self._get_current_pos_ids()
+        if not current_pos_ids:
+            logger.warning("No liked images found, cannot generate benchmark")
+            return dict(status='no_positives', name=name)
+        
+        # Get negative candidate IDs (excluding positives and most recent)
+        neg_ids = self._get_negative_candidate_ids(current_pos_ids)
+        
+        # Sample negatives to match positives roughly
+        neg_sample_size = min(len(neg_ids), len(current_pos_ids) * 2)
+        neg_ids = random.sample(neg_ids, neg_sample_size)
+        
+        logger.info(f'Benchmark {name}: {len(current_pos_ids)} positives, {len(neg_ids)} negatives')
+        
+        # Update database with benchmark labels
+        with db_session:
+            n_updated = 0
+            # Mark positive examples
+            for item_id in current_pos_ids:
+                item = Item.get(id=item_id)
+                if item:
+                    if not item.md:
+                        item.md = {}
+                    item.md[name] = +1
+                    n_updated += 1
+            
+            # Mark negative examples  
+            for item_id in neg_ids:
+                item = Item.get(id=item_id)
+                if item:
+                    if not item.md:
+                        item.md = {}
+                    item.md[name] = -1
+                    n_updated += 1
+            
+            commit()
+        
+        logger.info(f'Updated {n_updated} items with benchmark labels for {name}')
+        
+        return dict(
+            status='success',
+            name=name,
+            n_positives=len(current_pos_ids),
+            n_negatives=len(neg_ids),
+            n_updated=n_updated
+        )
 
