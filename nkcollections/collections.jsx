@@ -1411,9 +1411,16 @@ const Controls = () => {
     globalSetSourceStr = setSourceStr;
   }, [setSourceStr]);
 
-  // Initial load effect
+  // Check for source parameter in URL on page load
   React.useEffect(() => {
-    if (sourceStr) {
+    const params = new URLSearchParams(window.location.search);
+    const sourceFromUrl = params.get('source');
+    if (sourceFromUrl) {
+      const decodedSource = decodeURIComponent(sourceFromUrl);
+      setSourceStr(decodedSource);
+      setTimeout(() => ctx.actions.doSource(decodedSource), 500);
+    } else if (sourceStr) {
+      // Use default source if no URL parameter
       setTimeout(() => ctx.actions.doSource(sourceStr), 500);
     }
   }, []); // Only run once on mount
@@ -1558,6 +1565,7 @@ const AppProvider = ({ children }) => {
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
   const [autoLikesMode, setAutoLikesMode] = React.useState(false);
   const [message, setMessage] = React.useState('Messages show up here');
+  const [currentSource, setCurrentSource] = React.useState('');
 
   // initial init
   React.useEffect(() => {
@@ -1577,6 +1585,25 @@ const AppProvider = ({ children }) => {
   React.useEffect(() => {
     globalSetMessage = setMessage;
   }, [setMessage]);
+
+  // Handle browser back/forward navigation
+  React.useEffect(() => {
+    const handlePopState = (event) => {
+      const params = new URLSearchParams(window.location.search);
+      const sourceFromUrl = params.get('source');
+      if (sourceFromUrl) {
+        const decodedSource = decodeURIComponent(sourceFromUrl);
+        if (decodedSource !== currentSource && globalSetSourceStr) {
+          globalSetSourceStr(decodedSource);
+          // Don't call doSource here to avoid infinite loops, just update the input
+          setCurrentSource(decodedSource);
+        }
+      }
+    };
+    
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentSource]);
 
 
   const doSearch = React.useCallback((value) => {
@@ -1845,6 +1872,13 @@ const AppProvider = ({ children }) => {
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback((inputStr, updateSourceStr = false) => {
     if (!inputStr) return;
+    
+    // Update URL parameters
+    setCurrentSource(inputStr);
+    const params = new URLSearchParams(window.location.search);
+    params.set('source', encodeURIComponent(inputStr));
+    window.history.pushState({}, '', `?${params.toString()}`);
+    
     // Update the source string if requested
     if (updateSourceStr && globalSetSourceStr) {
       globalSetSourceStr(inputStr);
@@ -1876,7 +1910,7 @@ const AppProvider = ({ children }) => {
         setMessage(`Invalid JSON in source string: ${error.message}`);
       }
     }
-  }, [updateData, setMessage]);
+  }, [updateData, setMessage, setCurrentSource]);
 
 
   // Done with all state and effects, now preparing for rendering
@@ -1918,6 +1952,9 @@ const AppProvider = ({ children }) => {
       doFilter,
       doSearch,
       doAction
+    },
+    history: {
+      currentSource
     },
     classification: {
       autoLikesMode,
