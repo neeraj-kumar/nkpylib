@@ -36,6 +36,7 @@ from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import TruncatedSVD # type: ignore
 from sklearn.linear_model import SGDClassifier # type: ignore
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_recall_fscore_support, roc_auc_score # type: ignore
 from sklearn.model_selection import cross_val_score
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.pipeline import Pipeline # type: ignore
@@ -653,6 +654,91 @@ def generate_cooccurence_embeddings(
     for tag, idx in tag_to_idx.items():
         ret[tag] = embeddings[idx]
     return ret, cumvars
+
+def compute_binary_classifier_stats(y_true: list[int], y_scores: list[float]) -> dict[str, float]:
+    """Compute comprehensive binary classification statistics.
+    
+    Args:
+        y_true: True binary labels (should be 1 for positive, -1 or 0 for negative)
+        y_scores: Classifier scores (higher scores indicate positive prediction)
+    
+    Returns:
+        Dictionary with evaluation metrics including accuracy, precision, recall, F1, AUC, etc.
+    """
+    if not y_true or not y_scores:
+        return {}
+    
+    if len(y_true) != len(y_scores):
+        raise ValueError(f"Length mismatch: y_true has {len(y_true)} items, y_scores has {len(y_scores)}")
+    
+    # Convert scores to binary predictions (positive if score > 0)
+    y_pred = [1 if score > 0 else -1 for score in y_scores]
+    
+    # Convert -1/1 labels to 0/1 for some metrics that require it
+    y_true_binary = [1 if label == 1 else 0 for label in y_true]
+    y_pred_binary = [1 if pred == 1 else 0 for pred in y_pred]
+    
+    # Basic classification metrics
+    accuracy = accuracy_score(y_true, y_pred)
+    balanced_accuracy = balanced_accuracy_score(y_true, y_pred)
+    
+    precision, recall, f1, support = precision_recall_fscore_support(
+        y_true_binary, y_pred_binary, average='binary'
+    )
+    
+    # ROC AUC using raw scores
+    try:
+        auc = roc_auc_score(y_true_binary, y_scores)
+    except ValueError:
+        auc = 0.0  # In case of issues with AUC calculation
+    
+    # Compute ranking metrics
+    # Sort by score descending
+    sorted_items = sorted(zip(y_scores, y_true), key=lambda x: x[0], reverse=True)
+    
+    # Precision at different cutoffs
+    def precision_at_k(k):
+        if k > len(sorted_items):
+            k = len(sorted_items)
+        top_k = sorted_items[:k]
+        correct = sum(1 for _, label in top_k if label == 1)
+        return correct / k if k > 0 else 0.0
+    
+    p_at_10 = precision_at_k(10)
+    p_at_50 = precision_at_k(50)
+    p_at_100 = precision_at_k(100)
+    
+    # Mean Average Precision (MAP)
+    def mean_average_precision():
+        precisions = []
+        correct = 0
+        for i, (_, label) in enumerate(sorted_items):
+            if label == 1:
+                correct += 1
+                precisions.append(correct / (i + 1))
+        return sum(precisions) / len(precisions) if precisions else 0.0
+    
+    map_score = mean_average_precision()
+    
+    # Count positives and negatives
+    n_positive = sum(1 for label in y_true if label == 1)
+    n_negative = len(y_true) - n_positive
+    
+    return {
+        'accuracy': float(accuracy),
+        'balanced_accuracy': float(balanced_accuracy),
+        'precision': float(precision),
+        'recall': float(recall),
+        'f1': float(f1),
+        'auc': float(auc),
+        'precision_at_10': float(p_at_10),
+        'precision_at_50': float(p_at_50),
+        'precision_at_100': float(p_at_100),
+        'mean_average_precision': float(map_score),
+        'n_items': len(y_true),
+        'n_positive': n_positive,
+        'n_negative': n_negative,
+    }
 
 def gen_tag_embeddings(input_path: str, dlm: str='\t'):
     """Generates tag embeddings from the given `input_path`

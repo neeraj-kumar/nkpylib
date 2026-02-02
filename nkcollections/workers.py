@@ -42,15 +42,8 @@ from pony.orm import (
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 from tornado.web import RequestHandler
 
-from sklearn.metrics import (
-    accuracy_score,
-    balanced_accuracy_score,
-    precision_recall_fscore_support,
-    roc_auc_score,
-)
-
 from nkpylib.ml.constants import data_url_from_file
-from nkpylib.ml.embeddings import Embeddings
+from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkcollections.model import Item, Rel, Source
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
@@ -548,64 +541,12 @@ class LikesWorker(BackgroundWorker):
         if not benchmark_scores:
             logger.error(f'No benchmark items have classifier scores')
             return {}
-        # Convert to arrays for sklearn metrics
+        # Convert to arrays for the stats function
         y_true = [benchmark_labels[id] for id in benchmark_scores.keys()]
         y_scores = [benchmark_scores[id] for id in benchmark_scores.keys()]
-        # Convert scores to binary predictions (positive if score > 0)
-        y_pred = [1 if score > 0 else -1 for score in y_scores]
-        # Convert -1/1 labels to 0/1 for some metrics
-        y_true_binary = [1 if label == 1 else 0 for label in y_true]
-        y_pred_binary = [1 if pred == 1 else 0 for pred in y_pred]
-        accuracy = accuracy_score(y_true, y_pred)
-        balanced_accuracy = balanced_accuracy_score(y_true, y_pred)
-        precision, recall, f1, support = precision_recall_fscore_support(
-            y_true_binary, y_pred_binary, average='binary'
-        )
-        # ROC AUC using raw scores
-        try:
-            auc = roc_auc_score(y_true_binary, y_scores)
-        except ValueError:
-            auc = 0.0  # In case of issues with AUC calculation
-        # Compute ranking metrics
-        # Sort by score descending
-        sorted_items = sorted(benchmark_scores.items(), key=lambda x: x[1], reverse=True)
-        # Precision at different cutoffs
-        def precision_at_k(k):
-            if k > len(sorted_items):
-                k = len(sorted_items)
-            top_k = sorted_items[:k]
-            correct = sum(1 for item_id, _ in top_k if benchmark_labels[item_id] == 1)
-            return correct / k if k > 0 else 0.0
-
-        p_at_10 = precision_at_k(10)
-        p_at_50 = precision_at_k(50)
-        p_at_100 = precision_at_k(100)
-        # Mean Average Precision (MAP)
-        def mean_average_precision():
-            precisions = []
-            correct = 0
-            for i, (item_id, _) in enumerate(sorted_items):
-                if benchmark_labels[item_id] == 1:
-                    correct += 1
-                    precisions.append(correct / (i + 1))
-            return sum(precisions) / len(precisions) if precisions else 0.0
-
-        map_score = mean_average_precision()
-        results = {
-            'accuracy': float(accuracy),
-            'balanced_accuracy': float(balanced_accuracy),
-            'precision': float(precision),
-            'recall': float(recall),
-            'f1': float(f1),
-            'auc': float(auc),
-            'precision_at_10': float(p_at_10),
-            'precision_at_50': float(p_at_50),
-            'precision_at_100': float(p_at_100),
-            'mean_average_precision': float(map_score),
-            'n_items': len(benchmark_scores),
-            'n_positive': len(pos_ids),
-            'n_negative': len(neg_ids),
-        }
+        
+        # Compute all stats using the refactored function
+        results = compute_binary_classifier_stats(y_true, y_scores)
         logger.info(f'Benchmark {name} results:')
         for metric, value in results.items():
             if isinstance(value, float):
