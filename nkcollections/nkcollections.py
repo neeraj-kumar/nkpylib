@@ -204,9 +204,10 @@ class GetHandler(MyBaseHandler):
                 return False
 
             #q = q.filter(has_ancestor) #TODO doesn't work
-            # workaround:
+            # partial workaround (one-level up only)
             q = q.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
         # Handle numeric fields
+        # TODO how to handle JSON fields (particularly md)?
         numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
         for field in numeric_fields:
             if field in kw:
@@ -234,29 +235,46 @@ class GetHandler(MyBaseHandler):
                     q = q.filter(lambda c: getattr(c, field) == value)
         # order value will be a field name, optionally prefixed by - for descending
         order_field = kw.get('order', '-id')
-        if order_field.startswith('-'):
-            q = q.order_by(lambda c: desc(getattr(c, order_field[1:])))
+        manual_reverse = False
+        if '[' in order_field: # JSON access, so do it via an eval() call
+            if order_field.startswith('-'):
+                # using desc() does not work for JSON field ordering
+                manual_reverse = True
+                order_field = order_field[1:]
+            q = eval(f'q.order_by({order_field})')
         else:
-            q = q.order_by(lambda c: getattr(c, order_field))
+            if order_field.startswith('-'):
+                q = q.order_by(lambda c: desc(getattr(c, order_field[1:])))
+            else:
+                q = q.order_by(lambda c: getattr(c, order_field))
+        #print(f'q1: {q.get_sql()}')
+        if manual_reverse: # fetch all items, reverse
+            q = q[:]
+            q = q[::-1]
         # if there was a limit parameter, set it
         if 'limit' in kw:
-            q = q.limit(int(kw['limit']))
+            limit = int(kw['limit'])
+            if manual_reverse: # we've already fetch items and reversed them, so just limit
+                q = q[:limit]
+            else:
+                q = q.limit(limit)
+        #print(f'q2: {q}')
         return q
 
     @classmethod
-    def query_to_web(cls, q: Query, assemble_posts:bool=True) -> dict[int, dict]:
-        """Converts a query to a dict of items suitable for web output."""
-        items = q[:]
+    def query_to_web(cls, q: Query, assemble_posts:bool=True) -> tuple[dict[int, dict], list[int]]:
+        """Converts a query to a dict of items suitable for web output.
 
-        # Apply post-processing rel property filters if any
+        Returns a tuple of (row_by_id, cur_ids), where the latter is in order.
+        """
+        items = q[:]
         if hasattr(q, '_rel_property_filters'):
             items = cls._apply_rel_property_filters(items, q._rel_property_filters)
-
+        cur_ids = [item.id for item in items]
         if assemble_posts:
             ret = {r['id']: r for r in Source.assemble_posts(items)}
         else:
             ret = {r.id: recursive_to_dict(r) for r in items}
-        cur_ids = list(ret.keys())
         # fetch all rels with source = me and tgt in ids
         me = Item.get_me()
         rels_by_tgt = defaultdict(list)
@@ -265,7 +283,7 @@ class GetHandler(MyBaseHandler):
         # prepare items for web
         for item in items:
             item.for_web(ret[item.id], rels=rels_by_tgt[item.id])
-        return ret
+        return (ret, cur_ids)
 
     @classmethod
     @db_session
@@ -349,11 +367,14 @@ class GetHandler(MyBaseHandler):
         # Build query conditions
         with db_session:
             q = self.build_query(data)
-            rows = self.query_to_web(q, assemble_posts=data.get('assemble_posts', True))
+            row_by_id, cur_ids = self.query_to_web(q, assemble_posts=data.get('assemble_posts', True))
             # count the number of un-embedded images
             n_unembedded = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None) .count()
-        msg = f'Got {len(rows)} items, {n_unembedded} un-embedded images'
-        self.write(dict(msg=msg, row_by_id=rows, allOtypes=self.all_otypes))
+        msg = f'Got {len(row_by_id)} items, {n_unembedded} un-embedded images'
+        self.write(dict(msg=msg,
+                        row_by_id=row_by_id,
+                        cur_ids=cur_ids,
+                        allOtypes=self.all_otypes))
 
 class SourceHandler(MyBaseHandler):
     def post(self):
@@ -390,7 +411,7 @@ class ActionHandler(MyBaseHandler):
             items = Item.select(lambda c: c.id in ids)[:]
             r = await Rel.handle_me_action(items=items, action=action, **data)
             q = Item.select(lambda c: c.id in ids)
-            updated_rows = GetHandler.query_to_web(q)
+            updated_rows, _ = GetHandler.query_to_web(q)
             self.write(dict(
                 action=action,
                 msg=f'Took action {action} on {ids}',

@@ -51,14 +51,13 @@ const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
 const QUICK_LINKS = {
-  'Show queued': '{"rels.queue":true}',
-  'Recent images': '{"otype":"image","limit":500,"embed_ts":">1"}',
-  'Recent posts': '{"otype":"post","limit":500,"added_ts":">=' + Math.floor(Date.now() / 1000 - 24*3600) + '","assemble_posts":true}',
-  'Twitter posts': '{"source":"twitter","otype":"post","limit":500,"embed_ts":">1"}',
-  'Tumblr posts': '{"source":"tumblr","otype":"post","limit":500,"embed_ts":">1"}',
-  'Users': '{"otype":"user","limit":200}',
-  'Videos': '{"otype":"video","limit":300}',
-  'Today': '{"added_ts":">=' + Math.floor(Date.now() / 1000 - 24*3600) + '","limit":500}'
+  'Queued posts': '{"rels.queue":true}',
+  'Queued users': '{"otype": "user", "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
+  'Images': '{"otype":"image","limit":500,"embed_ts":">1"}',
+  'Posts': '{"otype":"post","limit":500}',
+  'Twitter': '{"source":"twitter","limit":500}',
+  'Tumblr': '{"source":"tumblr","limit":500}',
+  'Users': '{"otype":"user"}',
 };
 
 // Detect if we're on a mobile device
@@ -596,53 +595,18 @@ const STYLES = `
 }
 
 /* Quick links styles */
-.quick-links-scroll {
+.quick-links {
   display: flex;
   overflow-x: auto;
   gap: 8px;
-  padding: 5px 0;
-  margin: 5px 0;
   scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
+  max-height: 20px;
+  /*max-width: 350px; doesn't seem to be needed */
 }
 
-.quick-links-scroll::-webkit-scrollbar {
-  height: 4px;
-}
-
-.quick-links-scroll::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 2px;
-}
-
-.quick-links-scroll::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 2px;
-}
-
-.quick-link-pill {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 16px;
-  padding: 6px 12px;
-  font-size: 0.85em;
+.quick-links button {
   white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.2s ease;
-  color: #495057;
-  flex-shrink: 0;
-}
-
-.quick-link-pill:hover {
-  background: #e9ecef;
-  border-color: #adb5bd;
-  transform: translateY(-1px);
-}
-
-.quick-link-pill:active {
-  transform: translateY(0);
-  background: #dee2e6;
 }
 
 /* Cluster columns layout */
@@ -1157,12 +1121,7 @@ const Obj = (props) => {
           )}
           {otype === 'user' && (
             <div className="content">
-              <div className="user-info">
-                <div className="user-name">{source}: {props.name}</div>
-                {md && md.n_queued_reblogs && (
-                  <div className="user-reblogs">Queued reblogs: {md.n_queued_reblogs}</div>
-                )}
-              </div>
+              <div className="user-compact" dangerouslySetInnerHTML={{__html: props.compact}}></div>
             </div>
           )}
           {!props.simpleMode && <p className="score">ID: {id}</p>}
@@ -1489,28 +1448,25 @@ const Controls = () => {
         )}
       </div>
       <div className="control quick-links">
-        <div className="quick-links-scroll">
-          {Object.entries(QUICK_LINKS).map(([name, query]) => (
-            <div
-              key={name}
-              className="quick-link-pill"
-              onClick={() => ctx.actions.doSource(query)}
-              title={`Load: ${name}`}
-            >
-              {name}
-            </div>
-          ))}
-        </div>
-        <DebouncedInput
-          value={searchStr}
-          onChange={setSearchStr}
-          onDebouncedChange={ctx.actions.doSearch}
-          placeholder="Search..."
-          className="search-input"
-          title="Search items by text (not yet implemented)"
-          delay={DEBOUNCE_MS}
-        />
+        {Object.entries(QUICK_LINKS).map(([name, query]) => (
+          <button
+            key={name}
+            onClick={() => {setSourceStr(query); ctx.actions.doSource(query)}}
+            title={`Load: ${name}`}
+          >
+            {name}
+          </button>
+        ))}
       </div>
+      <DebouncedInput
+        value={searchStr}
+        onChange={setSearchStr}
+        onDebouncedChange={ctx.actions.doSearch}
+        placeholder="Search..."
+        className="search-input"
+        title="Search items by text (not yet implemented)"
+        delay={DEBOUNCE_MS}
+      />
       <div className="control otype-filters">
       {ctx.data.allOtypes.map((otype) => (
         <label key={otype} style={{marginRight: '10px'}}>

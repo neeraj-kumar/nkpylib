@@ -147,6 +147,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         - for images with embeddings, adds 'local_path' relative to cwd
         - if this item has a parent, adds 'parent_url' with the parent's url
         - if this item has an ancestor that's a 'user', adds 'user_name' and 'user_url'
+        - if this item is a user, then we add fields 'compact' and 'detailed" with
+          strings of what to display
 
         We also deal with rels:
         - adds a 'rels' sub-dict to `r` with keys being the rtype and values being dicts
@@ -176,6 +178,15 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 r['user_url'] = ancestor.url
                 break
             ancestor = ancestor.parent
+        # if this is a user, add compact and detailed strings
+        if self.otype == 'user':
+            compact = f'{self.source}: {self.name or self.url}'
+            qrbs = self.md.get('n_queued_reblogs', 0)
+            if qrbs:
+                compact += f'<br>queued reblogs: {qrbs}'
+            detailed = compact #TODO
+            r['compact'] = compact
+            r['detailed'] = detailed
         self.rels_for_web(r, rels)
 
     def rels_for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:

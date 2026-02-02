@@ -748,7 +748,6 @@ def update_embeddings(**kw):
 
 def web(**kw):
     """Runs the collections web interface."""
-    print(f'got kw: {kw}')
     t = Tumblr()
     #print(J(t.get_dashboard())[:500])
     return web_main(sqlite_path=t.sqlite_path, lmdb_path=t.lmdb_path)
