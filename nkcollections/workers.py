@@ -26,7 +26,6 @@ import joblib
 import termcolor
 import tornado.web
 
-from tornado.web import RequestHandler
 from pony.orm import (
     composite_index,
     commit,
@@ -41,6 +40,14 @@ from pony.orm import (
     select,
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
+from tornado.web import RequestHandler
+
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
 
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
@@ -510,35 +517,25 @@ class LikesWorker(BackgroundWorker):
         """Runs benchmark evaluation for the given benchmark set `name`.
 
         Computes accuracy, balanced accuracy, precision, recall, F1, etc.
-        
+
         Returns dict with evaluation metrics.
         """
         logger.info(f'Running benchmark evaluation for: {name}')
-        
         # Get all items with the benchmark label
         with db_session:
             benchmark_items = Item.select(lambda c: c.md and name in c.md)
-            if not benchmark_items:
-                logger.warning(f'No items found with benchmark {name}')
-                return {}
-            
-            # Extract labels and IDs
             labels = {}
             for item in benchmark_items:
                 labels[item.id] = item.md[name]
-            
             pos_ids = [id for id, label in labels.items() if label == 1]
             neg_ids = [id for id, label in labels.items() if label == -1]
-            
             logger.info(f'Benchmark {name}: {len(pos_ids)} positives, {len(neg_ids)} negatives')
-        
-        if not pos_ids or not neg_ids:
+        if not labels:
             logger.warning(f'Benchmark {name} needs both positive and negative examples')
             return {}
-        
-        # Get current classifier scores
-        scores = self.get_scores()
-        
+        scores = self._run_inference_blocking(list(labels))['new_scores']
+        scores = {int(k): v for k, v in scores.items()}
+        print(f'Got {len(scores)} scores for {len(labels)} benchmark items: {list(scores.items())[:5]}')
         # Filter to only benchmark items that have scores
         benchmark_scores = {}
         benchmark_labels = {}
@@ -546,45 +543,32 @@ class LikesWorker(BackgroundWorker):
             if item_id in scores:
                 benchmark_scores[item_id] = scores[item_id]
                 benchmark_labels[item_id] = labels[item_id]
-        
         if len(benchmark_scores) < len(labels) * 0.8:  # Less than 80% coverage
             logger.warning(f'Only {len(benchmark_scores)}/{len(labels)} benchmark items have scores')
-        
         if not benchmark_scores:
             logger.error(f'No benchmark items have classifier scores')
             return {}
-        
         # Convert to arrays for sklearn metrics
         y_true = [benchmark_labels[id] for id in benchmark_scores.keys()]
         y_scores = [benchmark_scores[id] for id in benchmark_scores.keys()]
-        
         # Convert scores to binary predictions (positive if score > 0)
         y_pred = [1 if score > 0 else -1 for score in y_scores]
-        
-        # Compute metrics
-        from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_recall_fscore_support, roc_auc_score
-        
         # Convert -1/1 labels to 0/1 for some metrics
         y_true_binary = [1 if label == 1 else 0 for label in y_true]
         y_pred_binary = [1 if pred == 1 else 0 for pred in y_pred]
-        
         accuracy = accuracy_score(y_true, y_pred)
         balanced_accuracy = balanced_accuracy_score(y_true, y_pred)
-        
         precision, recall, f1, support = precision_recall_fscore_support(
             y_true_binary, y_pred_binary, average='binary'
         )
-        
         # ROC AUC using raw scores
         try:
             auc = roc_auc_score(y_true_binary, y_scores)
         except ValueError:
             auc = 0.0  # In case of issues with AUC calculation
-        
         # Compute ranking metrics
         # Sort by score descending
         sorted_items = sorted(benchmark_scores.items(), key=lambda x: x[1], reverse=True)
-        
         # Precision at different cutoffs
         def precision_at_k(k):
             if k > len(sorted_items):
@@ -592,11 +576,10 @@ class LikesWorker(BackgroundWorker):
             top_k = sorted_items[:k]
             correct = sum(1 for item_id, _ in top_k if benchmark_labels[item_id] == 1)
             return correct / k if k > 0 else 0.0
-        
+
         p_at_10 = precision_at_k(10)
         p_at_50 = precision_at_k(50)
         p_at_100 = precision_at_k(100)
-        
         # Mean Average Precision (MAP)
         def mean_average_precision():
             precisions = []
@@ -606,9 +589,8 @@ class LikesWorker(BackgroundWorker):
                     correct += 1
                     precisions.append(correct / (i + 1))
             return sum(precisions) / len(precisions) if precisions else 0.0
-        
+
         map_score = mean_average_precision()
-        
         results = {
             'accuracy': float(accuracy),
             'balanced_accuracy': float(balanced_accuracy),
@@ -624,12 +606,10 @@ class LikesWorker(BackgroundWorker):
             'n_positive': len(pos_ids),
             'n_negative': len(neg_ids),
         }
-        
         logger.info(f'Benchmark {name} results:')
         for metric, value in results.items():
             if isinstance(value, float):
                 logger.info(f'  {metric}: {value:.4f}')
             else:
                 logger.info(f'  {metric}: {value}')
-        
         return results

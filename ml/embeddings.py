@@ -36,6 +36,7 @@ from sklearn.base import BaseEstimator # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import TruncatedSVD # type: ignore
 from sklearn.linear_model import SGDClassifier # type: ignore
+from sklearn.model_selection import cross_val_score
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.pipeline import Pipeline # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
@@ -319,11 +320,14 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
         """High-level function to train a classifier with given `pos` and `neg` and run on `to_cls`.
 
+        The params `method`, `C`, and `kw` are fed into `train_classifier()`, which in turn uses them
+        in `_create_classifier()`.
+
         Returns `(classifier, scores_dict, other_stuff)`, where `scores_dict` is a dict of key to
         score, and `other_stuff` includes:
         - times: dict with timing info for training and inference
         - scaler: the scaler used (if any)
-        - cv: if `cv` > 0, the total cross-validation score for `cv` folds of cross-validation.
+        - cv: if `cv` > 0, the list of cross-validation scores for `cv` folds
         """
         other_stuff = {}
         times = [time.time()]
@@ -354,19 +358,15 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             if k in to_cls:
                 test_keys.append(k)
                 test_X.append(emb)
+        trainX = np.vstack(train_X)
         times.append(time.time())
-        
         # Perform cross-validation if requested
         if cv > 0:
-            from sklearn.model_selection import cross_val_score
-            train_X_array = np.vstack(train_X)
             cv_classifier = self._create_classifier(method=method, C=C, **kw)
-            cv_scores = cross_val_score(cv_classifier, train_X_array, y, 
-                                      cv=cv, sample_weight=weights)
-            other_stuff['cv'] = float(cv_scores.mean())
+            cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, sample_weight=weights)
+            other_stuff['cv'] = [float(s) for s in cv_scores]
             logger.info(f'Cross-validation scores: {cv_scores}, mean: {cv_scores.mean():.3f}')
-        
-        cls = self.train_classifier(np.vstack(train_X), y, weights=weights, method=method, C=C, **kw)
+        cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
         scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(np.vstack(test_X)))}
         times.append(time.time())
