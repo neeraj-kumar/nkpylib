@@ -78,7 +78,6 @@ class TumblrApi:
         "Priority": "u=0", # Request priority hint (the value is not interpreted by the server)
     }
 
-    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH, **kw):
         """Initializes the Tumblr API wrapper.
 
         Expects a config JSON file with at least:
@@ -90,45 +89,13 @@ class TumblrApi:
             }
         }
         """
-        data_dir = kw.pop('data_dir', 'db/tumblr')
-        super().__init__(name=self.NAME, data_dir=data_dir, **kw)
+        self.data_dir = kw.get('data_dir', 'db/tumblr')
         self.config_path = config_path
         with open(config_path, 'r') as f:
             self.config = json.load(f)
         logger.debug(f'Initialized Tumblr API with token {self.api_token[:10]}... and cookies: {self.cookies}')
         self.csrf = ''
 
-    @classmethod
-    def can_parse(cls, url: str) -> bool:
-        """Returns if this source can parse the given url"""
-        return 'tumblr.com' in url
-
-    def parse(self, url: str, n_posts: int=300, **kw) -> Any:
-        """Parses the given url and returns an appropriate set of GetHandler params.
-
-        For now, this simply returns the list of posts that are children of the tumblr blog's Item.
-        If there are none, we fetch one batch of posts from the archive.
-        """
-        # first get the blog name, which is either in the format xyz.tumblr.com or tumblr.com/xyz
-        parsed = urlparse(url)
-        netloc = parsed.netloc.lower()
-        path = parsed.path.lower()
-        blog_name = ''
-        if netloc.endswith('.tumblr.com'):
-            blog_name = netloc.split('.tumblr.com')[0]
-            if blog_name in ('www', 'm'):
-                blog_name = ''
-        if not blog_name:
-            blog_name = path.split('/')[1]
-        with db_session:
-            # now look for the appropriate blog user item
-            u = self.get_blog_user(blog_name)
-            offset = 0
-            # add posts if we don't have any yet
-            if not select(p for p in Item if p.parent == u).exists(): # type: ignore[attr-defined]
-                posts, offset, total = self.get_blog_archive(blog_name, n_posts=n_posts)
-                self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
-            return dict(source=self.NAME, ancestor=u.id, assemble_posts=True)
 
     @property
     def api_token(self) -> str:
@@ -272,6 +239,151 @@ class TumblrApi:
             obj = await self.make_api_req(endpoint, method='POST', json=data)
         print(f'liked post {post_id}: {obj}')
         return obj
+
+    async def get_dashboard(self) -> list[dict]:
+        """Returns our "dashboard". Useful for updating the csrf"""
+        obj = await self.make_web_req('')
+        logger.debug(J(obj)[:500])
+        return obj['Dashboard']
+
+    async def get_blog_content(self, blog_name: str, n_posts: int=20) -> list[dict]:
+        """Get blog content from the web interface.
+
+        You can either fetch it from blog_name.tumblr.com, in which case you can use /page/N, but
+        then it doesn't have the JSON object in the source code (hence you have to parse the html),
+        or you can go to tumblr.com/blog_name, which does have the json, but then pagination works
+        differently.
+
+        """
+        ret: list[dict] = []
+        page = 1
+        while len(ret) < n_posts:
+            endpoint = f'{blog_name}/page/{page}'
+            endpoint = f'https://{blog_name}.tumblr.com/page/{page}'
+            endpoint = blog_name
+            try:
+                obj = await self.make_web_req(endpoint)
+            except ValueError:
+                break
+            posts = obj['PeeprRoute']['initialTimeline']['objects']
+            posts = [p for p in posts if p['objectType'] == 'post']
+            ret.extend(posts)
+            break # because we're using the parseable version
+        return ret
+
+    async def get_blog_archive(self, blog_name: str, n_posts: int = 20, offset: int=0) -> tuple[list[dict], int, int]:
+        """Get blog archive via API.
+
+        Note that some blogs don't allow access to the archive, so you must get it via the web
+        interface.
+
+        Returns (posts, offset, totalPosts)
+        """
+        posts: list[dict] = []
+        total = 0
+        next_link = dict(
+            npf='true',
+            reblog_info='true',
+            context='archive',
+            offset=str(offset),
+        )
+        with db_session:
+            u = self.get_blog_user(blog_name)
+            if u.explored_ts and u.explored_ts < 0: # skip blogs that are marked inaccessible
+                return (posts, offset, total)
+            while offset < n_posts:
+                #print(f'initial next link: {J(next_link)}')
+                endpoint = f'blog/{blog_name}/posts'
+                if next_link:
+                    endpoint = f'blog/{blog_name}/posts?{urlencode(next_link)}'
+                try:
+                    obj = await self.make_api_req(endpoint)
+                except Exception as e:
+                    if '404' in str(e):
+                        logger.warning(f'Blog archive for {blog_name} not found (404). It may be private or inaccessible.')
+                        u.explored_ts = -1 # mark as inaccessible
+                        return (posts, offset, total)
+                if obj.get('links'):
+                    ext_link = obj['links'].get('next', {}).get('queryParams', {})
+                batch = obj['posts'] or []
+                posts.extend(batch)
+                total = obj['totalPosts']
+                offset += 20
+                logger.debug(f'Got offset {offset}, {n_posts}, {len(batch)}, {total}, {obj.get("links")}')
+                next_link['offset'] = str(offset)
+                if not batch or not obj.get('links', []):
+                    break
+        return (posts, offset, total)
+
+    async def update_blogs(self):
+        blogs = self.config['blogs']
+        for i, name in enumerate(blogs):
+            print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
+            now = time.time()
+            with db_session:
+                u = self.get_blog_user(name)
+                if u.explored_ts and u.explored_ts < 0: # skip inaccessible blogs
+                    continue
+                diff = now - (u.explored_ts or 0)
+                if diff < 3600*24:
+                    print(f'  Last explored was {diff//3600} hours ago, skipping until 24 hours')
+                    continue
+            try:
+                posts, next_link, total = await self.get_blog_archive(name)
+                cols = self.create_collection_from_posts(posts, blog_name=name)
+                print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
+            except Exception as e:
+                logger.warning(f'Failed to process blog {name}: {e}')
+                print(traceback.format_exc())
+                continue
+
+    async def get_likes(self):
+        """Returns our likes"""
+        #https://www.tumblr.com/api/v2/user/likes?fields[blogs]=?advertiser_name,?avatar,?blog_view_url,?can_be_booped,?can_be_followed,?can_show_badges,?description_npf,?followed,?is_adult,?is_member,name,?primary,?theme,?title,?tumblrmart_accessories,url,?uuid&limit=21&reblog_info=true
+        obj = await self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
+        print(J(obj)[:500])
+
+
+class Tumblr(TumblrApi, Source):
+    """Tumblr integration with the collections system"""
+    NAME = 'tumblr'
+
+    def __init__(self, config_path: str=DEFAULT_CONFIG_PATH, **kw):
+        data_dir = kw.pop('data_dir', 'db/tumblr')
+        TumblrApi.__init__(self, config_path=config_path, data_dir=data_dir, **kw)
+        Source.__init__(self, name=self.NAME, data_dir=data_dir, **kw)
+
+    @classmethod
+    def can_parse(cls, url: str) -> bool:
+        """Returns if this source can parse the given url"""
+        return 'tumblr.com' in url
+
+    def parse(self, url: str, n_posts: int=300, **kw) -> Any:
+        """Parses the given url and returns an appropriate set of GetHandler params.
+
+        For now, this simply returns the list of posts that are children of the tumblr blog's Item.
+        If there are none, we fetch one batch of posts from the archive.
+        """
+        # first get the blog name, which is either in the format xyz.tumblr.com or tumblr.com/xyz
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower()
+        path = parsed.path.lower()
+        blog_name = ''
+        if netloc.endswith('.tumblr.com'):
+            blog_name = netloc.split('.tumblr.com')[0]
+            if blog_name in ('www', 'm'):
+                blog_name = ''
+        if not blog_name:
+            blog_name = path.split('/')[1]
+        with db_session:
+            # now look for the appropriate blog user item
+            u = self.get_blog_user(blog_name)
+            offset = 0
+            # add posts if we don't have any yet
+            if not select(p for p in Item if p.parent == u).exists(): # type: ignore[attr-defined]
+                posts, offset, total = self.get_blog_archive(blog_name, n_posts=n_posts)
+                self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
+            return dict(source=self.NAME, ancestor=u.id, assemble_posts=True)
 
     def get_blog_user(self, blog_name: str, **kw) -> Entity:
         """Returns the blog user item for the given `blog_name`.
