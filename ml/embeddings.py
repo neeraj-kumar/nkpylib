@@ -315,13 +315,15 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  neg_weight: float=1.0,
                                  method: str='rbf',
                                  C=1,
+                                 cv: int=0,
                                  **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
-        """High-level function train a classifier with given `pos` and `neg` and run on `to_cls`.
+        """High-level function to train a classifier with given `pos` and `neg` and run on `to_cls`.
 
         Returns `(classifier, scores_dict, other_stuff)`, where `scores_dict` is a dict of key to
         score, and `other_stuff` includes:
         - times: dict with timing info for training and inference
         - scaler: the scaler used (if any)
+        - cv: if `cv` > 0, the total cross-validation score for `cv` folds of cross-validation.
         """
         other_stuff = {}
         times = [time.time()]
@@ -362,16 +364,12 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             inference=times[4] - times[3]
         )
         logger.info(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
-        # all ids: 0.4, 0.03, 3.6, 1.2, 16.7
-        # just visible: 0.4, 0.00, 3.6, 0.066, 0.76
-        # after refactoring: 0.34, 0.00, 3.5, 0.04
         return cls, scores, other_stuff
 
     def run_classifier(self,
                        to_cls: list[KeyT],
                        classifier: BaseEstimator,
-                       scaler: StandardScaler|None=None,
-                       ) -> dict[KeyT, Any]:
+                       scaler: StandardScaler|None=None) -> dict[KeyT, Any]:
         """Runs `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
         keys, embs, scaler = self.get_keys_embeddings(
