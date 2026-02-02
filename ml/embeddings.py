@@ -355,6 +355,17 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 test_keys.append(k)
                 test_X.append(emb)
         times.append(time.time())
+        
+        # Perform cross-validation if requested
+        if cv > 0:
+            from sklearn.model_selection import cross_val_score
+            train_X_array = np.vstack(train_X)
+            cv_classifier = self._create_classifier(method=method, C=C, **kw)
+            cv_scores = cross_val_score(cv_classifier, train_X_array, y, 
+                                      cv=cv, sample_weight=weights)
+            other_stuff['cv'] = float(cv_scores.mean())
+            logger.info(f'Cross-validation scores: {cv_scores}, mean: {cv_scores.mean():.3f}')
+        
         cls = self.train_classifier(np.vstack(train_X), y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
         scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(np.vstack(test_X)))}
@@ -385,6 +396,19 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         scores_array = classifier.decision_function(embs)
         return {key: float(score) for key, score in zip(keys, scores_array)}
 
+    def _create_classifier(self, method: str='rbf', C=1, class_weight='balanced', **kw) -> Any:
+        """Creates a classifier instance without training it."""
+        clf_kw = dict(class_weight=class_weight, **kw)
+        match method:
+            case 'rbf':
+                return SVC(kernel='rbf', C=C, **clf_kw)
+            case 'linear':
+                return SVC(kernel='linear', C=C, **clf_kw)
+            case 'sgd':
+                return SGDClassifier(**clf_kw)
+            case _:
+                raise NotImplementedError(f'Classifier method {method!r} not implemented.')
+
     def train_classifier(self,
                          X: nparray2d,
                          y: Sequence[float|int],
@@ -409,16 +433,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         if weights is not None:
             assert len(X) == len(weights), f'Length of weights {len(weights)} must match X {len(X)}'
         logger.debug(f'training labels {Counter(y).most_common()}, X: {X.shape}, {X}')
-        clf_kw = dict(class_weight=class_weight, **kw)
-        match method:
-            case 'rbf':
-                clf = SVC(kernel='rbf', C=C, **clf_kw)
-            case 'linear':
-                clf = SVC(kernel='linear', C=C, **clf_kw)
-            case 'sgd':
-                clf = SGDClassifier(**clf_kw)
-            case _:
-                raise NotImplementedError(f'Classifier method {method!r} not implemented.')
+        clf = self._create_classifier(method=method, C=C, class_weight=class_weight, **kw)
         clf.fit(X, y, sample_weight=weights)
         return clf
 
