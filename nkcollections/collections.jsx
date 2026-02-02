@@ -1097,8 +1097,7 @@ const Obj = (props) => {
           {otype === 'user' && (
             <div className="content">
               <div className="user-info">
-                <div className="user-name">{props.name}</div>
-                <div className="user-source">Source: {source}</div>
+                <div className="user-name">{source}: {props.name}</div>
                 {md && md.n_queued_reblogs && (
                   <div className="user-reblogs">Queued reblogs: {md.n_queued_reblogs}</div>
                 )}
@@ -1490,7 +1489,7 @@ const AppProvider = ({ children }) => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
   //const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
-  const [curOtypes, setCurOtypes] = React.useState(['image', 'video']);
+  const [curOtypes, setCurOtypes] = React.useState(['image', 'video', 'user']);
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
@@ -1605,13 +1604,17 @@ const AppProvider = ({ children }) => {
 
   // called whenever main data updates
   const updateData = React.useCallback((data, resetData=false) => {
-    console.log('got data', data);
+    console.log('got data', data, resetData);
     if (resetData) {
       setRowById({});
       setClusters({});
     }
     updateRowById(data.row_by_id);
-    setCurIds(Object.keys(data.row_by_id));
+    if (data.cur_ids){
+      setCurIds(data.cur_ids);
+    } else {
+      setCurIds(Object.keys(data.row_by_id));
+    }
     setAllOtypes(data.allOtypes);
 
     // In clustering mode, initialize clusters for new objects
