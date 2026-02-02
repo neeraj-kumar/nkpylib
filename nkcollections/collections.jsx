@@ -1094,6 +1094,17 @@ const Obj = (props) => {
               </div>
             </div>
           )}
+          {otype === 'user' && (
+            <div className="content">
+              <div className="user-info">
+                <div className="user-name">{props.name}</div>
+                <div className="user-source">Source: {source}</div>
+                {md && md.n_queued_reblogs && (
+                  <div className="user-reblogs">Queued reblogs: {md.n_queued_reblogs}</div>
+                )}
+              </div>
+            </div>
+          )}
           {!props.simpleMode && <p className="score">ID: {id}</p>}
           {!props.simpleMode && score !== undefined && (
             <div className="score">Score: {score.toFixed(3)}</div>
