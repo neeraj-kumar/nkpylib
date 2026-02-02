@@ -15,6 +15,7 @@ import time
 import traceback
 
 from argparse import ArgumentParser
+from collections import Counter, defaultdict
 from datetime import datetime
 from os.path import exists, dirname, join, abspath
 from typing import Any
@@ -23,17 +24,24 @@ from urllib.parse import urlencode, urlparse
 import numpy as np
 import requests
 
-from pony.orm import db_session, flush, select
+from pony.orm import db_session, flush, select, commit
 from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
-from nkpylib.nkcollections.nkcollections import Item, init_sql_db, Source, embeddings_main, web_main
+from nkpylib.nkcollections.nkcollections import (
+    embeddings_main,
+    init_sql_db,
+    Item,
+    Rel,
+    Source,
+    web_main,
+)
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
-from nkpylib.web_utils import make_request
+from nkpylib.web_utils import make_request, make_request_async
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +158,7 @@ class Tumblr(Source):
         with open(self.config_path, 'w') as f:
             json.dump(self.config, f, indent=2)
 
-    def make_web_req(self, endpoint: str, referer:str='', **kw) -> dict:
+    async def make_web_req(self, endpoint: str, referer:str='', **kw) -> dict:
         """Make a request to the Tumblr web interface"""
         url = endpoint if 'tumblr.com' in endpoint else f'https://www.tumblr.com/{endpoint}'
         #print(f'Hitting url: {url}')
@@ -160,7 +168,7 @@ class Tumblr(Source):
         }
         if referer:
             headers['Referer'] = referer
-        resp = make_request(url, cookies=self.cookies, headers=headers, min_delay=self.MIN_DELAY, **kw)
+        resp = await make_request_async(url, cookies=self.cookies, headers=headers, min_delay=self.MIN_DELAY, **kw)
         req = resp.request
         logger.debug(f'Made a {req.method.upper()} to {req.url} with status {resp.status_code}')
         logger.debug(f'Req Headers: {J(dict(req.headers))}\n{req._cookies}')
@@ -171,7 +179,6 @@ class Tumblr(Source):
                 self.update_config(**{'cookies.sid': resp.cookies['sid']})
         if resp.status_code != 200:
             logger.warning(f'Error {resp.status_code} from Tumblr: {resp.text[:500]}')
-            sys.exit()
         resp_path = join(self.data_dir, 'last_tumblr_response.html')
         try:
             shutil.copy2(resp_path, resp_path.replace('.html', '_prev.html'))
@@ -194,7 +201,7 @@ class Tumblr(Source):
             self.csrf = obj["csrfToken"]
         return obj
 
-    def make_api_req(self, endpoint: str, **kw):
+    async def make_api_req(self, endpoint: str, **kw):
         """Make a request to the Tumblr API"""
         headers = {
             "Authorization": f'Bearer {self.api_token}',
@@ -205,7 +212,7 @@ class Tumblr(Source):
         else:
             url = f'https://api.tumblr.com/v2/{endpoint}'
         #print(f'got headers {headers}, {self.cookies}, {kw}')
-        resp = make_request(url, headers=headers, cookies=self.cookies, min_delay=self.MIN_DELAY, **kw)
+        resp = await make_request_async(url, headers=headers, cookies=self.cookies, min_delay=self.MIN_DELAY, **kw)
         try:
             obj = resp.json()
         except Exception as e:
@@ -247,7 +254,7 @@ class Tumblr(Source):
         post_data['media_blocks'] = media_blocks
         return post_data
 
-    def like_post(self, post_id: str, reblog_key: str) -> dict:
+    async def like_post(self, post_id: str, reblog_key: str) -> dict:
         """Like a post by ID and reblog key"""
         data = dict(
             id=post_id,
@@ -258,20 +265,20 @@ class Tumblr(Source):
                 "X-CSRF": self.csrf,
                 **self.COMMON_HEADERS
             }
-            obj = self.make_web_req('api/v2/user/like', method='POST', headers=headers, json=data)
+            obj = await self.make_web_req('api/v2/user/like', method='POST', headers=headers, json=data)
         else: # TODO this requires Oauth access, not just api key
             endpoint = 'user/like'
-            obj = self.make_api_req(endpoint, method='POST', json=data)
+            obj = await self.make_api_req(endpoint, method='POST', json=data)
         print(f'liked post {post_id}: {obj}')
         return obj
 
-    def get_dashboard(self) -> list[dict]:
+    async def get_dashboard(self) -> list[dict]:
         """Returns our "dashboard". Useful for updating the csrf"""
-        obj = self.make_web_req('')
+        obj = await self.make_web_req('')
         logger.debug(J(obj)[:500])
         return obj['Dashboard']
 
-    def get_blog_content(self, blog_name: str, n_posts: int=20) -> list[dict]:
+    async def get_blog_content(self, blog_name: str, n_posts: int=20) -> list[dict]:
         """Get blog content from the web interface.
 
         You can either fetch it from blog_name.tumblr.com, in which case you can use /page/N, but
@@ -287,7 +294,7 @@ class Tumblr(Source):
             endpoint = f'https://{blog_name}.tumblr.com/page/{page}'
             endpoint = blog_name
             try:
-                obj = self.make_web_req(endpoint)
+                obj = await self.make_web_req(endpoint)
             except ValueError:
                 break
             posts = obj['PeeprRoute']['initialTimeline']['objects']
@@ -296,7 +303,7 @@ class Tumblr(Source):
             break # because we're using the parseable version
         return ret
 
-    def get_blog_archive(self, blog_name: str, n_posts: int = 20, offset: int=0) -> tuple[list[dict], int, int]:
+    async def get_blog_archive(self, blog_name: str, n_posts: int = 20, offset: int=0) -> tuple[list[dict], int, int]:
         """Get blog archive via API.
 
         Note that some blogs don't allow access to the archive, so you must get it via the web
@@ -322,7 +329,7 @@ class Tumblr(Source):
                 if next_link:
                     endpoint = f'blog/{blog_name}/posts?{urlencode(next_link)}'
                 try:
-                    obj = self.make_api_req(endpoint)
+                    obj = await self.make_api_req(endpoint)
                 except Exception as e:
                     if '404' in str(e):
                         logger.warning(f'Blog archive for {blog_name} not found (404). It may be private or inaccessible.')
@@ -340,7 +347,7 @@ class Tumblr(Source):
                     break
         return (posts, offset, total)
 
-    def update_blogs(self):
+    async def update_blogs(self):
         blogs = self.config['blogs']
         for i, name in enumerate(blogs):
             print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
@@ -354,7 +361,7 @@ class Tumblr(Source):
                     print(f'  Last explored was {diff//3600} hours ago, skipping until 24 hours')
                     continue
             try:
-                posts, next_link, total = self.get_blog_archive(name)
+                posts, next_link, total = await self.get_blog_archive(name)
                 cols = self.create_collection_from_posts(posts, blog_name=name)
                 print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
             except Exception as e:
@@ -362,10 +369,10 @@ class Tumblr(Source):
                 print(traceback.format_exc())
                 continue
 
-    def get_likes(self):
+    async def get_likes(self):
         """Returns our likes"""
         #https://www.tumblr.com/api/v2/user/likes?fields[blogs]=?advertiser_name,?avatar,?blog_view_url,?can_be_booped,?can_be_followed,?can_show_badges,?description_npf,?followed,?is_adult,?is_member,name,?primary,?theme,?title,?tumblrmart_accessories,url,?uuid&limit=21&reblog_info=true
-        obj = self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
+        obj = await self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
         print(J(obj)[:500])
 
     def get_blog_user(self, blog_name: str, **kw) -> Entity:
@@ -386,6 +393,75 @@ class Tumblr(Source):
             )
         )
         return u
+
+    async def handle_me_action(self, rels_by_item: dict[Item, list[Rel]], action: str, **kw) -> None:
+        """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`.
+
+        This is called after generic processing, with the dict mapping from original item to list of
+        rels created/deleted/updated for that item.
+
+        For 'queue' actions, we fetch the post notes and update our database as follows:
+        - each reblog note has a reblogger and rebloggee
+        - we accumulate counts per user: total, as reblogger, as rebloggee
+        - goals:
+          1. in rels: keep track of users related to this post, with associated counts
+          2. in items: for each user, increment counts
+        """
+        if action != 'queue':
+            return
+        logger.info(f'Tumblr handling action {action}: {rels_by_item}')
+        me = Item.get_me()
+        for item, rels in rels_by_item.items():
+            post = item.get_closest(otype='post')
+            if not post:
+                continue
+            if post.explored_ts: # skip already explored posts
+                continue
+            logger.info(f'  {item} -> post: {post}: {post.to_dict()}')
+            post_id = post.md['post_id']
+            post.explored_ts = time.time()
+            try:
+                notes = await self.get_post_notes(post.md['blog_name'], post_id)
+            except Exception as e:
+                logger.warning(f'  Failed to get notes for post {post.md["post_id"]}: {e}')
+                continue
+            logger.debug(f'  Got {len(notes)} notes for post {post_id}: {J(notes)[:5000]}')
+            # add notes summary to our database
+            counts_by_user = defaultdict(Counter)
+            following = set()
+            for note in notes:
+                if note['type'] != 'reblog':
+                    continue
+                reblogger = note['blogName']
+                rebloggee = note['reblogParentBlogName']
+                counts_by_user[reblogger]['reblogger'] += 1
+                counts_by_user[reblogger]['total'] += 1
+                counts_by_user[rebloggee]['rebloggee'] += 1
+                counts_by_user[rebloggee]['total'] += 1
+                if note.get('followed'):
+                    following.add(reblogger)
+            # actually add to the database
+            for user, counts in counts_by_user.items():
+                # update the user item
+                u = self.get_blog_user(user, explored_via=post.id)
+                u.md.setdefault('n_queued_reblogs', 0)
+                u.md['n_queued_reblogs'] += counts['total']
+                # update/create rels
+                r = Rel(src=post, tgt=u, rtype='queued_post_reblogs', ts=int(time.time()), md=dict(
+                        n_as_reblogger=counts['reblogger'],
+                        n_as_rebloggee=counts['rebloggee'],
+                        n_total=counts['total'],
+                    ),
+                )
+                if user in following: # make a rel for us following them
+                    matching = Rel.select(lambda r: r.src == me and r.tgt == u and r.rtype == 'follows')
+                    if not matching.exists():
+                        Rel(src=me, tgt=u, rtype='follows', ts=int(time.time()), md=dict(
+                                via_post_id=post.id,
+                            ),
+                        )
+
+
 
     @db_session
     def create_collection_from_posts(self,
@@ -571,7 +647,7 @@ class Tumblr(Source):
         updater.commit()
         logger.info(f'Updated embeddings for {n} tumblr posts')
 
-    def get_post_notes(self, blog_name: str, post_id: int, n_notes: int=40, mode: str='reblogs_only') -> list[dict]:
+    async def get_post_notes(self, blog_name: str, post_id: int, n_notes: int=40, mode: str='reblogs_only') -> list[dict]:
         """Returns notes related to a post.
 
         Reblogs look like this:
@@ -591,7 +667,7 @@ class Tumblr(Source):
           "reblogParentBlogName": "..." # only reference to who this was reblogged from
         }
         """
-        dash = self.get_dashboard()
+        dash = await self.get_dashboard()
         before_timestamp = 0
         ret = []
         referer = f'https://www.tumblr.com/{blog_name}/{post_id}'
@@ -600,7 +676,7 @@ class Tumblr(Source):
             if before_timestamp:
                 endpoint += f'&before_timestamp={before_timestamp}'
             #print(endpoint)
-            obj = self.make_web_req(endpoint, method='get', referer=referer)
+            obj = await self.make_web_req(endpoint, method='get', referer=referer)
             notes = obj['response'].pop('notes', [])
             #print(J(obj)[:1500])
             if not notes:
@@ -638,7 +714,7 @@ def process_posts(posts):
             like_post(post_id=p['id'], reblog_key=p['reblogKey'])
 
 
-def simple_test(config_path: str, **kw):
+async def simple_test(config_path: str, **kw):
     tumblr = Tumblr(config_path)
     name = tumblr.config['blogs'][0]
     while 1:
@@ -649,12 +725,10 @@ def simple_test(config_path: str, **kw):
         for p in posts:
             print(p['id'])
         break
-        tumblr.get_dashboard()
-        tumblr.get_likes()
+        await tumblr.get_dashboard()
+        await tumblr.get_likes()
         #posts = tumblr.get_blog_content(name)
         print(f'{tumblr.csrf}: {len(posts)} posts: {J(posts)[:500]}...')
-        sys.exit()
-        sys.exit()
         break
         time.sleep(60 + random.random()*60)
 
@@ -676,6 +750,7 @@ def web(**kw):
     """Runs the collections web interface."""
     print(f'got kw: {kw}')
     t = Tumblr()
+    #print(J(t.get_dashboard())[:500])
     return web_main(sqlite_path=t.sqlite_path, lmdb_path=t.lmdb_path)
 
 
