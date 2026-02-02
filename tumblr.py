@@ -12,6 +12,7 @@ import random
 import shutil
 import sys
 import time
+import traceback
 
 from argparse import ArgumentParser
 from datetime import datetime
@@ -27,7 +28,7 @@ from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
-from nkpylib.nkcollections.nkcollections import Item, init_sql_db, Source, embeddings_main
+from nkpylib.nkcollections.nkcollections import Item, init_sql_db, Source, embeddings_main, web_main
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
@@ -333,14 +334,21 @@ class Tumblr(Source):
         blogs = self.config['blogs']
         for i, name in enumerate(blogs):
             print(f'\nProcessing blog {i+1}/{len(blogs)}: {name}')
+            now = time.time()
+            with db_session:
+                u = self.get_blog_user(name)
+                diff = now - (u.explored_ts or 0)
+                if diff < 3600*24:
+                    print(f'  Last explored was {diff//3600} hours ago, skipping until 24 hours')
+                    continue
             try:
                 posts, next_link, total = self.get_blog_archive(name)
                 cols = self.create_collection_from_posts(posts, blog_name=name)
                 print(f'Created {len(posts)} -> {len(cols)} post collections for {name}')
             except Exception as e:
                 logger.warning(f'Failed to process blog {name}: {e}')
+                print(traceback.format_exc())
                 continue
-        self.update_embeddings(ids=[c.id for c in cols])
 
     def get_likes(self):
         """Returns our likes"""
@@ -397,8 +405,7 @@ class Tumblr(Source):
                     description=post['blog'].get('description', ''),
                     uuid=post['blog'].get('uuid', ''),
             )
-            if not u.explored_ts:
-                u.explored_ts = ts
+            u.explored_ts = ts
             # update the seen time to now for this user
             u.seen_ts = ts
             if next_link:
@@ -656,8 +663,14 @@ def update_embeddings(**kw):
     t = Tumblr()
     embeddings_main(**kw)
 
+def web(**kw):
+    """Runs the collections web interface."""
+    print(f'got kw: {kw}')
+    t = Tumblr()
+    return web_main(sqlite_path=t.sqlite_path, lmdb_path=t.lmdb_path)
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([simple_test, update_blogs, test_post, update_embeddings],
+    cli_runner([simple_test, update_blogs, test_post, update_embeddings, web],
                config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))
