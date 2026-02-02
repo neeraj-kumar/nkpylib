@@ -646,7 +646,7 @@ class VLMModel(ChatModel):
         return f"{kw['max_tokens']}:{image}:{str(messages)}"
 
     async def _run(self, input: Any, **kw) -> dict:
-        logger.debug(f'Running VLM model: {self.model_name} on input: {input} with kw {kw}')
+        logger.warning(f'Running VLM model: {self.model_name} on input: {input} with kw {kw}')
         image, messages = input
         kw = kw or {}
         kw['messages'] = self.process_messages(messages)

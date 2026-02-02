@@ -27,7 +27,7 @@ from pony.orm.core import Entity
 from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
-from nkpylib.nkcollections.collections import Item, init_sql_db, Source
+from nkpylib.nkcollections.nkcollections import Item, init_sql_db, Source, embeddings_main
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
@@ -642,7 +642,6 @@ def simple_test(config_path: str, **kw):
         break
         time.sleep(60 + random.random()*60)
 
-@db_session
 def update_blogs(config_path: str, **kw):
     tumblr = Tumblr(config_path)
     tumblr.update_blogs()
@@ -652,8 +651,13 @@ def test_post(config_path: str, **kw):
     notes = tumblr.get_post_notes('zegalba', 701480526115192832)
     print(f'Got {len(notes)} notes: {J(notes)[:3000]}')
 
+def update_embeddings(**kw):
+    """Updates embeddings"""
+    t = Tumblr()
+    embeddings_main(**kw)
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([simple_test, update_blogs, test_post],
+    cli_runner([simple_test, update_blogs, test_post, update_embeddings],
                config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))

@@ -177,6 +177,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         This select 'text' and 'link' otypes and updates their embeddings.
         Returns the number of embeddings updated.
         """
+        return 0 #FIXME
         with db_session:
             rows = q.filter(lambda c: c.otype in ('text', 'link') and not c.embed_ts).limit(limit)
             if not rows:
@@ -294,6 +295,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
         Returns the number of descriptions updated.
         """
+        return 0 #FIXME
         if not vlm_prompt or not vlm_model:
             return 0
         updater = LmdbUpdater(lmdb_path, n_procs=1)

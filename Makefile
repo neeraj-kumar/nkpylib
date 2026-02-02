@@ -100,10 +100,14 @@ aranet:
 	python3 aranet.py aranet.json
 	#python3 -m cProfile -s tottime aranet.py
 
-## tests out the tumblr wrapper
-tumblr:
-	@python3 tumblr.py simple_test
-	@#python3 tumblr.py update_blogs
+## updates tumblr blogs
+tumblr-update:
+	#@python3 tumblr.py simple_test
+	@python3 tumblr.py update_blogs
+
+## run tumblr embeddings
+tumblr-embeddings:
+	python3 tumblr.py update_embeddings
 
 ## does twitter tests
 twitter-test:
