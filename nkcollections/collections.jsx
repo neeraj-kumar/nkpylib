@@ -65,6 +65,7 @@ const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini
 
 // Global reference for message handling
 let globalSetMessage = null;
+let globalSetSourceStr = null;
 
 // Utility function for making API calls
 const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
@@ -1066,6 +1067,19 @@ const Obj = (props) => {
             🔍
           </div>
         )}
+        {otype === 'user' && (
+          <div
+            className="icon-button show-user-posts-icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              const query = `{"ancestor":${id}}`;
+              ctx.actions.doSource(query, true);
+            }}
+            title="Show all posts from this user"
+          >
+            📚
+          </div>
+        )}
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
         {/* Cluster buttons - only show in cluster mode */}
@@ -1391,6 +1405,11 @@ const Controls = () => {
   const [sourceStr, setSourceStr] = React.useState(QUICK_LINKS['Images']);
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
+
+  // Set up global reference to setSourceStr
+  React.useEffect(() => {
+    globalSetSourceStr = setSourceStr;
+  }, [setSourceStr]);
 
   // Initial load effect
   React.useEffect(() => {
@@ -1824,8 +1843,12 @@ const AppProvider = ({ children }) => {
   }, [pos]);
 
   // the source string can be either a url or a JSON string of parameters
-  const doSource = React.useCallback((inputStr) => {
+  const doSource = React.useCallback((inputStr, updateSourceStr = false) => {
     if (!inputStr) return;
+    // Update the source string if requested
+    if (updateSourceStr && globalSetSourceStr) {
+      globalSetSourceStr(inputStr);
+    }
     // Unfocus the source input
     const sourceInput = document.querySelector('.src-input');
     if (sourceInput) {
