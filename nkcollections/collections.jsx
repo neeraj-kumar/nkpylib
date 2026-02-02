@@ -1054,6 +1054,18 @@ const Obj = (props) => {
         >
           {queued ? '➖' : '➕'}
         </div>
+        {otype === 'user' && (
+          <div
+            className="icon-button explore-user-icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              ctx.actions.doAction([id], 'explore');
+            }}
+            title="Explore this user (fetch their posts)"
+          >
+            🔍
+          </div>
+        )}
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
         {/* Cluster buttons - only show in cluster mode */}
@@ -1881,7 +1893,8 @@ const AppProvider = ({ children }) => {
       setQueued,
       setCluster,
       doFilter,
-      doSearch
+      doSearch,
+      doAction
     },
     classification: {
       autoLikesMode,

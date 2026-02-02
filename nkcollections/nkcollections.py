@@ -415,7 +415,7 @@ class ActionHandler(MyBaseHandler):
         data = json.loads(self.request.body)
         action = data.pop('action', '')
         logger.info(f'ActionHandler got action={action}, {data}')
-        assert action in 'like unlike queue unqueue'.split()
+        assert action in 'like unlike queue unqueue explore'.split()
         ids = [int(i) for i in data.pop('ids')]
         await Rel.handle_me_action(ids=ids, action=action, **data)
         with db_session:
