@@ -169,6 +169,7 @@ class GetHandler(MyBaseHandler):
         - rels.queue.count>=2 (rel metadata)
         - rels.queue.ts>1234567890 (rel timestamp)
         """
+        t0 = time.time()
         q = Item.select()
 
         # Handle rel-based filters first (they may need to modify the query significantly)
@@ -248,6 +249,7 @@ class GetHandler(MyBaseHandler):
             else:
                 q = q.order_by(lambda c: getattr(c, order_field))
         #print(f'q1: {q.get_sql()}')
+        t1 = time.time()
         if manual_reverse: # fetch all items, reverse
             q = q[:]
             q = q[::-1]
@@ -258,6 +260,8 @@ class GetHandler(MyBaseHandler):
                 q = q[:limit]
             else:
                 q = q.limit(limit)
+        t2 = time.time()
+        #logger.info(f'Built query in {t1 - t0:.3f}s, applied limit in {t2 - t1:.3f}s, output type: {type(q)}')
         #print(f'q2: {q}')
         return q
 
@@ -267,22 +271,28 @@ class GetHandler(MyBaseHandler):
 
         Returns a tuple of (row_by_id, cur_ids), where the latter is in order.
         """
+        times = [time.time()]
         items = q[:]
         if hasattr(q, '_rel_property_filters'):
             items = cls._apply_rel_property_filters(items, q._rel_property_filters)
         cur_ids = [item.id for item in items]
+        times.append(time.time())
         if assemble_posts:
             ret = {r['id']: r for r in Source.assemble_posts(items)}
         else:
             ret = {r.id: recursive_to_dict(r) for r in items}
+        times.append(time.time())
         # fetch all rels with source = me and tgt in ids
         me = Item.get_me()
         rels_by_tgt = defaultdict(list)
         for r in Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids):
             rels_by_tgt[r.tgt.id].append(r)
+        times.append(time.time())
         # prepare items for web
         for item in items:
             item.for_web(ret[item.id], rels=rels_by_tgt[item.id])
+        times.append(time.time())
+        logger.info(f'  query_to_web times: {[(t1 - t0) for t0, t1 in zip(times, times[1:])]}')
         return (ret, cur_ids)
 
     @classmethod
@@ -366,10 +376,15 @@ class GetHandler(MyBaseHandler):
         logger.info(f'GetHandler got data={data}')
         # Build query conditions
         with db_session:
+            times = [time.time()]
             q = self.build_query(data)
+            times.append(time.time())
             row_by_id, cur_ids = self.query_to_web(q, assemble_posts=data.get('assemble_posts', True))
+            times.append(time.time())
             # count the number of un-embedded images
             n_unembedded = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None) .count()
+            times.append(time.time())
+            logger.info(f'Times: {[(t1-t0) for t0, t1 in zip(times, times[1:])]}')
         msg = f'Got {len(row_by_id)} items, {n_unembedded} un-embedded images'
         self.write(dict(msg=msg,
                         row_by_id=row_by_id,

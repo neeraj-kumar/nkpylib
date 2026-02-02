@@ -184,10 +184,21 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             qrbs = self.md.get('n_queued_reblogs', 0)
             if qrbs:
                 compact += f'<br>queued reblogs: {qrbs}'
+            # add the first image if we have one
+            images = Item.select(parent=self, otype='image')[:1]
+            if not images:
+                # find where grandparent is this user
+                images = Item.select(lambda i: i.parent.parent == self and i.otype == 'image')[:1]
+            if images:
+                compact += f'<br><img src="{images[0].url}" />'
             detailed = compact #TODO
             r['compact'] = compact
             r['detailed'] = detailed
         self.rels_for_web(r, rels)
+        # call the source-specific version of this function
+        source = Source._registry.get(self.source)
+        if source:
+            source.item_for_web(self, r, rels)
 
     def rels_for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
         """Deal with rels for web representation."""
@@ -584,6 +595,14 @@ class Source(abc.ABC):
     def __repr__(self) -> str:
         return f'Source<{self.name}>'
 
+    def item_for_web(self, item: Item, r: dict[str, Any], rels: list[Rel]) -> None:
+        """Source-specific processing of an item for web representation.
+
+        This is called from Item.for_web after generic processing.
+        Subclasses can override this to add custom fields to `r`.
+        """
+        pass
+
     @classmethod
     def iter_sources(cls) -> list[Source]:
         """Iterates over all registered Source subclasses."""
@@ -631,6 +650,8 @@ class Source(abc.ABC):
         In this version, we take all children and add them to a subkey called "children".
         """
         assembled_post = recursive_to_dict(post)
+        if post.otype != 'post':
+            return assembled_post
         assembled_post['children'] = [recursive_to_dict(child) for child in children]
         # Extract media blocks for carousel functionality
         media_blocks = []

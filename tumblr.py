@@ -490,9 +490,9 @@ class Tumblr(Source):
                     description=post['blog'].get('description', ''),
                     uuid=post['blog'].get('uuid', ''),
             )
-            u.explored_ts = ts
-            # update the seen time to now for this user
+            # update the seen and explored time for this user
             u.seen_ts = ts
+            u.explored_ts = ts
             if next_link:
                 u.md['next_link'] = next_link
             ret.append(u)
