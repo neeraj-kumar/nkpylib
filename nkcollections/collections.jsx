@@ -50,6 +50,17 @@ const DEBOUNCE_MS = 2000;
 const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
+const QUICK_LINKS = {
+  'Show queued': '{"rels.queue":true}',
+  'Recent images': '{"otype":"image","limit":500,"embed_ts":">1"}',
+  'Recent posts': '{"otype":"post","limit":500,"added_ts":">=' + Math.floor(Date.now() / 1000 - 24*3600) + '","assemble_posts":true}',
+  'Twitter posts': '{"source":"twitter","otype":"post","limit":500,"embed_ts":">1"}',
+  'Tumblr posts': '{"source":"tumblr","otype":"post","limit":500,"embed_ts":">1"}',
+  'Users': '{"otype":"user","limit":200}',
+  'Videos': '{"otype":"video","limit":300}',
+  'Today': '{"added_ts":">=' + Math.floor(Date.now() / 1000 - 24*3600) + '","limit":500}'
+};
+
 // Detect if we're on a mobile device
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
 
@@ -582,6 +593,56 @@ const STYLES = `
 .object.unlabeled-cluster {
   border: 2px solid #bbb;
   border-opacity: 0.6;
+}
+
+/* Quick links styles */
+.quick-links-scroll {
+  display: flex;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 5px 0;
+  margin: 5px 0;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.quick-links-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.quick-links-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 2px;
+}
+
+.quick-links-scroll::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 2px;
+}
+
+.quick-link-pill {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 16px;
+  padding: 6px 12px;
+  font-size: 0.85em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  color: #495057;
+  flex-shrink: 0;
+}
+
+.quick-link-pill:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+  transform: translateY(-1px);
+}
+
+.quick-link-pill:active {
+  transform: translateY(0);
+  background: #dee2e6;
 }
 
 /* Cluster columns layout */
@@ -1426,7 +1487,20 @@ const Controls = () => {
         {!IS_MOBILE && (
           <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
         )}
-        <button className="queued--btn" onClick={() => ctx.actions.doSource('{"rels.queue":true}')} title="Show queued">Show queued</button>
+      </div>
+      <div className="control quick-links">
+        <div className="quick-links-scroll">
+          {Object.entries(QUICK_LINKS).map(([name, query]) => (
+            <div
+              key={name}
+              className="quick-link-pill"
+              onClick={() => ctx.actions.doSource(query)}
+              title={`Load: ${name}`}
+            >
+              {name}
+            </div>
+          ))}
+        </div>
         <DebouncedInput
           value={searchStr}
           onChange={setSearchStr}
