@@ -1595,15 +1595,37 @@ const AppProvider = ({ children }) => {
         const decodedSource = decodeURIComponent(sourceFromUrl);
         if (decodedSource !== currentSource && globalSetSourceStr) {
           globalSetSourceStr(decodedSource);
-          // Don't call doSource here to avoid infinite loops, just update the input
           setCurrentSource(decodedSource);
+          // Actually execute the source query to load the data
+          const isUrl = decodedSource.startsWith('http');
+          if (isUrl) {
+            api.sourceUrl(decodedSource).then((params) => {
+              return api.get(params);
+            }).then((data) => {
+              updateData(data, true);
+            }).catch(() => {
+              // Error already handled by fetchEndpoint
+            });
+          } else {
+            try {
+              const params = JSON.parse(decodedSource);
+              api.get(params).then((data) => {
+                updateData(data, true);
+              }).catch(() => {
+                // Error already handled by fetchEndpoint
+              });
+            } catch (error) {
+              console.error('Invalid JSON in source string:', error);
+              setMessage(`Invalid JSON in source string: ${error.message}`);
+            }
+          }
         }
       }
     };
     
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [currentSource]);
+  }, [currentSource, updateData, setMessage]);
 
 
   const doSearch = React.useCallback((value) => {
