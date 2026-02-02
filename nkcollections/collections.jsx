@@ -51,9 +51,9 @@ const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
 const QUICK_LINKS = {
-  'Queued posts': '{"rels.queue":true}',
-  'Queued users': '{"otype": "user", "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
-  'Images': '{"otype":"image","limit":500,"embed_ts":">1"}',
+  'Queued': '{"rels.queue":true}',
+  'Q users': '{"otype": "user", "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
+  'Images': '{"otype":["image", "video"],"limit":500,"embed_ts":">1"}',
   'Posts': '{"otype":"post","limit":500}',
   'Twitter': '{"source":"twitter","limit":500}',
   'Tumblr': '{"source":"tumblr","limit":500}',
@@ -215,6 +215,10 @@ const STYLES = `
 
 .control {
   margin-right: 10px;
+}
+
+.message-display {
+  font-size: 0.8em;
 }
 
 .text-fields input {
@@ -500,6 +504,20 @@ const STYLES = `
   padding: 2px 4px;
   border-radius: 3px;
   pointer-events: none;
+}
+
+
+.video-link a {
+  position: 'absolute';
+  top: '5px';
+  right: '5px';
+  background: 'rgba(0, 0, 0, 0.7)';
+  color: 'white';
+  fontSize: '12px';
+  padding: '2px 4px';
+  borderRadius: '3px';
+  textDecoration: 'none';
+  pointerEvents: 'auto';
 }
 
 .src-input {
@@ -858,18 +876,6 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
               target="_blank" 
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                top: '5px',
-                right: '5px',
-                background: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                fontSize: '12px',
-                padding: '2px 4px',
-                borderRadius: '3px',
-                textDecoration: 'none',
-                pointerEvents: 'auto'
-              }}
             >
               ▶
             </a>
@@ -1105,18 +1111,6 @@ const Obj = (props) => {
                   target="_blank" 
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  style={{
-                    position: 'absolute',
-                    top: '5px',
-                    right: '5px',
-                    background: 'rgba(0, 0, 0, 0.7)',
-                    color: 'white',
-                    fontSize: '12px',
-                    padding: '2px 4px',
-                    borderRadius: '3px',
-                    textDecoration: 'none',
-                    pointerEvents: 'auto'
-                  }}
                 >
                   ▶
                 </a>
@@ -1324,7 +1318,7 @@ const InfoBar = () => {
       <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
       <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
       <div className="flex-break"></div>
-      <div className="control message-display" style={{fontSize: '0.8em'}}>
+      <div className="control message-display">
         <span>{ctx.ui.message}</span>
       </div>
     </div>
@@ -1382,7 +1376,7 @@ const Controls = () => {
   
   // Local state for search string and source string
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState('{"limit": 500, "embed_ts":">1", "otype": "image"}');
+  const [sourceStr, setSourceStr] = React.useState(QUICK_LINKS['Images']);
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
 
