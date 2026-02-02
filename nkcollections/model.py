@@ -119,6 +119,23 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         path = abspath(join(images_dir, f'{mk}.{ext}'))
         return path
 
+    def get_closest(self, **kw) -> Item|None:
+        """Finds the first item that matches the given `kw`, searching up the parent chain.
+
+        That can include the item itself. If none is found, returns None.
+        """
+        item: Item|None = self
+        while item:
+            match = True
+            for k, v in kw.items():
+                if getattr(item, k) != v:
+                    match = False
+                    break
+            if match:
+                return item
+            item = item.parent
+        return None
+
     def for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
         """Cleans up this item for web use.
 
