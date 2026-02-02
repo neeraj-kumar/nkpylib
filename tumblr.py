@@ -312,22 +312,32 @@ class Tumblr(Source):
             context='archive',
             offset=str(offset),
         )
-        while offset < n_posts:
-            #print(f'initial next link: {J(next_link)}')
-            endpoint = f'blog/{blog_name}/posts'
-            if next_link:
-                endpoint = f'blog/{blog_name}/posts?{urlencode(next_link)}'
-            obj = self.make_api_req(endpoint)
-            if obj.get('links'):
-                ext_link = obj['links'].get('next', {}).get('queryParams', {})
-            batch = obj['posts'] or []
-            posts.extend(batch)
-            total = obj['totalPosts']
-            offset += 20
-            logger.debug(f'Got offset {offset}, {n_posts}, {len(batch)}, {total}, {obj.get("links")}')
-            next_link['offset'] = str(offset)
-            if not batch or not obj.get('links', []):
-                break
+        with db_session:
+            u = self.get_blog_user(blog_name)
+            if u.explored_ts and u.explored_ts < 0: # skip blogs that are marked inaccessible
+                return (posts, offset, total)
+            while offset < n_posts:
+                #print(f'initial next link: {J(next_link)}')
+                endpoint = f'blog/{blog_name}/posts'
+                if next_link:
+                    endpoint = f'blog/{blog_name}/posts?{urlencode(next_link)}'
+                try:
+                    obj = self.make_api_req(endpoint)
+                except Exception as e:
+                    if '404' in str(e):
+                        logger.warning(f'Blog archive for {blog_name} not found (404). It may be private or inaccessible.')
+                        u.explored_ts = -1 # mark as inaccessible
+                        return (posts, offset, total)
+                if obj.get('links'):
+                    ext_link = obj['links'].get('next', {}).get('queryParams', {})
+                batch = obj['posts'] or []
+                posts.extend(batch)
+                total = obj['totalPosts']
+                offset += 20
+                logger.debug(f'Got offset {offset}, {n_posts}, {len(batch)}, {total}, {obj.get("links")}')
+                next_link['offset'] = str(offset)
+                if not batch or not obj.get('links', []):
+                    break
         return (posts, offset, total)
 
     def update_blogs(self):
@@ -337,6 +347,8 @@ class Tumblr(Source):
             now = time.time()
             with db_session:
                 u = self.get_blog_user(name)
+                if u.explored_ts and u.explored_ts < 0: # skip inaccessible blogs
+                    continue
                 diff = now - (u.explored_ts or 0)
                 if diff < 3600*24:
                     print(f'  Last explored was {diff//3600} hours ago, skipping until 24 hours')
@@ -356,26 +368,24 @@ class Tumblr(Source):
         obj = self.make_api_req('https://www.tumblr.com/api/v2/user/likes')
         print(J(obj)[:500])
 
-    def get_blog_user(self, blog_name: str, users_by_name: dict= {}, **kw) -> Entity:
+    def get_blog_user(self, blog_name: str, **kw) -> Entity:
         """Returns the blog user item for the given `blog_name`.
 
         Any kw are added to the metadata of the user item.
         """
-        if blog_name not in users_by_name:
-            u = Item.upsert(get_kw=dict(
-                    source=self.NAME,
-                    stype='blog',
-                    otype='user',
-                    url=f'https://{blog_name}.tumblr.com/'
-                ),
-                name=blog_name,
-                md=dict(
-                    blog_name=blog_name,
-                    **kw
-                )
+        u = Item.upsert(get_kw=dict(
+                source=self.NAME,
+                stype='blog',
+                otype='user',
+                url=f'https://{blog_name}.tumblr.com/'
+            ),
+            name=blog_name,
+            md=dict(
+                blog_name=blog_name,
+                **kw
             )
-            users_by_name[blog_name] = u
-        return users_by_name[blog_name]
+        )
+        return u
 
     @db_session
     def create_collection_from_posts(self,
@@ -391,7 +401,7 @@ class Tumblr(Source):
 
         Any additional `kw` are added to the metadata of each 'post' row.
         """
-        print(f'creating collection with next_link: {next_link}')
+        print(f'creating collection')
         ret = []
         ts = time.time()
         ids_to_update = {}

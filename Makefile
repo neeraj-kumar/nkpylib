@@ -105,6 +105,10 @@ tumblr-update:
 	#@python3 tumblr.py simple_test
 	@python3 tumblr.py update_blogs
 
+## run tumblr web server
+tumblr-web:
+	python3 tumblr.py web
+
 ## run tumblr embeddings
 tumblr-embeddings:
 	python3 tumblr.py update_embeddings
