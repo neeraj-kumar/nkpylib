@@ -547,6 +547,8 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     r = Rel.get(**get_kw)
                     if r:
                         r.delete()
+                case 'explore': # explore the given item...source-dependent only
+                    pass
                 case _:
                     logger.info(f'Unknown me action {action}')
             by_src = rels_by_item_by_source[item.source]
@@ -620,7 +622,7 @@ class Source(abc.ABC):
         """Returns if this source can parse the given url"""
         return False
 
-    def parse(self, url: str, **kw) -> Any:
+    async def parse(self, url: str, **kw) -> Any:
         """Parses the given url and does whatever it wants."""
         raise NotImplementedError()
 
@@ -635,7 +637,7 @@ class Source(abc.ABC):
         pass
 
     @staticmethod
-    def handle_url(url: str, **data) -> dict[str, Any]:
+    async def handle_url(url: str, **data) -> dict[str, Any]:
         """This is the main entry point to handle a given url.
 
         This finds the appropriate Source subclass that can parse the given url,
@@ -645,7 +647,7 @@ class Source(abc.ABC):
             if source_cls.can_parse(url):
                 # subclasses must be instantiable with no args
                 source = source_cls() # type: ignore[call-arg]
-                result = source.parse(url, **data)
+                result = await source.parse(url, **data)
                 return result
         raise NotImplementedError(f'No source found to parse url {url}')
 

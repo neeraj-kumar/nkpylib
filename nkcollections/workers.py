@@ -357,6 +357,8 @@ class LikesWorker(BackgroundWorker):
 
     def rescore(self, scores: dict[str, float], pos: list[int]) -> dict[str, float]:
         """Rescores `scores` using nearest neighbors from positive IDs."""
+        if not scores:
+            return {}
         #return scores
         fix = lambda k: k if (isinstance(k, int) or ':' in k) else f'{k}:image'
         scores = {fix(k): v for k, v in scores.items()}
@@ -402,6 +404,7 @@ class LikesWorker(BackgroundWorker):
 
         Returns dict with status and inference results.
         """
+        logger.debug(f'Running inference with classifier v{self.last["classifier_version"]}')
         if not self.last['saved_classifier'] or self.last['classifier_version'] == 0:
             logger.info("No classifier available for inference")
             return dict(status='no_classifier')
@@ -418,10 +421,9 @@ class LikesWorker(BackgroundWorker):
             if result['status'] == 'inference_completed':
                 self.scores.update(result['new_scores'])
                 logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.scores)} total scores")
-
                 # Save the classifier with updated scores
                 try:
-                    if self.last['saved_classifier']:
+                    if self.last['saved_classifier'] and result['new_scores']:
                         # Load the existing classifier data and update scores
                         saved_data = self.last['saved_classifier'].copy()
                         saved_data['scores'] = self.scores
@@ -448,28 +450,16 @@ class LikesWorker(BackgroundWorker):
             # Load the classifier
             saved_data = self.embs.load_and_setup_classifier(self.classifier_path)
             classifier = saved_data['classifier']
-
             to_cls = [f'{id}:image' for id in unclassified_ids]
-
-            # Get embeddings and run inference
+            # Get embeddings and run inference+rescoring
+            self.embs.reload_keys()
             t0 = time.time()
-            keys, embs, scaler = self.embs.get_keys_embeddings(
-                keys=to_cls,
-                normed=False,
-                scale_mean=True,
-                scale_std=True,
-                scaler=saved_data.get('scaler', None),
-                return_scaler=True,
-            )
-            if not keys:
-                return dict(status='all_classified', classifier_version=self.last['classifier_version'])
-            logger.info(f"Running inference on {len(keys)} unclassified items with classifier v{self.last['classifier_version']}")
-            scores_array = classifier.decision_function(embs)
-            new_scores = {key.split(':')[0]: float(score) for key, score in zip(keys, scores_array)}
+            new_scores = self.embs.run_classifier(to_cls=to_cls,
+                                                  classifier=classifier,
+                                                  scaler=saved_data.get('scaler', None))
+            new_scores = {key.split(':')[0]: score for key, score in new_scores.items()}
             t1 = time.time()
-            # rescore
             new_scores = self.rescore(new_scores, list(self.last['pos_ids']))
-
             return dict(
                 status='inference_completed',
                 classifier_version=self.last['classifier_version'],

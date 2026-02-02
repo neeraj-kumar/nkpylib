@@ -367,6 +367,26 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         # after refactoring: 0.34, 0.00, 3.5, 0.04
         return cls, scores, other_stuff
 
+    def run_classifier(self,
+                       to_cls: list[KeyT],
+                       classifier: BaseEstimator,
+                       scaler: StandardScaler|None=None,
+                       ) -> dict[KeyT, Any]:
+        """Runs `classifier` on `to_cls`, returning dict of key to score."""
+        logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
+        keys, embs, scaler = self.get_keys_embeddings(
+            keys=to_cls,
+            normed=False,
+            scale_mean=True,
+            scale_std=True,
+            scaler=scaler,
+            return_scaler=True,
+        )
+        if not keys:
+            return {}
+        scores_array = classifier.decision_function(embs)
+        return {key: float(score) for key, score in zip(keys, scores_array)}
+
     def train_classifier(self,
                          X: nparray2d,
                          y: Sequence[float|int],

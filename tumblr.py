@@ -267,6 +267,7 @@ class TumblrApi:
                 if next_link:
                     endpoint = f'blog/{blog_name}/posts?{urlencode(next_link)}'
                 try:
+                    commit()
                     obj = await self.make_api_req(endpoint)
                 except Exception as e:
                     if '404' in str(e):
@@ -350,7 +351,7 @@ class Tumblr(TumblrApi, Source):
         """Returns if this source can parse the given url"""
         return 'tumblr.com' in url
 
-    def parse(self, url: str, n_posts: int=300, **kw) -> Any:
+    async def parse(self, url: str, n_posts: int=300, **kw) -> Any:
         """Parses the given url and returns an appropriate set of GetHandler params.
 
         For now, this simply returns the list of posts that are children of the tumblr blog's Item.
@@ -370,12 +371,12 @@ class Tumblr(TumblrApi, Source):
         with db_session:
             # now look for the appropriate blog user item
             u = self.get_blog_user(blog_name)
-            offset = 0
-            # add posts if we don't have any yet
-            if not select(p for p in Item if p.parent == u).exists(): # type: ignore[attr-defined]
-                posts, offset, total = self.get_blog_archive(blog_name, n_posts=n_posts)
-                self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
-            return dict(source=self.NAME, ancestor=u.id, assemble_posts=True)
+        offset = 0
+        # add posts
+        commit()
+        posts, offset, total = await self.get_blog_archive(blog_name, n_posts=n_posts)
+        self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
+        return dict(source=self.NAME, ancestor=u.id, assemble_posts=True)
 
     def get_blog_user(self, blog_name: str, **kw) -> Entity:
         """Returns the blog user item for the given `blog_name`.
@@ -408,12 +409,26 @@ class Tumblr(TumblrApi, Source):
         - goals:
           1. in rels: keep track of users related to this post, with associated counts
           2. in items: for each user, increment counts
+
+        (We also do this if self.explore_likes is True and the action is 'like'.)
+
+        For action 'explore', it must apply to a user. We call `parse` on that user's blog url.
         """
         explore = False
         if action == 'queue':
             explore = True
         if action == 'like' and self.explore_likes:
             explore = True
+        if action == 'explore':
+            for item in rels_by_item:
+                user = item.get_closest(otype='user')
+                if not user:
+                    continue
+                logger.info(f'Tumblr exploring user: {user} -> {user.url}')
+                commit()
+                await self.parse(user.url)
+            return
+
         if not explore:
             return
         logger.info(f'Tumblr handling action {action}: {rels_by_item}')
@@ -514,7 +529,6 @@ class Tumblr(TumblrApi, Source):
 
         Any additional `kw` are added to the metadata of each 'post' row.
         """
-        print(f'creating collection')
         ret = []
         ts = time.time()
         ids_to_update = {}
@@ -741,7 +755,7 @@ async def simple_test(config_path: str, **kw):
     name = tumblr.config['blogs'][0]
     while 1:
         try:
-            posts, next_link, total = tumblr.get_blog_archive(name, 30)
+            posts, next_link, total = await tumblr.get_blog_archive(name, 30)
         except Exception as e:
             print(f'got exception: {e}')
         for p in posts:

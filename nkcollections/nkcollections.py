@@ -1,7 +1,6 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO tumblr explore user
 #TODO benchmark mobilenet
 #TODO remove bad images
 #TODO diversity on likes classifier?
@@ -57,6 +56,7 @@ import tornado.web
 from tornado.web import RequestHandler
 from pony.orm import (
     composite_index,
+    commit,
     Database,
     db_session,
     desc,
@@ -387,13 +387,13 @@ class GetHandler(MyBaseHandler):
                         allOtypes=self.all_otypes))
 
 class SourceHandler(MyBaseHandler):
-    def post(self):
+    async def post(self):
         """Set a source url to parse."""
         data = json.loads(self.request.body)
         url = data.pop('url', '')
         logger.info(f'SourceHandler got url={url}, {data}')
         # find a source that can parse this url
-        parsed = Source.handle_url(url, **data)
+        parsed = await Source.handle_url(url, **data)
         logger.info(f'parsed to {parsed}')
         if 0:
             parsed_params = '&'.join([f'{k}={v}' for k, v in parsed.items()])

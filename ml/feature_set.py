@@ -63,7 +63,7 @@ class FeatureSet(Mapping, Generic[KeyT]):
 
         if reload_lmdb:
             self.inputs = [rel_inp(inp) for inp in self.inputs]
-        logger.info(f'Reloading keys for FeatureSet with {len(self.inputs)} inputs: {self.inputs}')
+        logger.debug(f'Reloading keys for FeatureSet with {len(self.inputs)} inputs: {self.inputs}')
         self._keys = self.get_keys()
         self.n_dims = 0
         for key, value in self.items():
