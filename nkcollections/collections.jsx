@@ -1,5 +1,12 @@
 /* NK Collections React App
  *
+ * TODO show # queued
+ * TODO dislike btn
+ * TODO use recent likes to determine how to prioritize feed
+ * TODO add an overall diversity slider that modifies recency priorities?
+ * TODO filter users by seen/recent/scored posts
+ * TODO if a post is explored, have toggle to show its rebloggers, scored
+ * TODO performance tuning sqlite
  * TODO send stream of important messages from server?
  * TODO hide seen
  * TODO pagination?
@@ -10,7 +17,6 @@
  * TODO quick zoom
  * TODO show dwell times
  * TODO detect broken img
- * TODO dislike btn?
  *
  * Each collection item contains:
  * - id: unique int identifier
