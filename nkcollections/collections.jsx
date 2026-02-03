@@ -30,12 +30,14 @@ const QUICK_LINKS = {
   'Exp users': {...user_kw, "explored_ts": ">1", "source": "tumblr"},
   // unexplored but queued
   'Q users': {...user_kw, "explored_ts": "<>", "order": "-lambda o: o.md['n_queued_reblogs']"},
-  // queued posts
-  Queued: {"rels.queue":true},
+  // recent positive liked images
+  'Pos Images': {"otype":"image","limit":200,"min_like":0.1,"order": "-embed_ts"},
+  // users sorted by n pos likes
+  Users: {...user_kw, "order": "-lambda o: o.md['stats']['n_pos_like_score']"},
   // recent embedded images
   Images: {"otype":["image", "video"],"limit":200,"embed_ts":">1","order": "-embed_ts"},
-  // users sorted by score
-  Users: {...user_kw, "order": "-lambda o: o.md['stats']['n_pos_like_score']"},
+  // queued posts
+  Queued: {"rels.queue":true},
 };
 
 // Detect if we're on a mobile device
