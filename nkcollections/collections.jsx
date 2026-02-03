@@ -27,16 +27,15 @@ const MODES = ['multicol', 'cluster'];
 const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
 const QUICK_LINKS = {
   // explored users
-  'Exp users': {"otype": "user", "assemble_posts": false, "limit": 20, "explored_ts": ">1", "source": "tumblr"},
+  'Exp users': {...user_kw, "explored_ts": ">1", "source": "tumblr"},
   // unexplored but queued
-  'Q users': {"otype": "user", "assemble_posts": false, "limit": 20, "explored_ts": "<>", "order":
-    "-lambda o: o.md['n_queued_reblogs']"},
+  'Q users': {...user_kw, "explored_ts": "<>", "order": "-lambda o: o.md['n_queued_reblogs']"},
   // queued posts
   Queued: {"rels.queue":true},
   // recent embedded images
   Images: {"otype":["image", "video"],"limit":200,"embed_ts":">1","order": "-embed_ts"},
   // users sorted by score
-  Users: {"otype":"user", "order": "-lambda o: o.md['stats']['n_pos_like_score']", "limit": 20},
+  Users: {...user_kw, "order": "-lambda o: o.md['stats']['n_pos_like_score']"},
 };
 
 // Detect if we're on a mobile device
