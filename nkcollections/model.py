@@ -177,9 +177,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         - each rel dict has 'ts' and any metadata from the rel's md
         - special processing:
           - for 'like' rels, we only keep the latest one (highest ts)
-          - for 'queue'/'unqueue' rels:
-            - anytime we see an 'unqueue', we remove it and all 'queue' rels before it
-            - for the remaining queues, we keep only the latest one (highest ts), but add a 'count'
         """
         # add local image path if we have it
         if self.otype == 'image' and self.embed_ts and self.embed_ts > 0:
@@ -210,25 +207,26 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     compact += f'<br>Error'
             else:
                 compact += f'<br>Never explored'
-            qrbs = self.md.get('n_queued_reblogs', 0)
-            if qrbs:
-                compact += f'<br>queued reblogs: {qrbs}'
-            # count the number of posts, images, videos
-            n_posts = Item.select(lambda i: i.parent == self and i.otype == 'post').count()
-            if n_posts > 0:
-                n_images = Item.select(lambda i: i.parent.parent == self and i.otype == 'image').count()
-                n_videos = Item.select(lambda i: i.parent.parent == self and i.otype == 'video').count()
-                compact += f'<br>Posts: {n_posts}, Images: {n_images}, Videos: {n_videos}'
-            # add the first image if we have one
-            images = Item.select(parent=self, otype='image')[:1]
-            if not images:
-                # find where grandparent is this user
-                images = Item.select(lambda i: i.parent.parent == self and i.otype == 'image')[:1]
-            if images:
-                compact += f'<br><img src="{images[0].url}" />'
+            stats = dict(**self.md.get('stats', {}))
+            now = time.time()
+            if stats:
+                image_url = stats.pop('image_url', None)
+                compact += f'<br><ul class="user-stats">'
+                for k, v in stats.items():
+                    if k == 'ts': # skip the update time, we don't care
+                        continue
+                    if k.endswith('_ts'):
+                        diff = now - v
+                        v = f'{time.ctime(v)} ({int(diff//3600)}h ago)'
+                    if isinstance(v, float):
+                        v = f'{v:.2f}'
+                    compact += f'<li>{k}: {v}</li>'
+                compact += '</ul></pre>'
+                if image_url:
+                    compact += f'<img src="{image_url}" />'
             detailed = compact #TODO
             r['compact'] = compact
-            r['detailed'] = detailed
+            #r['detailed'] = detailed
         self.rels_for_web(r, rels)
         # call the source-specific version of this function
         source = Source._registry.get(self.source)
@@ -554,11 +552,27 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 match action:
                     case 'like': # create or update the rel (only 1 like possible)
                         get_kw = dict(src=me, rtype='like', tgt=item)
-                        print(f'in like, got get_kw={get_kw}')
                         if not Rel.get(**get_kw):
                             r = Rel(**get_kw, ts=ts)
+                        # also remove any 'dislike' rels for this item
+                        r = Rel.get(src=me, rtype='dislike', tgt=item)
+                        if r:
+                            r.delete()
                     case 'unlike': # delete the rel if it exists
                         get_kw = dict(src=me, rtype='like', tgt=item)
+                        r = Rel.get(**get_kw)
+                        if r:
+                            r.delete()
+                    case 'dislike': # create or update the rel (only 1 like possible)
+                        get_kw = dict(src=me, rtype='dislike', tgt=item)
+                        if not Rel.get(**get_kw):
+                            r = Rel(**get_kw, ts=ts)
+                        # also remove any 'like' rels for this item
+                        r = Rel.get(src=me, rtype='like', tgt=item)
+                        if r:
+                            r.delete()
+                    case 'undislike': # delete the rel if it exists
+                        get_kw = dict(src=me, rtype='dislike', tgt=item)
                         r = Rel.get(**get_kw)
                         if r:
                             r.delete()
@@ -675,7 +689,10 @@ class Source(abc.ABC):
         for source_cls in Source.__subclasses__():
             if source_cls.can_parse(url):
                 # subclasses must be instantiable with no args
-                source = source_cls() # type: ignore[call-arg]
+                source = Source._registry.get(source_cls.NAME)
+                print(f'Got source {source}')
+                if not source:
+                    continue
                 result = await source.parse(url, **data)
                 return result
         raise NotImplementedError(f'No source found to parse url {url}')

@@ -175,98 +175,101 @@ class BackgroundWorker(abc.ABC):
             results.append(result)
         return results
 
-    def _compute_user_stats(self, user_id: int) -> dict[str, Any]:
-        """Compute statistics for a specific user.
+    def _compute_user_stats(self, user_id: int, item_ids: list[int]) -> dict[str, Any]:
+        """Compute statistics for a specific `user_id`.
+
+        This expects a list of item IDs that belong to the user to be passed in.
 
         Returns dict with user statistics including content counts, engagement, and scores.
         """
         timing = Counter()
         t0 = time.time()
-        
         with db_session:
             timing['db_session_start'] = time.time() - t0
             t1 = time.time()
-            
             # Get all items from this user
-            user_items = Item.select(lambda i: (i.parent and i.parent.id == user_id) or (i.parent.parent and i.parent.parent.id == user_id))
+            user_items = Item.select(lambda i: i.id in item_ids)[:]
             timing['user_items_query'] = time.time() - t1
             t2 = time.time()
-            
-            ids = [item.id for item in user_items]
-            timing['extract_ids'] = time.time() - t2
             t3 = time.time()
-            
             # Initialize counters
             counts = Counter(ts=time.time())
             timing['init_counters'] = time.time() - t3
             t4 = time.time()
-            
-            like_scores = [score for id, score in self.scores.items() if int(id) in ids]
+            like_scores = [score for id, score in self.scores.items() if int(id) in item_ids]
             timing['extract_like_scores'] = time.time() - t4
             t5 = time.time()
-            
             for item in user_items:
                 t_item_start = time.time()
-                
                 # otype counts
                 counts[f'n_{item.otype}s'] += 1
                 timing['otype_counts'] += time.time() - t_item_start
+                if item.otype == 'image': # set as a url to use for the user
+                    counts['image_url'] = item.url
                 t_otype = time.time()
-                
                 # liked counts
                 liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
                 timing['liked_rel_query'] += time.time() - t_otype
                 t_liked = time.time()
-                
                 if liked_rel:
                     counts['n_liked_items'] += 1
                 timing['liked_check'] += time.time() - t_liked
                 t_ts = time.time()
-                
                 # track most recent item
                 if item.ts and item.ts > counts['last_item_ts']:
                     counts['last_item_ts'] = item.ts
                 timing['timestamp_check'] += time.time() - t_ts
-            
             timing['item_loop_total'] = time.time() - t5
             t6 = time.time()
-            
             # average like score
+            counts['n_scored'] = len(like_scores)
             counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
+            counts['n_pos_like_score'] = sum(1 for s in like_scores if s > 0)
             timing['avg_score_calc'] = time.time() - t6
-            
             timing['total_function'] = time.time() - t0
-            
             # Print top timing items
             formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
-            logger.info(f"User {user_id} stats timing (top 5): {formatted_timings}")
-            
+            logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
             return dict(counts)
 
     @db_session
-    def _update_user_stats(self) -> None:
-        """Update statistics for all users in the database."""
+    def _update_user_stats(self, max_users:int=1000) -> None:
+        """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
+
+        I'm tuning `max_users` to be under 30 secs.
+        """
         n_updated = 0
         t0 = time.time()
         users = Item.select(lambda u: u.otype == 'user')
-        logger.info(f'Starting to get stats for {len(users)} users')
         # sort by last stats time
         last_times = []
         for u in users:
             if u.md.setdefault('stats', {}) is None:
                 u.md['stats'] = {}
             last_times.append(u.md['stats'].get('ts', 0))
-        users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])]
-        for user in tqdm(users):
+        users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])][:max_users]
+        user_ids = {u.id for u in users}
+        # first build a dict from user id to list of their item ids
+        items_by_user = defaultdict(list)
+        n_items = 0
+        items = Item.select(lambda i: i.otype in ('post', 'image', 'video'))
+        items = items.filter(lambda i: i.parent and (i.parent.id in user_ids or (i.parent.parent and i.parent.parent.id in user_ids)))
+        for item in items:
+            user = item.get_closest(otype='user')
+            if not user or user.id not in user_ids:
+                continue
+            items_by_user[user.id].append(item.id)
+            n_items += 1
+        logger.info(f'Starting to get stats for {len(users)} users with {n_items} items')
+        for user in users:
             try:
-                stats = self._compute_user_stats(user.id)
+                stats = self._compute_user_stats(user.id, items_by_user[user.id])
                 # Update user's metadata with computed stats
                 if user.md is None:
                     user.md = {}
                 # add the queued reblogs
                 stats['n_queued_reblogs'] = user.md.get('n_queued_reblogs', 0)
                 user.md['stats'] = stats
-                commit()
                 n_updated += 1
             except Exception as e:
                 logger.error(f"Error computing stats for user {user.id}: {e}")

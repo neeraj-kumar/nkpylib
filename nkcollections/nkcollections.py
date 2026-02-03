@@ -419,7 +419,7 @@ class ActionHandler(MyBaseHandler):
         data = json.loads(self.request.body)
         action = data.pop('action', '')
         logger.info(f'ActionHandler got action={action}, {data}')
-        assert action in 'like unlike queue unqueue explore'.split()
+        assert action in 'like unlike dislike undislike queue unqueue explore'.split()
         ids = [int(i) for i in data.pop('ids')]
         # Start the generator and get the immediate result
         gen = Rel.handle_me_action(ids=ids, action=action, **data)
