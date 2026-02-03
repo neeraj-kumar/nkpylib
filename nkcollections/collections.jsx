@@ -8,7 +8,6 @@
  * TODO show dwell times
  * TODO detect broken img
  * TODO dislike btn?
- * TODO better tumblr 404 handling
  *
  * Each collection item contains:
  * - id: unique int identifier
@@ -52,7 +51,7 @@ const MODES = ['multicol', 'cluster'];
 
 const QUICK_LINKS = {
   'Queued': '{"rels.queue":true}',
-  'Q users': '{"otype": "user", "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
+  'Q users': '{"otype": "user", "limit": 100, "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
   'Images': '{"otype":["image", "video"],"limit":500,"embed_ts":">1"}',
   'Posts': '{"otype":"post","limit":500}',
   'Twitter': '{"source":"twitter","limit":500}',
