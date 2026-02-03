@@ -37,7 +37,9 @@ from nkpylib.nkcollections.nkcollections import (
     Source,
     web_main,
 )
+from nkpylib.nkcollections.workers import LikesWorker
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
+from nkpylib.ml.embeddings import Embeddings
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
 from nkpylib.script_utils import cli_runner
 from nkpylib.stringutils import save_json
@@ -273,6 +275,7 @@ class TumblrApi:
                     if '404' in str(e):
                         logger.warning(f'Blog archive for {blog_name} not found (404). It may be private or inaccessible.')
                         u.explored_ts = -1 # mark as inaccessible
+                        commit()
                         return (posts, offset, total)
                 if obj.get('links'):
                     ext_link = obj['links'].get('next', {}).get('queryParams', {})
@@ -284,6 +287,7 @@ class TumblrApi:
                 next_link['offset'] = str(offset)
                 if not batch or not obj.get('links', []):
                     break
+        logger.info(f'For blog {blog_name}, got {len(posts)} posts (total: {total})')
         return (posts, offset, total)
 
     async def get_my_likes(self):
@@ -383,25 +387,25 @@ class Tumblr(TumblrApi, Source):
 
         Any kw are added to the metadata of the user item.
         """
-        u = Item.upsert(get_kw=dict(
-                source=self.NAME,
-                stype='blog',
-                otype='user',
-                url=f'https://{blog_name}.tumblr.com/'
-            ),
-            name=blog_name,
-            md=dict(
-                blog_name=blog_name,
-                **kw
-            )
-        )
+        get_kw = dict(source=self.NAME, stype='blog', otype='user',
+                      url=f'https://{blog_name}.tumblr.com/')
+        u = Item.get(**get_kw)
+        if u is None:
+            u = Item(**get_kw, ts=int(time.time()), md=dict(blog_name=blog_name))
+        for key, value in kw.items():
+            u.md[key] = value
         return u
 
-    async def handle_me_action(self, rels_by_item: dict[Item, list[Rel]], action: str, **kw) -> None:
+    async def check_logged_in(self) -> None:
+        """Checks if we're logged in"""
+        dash = await self.get_dashboard() # to update csrf
+        logger.info('checking for logged in...')
+        logger.info(J(dash)[:150])
+
+    async def handle_me_action(self, ids: list[int], action: str, **kw) -> None:
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`.
 
-        This is called after generic processing, with the dict mapping from original item to list of
-        rels created/deleted/updated for that item.
+        This is called after generic processing, with a list of item ids and the action taken.
 
         For 'queue' actions, we fetch the post notes and update our database as follows:
         - each reblog note has a reblogger and rebloggee
@@ -420,70 +424,75 @@ class Tumblr(TumblrApi, Source):
         if action == 'like' and self.explore_likes:
             explore = True
         if action == 'explore':
-            for item in rels_by_item:
-                user = item.get_closest(otype='user')
-                if not user:
-                    continue
-                logger.info(f'Tumblr exploring user: {user} -> {user.url}')
-                commit()
-                await self.parse(user.url)
-            return
+            with db_session:
+                for item_id in ids:
+                    user = Item[item_id].get_closest(otype='user')
+                    if not user:
+                        continue
+                    logger.info(f'Tumblr exploring user: {user} -> {user.url}')
+                    commit()
+                    await self.check_logged_in()
+                    await self.parse(user.url)
+                return
 
         if not explore:
             return
-        logger.info(f'Tumblr handling action {action}: {rels_by_item}')
-        me = Item.get_me()
-        for item, rels in rels_by_item.items():
-            post = item.get_closest(otype='post')
-            if not post:
-                continue
-            if post.explored_ts: # skip already explored posts
-                continue
-            logger.info(f'  {item} -> post: {post}: {post.to_dict()}')
-            post_id = post.md['post_id']
-            post.explored_ts = time.time()
-            try:
-                commit()
-                notes = await self.get_post_notes(post.md['blog_name'], post_id)
-            except Exception as e:
-                logger.warning(f'  Failed to get notes for post {post.md["post_id"]}: {e}')
-                post.explored_ts = -1
-                continue
-            logger.debug(f'  Got {len(notes)} notes for post {post_id}: {J(notes)[:5000]}')
-            # add notes summary to our database
-            counts_by_user = defaultdict(Counter)
-            following = set()
-            for note in notes:
-                if note['type'] != 'reblog':
+        logger.info(f'Tumblr handling action {action}: {ids}')
+        with db_session:
+            me = Item.get_me()
+            for item_id in ids:
+                post = Item[item_id].get_closest(otype='post')
+                if not post:
                     continue
-                reblogger = note['blogName']
-                rebloggee = note['reblogParentBlogName']
-                counts_by_user[reblogger]['reblogger'] += 1
-                counts_by_user[reblogger]['total'] += 1
-                counts_by_user[rebloggee]['rebloggee'] += 1
-                counts_by_user[rebloggee]['total'] += 1
-                if note.get('followed'):
-                    following.add(reblogger)
-            # actually add to the database
-            for user, counts in counts_by_user.items():
-                # update the user item
-                u = self.get_blog_user(user, explored_via=post.id)
-                u.md.setdefault('n_queued_reblogs', 0)
-                u.md['n_queued_reblogs'] += counts['total']
-                # update/create rels
-                r = Rel(src=post, tgt=u, rtype='queued_post_reblogs', ts=int(time.time()), md=dict(
-                        n_as_reblogger=counts['reblogger'],
-                        n_as_rebloggee=counts['rebloggee'],
-                        n_total=counts['total'],
-                    ),
-                )
-                if user in following: # make a rel for us following them
-                    matching = Rel.select(lambda r: r.src == me and r.tgt == u and r.rtype == 'follows')
-                    if not matching.exists():
-                        Rel(src=me, tgt=u, rtype='follows', ts=int(time.time()), md=dict(
-                                via_post_id=post.id,
-                            ),
-                        )
+                if post.explored_ts: # skip already explored posts
+                    continue
+                logger.info(f'  {item_id} -> post: {post}: {post.to_dict()}')
+                post_id = post.md['post_id']
+                post.explored_ts = time.time()
+                try:
+                    commit()
+                    await self.check_logged_in()
+                    notes = await self.get_post_notes(post.md['blog_name'], post_id)
+                except Exception as e:
+                    logger.warning(f'  Failed to get notes for post {post.md["post_id"]}: {e}')
+                    post.explored_ts = -1
+                    continue
+                logger.info(f'  Got {len(notes)} notes for post {post_id}')
+                logger.debug(f'  Got {len(notes)} notes for post {post_id}: {J(notes)[:500]}')
+                # add notes summary to our database
+                counts_by_user = defaultdict(Counter)
+                following = set()
+                for note in notes:
+                    if note['type'] != 'reblog':
+                        continue
+                    reblogger = note['blogName']
+                    rebloggee = note['reblogParentBlogName']
+                    counts_by_user[reblogger]['reblogger'] += 1
+                    counts_by_user[reblogger]['total'] += 1
+                    counts_by_user[rebloggee]['rebloggee'] += 1
+                    counts_by_user[rebloggee]['total'] += 1
+                    if note.get('followed'):
+                        following.add(reblogger)
+                # actually add to the database
+                for user, counts in counts_by_user.items():
+                    # update the user item
+                    u = self.get_blog_user(user, explored_via=post.id)
+                    u.md.setdefault('n_queued_reblogs', 0)
+                    u.md['n_queued_reblogs'] += counts['total']
+                    # update/create rels
+                    r = Rel(src=post, tgt=u, rtype='queued_post_reblogs', ts=int(time.time()), md=dict(
+                            n_as_reblogger=counts['reblogger'],
+                            n_as_rebloggee=counts['rebloggee'],
+                            n_total=counts['total'],
+                        ),
+                    )
+                    if user in following: # make a rel for us following them
+                        matching = Rel.select(lambda r: r.src == me and r.tgt == u and r.rtype == 'follows')
+                        if not matching.exists():
+                            Rel(src=me, tgt=u, rtype='follows', ts=int(time.time()), md=dict(
+                                    via_post_id=post.id,
+                                ),
+                            )
 
     @classmethod
     def assemble_post(cls, post, children) -> dict:
@@ -750,24 +759,6 @@ def process_posts(posts):
             like_post(post_id=p['id'], reblog_key=p['reblogKey'])
 
 
-async def simple_test(config_path: str, **kw):
-    tumblr = Tumblr(config_path=config_path)
-    name = tumblr.config['blogs'][0]
-    while 1:
-        try:
-            posts, next_link, total = await tumblr.get_blog_archive(name, 30)
-        except Exception as e:
-            print(f'got exception: {e}')
-        for p in posts:
-            print(p['id'])
-        break
-        await tumblr.get_dashboard()
-        await tumblr.get_my_likes()
-        #posts = tumblr.get_blog_content(name)
-        print(f'{tumblr.csrf}: {len(posts)} posts: {J(posts)[:500]}...')
-        break
-        time.sleep(60 + random.random()*60)
-
 def update_blogs(config_path: str, **kw):
     tumblr = Tumblr(config_path=config_path)
     tumblr.update_blogs()
@@ -788,8 +779,21 @@ def web(**kw):
     #print(J(t.get_dashboard())[:500])
     return web_main(sqlite_path=t.sqlite_path, lmdb_path=t.lmdb_path)
 
+def gen_benchmark(**kw):
+    """Generates a benchmark set"""
+    return #FIXME remove when we want to generate a new set
+    t = Tumblr()
+    lw = LikesWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
+    lw.gen_benchmark_set()
+
+def run_benchmark(name='like-benchmark-20260202-175744', **kw):
+    """Runs the benchmark with given `name`"""
+    t = Tumblr()
+    lw = LikesWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
+    lw.run_benchmark(name=name)
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([simple_test, update_blogs, test_post, update_embeddings, web],
+    cli_runner([update_blogs, test_post, update_embeddings, web, gen_benchmark, run_benchmark],
                config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))

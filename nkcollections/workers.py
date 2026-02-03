@@ -526,10 +526,11 @@ class LikesWorker(BackgroundWorker):
         if not labels:
             logger.warning(f'Benchmark {name} needs both positive and negative examples')
             return {}
+        # run inference
         scores = self._run_inference_blocking(list(labels))['new_scores']
         scores = {int(k): v for k, v in scores.items()}
         print(f'Got {len(scores)} scores for {len(labels)} benchmark items: {list(scores.items())[:5]}')
-        # Filter to only benchmark items that have scores
+        # some bookkeeping
         benchmark_scores = {}
         benchmark_labels = {}
         for item_id in labels:
@@ -541,11 +542,9 @@ class LikesWorker(BackgroundWorker):
         if not benchmark_scores:
             logger.error(f'No benchmark items have classifier scores')
             return {}
-        # Convert to arrays for the stats function
         y_true = [benchmark_labels[id] for id in benchmark_scores.keys()]
         y_scores = [benchmark_scores[id] for id in benchmark_scores.keys()]
-        
-        # Compute all stats using the refactored function
+        # compute stats
         results = compute_binary_classifier_stats(y_true, y_scores)
         logger.info(f'Benchmark {name} results:')
         for metric, value in results.items():

@@ -433,6 +433,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         assert len(X) == len(y), f'Length of X {len(X)} must match y {len(y)}'
         if weights is not None:
             assert len(X) == len(weights), f'Length of weights {len(weights)} must match X {len(X)}'
+        X = np.asarray(X)
         logger.debug(f'training labels {Counter(y).most_common()}, X: {X.shape}, {X}')
         clf = self._create_classifier(method=method, C=C, class_weight=class_weight, **kw)
         clf.fit(X, y, sample_weight=weights)
@@ -657,45 +658,36 @@ def generate_cooccurence_embeddings(
 
 def compute_binary_classifier_stats(y_true: list[int], y_scores: list[float]) -> dict[str, float]:
     """Compute comprehensive binary classification statistics.
-    
+
     Args:
-        y_true: True binary labels (should be 1 for positive, -1 or 0 for negative)
-        y_scores: Classifier scores (higher scores indicate positive prediction)
-    
-    Returns:
-        Dictionary with evaluation metrics including accuracy, precision, recall, F1, AUC, etc.
+    - y_true: True binary labels (should be 1 for positive, -1 or 0 for negative)
+    - y_scores: Classifier scores (higher scores indicate positive prediction)
+
+    Returns a dictionary with evaluation metrics including accuracy, precision, recall, F1, etc.
     """
     if not y_true or not y_scores:
         return {}
-    
     if len(y_true) != len(y_scores):
         raise ValueError(f"Length mismatch: y_true has {len(y_true)} items, y_scores has {len(y_scores)}")
-    
     # Convert scores to binary predictions (positive if score > 0)
     y_pred = [1 if score > 0 else -1 for score in y_scores]
-    
     # Convert -1/1 labels to 0/1 for some metrics that require it
     y_true_binary = [1 if label == 1 else 0 for label in y_true]
     y_pred_binary = [1 if pred == 1 else 0 for pred in y_pred]
-    
     # Basic classification metrics
     accuracy = accuracy_score(y_true, y_pred)
     balanced_accuracy = balanced_accuracy_score(y_true, y_pred)
-    
     precision, recall, f1, support = precision_recall_fscore_support(
         y_true_binary, y_pred_binary, average='binary'
     )
-    
     # ROC AUC using raw scores
     try:
         auc = roc_auc_score(y_true_binary, y_scores)
     except ValueError:
         auc = 0.0  # In case of issues with AUC calculation
-    
     # Compute ranking metrics
     # Sort by score descending
     sorted_items = sorted(zip(y_scores, y_true), key=lambda x: x[0], reverse=True)
-    
     # Precision at different cutoffs
     def precision_at_k(k):
         if k > len(sorted_items):
@@ -703,11 +695,10 @@ def compute_binary_classifier_stats(y_true: list[int], y_scores: list[float]) ->
         top_k = sorted_items[:k]
         correct = sum(1 for _, label in top_k if label == 1)
         return correct / k if k > 0 else 0.0
-    
+
     p_at_10 = precision_at_k(10)
     p_at_50 = precision_at_k(50)
     p_at_100 = precision_at_k(100)
-    
     # Mean Average Precision (MAP)
     def mean_average_precision():
         precisions = []
@@ -717,13 +708,11 @@ def compute_binary_classifier_stats(y_true: list[int], y_scores: list[float]) ->
                 correct += 1
                 precisions.append(correct / (i + 1))
         return sum(precisions) / len(precisions) if precisions else 0.0
-    
+
     map_score = mean_average_precision()
-    
     # Count positives and negatives
     n_positive = sum(1 for label in y_true if label == 1)
     n_negative = len(y_true) - n_positive
-    
     return {
         'accuracy': float(accuracy),
         'balanced_accuracy': float(balanced_accuracy),
@@ -739,6 +728,7 @@ def compute_binary_classifier_stats(y_true: list[int], y_scores: list[float]) ->
         'n_positive': n_positive,
         'n_negative': n_negative,
     }
+
 
 def gen_tag_embeddings(input_path: str, dlm: str='\t'):
     """Generates tag embeddings from the given `input_path`

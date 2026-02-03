@@ -109,6 +109,14 @@ tumblr-update:
 tumblr-web:
 	python3 tumblr.py web
 
+## generate the tumblr benchmark
+tumblr-gen-benchmark:
+	python3 tumblr.py gen_benchmark
+
+## run the tumblr benchmark
+tumblr-run-benchmark:
+	python3 tumblr.py run_benchmark
+
 ## run tumblr embeddings
 tumblr-embeddings:
 	python3 tumblr.py update_embeddings
