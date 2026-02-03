@@ -57,6 +57,27 @@ sql_db = Database()
 
 J = lambda obj: json.dumps(obj, indent=2)
 
+def timed(func: Callable) -> Callable:
+    """Decorator to time a function and log its duration."""
+    async def async_wrapper(*args, **kw):
+        start = time.time()
+        result = await func(*args, **kw)
+        end = time.time()
+        logger.info(f'Function {func.__name__} took {end - start:.2f} seconds')
+        return result
+
+    def sync_wrapper(*args, **kw):
+        start = time.time()
+        result = func(*args, **kw)
+        end = time.time()
+        logger.info(f'Function {func.__name__} took {end - start:.2f} seconds')
+        return result
+
+    if asyncio.iscoroutinefunction(func):
+        return async_wrapper
+    else:
+        return sync_wrapper
+
 async def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
     """Downloads the given url to the given dir if it doesn't already exist there (and is not empty).
 
@@ -137,7 +158,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             item = item.parent
         return None
 
-    def for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
+    async def for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
         """Cleans up this item for web use.
 
         The web representation of this object is in `r`, which this modifies. Also pass in the list
@@ -521,58 +542,55 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         return list(ret)
 
     @classmethod
-    @db_session
     async def handle_me_action(cls, ids: list[int], action: str, **kw):
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`."""
-        items = Item.select(lambda c: c.id in ids)[:]
-        me = Item.get_me()
-        ts = int(time.time())
-        rels_by_item_by_source = defaultdict(dict)
-        for item in items:
-            r: None|Rel = None
-            match action:
-                case 'like': # create or update the rel (only 1 like possible)
-                    get_kw = dict(src=me, rtype='like', tgt=item)
-                    print(f'in like, got get_kw={get_kw}')
-                    if not Rel.get(**get_kw):
-                        r = Rel(**get_kw, ts=ts)
-                case 'unlike': # delete the rel if it exists
-                    get_kw = dict(src=me, rtype='like', tgt=item)
-                    r = Rel.get(**get_kw)
-                    if r:
-                        r.delete()
-                case 'queue': # increment count or create new queue rel
-                    get_kw = dict(src=me, rtype='queue', tgt=item)
-                    r = Rel.get(**get_kw)
-                    if r: # Increment count
-                        if not r.md:
-                            r.md = {}
-                        r.md['count'] = r.md.get('count', 1) + 1
-                        r.ts = ts  # Update timestamp
-                    else: # Create new queue rel with count=1
-                        r = Rel(**get_kw, ts=ts, md=dict(count=1))
-                case 'unqueue': # remove the queue rel entirely
-                    get_kw = dict(src=me, rtype='queue', tgt=item)
-                    r = Rel.get(**get_kw)
-                    if r:
-                        r.delete()
-                case 'explore': # explore the given item...source-dependent only
-                    pass
-                case _:
-                    logger.info(f'Unknown me action {action}')
-            by_src = rels_by_item_by_source[item.source]
-            by_src[item] = []
-            if r is not None:
-                by_src[item].append(r)
-        
-        commit()  # Commit the immediate changes
+        with db_session:
+            items = Item.select(lambda c: c.id in ids)[:]
+            me = Item.get_me()
+            ts = int(time.time())
+            rels_by_item_by_source = defaultdict(dict)
+            for item in items:
+                r: None|Rel = None
+                match action:
+                    case 'like': # create or update the rel (only 1 like possible)
+                        get_kw = dict(src=me, rtype='like', tgt=item)
+                        print(f'in like, got get_kw={get_kw}')
+                        if not Rel.get(**get_kw):
+                            r = Rel(**get_kw, ts=ts)
+                    case 'unlike': # delete the rel if it exists
+                        get_kw = dict(src=me, rtype='like', tgt=item)
+                        r = Rel.get(**get_kw)
+                        if r:
+                            r.delete()
+                    case 'queue': # increment count or create new queue rel
+                        get_kw = dict(src=me, rtype='queue', tgt=item)
+                        r = Rel.get(**get_kw)
+                        if r: # Increment count
+                            if not r.md:
+                                r.md = {}
+                            r.md['count'] = r.md.get('count', 1) + 1
+                            r.ts = ts  # Update timestamp
+                        else: # Create new queue rel with count=1
+                            r = Rel(**get_kw, ts=ts, md=dict(count=1))
+                    case 'unqueue': # remove the queue rel entirely
+                        get_kw = dict(src=me, rtype='queue', tgt=item)
+                        r = Rel.get(**get_kw)
+                        if r:
+                            r.delete()
+                    case 'explore': # explore the given item...source-dependent only
+                        pass
+                    case _:
+                        logger.info(f'Unknown me action {action}')
+                by_src = rels_by_item_by_source[item.source]
+                by_src[item] = []
+                if r is not None:
+                    by_src[item].append(r)
         yield rels_by_item_by_source  # Yield after immediate work is done
-        
         # now call this method on each source for custom handling
         for source, rels_by_item in rels_by_item_by_source.items():
             src = Source._registry.get(source)
             if src:
-                await src.handle_me_action(rels_by_item, action, **kw)
+                await src.handle_me_action(ids, action, **kw)
 
 
 def init_sql_db(path: str) -> Database:
@@ -638,11 +656,10 @@ class Source(abc.ABC):
         """Parses the given url and does whatever it wants."""
         raise NotImplementedError()
 
-    async def handle_me_action(self, rels_by_item: dict[Item, list[Rel]], action: str, **kw) -> None:
+    async def handle_me_action(self, ids: list[int], action: str, **kw) -> None:
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`.
 
-        This is called after generic processing, with the dict mapping from original item to list of
-        rels created/deleted/updated for that item.
+        This is called after generic processing, with a list of item ids.
 
         The default implementation does nothing, but subclasses can override this.
         """
@@ -789,5 +806,5 @@ class Source(abc.ABC):
                 for otype, items in by_type.items():
                     ids.extend([item.id for item in items])
                 logger.info(f'Found {n} liked undone items for source {self.name}, prioritizing {len(ids)}')
-        logger.info(f'In {self}, updating embeddings for {len(ids)} items')
+        #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
         return Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, ids=ids, **kw)

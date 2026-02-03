@@ -74,7 +74,7 @@ from nkpylib.ml.client import call_vlm, embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J
+from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed
 from nkpylib.nkcollections.workers import LikesWorker
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
@@ -106,18 +106,6 @@ class MyBaseHandler(BaseHandler):
         with db_session:
             otypes = list(select(r.otype for r in Item)) # type: ignore[attr-defined]
             return otypes
-
-    def background_task(self, coroutine):
-        """Fire-and-forget a coroutine as a background task with error handling."""
-        async def wrapper():
-            try:
-                await coroutine
-            except Exception as e:
-                logger.error(f'Background task failed: {e}')
-                import traceback
-                logger.error(traceback.format_exc())
-        
-        asyncio.create_task(wrapper())
 
 
 class GetHandler(MyBaseHandler):
@@ -225,6 +213,8 @@ class GetHandler(MyBaseHandler):
                     if value.startswith('>='):
                         threshold = float(value[2:])
                         q = q.filter(lambda c: getattr(c, field) >= threshold)
+                    elif value.startswith('<>'): # doesn't exist
+                        q = q.filter(lambda c: getattr(c, field) is None)
                     elif value.startswith('<='):
                         threshold = float(value[2:])
                         q = q.filter(lambda c: getattr(c, field) <= threshold)
@@ -263,17 +253,19 @@ class GetHandler(MyBaseHandler):
         # if there was a limit parameter, set it
         if 'limit' in kw:
             limit = int(kw['limit'])
+            offset = int(kw.get('offset', 0))
             if manual_reverse: # we've already fetch items and reversed them, so just limit
-                q = q[:limit]
+                q = q[offset:limit+offset]
             else:
-                q = q.limit(limit)
+                q = q.limit(limit, offset=offset)
         t2 = time.time()
         #logger.info(f'Built query in {t1 - t0:.3f}s, applied limit in {t2 - t1:.3f}s, output type: {type(q)}')
         #print(f'q2: {q}')
         return q
 
     @classmethod
-    def query_to_web(cls, q: Query, assemble_posts:bool=True) -> tuple[dict[int, dict], list[int]]:
+    @timed
+    async def query_to_web(cls, q: Query, assemble_posts:bool=True) -> tuple[dict[int, dict], list[int]]:
         """Converts a query to a dict of items suitable for web output.
 
         Returns a tuple of (row_by_id, cur_ids), where the latter is in order.
@@ -297,7 +289,7 @@ class GetHandler(MyBaseHandler):
         times.append(time.time())
         # prepare items for web
         for item in items:
-            item.for_web(ret[item.id], rels=rels_by_tgt[item.id])
+            await item.for_web(ret[item.id], rels=rels_by_tgt[item.id])
         times.append(time.time())
         logger.info(f'  query_to_web times: {[(t1 - t0) for t0, t1 in zip(times, times[1:])]}')
         return (ret, cur_ids)
@@ -378,7 +370,7 @@ class GetHandler(MyBaseHandler):
 
         return filtered_items
 
-    def post(self):
+    async def post(self):
         data = json.loads(self.request.body)
         logger.info(f'GetHandler got data={data}')
         # Build query conditions
@@ -386,7 +378,7 @@ class GetHandler(MyBaseHandler):
             times = [time.time()]
             q = self.build_query(data)
             times.append(time.time())
-            row_by_id, cur_ids = self.query_to_web(q, assemble_posts=data.get('assemble_posts', True))
+            row_by_id, cur_ids = await self.query_to_web(q, assemble_posts=data.get('assemble_posts', True))
             times.append(time.time())
             # count the number of un-embedded images
             n_unembedded = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None) .count()
@@ -429,28 +421,25 @@ class ActionHandler(MyBaseHandler):
         logger.info(f'ActionHandler got action={action}, {data}')
         assert action in 'like unlike queue unqueue explore'.split()
         ids = [int(i) for i in data.pop('ids')]
-        
         # Start the generator and get the immediate result
         gen = Rel.handle_me_action(ids=ids, action=action, **data)
         rels_by_item_by_source = await gen.__anext__()
-        
         # Respond to client immediately after database updates
         with db_session:
             q = Item.select(lambda c: c.id in ids)
-            updated_rows, _ = GetHandler.query_to_web(q)
+            updated_rows, _ = await GetHandler.query_to_web(q)
             self.write(dict(
                 action=action,
                 msg=f'Took action {action} on {ids}',
                 updated_rows=updated_rows,
             ))
-        
         # Fire-and-forget the rest of the generator (source processing)
         async def finish_source_processing():
             try:
                 await gen.__anext__()  # This will finish the source processing
             except StopAsyncIteration:
                 pass  # Generator finished normally
-        
+
         self.background_task(finish_source_processing())
 
 class FilterHandler(MyBaseHandler):
