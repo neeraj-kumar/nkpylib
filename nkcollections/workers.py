@@ -174,6 +174,85 @@ class BackgroundWorker(abc.ABC):
             results.append(result)
         return results
 
+    def _compute_user_stats(self, user_id: int) -> dict[str, Any]:
+        """Compute statistics for a specific user.
+        
+        Returns dict with user statistics including content counts, engagement, and scores.
+        """
+        with db_session:
+            # Get all items from this user
+            user_items = Item.select(lambda i: i.ancestor == user_id)
+            
+            # Initialize counters
+            n_images = 0
+            n_videos = 0 
+            n_posts = 0
+            n_liked_items = 0
+            like_scores = []
+            last_item_ts = 0
+            
+            for item in user_items:
+                # Count by type
+                if item.otype == 'image':
+                    n_images += 1
+                elif item.otype == 'video':
+                    n_videos += 1
+                elif item.otype == 'post':
+                    n_posts += 1
+                
+                # Check if liked
+                liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
+                if liked_rel:
+                    n_liked_items += 1
+                
+                # Get classifier score if available
+                if str(item.id) in self.scores:
+                    like_scores.append(self.scores[str(item.id)])
+                
+                # Track most recent item
+                if item.ts and item.ts > last_item_ts:
+                    last_item_ts = item.ts
+            
+            # Calculate average like score
+            avg_like_score = sum(like_scores) / len(like_scores) if like_scores else 0.0
+            
+            return {
+                'ts': time.time(),
+                'n_images': n_images,
+                'n_videos': n_videos,
+                'n_posts': n_posts,
+                'n_liked_items': n_liked_items,
+                'avg_like_score': avg_like_score,
+                'last_item_ts': last_item_ts,
+            }
+
+    def _update_user_stats(self) -> None:
+        """Update statistics for all users in the database."""
+        try:
+            with db_session:
+                users = Item.select(lambda u: u.otype == 'user')
+                n_updated = 0
+                
+                for user in users:
+                    try:
+                        stats = self._compute_user_stats(user.id)
+                        
+                        # Update user's metadata with computed stats
+                        if user.md is None:
+                            user.md = {}
+                        user.md['stats'] = stats
+                        n_updated += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error computing stats for user {user.id}: {e}")
+                        continue
+                
+                logger.info(f"Updated stats for {n_updated} users")
+                
+        except Exception as e:
+            logger.error(f"Error updating user stats: {e}")
+            traceback.print_exc()
+
     def queue_sizes(self) -> dict[str, int]:
         """Get current queue sizes for monitoring."""
         return dict(
@@ -220,6 +299,7 @@ class LikesWorker(BackgroundWorker):
             'pos_ids': frozenset(),
             'saved_classifier': None,
             'classifier_version': 0.0,
+            'user_stats_ts': 0.0,
         }
         self._load_and_run_initial_inference()
 
@@ -235,8 +315,12 @@ class LikesWorker(BackgroundWorker):
                 t0 = time.time()
                 try:
                     self._update_classifier()
+                    # Update user stats every minute (60 seconds)
+                    if time.time() - self.last['user_stats_ts'] >= 60:
+                        self._update_user_stats()
+                        self.last['user_stats_ts'] = time.time()
                 except Exception as e:
-                    pass
+                    logger.error(f"Error in process_task: {e}")
                 elapsed = time.time() - t0
                 diff = self.sleep_interval - elapsed
                 if diff > 0:
