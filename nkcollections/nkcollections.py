@@ -258,6 +258,13 @@ class GetHandler(MyBaseHandler):
                 q = q[offset:limit+offset]
             else:
                 q = q.limit(limit, offset=offset)
+        # now check for min_like score
+        if 'min_like' in kw:
+            min_like = float(kw['min_like'])
+            scores = {int(id): s for id, s in self.likes_worker.get_scores().items()}
+            newq = [item for item in q if scores.get(item.id, 0.0) >= min_like]
+            logger.info(f'  Filtered from {len(q)} -> {len(newq)} items with min_like {min_like}')
+            q = newq
         t2 = time.time()
         #logger.info(f'Built query in {t1 - t0:.3f}s, applied limit in {t2 - t1:.3f}s, output type: {type(q)}')
         #print(f'q2: {q}')

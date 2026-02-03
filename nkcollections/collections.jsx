@@ -1443,7 +1443,7 @@ const Controls = () => {
   const ctx = React.useContext(AppContext);
   // Local state for search string and source string
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState(json_str(QUICK_LINKS['Images']));
+  const [sourceStr, setSourceStr] = React.useState(json_str(QUICK_LINKS['Pos Images']));
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
 
