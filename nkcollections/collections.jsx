@@ -1294,6 +1294,8 @@ const InfoBar = () => {
   const n = curIds.length;
   const nWithScores = curIds.filter(id => ctx.data.scores[id] !== undefined).length;
   const nWithLikes = curIds.map(id => ctx.data.rowById[id].rels.like).filter(like => like).length;
+  const nWithDislikes = curIds.map(id => ctx.data.rowById[id].rels.dislike).filter(dislike => dislike).length;
+  const nWithQueued = curIds.map(id => ctx.data.rowById[id].rels.queue).filter(queue => queue).length;
   let sscores = [];
   if (n > 0) {
     sscores = curIds.map(id => ctx.data.scores[id] || null).filter(s => s !== null).sort((a, b) => a - b);
@@ -1313,7 +1315,7 @@ const InfoBar = () => {
 
   return (
     <div className="infobar">
-      <div>{n} items ({nWithScores} scored, {nWithLikes} liked) </div>
+      <div>{n} items ({nWithScores} scored, {nWithLikes} liked, {nWithDislikes} disliked, {nWithQueued} queued) </div>
       {sscores.length > 0 && (
         <div className="score-stats">
           , {nPos} ({pPos.toFixed(1)}%) pos
