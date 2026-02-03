@@ -180,25 +180,66 @@ class BackgroundWorker(abc.ABC):
 
         Returns dict with user statistics including content counts, engagement, and scores.
         """
+        timing = Counter()
+        t0 = time.time()
+        
         with db_session:
+            timing['db_session_start'] = time.time() - t0
+            t1 = time.time()
+            
             # Get all items from this user
             user_items = Item.select(lambda i: (i.parent and i.parent.id == user_id) or (i.parent.parent and i.parent.parent.id == user_id))
+            timing['user_items_query'] = time.time() - t1
+            t2 = time.time()
+            
             ids = [item.id for item in user_items]
+            timing['extract_ids'] = time.time() - t2
+            t3 = time.time()
+            
             # Initialize counters
             counts = Counter(ts=time.time())
+            timing['init_counters'] = time.time() - t3
+            t4 = time.time()
+            
             like_scores = [score for id, score in self.scores.items() if int(id) in ids]
+            timing['extract_like_scores'] = time.time() - t4
+            t5 = time.time()
+            
             for item in user_items:
+                t_item_start = time.time()
+                
                 # otype counts
                 counts[f'n_{item.otype}s'] += 1
+                timing['otype_counts'] += time.time() - t_item_start
+                t_otype = time.time()
+                
                 # liked counts
                 liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
+                timing['liked_rel_query'] += time.time() - t_otype
+                t_liked = time.time()
+                
                 if liked_rel:
                     counts['n_liked_items'] += 1
+                timing['liked_check'] += time.time() - t_liked
+                t_ts = time.time()
+                
                 # track most recent item
                 if item.ts and item.ts > counts['last_item_ts']:
                     counts['last_item_ts'] = item.ts
+                timing['timestamp_check'] += time.time() - t_ts
+            
+            timing['item_loop_total'] = time.time() - t5
+            t6 = time.time()
+            
             # average like score
             counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
+            timing['avg_score_calc'] = time.time() - t6
+            
+            timing['total_function'] = time.time() - t0
+            
+            # Print top timing items
+            logger.info(f"User {user_id} stats timing (top 5): {timing.most_common(5)}")
+            
             return dict(counts)
 
     @db_session
