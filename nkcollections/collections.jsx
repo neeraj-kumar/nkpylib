@@ -799,6 +799,84 @@ const VideoOverlay = ({videoUrl, onClick}) => {
   );
 };
 
+const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
+  const [showVideo, setShowVideo] = React.useState(false);
+  
+  if (showVideo && videoUrl) {
+    return (
+      <div style={{position: 'relative'}}>
+        <video
+          src={videoUrl}
+          controls
+          autoPlay
+          style={{maxWidth: '100%', height: 'auto'}}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setLiked(id, !liked);
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            top: '5px',
+            left: '5px',
+            background: 'rgba(0, 0, 0, 0.7)',
+            color: 'white',
+            fontSize: '12px',
+            padding: '2px 4px',
+            borderRadius: '3px',
+            cursor: 'pointer'
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowVideo(false);
+          }}
+          title="Show image"
+        >
+          🖼️
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div style={{position: 'relative'}}>
+      <img
+        src={imageUrl}
+        alt={`Image ${id}`}
+        onDoubleClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setLiked(id, !liked);
+        }}
+      />
+      {videoUrl && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '5px',
+            right: '5px',
+            background: 'rgba(0, 0, 0, 0.7)',
+            color: 'white',
+            fontSize: '12px',
+            padding: '2px 4px',
+            borderRadius: '3px',
+            cursor: 'pointer'
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowVideo(true);
+          }}
+          title="Play video"
+        >
+          ▶
+        </div>
+      )}
+    </div>
+  );
+};
+
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) => {
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
@@ -1240,18 +1318,13 @@ const Obj = (props) => {
           )}
           {otype === 'image' && (
             <div className="content">
-              <div style={{position: 'relative'}}>
-                <img
-                  src={props.local_path ? `/data/${props.local_path}` : url}
-                  alt={`Image ${id}`}
-                  onDoubleClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    ctx.actions.setLiked(id, !liked);
-                  }}
-                />
-                <VideoOverlay videoUrl={md && md.video_url} />
-              </div>
+              <ImageWithVideo
+                imageUrl={props.local_path ? `/data/${props.local_path}` : url}
+                videoUrl={md && md.video_url}
+                id={id}
+                liked={liked}
+                setLiked={ctx.actions.setLiked}
+              />
             </div>
           )}
           {otype === 'video' && (
