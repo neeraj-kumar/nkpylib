@@ -390,6 +390,8 @@ class Model(ABC):
                 if cache_key is not None:
                     self.cache[cache_key] = ret.copy()
                 return ret
+            except Exception as e:
+                logger.warning(f'Error during model {self.model_name} run on input {input}: {e}')
             finally:
                 # Common cleanup
                 self.callers[caller] -= 1
@@ -482,6 +484,11 @@ class Model(ABC):
         self.timing['n_batch_calls'] += 1
         self.timing['n_batch_inferences'] += len(batch)
         self.timing['inference_time'] += batch_inference_time
+        if not results: # there was some error, so mark all as done with an error
+            for item in batch:
+                if not item['future'].done():
+                    item['future'].set_exception(RuntimeError(f'Error during batch processing of model {self.model_name}'))
+            return
         # update each item's timing and set the result
         for item, result in zip(batch, results):
             result.setdefault('timing', {}).update(
@@ -707,11 +714,15 @@ class EmbeddingModel(Model):
         logger.debug(f'Running {self} embeddings batch of size {len(batch)}')
         inputs = [item['input'] for item in batch]
         t0 = time.time()
-        tasks = [self._preprocess_single(inp) for inp in inputs]
-        preprocessed_inputs = await asyncio.gather(*tasks)
-        t1 = time.time()
-        batch_embeddings = await asyncio.to_thread(self._batch_inference, preprocessed_inputs)
-        t2 = time.time()
+        try:
+            tasks = [self._preprocess_single(inp) for inp in inputs]
+            preprocessed_inputs = await asyncio.gather(*tasks)
+            t1 = time.time()
+            batch_embeddings = await asyncio.to_thread(self._batch_inference, preprocessed_inputs)
+            t2 = time.time()
+        except Exception as e:
+            logger.warning(f'Error during batch embedding: {e}')
+            return []
         results = []
         for i, input_data in enumerate(inputs):
             embedding = batch_embeddings[i]
