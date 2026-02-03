@@ -238,7 +238,8 @@ class BackgroundWorker(abc.ABC):
             timing['total_function'] = time.time() - t0
             
             # Print top timing items
-            logger.info(f"User {user_id} stats timing (top 5): {timing.most_common(5)}")
+            formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
+            logger.info(f"User {user_id} stats timing (top 5): {formatted_timings}")
             
             return dict(counts)
 
