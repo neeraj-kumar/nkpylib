@@ -297,11 +297,11 @@ const STYLES = `
 
 .dislike-icon {
   font-size:20px!important;
-  color: #ccc;
+  color: #333;
 }
 
 .dislike-icon.disliked {
-  color: blue;
+  color: red;
 }
 
 .classify-icon {
@@ -1048,7 +1048,7 @@ const Obj = (props) => {
           }}
           title={disliked ? "Remove dislike from this item" : "Dislike this item"}
         >
-          💔
+          ❌
         </div>
         <div
           className={cClasses.join(' ')}
