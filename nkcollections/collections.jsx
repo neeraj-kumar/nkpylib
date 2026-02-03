@@ -1470,6 +1470,25 @@ const Controls = () => {
     }
   }
 
+  // Function to handle next page navigation
+  const doNextPage = React.useCallback(() => {
+    try {
+      const sourceObj = JSON.parse(sourceStr);
+      const currentLimit = sourceObj.limit || 100;
+      const currentOffset = sourceObj.offset || 0;
+      const newOffset = currentLimit + currentOffset;
+      
+      const newSourceObj = { ...sourceObj, offset: newOffset };
+      const newSourceStr = JSON.stringify(newSourceObj);
+      
+      setSourceStr(newSourceStr);
+      ctx.actions.doSource(newSourceStr);
+    } catch (error) {
+      console.error('Failed to parse source string for next page:', error);
+      // Do nothing if parsing fails
+    }
+  }, [sourceStr, ctx.actions.doSource]);
+
   // Function to get clipboard contents and set as source
   const doSourceFromClipboard = React.useCallback(async () => {
     try {
@@ -1522,6 +1541,12 @@ const Controls = () => {
         )}
       </div>
       <div className="control quick-links">
+        <button
+          onClick={doNextPage}
+          title="Load next page of results"
+        >
+          Next Page
+        </button>
         {Object.entries(QUICK_LINKS).map(([name, query]) => (
           <button
             key={name}
