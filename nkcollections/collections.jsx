@@ -869,6 +869,12 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
               src={posterUrl}
               alt={`Video ${data.id} poster`}
               onClick={handleImageClick}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const liked = Boolean(data.rels.like);
+                setLiked(data.id, !liked);
+              }}
               style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
             />
             <a 
