@@ -802,6 +802,7 @@ const VideoOverlay = ({videoUrl, onClick}) => {
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) => {
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
+  const [showVideo, setShowVideo] = React.useState({});
   // Calculate max height based on image metadata
   const maxHeight = React.useMemo(() => {
     if (!mediaBlocks.length) return 0;
@@ -838,10 +839,52 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
 
   const renderMedia = (block) => {
     const {type, data} = block;
+    const isShowingVideo = showVideo[data.id];
+    
     switch (type) {
       case 'image':
         const imageUrl = data.local_path ? `/data/${data.local_path}` : data.url;
         const videoUrl = data.md && data.md.video_url;
+        
+        if (isShowingVideo && videoUrl) {
+          return (
+            <div style={{position: 'relative'}}>
+              <video
+                src={videoUrl}
+                controls
+                autoPlay
+                style={{maxWidth: '100%', height: 'auto'}}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const liked = Boolean(data.rels.like);
+                  setLiked(data.id, !liked);
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '5px',
+                  left: '5px',
+                  background: 'rgba(0, 0, 0, 0.7)',
+                  color: 'white',
+                  fontSize: '12px',
+                  padding: '2px 4px',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowVideo(prev => ({...prev, [data.id]: false}));
+                }}
+                title="Show image"
+              >
+                🖼️
+              </div>
+            </div>
+          );
+        }
+        
         return (
           <div style={{position: 'relative'}}>
             <img
@@ -856,11 +899,72 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
               }}
               style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
             />
-            <VideoOverlay videoUrl={videoUrl} />
+            {videoUrl && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '5px',
+                  right: '5px',
+                  background: 'rgba(0, 0, 0, 0.7)',
+                  color: 'white',
+                  fontSize: '12px',
+                  padding: '2px 4px',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowVideo(prev => ({...prev, [data.id]: true}));
+                }}
+                title="Play video"
+              >
+                ▶
+              </div>
+            )}
           </div>
         );
       case 'video':
         const posterUrl = data.md.poster_url && data.local_path ? `/data/${data.local_path}` : data.md.poster_url;
+        
+        if (isShowingVideo) {
+          return (
+            <div style={{position: 'relative'}}>
+              <video
+                src={data.url}
+                controls
+                autoPlay
+                style={{maxWidth: '100%', height: 'auto'}}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const liked = Boolean(data.rels.like);
+                  setLiked(data.id, !liked);
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '5px',
+                  left: '5px',
+                  background: 'rgba(0, 0, 0, 0.7)',
+                  color: 'white',
+                  fontSize: '12px',
+                  padding: '2px 4px',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowVideo(prev => ({...prev, [data.id]: false}));
+                }}
+                title="Show poster"
+              >
+                🖼️
+              </div>
+            </div>
+          );
+        }
+        
         return (
           <div className="video-link" style={{position: 'relative'}}>
             <img
@@ -875,14 +979,26 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
               }}
               style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
             />
-            <a
-              href={data.url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
+            <div
+              style={{
+                position: 'absolute',
+                top: '5px',
+                right: '5px',
+                background: 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                fontSize: '12px',
+                padding: '2px 4px',
+                borderRadius: '3px',
+                cursor: 'pointer'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowVideo(prev => ({...prev, [data.id]: true}));
+              }}
+              title="Play video"
             >
               ▶
-            </a>
+            </div>
           </div>
         );
       default:
