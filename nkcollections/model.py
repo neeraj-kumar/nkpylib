@@ -181,14 +181,23 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             ancestor = ancestor.parent
         # if this is a user, add compact and detailed strings
         if self.otype == 'user':
-            compact = f'{self.source}: {self.name or self.url}'
-            if self.seen_ts:
-                compact += f'<br>Last seen: {time.ctime(self.seen_ts)}'
+            compact = f'{self.source}: <a href="{self.url}" target="_blank">{self.name or self.url}</a>'
+            if self.explored_ts:
+                if self.explored_ts > 0:
+                    compact += f'<br>Last explored: {time.ctime(self.explored_ts)}'
+                else:
+                    compact += f'<br>Error'
             else:
-                compact += f'<br>Never seen'
+                compact += f'<br>Never explored'
             qrbs = self.md.get('n_queued_reblogs', 0)
             if qrbs:
                 compact += f'<br>queued reblogs: {qrbs}'
+            # count the number of posts, images, videos
+            n_posts = Item.select(lambda i: i.parent == self and i.otype == 'post').count()
+            if n_posts > 0:
+                n_images = Item.select(lambda i: i.parent.parent == self and i.otype == 'image').count()
+                n_videos = Item.select(lambda i: i.parent.parent == self and i.otype == 'video').count()
+                compact += f'<br>Posts: {n_posts}, Images: {n_images}, Videos: {n_videos}'
             # add the first image if we have one
             images = Item.select(parent=self, otype='image')[:1]
             if not images:
