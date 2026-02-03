@@ -295,6 +295,15 @@ const STYLES = `
   color: red;
 }
 
+.dislike-icon {
+  font-size:20px!important;
+  color: #ccc;
+}
+
+.dislike-icon.disliked {
+  color: blue;
+}
+
 .classify-icon {
   color: #666;
 }
@@ -919,6 +928,7 @@ const Obj = (props) => {
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
+  const disliked = Boolean(rels.dislike);
   const queued = Boolean(rels.queue);
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
@@ -1029,6 +1039,16 @@ const Obj = (props) => {
           title={liked ? "Unlike this item" : "Like this item"}
         >
           ♥
+        </div>
+        <div
+          className={`icon-button dislike-icon ${disliked ? 'disliked' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            ctx.actions.setDisliked(id, !disliked);
+          }}
+          title={disliked ? "Remove dislike from this item" : "Dislike this item"}
+        >
+          💔
         </div>
         <div
           className={cClasses.join(' ')}
@@ -1855,6 +1875,11 @@ const AppProvider = ({ children }) => {
     doAction([id], action);
   }, [doAction]);
 
+  const setDisliked = React.useCallback((id, dislikedState) => {
+    const action = dislikedState ? 'dislike' : 'undislike';
+    doAction([id], action);
+  }, [doAction]);
+
   const setQueued = React.useCallback((id, queueState) => {
     const action = queueState ? 'queue' : 'unqueue';
     doAction([id], action);
@@ -2003,6 +2028,7 @@ const AppProvider = ({ children }) => {
     },
     actions: {
       setLiked,
+      setDisliked,
       togglePos,
       doSource,
       doLikeClassifier,
