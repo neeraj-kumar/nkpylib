@@ -1,7 +1,6 @@
 /* NK Collections React App
  *
  * TODO show # queued
- * TODO dislike btn
  * TODO use recent likes to determine how to prioritize feed
  * TODO add an overall diversity slider that modifies recency priorities?
  * TODO filter users by seen/recent/scored posts
@@ -298,10 +297,6 @@ const STYLES = `
 .dislike-icon {
   font-size:20px!important;
   color: #333;
-}
-
-.dislike-icon.disliked {
-  color: red;
 }
 
 .classify-icon {
@@ -898,9 +893,9 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
               }}
               style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
             />
-            <a 
-              href={data.url} 
-              target="_blank" 
+            <a
+              href={data.url}
+              target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
             >
@@ -1047,8 +1042,7 @@ const Obj = (props) => {
             ctx.actions.setDisliked(id, !disliked);
           }}
           title={disliked ? "Remove dislike from this item" : "Dislike this item"}
-        >
-          ❌
+        >{disliked ? '❌' : '✖️ '}
         </div>
         <div
           className={cClasses.join(' ')}
