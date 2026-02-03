@@ -277,7 +277,7 @@ const STYLES = `
 }
 
 .dislike-icon {
-  font-size:20px!important;
+  font-size:15px!important;
   color: #333;
 }
 
