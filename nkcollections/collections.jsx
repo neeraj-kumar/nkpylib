@@ -1,5 +1,7 @@
 /* NK Collections React App
  *
+ * TODO send stream of important messages from server?
+ * TODO pagination?
  * TODO likes toggle on page
  * TODO show tags on posts
  * TODO grouping by sim
@@ -51,7 +53,10 @@ const MODES = ['multicol', 'cluster'];
 
 const QUICK_LINKS = {
   'Queued': '{"rels.queue":true}',
-  'Q users': '{"otype": "user", "limit": 100, "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
+  // explored users
+  'Exp users': '{"otype": "user", "assemble_posts": false, "limit": 100, "explored_ts": ">1"}',
+  // unexplored but queued
+  'Q users': '{"otype": "user", "assemble_posts": false, "limit": 100, "explored_ts": "<>", "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
   'Images': '{"otype":["image", "video"],"limit":500,"embed_ts":">1"}',
   'Posts': '{"otype":"post","limit":500}',
   'Twitter': '{"source":"twitter","limit":500}',
@@ -1060,7 +1065,7 @@ const Obj = (props) => {
         >
           {queued ? '➖' : '➕'}
         </div>
-        {otype === 'user' && (
+        {otype === 'user' && !props.compact.includes('Error') && (
           <div
             className="icon-button explore-user-icon"
             onClick={(e) => {
@@ -1627,7 +1632,6 @@ const AppProvider = ({ children }) => {
         }
       }
     };
-    
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [currentSource, updateData, setMessage]);
@@ -1722,11 +1726,25 @@ const AppProvider = ({ children }) => {
       setRowById({});
       setClusters({});
     }
-    updateRowById(data.row_by_id);
+    // if we have both a video and image of the same thing, filter the video out
+    const toDel = [];
+    Object.values(data.row_by_id).forEach((row) => {
+      if (row.md.poster_for) {
+        toDel.push(''+row.md.poster_for);
+      }
+    });
+    const newRowById = {};
+    Object.entries(data.row_by_id).forEach(([id, row]) => {
+      if (toDel.includes(id)) {
+        return;
+      }
+      newRowById[id] = row;
+    });
+    updateRowById(newRowById);
     if (data.cur_ids){
       setCurIds(data.cur_ids);
     } else {
-      setCurIds(Object.keys(data.row_by_id));
+      setCurIds(Object.keys(newRowById));
     }
     setAllOtypes(data.allOtypes);
 
