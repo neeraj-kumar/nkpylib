@@ -1,6 +1,7 @@
 /* NK Collections React App
  *
  * TODO send stream of important messages from server?
+ * TODO hide seen
  * TODO pagination?
  * TODO likes toggle on page
  * TODO show tags on posts
@@ -57,7 +58,7 @@ const QUICK_LINKS = {
   'Exp users': '{"otype": "user", "assemble_posts": false, "limit": 100, "explored_ts": ">1"}',
   // unexplored but queued
   'Q users': '{"otype": "user", "assemble_posts": false, "limit": 100, "explored_ts": "<>", "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
-  'Images': '{"otype":["image", "video"],"limit":500,"embed_ts":">1"}',
+  'Images': '{"otype":["image", "video"],"limit":500,"embed_ts":">1","order": "-embed_ts"}',
   'Posts': '{"otype":"post","limit":500}',
   'Twitter': '{"source":"twitter","limit":500}',
   'Tumblr': '{"source":"tumblr","limit":500}',
