@@ -522,7 +522,7 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
     @classmethod
     @db_session
-    async def handle_me_action(cls, ids: list[int], action: str, **kw) -> None:
+    async def handle_me_action(cls, ids: list[int], action: str, **kw):
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`."""
         items = Item.select(lambda c: c.id in ids)[:]
         me = Item.get_me()
@@ -564,11 +564,14 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             by_src[item] = []
             if r is not None:
                 by_src[item].append(r)
+        
+        commit()  # Commit the immediate changes
+        yield rels_by_item_by_source  # Yield after immediate work is done
+        
         # now call this method on each source for custom handling
         for source, rels_by_item in rels_by_item_by_source.items():
             src = Source._registry.get(source)
             if src:
-                commit()
                 await src.handle_me_action(rels_by_item, action, **kw)
 
 

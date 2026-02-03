@@ -107,6 +107,18 @@ class MyBaseHandler(BaseHandler):
             otypes = list(select(r.otype for r in Item)) # type: ignore[attr-defined]
             return otypes
 
+    def background_task(self, coroutine):
+        """Fire-and-forget a coroutine as a background task with error handling."""
+        async def wrapper():
+            try:
+                await coroutine
+            except Exception as e:
+                logger.error(f'Background task failed: {e}')
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        asyncio.create_task(wrapper())
+
 
 class GetHandler(MyBaseHandler):
     @db_session
@@ -417,9 +429,13 @@ class ActionHandler(MyBaseHandler):
         logger.info(f'ActionHandler got action={action}, {data}')
         assert action in 'like unlike queue unqueue explore'.split()
         ids = [int(i) for i in data.pop('ids')]
-        await Rel.handle_me_action(ids=ids, action=action, **data)
+        
+        # Start the generator and get the immediate result
+        gen = Rel.handle_me_action(ids=ids, action=action, **data)
+        rels_by_item_by_source = await gen.__anext__()
+        
+        # Respond to client immediately after database updates
         with db_session:
-            items = Item.select(lambda c: c.id in ids)[:]
             q = Item.select(lambda c: c.id in ids)
             updated_rows, _ = GetHandler.query_to_web(q)
             self.write(dict(
@@ -427,6 +443,15 @@ class ActionHandler(MyBaseHandler):
                 msg=f'Took action {action} on {ids}',
                 updated_rows=updated_rows,
             ))
+        
+        # Fire-and-forget the rest of the generator (source processing)
+        async def finish_source_processing():
+            try:
+                await gen.__anext__()  # This will finish the source processing
+            except StopAsyncIteration:
+                pass  # Generator finished normally
+        
+        self.background_task(finish_source_processing())
 
 class FilterHandler(MyBaseHandler):
     async def post(self):
