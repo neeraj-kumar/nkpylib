@@ -13,9 +13,9 @@ mypy2:
 llm:
 	python3 server.py
 
-## runs the llm server
+## runs the llm server in an infinite loop, restarting every hour
 llm-server:
-	nice uvicorn server:app --port 8234 --host 0.0.0.0
+	while true; do timeout -s 9 1h nice uvicorn server:app --port 8234 --host 0.0.0.0; done
 
 ## runs the llm server in debug mode
 llm-server-debug:
