@@ -1,6 +1,5 @@
 /* NK Collections React App
  *
- * TODO show # queued
  * TODO use recent likes to determine how to prioritize feed
  * TODO add an overall diversity slider that modifies recency priorities?
  * TODO filter users by seen/recent/scored posts
@@ -16,40 +15,8 @@
  * TODO quick zoom
  * TODO show dwell times
  * TODO detect broken img
+ * TODO images with notes quick link?
  *
- * Each collection item contains:
- * - id: unique int identifier
- * - source: the source platform (e.g., twitter, tumblr, etc)
- * - stype: this is just 'blog' for now, can ignore
- * - otype: ("object type") one of: post (an entire post), text, link, image, video
- * - url: URL of the object (if applicable)
- * - name: name of the object (if applicable)
- * - parent: id of the parent object (if applicable). For example, if a post contains some text and
- *   2 images, then the text and images objects will have the post's id as their parent.
- * - ts: timestamp of the item on the original platform (seconds since epoch)
- * - added_ts: timestamp of when the item was added to this Collection
- * - explored_ts: timestamp of when the item was last explored/expanded (if ever)
- * - seen_ts: timestamp of when the item was last seen by me (if ever)
- * - embed_ts: timestamp of when the item was last embedded (if ever)
- * - md: json metadata object (see below)
- *
- *
- * For different types of sources we have different metadata:
- *
- * - Twitter: We have posts, text, and image objects for now. The url on a post is the tweet url,
- *   while on images it's to the image thumbnail. Metadata:
- *   - Posts: handle, display_name, likes, replies, reposts, views, iso_ts
- *   - Text: text (the tweet content)
- *   - Images: media_key, ext (file extension), name (optional size info for url, like "360x360" or
- *   "small")
- *
- * - Tumblr: We have posts and various content blocks (text, image, video, link). The url on a post
- *   is the tumblr post URL, while content blocks have fragment URLs or direct media URLs. Metadata:
- *   - Posts: post_id, reblog_key, tags, n_notes, n_likes, n_reblogs, summary, original_type, reblogged_from
- *   - Text: text (the text content)
- *   - Images: w (width), h (height), media_key
- *   - Videos: w, h, media_key, provider, poster_url, poster_media_key
- *   - Links: display_url, title, description
  */
 
 
@@ -57,21 +24,27 @@ const DEBOUNCE_MS = 2000;
 const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
+const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
 const QUICK_LINKS = {
-  'Queued': '{"rels.queue":true}',
   // explored users
-  'Exp users': '{"otype": "user", "assemble_posts": false, "limit": 100, "explored_ts": ">1"}',
+  'Exp users': {"otype": "user", "assemble_posts": false, "limit": 20, "explored_ts": ">1", "source": "tumblr"},
   // unexplored but queued
-  'Q users': '{"otype": "user", "assemble_posts": false, "limit": 100, "explored_ts": "<>", "order": "-lambda o: o.md[\'n_queued_reblogs\']"}',
-  'Images': '{"otype":["image", "video"],"limit":500,"embed_ts":">1","order": "-embed_ts"}',
-  'Posts': '{"otype":"post","limit":500}',
-  'Twitter': '{"source":"twitter","limit":500}',
-  'Tumblr': '{"source":"tumblr","limit":500}',
-  'Users': '{"otype":"user"}',
+  'Q users': {"otype": "user", "assemble_posts": false, "limit": 20, "explored_ts": "<>", "order":
+    "-lambda o: o.md['n_queued_reblogs']"},
+  // queued posts
+  Queued: {"rels.queue":true},
+  // recent embedded images
+  Images: {"otype":["image", "video"],"limit":200,"embed_ts":">1","order": "-embed_ts"},
+  // users sorted by score
+  Users: {"otype":"user", "order": "-lambda o: o.md['stats']['n_pos_like_score']", "limit": 20},
 };
 
 // Detect if we're on a mobile device
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
+
+const json_str = (obj) => {
+  return JSON.stringify(obj, null, 2);
+};
 
 // Global reference for message handling
 let globalSetMessage = null;
@@ -200,6 +173,14 @@ const STYLES = `
   margin: 0px;
   text-align: center;
   flex: 0 0 calc((100% - (var(--n-cols) - 1) * 10px) / var(--n-cols));
+}
+
+.user-stats {
+  text-align: left;
+}
+
+.user-stats li {
+  text-decoration: none;
 }
 
 .infobar {
@@ -1101,19 +1082,9 @@ const Obj = (props) => {
         {otype === 'user' && (
           <a
             className="icon-button show-user-posts-icon"
-            href={`?source=${encodeURIComponent(`{"ancestor":${id}}`)}`}
+            href={`?source=${encodeURIComponent(`{"ancestor":${id}, "limit": 200}`)}`}
             target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => {
-              // Allow default link behavior (new tab) unless user holds Ctrl/Cmd for same tab
-              if (!e.ctrlKey && !e.metaKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                const query = `{"ancestor":${id}}`;
-                ctx.actions.doSource(query, true);
-              }
-            }}
-            title="Show all posts from this user (opens in new tab by default, Ctrl+click for same tab)"
+            title="Show posts from this user"
           >
             📚
           </a>
@@ -1439,10 +1410,9 @@ const DebouncedInput = ({
 
 const Controls = () => {
   const ctx = React.useContext(AppContext);
-  
   // Local state for search string and source string
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState(QUICK_LINKS['Images']);
+  const [sourceStr, setSourceStr] = React.useState(json_str(QUICK_LINKS['Images']));
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
 
@@ -1552,7 +1522,7 @@ const Controls = () => {
         {Object.entries(QUICK_LINKS).map(([name, query]) => (
           <button
             key={name}
-            onClick={() => {setSourceStr(query); ctx.actions.doSource(query)}}
+            onClick={() => {setSourceStr(json_str(query)); ctx.actions.doSource(json_str(query))}}
             title={`Load: ${name}`}
           >
             {name}
