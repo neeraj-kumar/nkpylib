@@ -278,11 +278,11 @@ class LikesWorker(BackgroundWorker):
     def _get_disliked_ids(self) -> list[int]:
         """Get image IDs that have been disliked."""
         with db_session:
-            disliked_images = Rel.select(lambda r: 
-                r.src.source == 'me' and 
-                r.rtype == 'dislike' and 
+            disliked_images = Rel.select(lambda r:
+                r.src.source == 'me' and
+                r.rtype == 'dislike' and
                 r.tgt.otype in ('image', 'post') and
-                r.tgt.embed_ts and 
+                r.tgt.embed_ts and
                 r.tgt.embed_ts > 0
             )
             disliked_ids = [rel.tgt.id for rel in disliked_images]
@@ -300,16 +300,13 @@ class LikesWorker(BackgroundWorker):
         # randomly sample max_pos of these
         if len(pos) > self.max_pos: #TODO recency bias?
             pos = random.sample(pos, self.max_pos)
-        
         # Start with disliked items as negatives
         disliked_ids = self._get_disliked_ids()
         # Remove any overlap with positives (shouldn't happen but be safe)
         disliked_ids = [id for id in disliked_ids if id not in current_pos_ids]
-        
         # Calculate how many more negatives we need
         neg_sample_size = min(len(pos) * self.neg_factor, len(pos) * self.neg_factor)
         remaining_neg_needed = max(0, int(neg_sample_size) - len(disliked_ids))
-        
         # Fill remainder with random candidates if needed
         if remaining_neg_needed > 0:
             neg_candidates = self._get_negative_candidate_ids(current_pos_ids)
@@ -323,8 +320,8 @@ class LikesWorker(BackgroundWorker):
             neg_ids = disliked_ids + additional_neg_ids
         else:
             neg_ids = disliked_ids[:int(neg_sample_size)]
-        
         neg = [f'{id}:image' for id in neg_ids]
+        logger.info(f'Sampled {len(pos)} pos and {len(neg)} neg ({len(disliked_ids)} disliked)')
         return pos, neg
 
     def _update_classifier(self) -> None:
