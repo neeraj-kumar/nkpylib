@@ -1186,6 +1186,28 @@ const InfoBar = () => {
   const [autoLikesElapsed, setAutoLikesElapsed] = React.useState(0);
   const autoLikesTimerRef = React.useRef(null);
 
+  // Function to handle next page navigation
+  const doNextPage = React.useCallback(() => {
+    try {
+      const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
+      const sourceObj = JSON.parse(sourceStr);
+      const currentLimit = sourceObj.limit || 100;
+      const currentOffset = sourceObj.offset || 0;
+      const newOffset = currentLimit + currentOffset;
+      
+      const newSourceObj = { ...sourceObj, offset: newOffset };
+      const newSourceStr = JSON.stringify(newSourceObj);
+      
+      if (globalSetSourceStr) {
+        globalSetSourceStr(newSourceStr);
+      }
+      ctx.actions.doSource(newSourceStr);
+    } catch (error) {
+      console.error('Failed to parse source string for next page:', error);
+      // Do nothing if parsing fails
+    }
+  }, [ctx.actions.doSource]);
+
   // Auto likes mode timer effect
   React.useEffect(() => {
     if (ctx.classification.autoLikesMode) {
@@ -1352,6 +1374,14 @@ const InfoBar = () => {
           delay={DEBOUNCE_MS}
         />
       </div>
+      <div className="control next-page">
+        <button
+          onClick={doNextPage}
+          title="Load next page of results"
+        >
+          Next Page
+        </button>
+      </div>
       <div className="control go-to-top"><button onClick={() => goTo('top')} title="Scroll to top of page">Top</button></div>
       <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
       <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
@@ -1443,25 +1473,6 @@ const Controls = () => {
     }
   }
 
-  // Function to handle next page navigation
-  const doNextPage = React.useCallback(() => {
-    try {
-      const sourceObj = JSON.parse(sourceStr);
-      const currentLimit = sourceObj.limit || 100;
-      const currentOffset = sourceObj.offset || 0;
-      const newOffset = currentLimit + currentOffset;
-      
-      const newSourceObj = { ...sourceObj, offset: newOffset };
-      const newSourceStr = JSON.stringify(newSourceObj);
-      
-      setSourceStr(newSourceStr);
-      ctx.actions.doSource(newSourceStr);
-    } catch (error) {
-      console.error('Failed to parse source string for next page:', error);
-      // Do nothing if parsing fails
-    }
-  }, [sourceStr, ctx.actions.doSource]);
-
   // Function to get clipboard contents and set as source
   const doSourceFromClipboard = React.useCallback(async () => {
     try {
@@ -1514,12 +1525,6 @@ const Controls = () => {
         )}
       </div>
       <div className="control quick-links">
-        <button
-          onClick={doNextPage}
-          title="Load next page of results"
-        >
-          Next Page
-        </button>
         {Object.entries(QUICK_LINKS).map(([name, query]) => (
           <button
             key={name}
