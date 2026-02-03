@@ -41,6 +41,7 @@ from pony.orm import (
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 from tornado.web import RequestHandler
+from tqdm import tqdm
 
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
@@ -176,82 +177,60 @@ class BackgroundWorker(abc.ABC):
 
     def _compute_user_stats(self, user_id: int) -> dict[str, Any]:
         """Compute statistics for a specific user.
-        
+
         Returns dict with user statistics including content counts, engagement, and scores.
         """
         with db_session:
             # Get all items from this user
-            user_items = Item.select(lambda i: i.ancestor == user_id)
-            
+            user_items = Item.select(lambda i: (i.parent and i.parent.id == user_id) or (i.parent.parent and i.parent.parent.id == user_id))
+            ids = [item.id for item in user_items]
             # Initialize counters
-            n_images = 0
-            n_videos = 0 
-            n_posts = 0
-            n_liked_items = 0
-            like_scores = []
-            last_item_ts = 0
-            
+            counts = Counter(ts=time.time())
+            like_scores = [score for id, score in self.scores.items() if int(id) in ids]
             for item in user_items:
-                # Count by type
-                if item.otype == 'image':
-                    n_images += 1
-                elif item.otype == 'video':
-                    n_videos += 1
-                elif item.otype == 'post':
-                    n_posts += 1
-                
-                # Check if liked
+                # otype counts
+                counts[f'n_{item.otype}s'] += 1
+                # liked counts
                 liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
                 if liked_rel:
-                    n_liked_items += 1
-                
-                # Get classifier score if available
-                if str(item.id) in self.scores:
-                    like_scores.append(self.scores[str(item.id)])
-                
-                # Track most recent item
-                if item.ts and item.ts > last_item_ts:
-                    last_item_ts = item.ts
-            
-            # Calculate average like score
-            avg_like_score = sum(like_scores) / len(like_scores) if like_scores else 0.0
-            
-            return {
-                'ts': time.time(),
-                'n_images': n_images,
-                'n_videos': n_videos,
-                'n_posts': n_posts,
-                'n_liked_items': n_liked_items,
-                'avg_like_score': avg_like_score,
-                'last_item_ts': last_item_ts,
-            }
+                    counts['n_liked_items'] += 1
+                # track most recent item
+                if item.ts and item.ts > counts['last_item_ts']:
+                    counts['last_item_ts'] = item.ts
+            # average like score
+            counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
+            return dict(counts)
 
+    @db_session
     def _update_user_stats(self) -> None:
         """Update statistics for all users in the database."""
-        try:
-            with db_session:
-                users = Item.select(lambda u: u.otype == 'user')
-                n_updated = 0
-                
-                for user in users:
-                    try:
-                        stats = self._compute_user_stats(user.id)
-                        
-                        # Update user's metadata with computed stats
-                        if user.md is None:
-                            user.md = {}
-                        user.md['stats'] = stats
-                        n_updated += 1
-                        
-                    except Exception as e:
-                        logger.error(f"Error computing stats for user {user.id}: {e}")
-                        continue
-                
-                logger.info(f"Updated stats for {n_updated} users")
-                
-        except Exception as e:
-            logger.error(f"Error updating user stats: {e}")
-            traceback.print_exc()
+        n_updated = 0
+        t0 = time.time()
+        users = Item.select(lambda u: u.otype == 'user')
+        logger.info(f'Starting to get stats for {len(users)} users')
+        # sort by last stats time
+        last_times = []
+        for u in users:
+            if u.md.setdefault('stats', {}) is None:
+                u.md['stats'] = {}
+            last_times.append(u.md['stats'].get('ts', 0))
+        users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])]
+        for user in tqdm(users):
+            try:
+                stats = self._compute_user_stats(user.id)
+                # Update user's metadata with computed stats
+                if user.md is None:
+                    user.md = {}
+                # add the queued reblogs
+                stats['n_queued_reblogs'] = user.md.get('n_queued_reblogs', 0)
+                user.md['stats'] = stats
+                commit()
+                n_updated += 1
+            except Exception as e:
+                logger.error(f"Error computing stats for user {user.id}: {e}")
+                continue
+        t1 = time.time()
+        logger.info(f"Updated stats for {n_updated} users in {t1 - t0:.2f}s")
 
     def queue_sizes(self) -> dict[str, int]:
         """Get current queue sizes for monitoring."""
@@ -299,7 +278,6 @@ class LikesWorker(BackgroundWorker):
             'pos_ids': frozenset(),
             'saved_classifier': None,
             'classifier_version': 0.0,
-            'user_stats_ts': 0.0,
         }
         self._load_and_run_initial_inference()
 
@@ -314,11 +292,8 @@ class LikesWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
+                    self._update_user_stats()
                     self._update_classifier()
-                    # Update user stats every minute (60 seconds)
-                    if time.time() - self.last['user_stats_ts'] >= 60:
-                        self._update_user_stats()
-                        self.last['user_stats_ts'] = time.time()
                 except Exception as e:
                     logger.error(f"Error in process_task: {e}")
                 elapsed = time.time() - t0
