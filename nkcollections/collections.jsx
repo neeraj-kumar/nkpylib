@@ -1385,6 +1385,9 @@ const InfoBar = () => {
       <div className="control go-to-top"><button onClick={() => goTo('top')} title="Scroll to top of page">Top</button></div>
       <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
       <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
+      <div className="control refresh-masonry">
+        <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">Refresh layout</button>
+      </div>
       <div className="flex-break"></div>
       <div className="control message-display">
         <span>{ctx.ui.message}</span>
@@ -1579,9 +1582,6 @@ const Controls = () => {
             </option>
           ))}
         </select>
-      </div>
-      <div className="control refresh-masonry">
-        <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">Refresh layout</button>
       </div>
       <div className="control flex-break"></div>
     </div>
