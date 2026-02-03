@@ -1079,17 +1079,24 @@ const Obj = (props) => {
           </div>
         )}
         {otype === 'user' && (
-          <div
+          <a
             className="icon-button show-user-posts-icon"
+            href={`?source=${encodeURIComponent(`{"ancestor":${id}}`)}`}
+            target="_blank"
+            rel="noopener noreferrer"
             onClick={(e) => {
-              e.stopPropagation();
-              const query = `{"ancestor":${id}}`;
-              ctx.actions.doSource(query, true);
+              // Allow default link behavior (new tab) unless user holds Ctrl/Cmd for same tab
+              if (!e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                const query = `{"ancestor":${id}}`;
+                ctx.actions.doSource(query, true);
+              }
             }}
-            title="Show all posts from this user"
+            title="Show all posts from this user (opens in new tab by default, Ctrl+click for same tab)"
           >
             📚
-          </div>
+          </a>
         )}
         {/* Media navigation controls - only show if multiple media */}
         {hasMultipleMedia && mediaDivs}
