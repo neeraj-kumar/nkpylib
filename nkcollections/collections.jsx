@@ -1718,13 +1718,18 @@ const Controls = () => {
       </div>
       <div className="control quick-links">
         {Object.entries(QUICK_LINKS).map(([name, query]) => (
-          <button
+          <a
             key={name}
-            onClick={() => {setSourceStr(json_str(query)); ctx.actions.doSource(json_str(query))}}
+            href={`?source=${encodeURIComponent(json_str(query))}`}
+            onClick={(e) => {
+              e.preventDefault();
+              setSourceStr(json_str(query));
+              ctx.actions.doSource(json_str(query));
+            }}
             title={`Load: ${name}`}
           >
             {name}
-          </button>
+          </a>
         ))}
       </div>
       <DebouncedInput
