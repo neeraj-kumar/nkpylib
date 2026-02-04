@@ -1,12 +1,12 @@
 /* NK Collections React App
  *
+ * TODO searching by text should use the current source params and just modify that?
  * TODO use recent likes to determine how to prioritize feed
  * TODO add an overall diversity slider that modifies recency priorities?
  * TODO filter users by seen/recent/scored posts
  * TODO if a post is explored, have toggle to show its rebloggers, scored
  * TODO performance tuning sqlite
  * TODO send stream of important messages from server?
- * TODO hide seen
  * TODO pagination?
  * TODO likes toggle on page
  * TODO show tags on posts
@@ -923,7 +923,6 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
       case 'image':
         const imageUrl = data.local_path ? `/data/${data.local_path}` : data.url;
         const videoUrl = data.md && data.md.video_url;
-        
         if (isShowingVideo && videoUrl) {
           return (
             <div style={{position: 'relative'}}>
@@ -962,7 +961,6 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
             </div>
           );
         }
-        
         return (
           <div style={{position: 'relative'}}>
             <img
@@ -1003,7 +1001,6 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
         );
       case 'video':
         const posterUrl = data.md.poster_url && data.local_path ? `/data/${data.local_path}` : data.md.poster_url;
-        
         if (isShowingVideo) {
           return (
             <div style={{position: 'relative'}}>
@@ -1042,7 +1039,6 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
             </div>
           );
         }
-        
         return (
           <div className="video-link" style={{position: 'relative'}}>
             <img
@@ -1101,6 +1097,10 @@ const Obj = (props) => {
   const liked = Boolean(rels.like);
   const disliked = Boolean(rels.dislike);
   const queued = Boolean(rels.queue);
+  // if there are any rels, show them
+  if (Object.keys(rels).length > 0) {
+    //console.log('Rels:', id, rels);
+  }
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
 
@@ -1383,10 +1383,8 @@ const InfoBar = () => {
       const currentLimit = sourceObj.limit || 100;
       const currentOffset = sourceObj.offset || 0;
       const newOffset = currentLimit + currentOffset;
-      
       const newSourceObj = { ...sourceObj, offset: newOffset };
       const newSourceStr = JSON.stringify(newSourceObj);
-      
       if (globalSetSourceStr) {
         globalSetSourceStr(newSourceStr);
       }
@@ -1657,7 +1655,6 @@ const Controls = () => {
       setTimeout(() => ctx.actions.doSource(sourceStr), 500);
     }
   }, []); // Only run once on mount
-  
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
@@ -2147,13 +2144,11 @@ const AppProvider = ({ children }) => {
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback((inputStr, updateSourceStr = false) => {
     if (!inputStr) return;
-    
     // Update URL parameters
     setCurrentSource(inputStr);
     const params = new URLSearchParams(window.location.search);
     params.set('source', encodeURIComponent(inputStr));
     window.history.pushState({}, '', `?${params.toString()}`);
-    
     // Update the source string if requested
     if (updateSourceStr && globalSetSourceStr) {
       globalSetSourceStr(inputStr);
@@ -2166,6 +2161,7 @@ const AppProvider = ({ children }) => {
     const isUrl = inputStr.startsWith('http');
     if (isUrl) { // if we got a URL, extract the params and do another fetch to /get
       api.sourceUrl(inputStr).then((params) => {
+        globalSetSourceStr(JSON.stringify(params));
         return api.get(params);
       }).then((data) => {
         updateData(data, true);
@@ -2276,7 +2272,7 @@ const App = () => {
 
   return (
     <div>
-      <h3>Collections</h3>
+      <h3><a href="/">Collections</a></h3>
       <h4>Labeled</h4>
       <div className="labeled">
         {ctx.data.pos.map((id) => <Obj key={id} {...ctx.data.rowById[id]} />)}
