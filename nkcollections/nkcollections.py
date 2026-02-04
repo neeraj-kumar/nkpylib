@@ -10,19 +10,17 @@
 #TODO   aggregate to user
 #TODO search texts queue
 #TODO transfer likes between related items
-#TODO quality scores
 #TODO multiple searches
 #TODO   more like this on objects
 #TODO   clickable tags
 #TODO compute dwell times
-#TODO aggregate like scores per user
 #TODO debug desc errors
 #TODO propagate likes to source sites if possible
 #TODO import tumblr likes
 #TODO import google history
 #TODO similar users
 #TODO adding custom clip embeddings
-#TODO faster embeddings scaling for get_keys_embeddings()
+#TODO faster/cached embeddings scaling for get_keys_embeddings()
 #TODO backups
 
 from __future__ import annotations
@@ -288,15 +286,25 @@ class GetHandler(MyBaseHandler):
         else:
             ret = {r.id: recursive_to_dict(r) for r in items}
         times.append(time.time())
-        # fetch all rels with source = me and tgt in ids
-        me = Item.get_me()
-        rels_by_tgt = defaultdict(list)
-        for r in Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids):
-            rels_by_tgt[r.tgt.id].append(r)
+        # fetch rels
+        if 0:
+            # fetch all rels with source = me and tgt in ids
+            me = Item.get_me()
+            rels_by_id = defaultdict(list)
+            for r in Rel.select(lambda r: r.src == me and r.tgt.id in cur_ids):
+                rels_by_id[r.tgt.id].append(r)
+        else:
+            # all rels related to this item
+            rels_by_id = defaultdict(list)
+            for r in Rel.select(lambda r: r.tgt.id in cur_ids or r.src.id in cur_ids):
+                if r.src.id in cur_ids:
+                    rels_by_id[r.src.id].append(r)
+                elif r.tgt.id in cur_ids:
+                    rels_by_id[r.tgt.id].append(r)
         times.append(time.time())
         # prepare items for web
         for item in items:
-            await item.for_web(ret[item.id], rels=rels_by_tgt[item.id])
+            await item.for_web(ret[item.id], rels=rels_by_id[item.id])
         times.append(time.time())
         logger.info(f'  query_to_web times: {[(t1 - t0) for t0, t1 in zip(times, times[1:])]}')
         return (ret, cur_ids)

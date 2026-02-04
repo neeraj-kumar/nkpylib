@@ -56,19 +56,20 @@ sql_db = Database()
 
 J = lambda obj: json.dumps(obj, indent=2)
 
-def ret_immediate(func_output) -> Any:
+async def ret_immediate(func_output) -> Any:
     """Given some `func_output`, we want to return something asap.
 
-    If the function is not a generator, then we just return it.
+    If the function is not a generator, then we just return it (running the async part if needed.
     If the function is a generator, we get the first returned value and will return that, after
     running the rest of the function in an background task.
     """
     is_async, is_gen = classify_func_output(func_output)
-    
-    if not is_gen:
-        # Not a generator - return as-is (could be sync result or async coroutine)
-        return func_output
-    
+    if not is_gen: # Not a generator - return as-is
+        if is_async:
+            return await func_output
+        else:
+            return func_output
+    # at this point, we know it's a generator
     if is_async:
         # Async generator - get first value and schedule rest in background
         async def handle_async_gen():
@@ -79,14 +80,14 @@ def ret_immediate(func_output) -> Any:
                 return first_value
             except StopAsyncIteration:
                 return None
-        
-        return handle_async_gen()
+
+        return await handle_async_gen()
     else:
         # Sync generator - get first value and schedule rest in background
         try:
             first_value = next(func_output)
             # Schedule the rest to run in background
-            background_task(consume_sync_generator(func_output))
+            background_task(lambda:consume_sync_generator(func_output))
             return first_value
         except StopIteration:
             return None
@@ -723,8 +724,12 @@ class Source(abc.ABC):
         """Returns if this source can parse the given url"""
         return False
 
-    async def parse(self, url: str, **kw) -> Any:
-        """Parses the given url and does whatever it wants."""
+    async def parse(self, url: str, **kw) -> dict[str, Any]:
+        """Parses the given url and returns GetHandler params.
+
+        The function can either return the params directly, or for efficiency, it can yield the
+        params quickly (as soon as it knows them) and then do the rest of the processing after that.
+        """
         raise NotImplementedError()
 
     async def handle_me_action(self, ids: list[int], action: str, **kw) -> None:
@@ -750,7 +755,7 @@ class Source(abc.ABC):
                 print(f'Got source {source}')
                 if not source:
                     continue
-                result = await source.parse(url, **data)
+                result = await ret_immediate(source.parse(url, **data))
                 return result
         raise NotImplementedError(f'No source found to parse url {url}')
 

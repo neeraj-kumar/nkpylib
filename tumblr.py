@@ -375,12 +375,15 @@ class Tumblr(TumblrApi, Source):
         with db_session:
             # now look for the appropriate blog user item
             u = self.get_blog_user(blog_name)
+        # yield the get params to the user and do the rest of the processing later
+        ret = dict(source=self.NAME, ancestor=u.id, assemble_posts=True)
+        logger.info(f'For url {url} yielding {ret}')
+        yield ret
         offset = 0
         # add posts
         commit()
         posts, offset, total = await self.get_blog_archive(blog_name, n_posts=n_posts)
         self.create_collection_from_posts(posts, blog_name=blog_name, next_link=offset)
-        return dict(source=self.NAME, ancestor=u.id, assemble_posts=True)
 
     def get_blog_user(self, blog_name: str, **kw) -> Entity:
         """Returns the blog user item for the given `blog_name`.
