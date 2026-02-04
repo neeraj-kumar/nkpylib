@@ -64,6 +64,50 @@ def ret_immediate(func_output) -> Any:
     running the rest of the function in an background task.
     """
     is_async, is_gen = classify_func_output(func_output)
+    
+    if not is_gen:
+        # Not a generator - return as-is (could be sync result or async coroutine)
+        return func_output
+    
+    if is_async:
+        # Async generator - get first value and schedule rest in background
+        async def handle_async_gen():
+            try:
+                first_value = await func_output.__anext__()
+                # Schedule the rest to run in background
+                background_task(consume_async_generator(func_output))
+                return first_value
+            except StopAsyncIteration:
+                return None
+        
+        return handle_async_gen()
+    else:
+        # Sync generator - get first value and schedule rest in background
+        try:
+            first_value = next(func_output)
+            # Schedule the rest to run in background
+            background_task(consume_sync_generator(func_output))
+            return first_value
+        except StopIteration:
+            return None
+
+
+async def consume_async_generator(async_gen):
+    """Consume the rest of an async generator in the background."""
+    try:
+        async for _ in async_gen:
+            pass  # Just consume, don't do anything with the values
+    except Exception as e:
+        logger.warning(f"Error consuming async generator: {e}")
+
+
+def consume_sync_generator(gen):
+    """Consume the rest of a sync generator in the background."""
+    try:
+        for _ in gen:
+            pass  # Just consume, don't do anything with the values
+    except Exception as e:
+        logger.warning(f"Error consuming sync generator: {e}")
 
 
 def timed(func: Callable) -> Callable:
