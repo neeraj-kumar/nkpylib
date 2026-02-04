@@ -232,6 +232,19 @@ class BackgroundWorker(abc.ABC):
             logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
             return dict(counts)
 
+    def _explore_users(self, min_count=95) -> None:
+        """Explores users who have more than `min_count` reblogs queued."""
+        with db_session:
+            users = Item.select(lambda u: u.otype == 'user' and u.explored_ts is None and u.md['n_queued_reblogs'] is not None)
+            to_explore = []
+            for user in users:
+                n_qbr = user.md.get('n_queued_reblogs', 0)
+                if n_qbr > min_count:
+                    to_explore.append(user.id)
+        logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
+        gen = Rel.handle_me_action(to_explore, 'explore')
+        #run_async(gen)
+
     @db_session
     def _update_user_stats(self, max_users:int=1000) -> None:
         """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
@@ -337,6 +350,7 @@ class LikesWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
+                    self._explore_users()
                     self._update_user_stats()
                     self._update_classifier()
                 except Exception as e:
