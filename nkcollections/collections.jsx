@@ -625,7 +625,7 @@ const STYLES = `
   /*max-width: 350px; doesn't seem to be needed */
 }
 
-.quick-links button {
+.quick-links a {
   white-space: nowrap;
 }
 
