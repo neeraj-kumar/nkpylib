@@ -227,15 +227,25 @@ def sync_or_async(async_func):
 
     return wrapper
 
-def background_task(coroutine) -> None:
-    """Runs a task in the background, ignore the result and errors"""
-    async def bg_task(coroutine):
+def background_task(func_or_coroutine) -> None:
+    """Runs a task in the background, ignore the result and errors.
+    
+    Can handle both sync functions/callables and async coroutines.
+    """
+    async def bg_task(func_or_coroutine):
         try:
-            await coroutine
+            if inspect.iscoroutine(func_or_coroutine):
+                await func_or_coroutine
+            elif callable(func_or_coroutine):
+                # It's a sync function, call it
+                func_or_coroutine()
+            else:
+                # Assume it's already a result, nothing to do
+                pass
         except Exception as e:
             logger.warning(f'Error in background task: {e}')
             logger.info(traceback.format_exc())
-    asyncio.create_task(bg_task(coroutine))
+    asyncio.create_task(bg_task(func_or_coroutine))
 
 def classify_func_output(output):
     """Return `(is_async, is_generator)` tuple from function `output`"""
