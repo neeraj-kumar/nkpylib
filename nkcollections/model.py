@@ -26,7 +26,6 @@ import joblib
 import termcolor
 import tornado.web
 
-from tornado.web import RequestHandler
 from pony.orm import (
     composite_index,
     commit,
@@ -48,7 +47,7 @@ from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
-from nkpylib.thread_utils import run_async
+from nkpylib.thread_utils import run_async, background_task, classify_func_output
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
@@ -56,6 +55,16 @@ logger = logging.getLogger(__name__)
 sql_db = Database()
 
 J = lambda obj: json.dumps(obj, indent=2)
+
+def ret_immediate(func_output) -> Any:
+    """Given some `func_output`, we want to return something asap.
+
+    If the function is not a generator, then we just return it.
+    If the function is a generator, we get the first returned value and will return that, after
+    running the rest of the function in an background task.
+    """
+    is_async, is_gen = classify_func_output(func_output)
+
 
 def timed(func: Callable) -> Callable:
     """Decorator to time a function and log its duration."""
@@ -172,11 +181,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         - if this item is a user, then we add fields 'compact' and 'detailed" with
           strings of what to display
 
-        We also deal with rels:
-        - adds a 'rels' sub-dict to `r` with keys being the rtype and values being dicts
-        - each rel dict has 'ts' and any metadata from the rel's md
-        - special processing:
-          - for 'like' rels, we only keep the latest one (highest ts)
+        We also deal with rels by calling `rels_for_web`
         """
         # add local image path if we have it
         if self.otype == 'image' and self.embed_ts and self.embed_ts > 0:
@@ -234,7 +239,15 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             source.item_for_web(self, r, rels)
 
     def rels_for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
-        """Deal with rels for web representation."""
+        """Deal with rels for web representation.
+
+        This does:
+        - adds a 'rels' sub-dict to `r` with keys being the rtype and values being dicts
+        - each rel dict has 'ts' and any metadata from the rel's md
+        - special processing:
+          - for 'like' rels, we only keep the latest one (highest ts)
+        """
+        #TODO figure out what to do about queued_post_reblogs, which is (postid, userid) -> {n_total, n_as_...}
         R = r['rels'] = {}
         for rel in rels:
             # all rels should map from rtype to a dict, including at least the ts
@@ -696,6 +709,8 @@ class Source(abc.ABC):
                 result = await source.parse(url, **data)
                 return result
         raise NotImplementedError(f'No source found to parse url {url}')
+
+
 
     @classmethod
     def assemble_post(cls, post, children) -> dict:
