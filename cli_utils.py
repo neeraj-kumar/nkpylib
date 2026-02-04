@@ -23,18 +23,23 @@ def cli_item_action_loop(items: list[InputT],
     """
     Perform actions on a list of items based on user input in a loop until all items are done.
 
+    The items can be of any hashable type. The user is prompted to enter actions to perform on the
+    items, which can mark them done. This process is iterated until no items are left.
+
     - items: List of items to perform actions on.
     - actions: Dictionary mapping action letters to (action_name, action_func).
-    The action functions should accept a list of items and return a list of items that have been marked as done.
+      - The action functions should accept a list of items and return either:
+        - a list of items that have been marked as done, OR
+        - a dict mapping items to updated items
     - exclusive: If True, prevents multiple different actions on the same item.
     - print_func: Function to convert each item to a string for display.
+    - max_items: Maximum number of items to process in each batch. If 0, process all items at once.
     """
     item_labels = string.digits + string.ascii_lowercase + string.ascii_uppercase
     max_items_per_batch = min(max_items if max_items > 0 else len(item_labels), len(item_labels))
     total_items = len(items)
     start_index = 0
     batch_num = 1
-
     while start_index < total_items:
         end_index = min(start_index + max_items_per_batch, total_items)
         current_batch = items[start_index:end_index]
@@ -51,9 +56,13 @@ def cli_item_action_loop(items: list[InputT],
             print()
             user_input = input(f"Actions: {action_list} > ").strip()
             try:
-                done_items = parse_user_input(user_input, actions, item_map, exclusive, item_done)
+                done_items, changed_items = parse_user_input(user_input, actions, item_map, exclusive, item_done)
                 for item in done_items:
                     item_done[item] = True
+                for orig, new in changed_items.items():
+                    item_map = {label: (new if itm == orig else itm) for label, itm in item_map.items()}
+                    if orig in item_done:
+                        item_done[new] = item_done.pop(orig)
             except Exception as e:
                 print(f"Error: {e}")
 
@@ -64,16 +73,19 @@ def parse_user_input(user_input: str,
                      actions: dict[str, Action],
                      item_map: dict[str, InputT],
                      exclusive: bool = False,
-                     item_done: dict[InputT, bool]|None = None) -> list[InputT]:
+                     item_done: dict[InputT, bool]|None = None) -> tuple[list[InputT], dict[InputT, InputT]]:
     """
     Parse and execute user input actions on items.
 
-    :param user_input: The input string from the user specifying actions and items.
-    :param actions: Dictionary mapping action letters to (action_name, action_func).
-    :param item_map: Dictionary mapping item labels to items.
-    :param exclusive: If True, prevents multiple different actions on the same item.
-    :param item_done: Dictionary mapping items to their done status.
-    :return: List of items that have been marked as done.
+    - user_input: The input string from the user specifying actions and items.
+    - actions: Dictionary mapping action letters to (action_name, action_func).
+    - item_map: Dictionary mapping item labels to items.
+    - exclusive: If True, prevents multiple different actions on the same item.
+    - item_done: Dictionary mapping items to their done status.
+
+    Returns a tuple of `(done_items, changed_items)`, where:
+    - done_items: list of items that have been marked as done.
+    - changed_items: dict mapping items to their updated versions.
     """
     action_items_map: dict[str, set[InputT]] = {action: set() for action in actions}
     item_action_map = {item: None for item in item_map.values()}
@@ -89,14 +101,18 @@ def parse_user_input(user_input: str,
         action_items_map[action_letter].update(selected_items)
 
     done_items: list[InputT] = []
+    changed_items: dict[InputT, InputT] = {}
     for action_letter, items in action_items_map.items():
         if items:
             _, action_func = actions[action_letter]
             result = action_func(list(items))
             if result is not None:
-                done_items.extend(item for item in result if item in item_map.values())
+                if isinstance(result, (list, tuple)):
+                    done_items.extend(item for item in result if item in item_map.values())
+                elif isinstance(result, dict):
+                    changed_items.update(result)
             #print(f"Action '{action_letter}' done on items: {', '.join(map(str, items))}")
-    return done_items
+    return done_items, changed_items
 
 def parse_item_spec(item_spec: str, item_map: dict[str, InputT]) -> list[InputT]:
     """
