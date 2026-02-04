@@ -227,6 +227,21 @@ def sync_or_async(async_func):
 
     return wrapper
 
+def background_task(coroutine) -> None:
+    """Runs a task in the background, ignore the result and errors"""
+    async def bg_task(coroutine):
+        try:
+            await coroutine
+        except Exception as e:
+            logger.warning(f'Error in background task: {e}')
+            logger.info(traceback.format_exc())
+    asyncio.create_task(bg_task(coroutine))
+
+def classify_func_output(output):
+    """Return `(is_async, is_generator)` tuple from function `output`"""
+    is_async = inspect.iscoroutine(output) or inspect.isasyncgen(output)
+    is_generator = inspect.isgenerator(output) or inspect.isasyncgen(output)
+    return (is_async, is_generator)
 
 class CollectionUpdater:
     """A simple class that makes it easy to update a collection in more natural ways.
