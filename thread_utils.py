@@ -229,7 +229,7 @@ def sync_or_async(async_func):
 
 def background_task(func_or_coroutine) -> None:
     """Runs a task in the background, ignore the result and errors.
-    
+
     Can handle both sync functions/callables and async coroutines.
     """
     async def bg_task(func_or_coroutine):

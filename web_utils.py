@@ -45,7 +45,7 @@ from nkpylib.utils import specialize
 from nkpylib.ml.client import call_llm
 from nkpylib.ml.llm_utils import load_llm_json, count_tokens
 from nkpylib.stringutils import GeneralJSONEncoder
-from nkpylib.thread_utils import sync_or_async, run_async
+from nkpylib.thread_utils import sync_or_async, run_async, background_task
 
 logger = logging.getLogger(__name__)
 
@@ -538,13 +538,7 @@ class BaseHandler(RequestHandler):
     @classmethod
     def background_task(cls, coroutine) -> None:
         """Runs a task in the background, ignore the result and errors"""
-        async def bg_task(coroutine):
-            try:
-                await coroutine
-            except Exception as e:
-                logger.warning(f'Error in background task: {e}')
-                logger.info(traceback.format_exc())
-        asyncio.create_task(bg_task(coroutine))
+        return background_task(coroutine)
 
 
 INDEX_HTML_FMT = '''<!doctype html>
