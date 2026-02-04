@@ -46,10 +46,10 @@ from tqdm import tqdm
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import Item, Rel, Source
+from nkpylib.nkcollections.model import Item, Rel, Source, ret_immediate
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
-from nkpylib.thread_utils import run_async
+from nkpylib.thread_utils import run_async, background_task
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
@@ -232,7 +232,7 @@ class BackgroundWorker(abc.ABC):
             logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
             return dict(counts)
 
-    def _explore_users(self, min_count=95) -> None:
+    def _explore_users(self, min_count=80) -> None:
         """Explores users who have more than `min_count` reblogs queued."""
         with db_session:
             users = Item.select(lambda u: u.otype == 'user' and u.explored_ts is None and u.md['n_queued_reblogs'] is not None)
@@ -241,9 +241,10 @@ class BackgroundWorker(abc.ABC):
                 n_qbr = user.md.get('n_queued_reblogs', 0)
                 if n_qbr > min_count:
                     to_explore.append(user.id)
+        if not to_explore:
+            return
         logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
-        gen = Rel.handle_me_action(to_explore, 'explore')
-        ret_immediate(gen)
+        run_async(ret_immediate(Rel.handle_me_action(to_explore, 'explore')))
 
     @db_session
     def _update_user_stats(self, max_users:int=1000) -> None:

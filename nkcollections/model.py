@@ -64,6 +64,7 @@ async def ret_immediate(func_output) -> Any:
     running the rest of the function in an background task.
     """
     is_async, is_gen = classify_func_output(func_output)
+    print(f'ret_immediate: is_async={is_async}, is_gen={is_gen}')
     if not is_gen: # Not a generator - return as-is
         if is_async:
             return await func_output
