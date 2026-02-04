@@ -243,7 +243,7 @@ class BackgroundWorker(abc.ABC):
                     to_explore.append(user.id)
         logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
         gen = Rel.handle_me_action(to_explore, 'explore')
-        #run_async(gen)
+        ret_immediate(gen)
 
     @db_session
     def _update_user_stats(self, max_users:int=1000) -> None:
