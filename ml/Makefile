@@ -15,7 +15,8 @@ llm:
 
 ## runs the llm server in an infinite loop, restarting every hour
 llm-server:
-	while true; do timeout -s 9 1h nice uvicorn server:app --port 8234 --host 0.0.0.0; done
+	#while true; do timeout -s 9 1h nice uvicorn server:app --port 8234 --host 0.0.0.0; done
+	nice uvicorn server:app --port 8234 --host 0.0.0.0
 
 ## runs the llm server in debug mode
 llm-server-debug:
