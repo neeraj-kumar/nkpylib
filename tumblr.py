@@ -389,7 +389,7 @@ class Tumblr(TumblrApi, Source):
             # now look for the appropriate blog user item
             u = self.get_blog_user(blog_name)
         # yield the get params to the user and do the rest of the processing later
-        ret = dict(source=self.NAME, ancestor=u.id, assemble_posts=True, limit=300)
+        ret = dict(source=self.NAME, ancestor=u.id, assemble_posts=True, limit=500)
         logger.info(f'For url {url} yielding {ret}')
         yield ret
         offset = 0
