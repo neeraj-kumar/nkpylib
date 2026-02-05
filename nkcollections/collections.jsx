@@ -1286,7 +1286,7 @@ const Obj = (props) => {
         {otype === 'user' && (
           <a
             className="icon-button show-user-posts-icon"
-            href={`?source=${encodeURIComponent(`{"ancestor":${id}, "limit": 200}`)}`}
+            href={`?source=${encodeURIComponent(`{"ancestor":${id}, "otype": "image", "limit": 200}`)}`}
             target="_blank"
             title="Show posts from this user"
           >
