@@ -228,6 +228,9 @@ class TumblrApi:
         differently.
 
         """
+        assert blog_name.strip()
+        if 'https' in blog_name:
+            blog_name = urlparse(blog_name).netloc.split('.tumblr.com')[0]
         ret: list[dict] = []
         page = 1
         while len(ret) < n_posts:
@@ -252,6 +255,7 @@ class TumblrApi:
 
         Returns (posts, offset, totalPosts)
         """
+        blog_name = self.get_blog_name(blog_name)
         posts: list[dict] = []
         total = 0
         next_link = dict(
@@ -260,6 +264,7 @@ class TumblrApi:
             context='archive',
             offset=str(offset),
         )
+        logger.info(f'Trying to fetch blog archive for {blog_name}, n_posts={n_posts}, offset={offset}')
         with db_session:
             u = self.get_blog_user(blog_name)
             if u.explored_ts and u.explored_ts < 0: # skip blogs that are marked inaccessible
@@ -356,12 +361,10 @@ class Tumblr(TumblrApi, Source):
         """Returns if this source can parse the given url"""
         return 'tumblr.com' in url
 
-    async def parse(self, url: str, n_posts: int=300, **kw) -> Any:
-        """Parses the given url and returns an appropriate set of GetHandler params.
-
-        For now, this simply returns the list of posts that are children of the tumblr blog's Item.
-        If there are none, we fetch one batch of posts from the archive.
-        """
+    @classmethod
+    def get_blog_name(cls, url: str) -> str:
+        if '/' not in url:
+            return url
         # first get the blog name, which is either in the format xyz.tumblr.com or tumblr.com/xyz
         parsed = urlparse(url)
         netloc = parsed.netloc.lower()
@@ -373,6 +376,15 @@ class Tumblr(TumblrApi, Source):
                 blog_name = ''
         if not blog_name:
             blog_name = path.split('/')[1]
+        return blog_name
+
+    async def parse(self, url: str, n_posts: int=300, **kw) -> Any:
+        """Parses the given url and returns an appropriate set of GetHandler params.
+
+        For now, this simply returns the list of posts that are children of the tumblr blog's Item.
+        If there are none, we fetch one batch of posts from the archive.
+        """
+        blog_name = self.get_blog_name(url)
         with db_session:
             # now look for the appropriate blog user item
             u = self.get_blog_user(blog_name)
@@ -435,8 +447,14 @@ class Tumblr(TumblrApi, Source):
                         continue
                     logger.info(f'Tumblr exploring user: {user} -> {user.url}')
                     commit()
-                    await self.check_logged_in()
-                    await self.parse(user.url)
+                    #await self.parse(user.url)
+                    try:
+                        await self.check_logged_in()
+                        posts, offset, total = await self.get_blog_archive(user.url, n_posts=300)
+                    except Exception as e:
+                        print(f'WTF failed to get blog archive for {user.url}: {e}')
+                        print(traceback.format_exc())
+                    self.create_collection_from_posts(posts)
                 return
 
         if not explore:
