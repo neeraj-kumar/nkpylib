@@ -124,9 +124,10 @@ class TumblrApi:
                     cur[part] = {}
                 cur = cur[part]
             cur[parts[-1]] = value
-        os.rename(self.config_path, self.config_path + '.bak')
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path+'.tmp', 'w') as f:
             json.dump(self.config, f, indent=2)
+        os.rename(self.config_path, self.config_path + '.bak')
+        os.rename(self.config_path+'.tmp', self.config_path)
 
     async def make_web_req(self, endpoint: str, referer:str='', **kw) -> dict:
         """Make a request to the Tumblr web interface"""
