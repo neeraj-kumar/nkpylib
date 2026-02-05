@@ -149,6 +149,12 @@ const STYLES = `
   border-width: 3px;
 }
 
+.object.disliked {
+  border-style: dotted;
+  border-width: 2px;
+  border-color: #dc3545;
+}
+
 .object.single-col {
   max-width: 400px!important;
 }
@@ -1146,6 +1152,9 @@ const Obj = (props) => {
   }
   if (queued) {
     classes.push('queued');
+  }
+  if (disliked) {
+    classes.push('disliked');
   }
   let cClasses = ['icon-button', 'classify-icon', (ctx.data.pos.includes(id) ? 'selected' : '')];
   if (ctx.ui.mode !== 'multicol') {
