@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -446,15 +447,23 @@ class Tumblr(TumblrApi, Source):
                     if not user:
                         continue
                     logger.info(f'Tumblr exploring user: {user} -> {user.url}')
-                    commit()
-                    #await self.parse(user.url)
                     try:
+                        print('Before commit...')
+                        commit()
+                        print(f'After commit...')
+                        #await self.parse(user.url)
+                        #FIXME any awaits are not working here...
+                        # async sleep for a second
+                        await asyncio.sleep(1)
+                        print(f'after async sleep')
                         await self.check_logged_in()
+                        print(f'After check_logged_in...')
                         posts, offset, total = await self.get_blog_archive(user.url, n_posts=300)
+                        print(f'Got {len(posts)} posts')
+                        self.create_collection_from_posts(posts)
                     except Exception as e:
                         print(f'WTF failed to get blog archive for {user.url}: {e}')
                         print(traceback.format_exc())
-                    self.create_collection_from_posts(posts)
                 return
 
         if not explore:

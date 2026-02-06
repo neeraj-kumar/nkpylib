@@ -76,6 +76,7 @@ async def ret_immediate(func_output) -> Any:
         async def handle_async_gen():
             try:
                 first_value = await func_output.__anext__()
+                print(f'Got first value from async generator: {first_value}')
                 # Schedule the rest to run in background
                 background_task(consume_async_generator(func_output))
                 return first_value
@@ -96,8 +97,12 @@ async def ret_immediate(func_output) -> Any:
 
 async def consume_async_generator(async_gen):
     """Consume the rest of an async generator in the background."""
+    print(f'in consume_async_generator with {async_gen}')
+    a = await async_gen.__anext__() # just to check if we can get a value, will be consumed in the loop below
+    print(f'got next val {a}')
     try:
         async for _ in async_gen:
+            print(f'consuming async generator, got value {_}')
             pass  # Just consume, don't do anything with the values
     except Exception as e:
         logger.warning(f"Error consuming async generator: {e}")
@@ -659,6 +664,7 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 if r is not None:
                     by_src[item].append(r)
         yield rels_by_item_by_source  # Yield after immediate work is done
+        print(f'In Rel.handle_me_action after yield, got rels_by_item_by_source={rels_by_item_by_source}')
         # now call this method on each source for custom handling
         for source, rels_by_item in rels_by_item_by_source.items():
             src = Source._registry.get(source)

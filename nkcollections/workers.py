@@ -74,8 +74,18 @@ class BackgroundWorker(abc.ABC):
         self.thread: Thread | None = None
         self._lock = threading.Lock()
 
+    def run(self) -> None:
+        """Start the processing in the main thread (blocking)."""
+        with self._lock:
+            if self.running:
+                logger.warning(f"{self.name} is already running")
+                return
+            self.running = True
+            logger.info(f"Starting {self.name} in the main thread")
+            self._worker_loop()
+
     def start(self) -> None:
-        """Start the background worker thread."""
+        """Start the processing in a background worker thread."""
         with self._lock:
             if self.running:
                 logger.warning(f"{self.name} is already running")
@@ -83,7 +93,7 @@ class BackgroundWorker(abc.ABC):
             self.running = True
             self.thread = Thread(target=self._worker_loop, daemon=True, name=self.name)
             self.thread.start()
-            logger.info(f"Started {self.name}")
+            logger.info(f"Started {self.name} in the background")
 
     def stop(self, timeout: float = 5.0) -> None:
         """Stop the background worker thread.
@@ -153,9 +163,6 @@ class BackgroundWorker(abc.ABC):
 
         - task: Any data that will be passed to process_task()
         """
-        if not self.running:
-            raise RuntimeError(f"{self.name} is not running")
-
         self.input_queue.put(task)
 
     def get_result(self) -> Any | None:

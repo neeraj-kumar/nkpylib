@@ -1,6 +1,7 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
+#TODO general slowness
 #TODO benchmark mobilenet
 #TODO remove bad images
 #TODO diversity on likes classifier?
@@ -89,10 +90,10 @@ class CachedFileLoader(abc.ABC):
     Maintains instance variables for last modification time and last returned object.
     Subclasses must implement the `load()` method to define how to load the file.
     """
-    def __init__(self, path: str):
+    def __init__(self, path: str, default_object: Any=None):
         self.path = path
         self.last_mtime: float = 0
-        self.last_object: Any = None
+        self.last_object = default_object
 
     @abc.abstractmethod
     def load(self) -> Any:
@@ -130,8 +131,8 @@ class CachedScoresLoader(CachedFileLoader):
         """Load scores from saved classifier using joblib."""
         saved_data = joblib.load(self.path)
         scores = saved_data.get('scores', {})
-        # Convert keys to strings and values to floats for consistency
-        scores = {str(k): float(v) for k, v in scores.items()}
+        # Convert keys to ints and values to floats for consistency
+        scores = {int(k): float(v) for k, v in scores.items()}
         logger.debug(f"Loaded {len(scores)} scores from classifier {self.path} (mtime: {self.last_mtime})")
         return scores
 
@@ -317,12 +318,7 @@ class GetHandler(MyBaseHandler):
         # now check for min_like score
         if 'min_like' in kw:
             min_like = float(kw['min_like'])
-            # Load scores from cached loader if available
-            if hasattr(self.application, 'cached_score_loader'):
-                scores_dict = self.application.cached_score_loader.get() or {}
-                scores = {int(k): v for k, v in scores_dict.items()}
-            else:
-                scores = {}
+            scores = self.application.get_scores()
             newq = [item for item in q if scores.get(item.id, 0.0) >= min_like]
             logger.info(f'  Filtered from {len(q)} -> {len(newq)} items with min_like {min_like}')
             q = newq
@@ -501,7 +497,7 @@ class ActionHandler(MyBaseHandler):
         ids = [int(i) for i in data.pop('ids')]
         # Start the generator and get the immediate result
         gen = Rel.handle_me_action(ids=ids, action=action, **data)
-        rels_by_item_by_source = await gen.__anext__()
+        _ = await gen.__anext__()
         # Respond to client immediately after database updates
         with db_session:
             q = Item.select(lambda c: c.id in ids)
@@ -576,20 +572,10 @@ class ClassifyHandler(MyBaseHandler):
                             neg_factor: float=10,
                             **kw):
         """Gets the latest likes scores from cached loader"""
-        # Load scores from cached loader if available
-        if hasattr(self.application, 'cached_score_loader'):
-            scores = self.application.cached_score_loader.get() or {}
-        else:
-            scores = {}
-
-        # Convert string keys to int keys for consistency
-        scores = {int(k): v for k, v in scores.items()}
-
-        # filter down to cur_ids if given
+        scores = self.application.get_scores()
         if cur_ids is not None:
             cur_ids = [int(id) for id in cur_ids]
             scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
-
         self.write(dict(
             msg=f'Likes scores for {len(scores)} items',
             scores=scores
@@ -637,7 +623,6 @@ class ClusterHandler(MyBaseHandler):
         ret = dict(msg=f'method: {method}', clusters=clusters)
         self.write(ret)
 
-
 def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_path:str='', **kw):
     # load the data file from first arg
     parser = ArgumentParser(description="NK collections main")
@@ -668,14 +653,24 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
         else:
             assert False, "No sources registered, cannot determine classifiers_dir"
         if args.worker: # version with likes workers
-            app.likes_worker = LikesWorker(embs=embs, classifiers_dir=classifiers_dir)
+            app.likes_worker = LikesWorker(embs=app.embs, classifiers_dir=classifiers_dir)
             app.likes_worker.start()
             app.likes_worker.add_task('update')  # Start the main loop
             logger.info("LikesWorker started successfully")
         else: # without likes worker
             app.likes_worker = None
-            app.cached_score_loader = CachedScoresLoader(join(classifiers_dir, 'likes.joblib'))
+            app.cached_score_loader = CachedScoresLoader(join(classifiers_dir, 'likes.joblib'), {})
             logger.info(f"Will read scores from: {join(classifiers_dir, 'likes.joblib')}")
+        def app_get_scores(app):
+            """Returns the latest scores from the `app`"""
+            if hasattr(app, 'cached_score_loader'):
+                return app.cached_score_loader.get()
+            else:
+                return app.likes_worker.get_scores()
+
+        app.get_scores = lambda: app_get_scores(app)
+
+
 
     more_handlers = [
         (r'/get', GetHandler),
@@ -732,46 +727,14 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
         time.sleep(max(0, diff))
 
 
-def maybe_load_scores(path: str,
-                      current_scores: dict[str, float],
-                      last_mtime: float = 0) -> tuple[dict[str, float], float]:
-    """Load scores from saved classifier if it has been modified since `last_mtime`.
-
-    Returns tuple of `(scores_dict, new_mtime)`.
-    If file hasn't changed, returns (current_scores, last_mtime).
-    """
-    try:
-        if not os.path.exists(path):
-            return current_scores, last_mtime
-
-        file_mtime = os.path.getmtime(path)
-        if file_mtime <= last_mtime:
-            # File hasn't changed
-            return current_scores, last_mtime
-
-        # File has been modified, load scores from saved classifier
-        saved_data = joblib.load(path)
-        new_scores = saved_data.get('scores', {})
-
-        # Convert keys to strings and values to floats for consistency
-        new_scores = {str(k): float(v) for k, v in new_scores.items()}
-        logger.debug(f"Loaded {len(new_scores)} scores from classifier {path} (mtime: {file_mtime})")
-        return new_scores, file_mtime
-
-    except Exception as e:
-        logger.warning(f"Failed to load scores from classifier {path}: {e}")
-        return current_scores, last_mtime
-
-
-def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, scores_path: str = '') -> None:
+def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, **kw) -> None:
     """Standalone process that runs just the LikesWorker.
 
     - sqlite_path: Path to the SQLite database
     - lmdb_path: Path to the LMDB embeddings database
     - classifiers_dir: Directory where classifiers are saved
-    - scores_path: Path where scores JSON file should be saved (defaults to classifiers_dir/scores.json)
     """
-    logger.info(f"Starting worker process with sqlite={sqlite_path}, lmdb={lmdb_path}, scores={scores_path}")
+    logger.info(f"Starting worker process with sqlite={sqlite_path}, lmdb={lmdb_path}")
     try:
         # Initialize database and embeddings in this process
         sql_db = init_sql_db(sqlite_path)
@@ -803,6 +766,6 @@ if __name__ == '__main__':
     if args.mode == 'worker':
         if not args.classifiers_dir:
             parser.error("--classifiers_dir is required for worker mode")
-        worker_main(args.sqlite_path, args.lmdb_path, args.classifiers_dir, args.scores_path or '')
+        worker_main(**vars(args))
     elif args.mode == 'server':
         web_main(port=args.port, sqlite_path=args.sqlite_path, lmdb_path=args.lmdb_path)
