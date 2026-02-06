@@ -1827,6 +1827,16 @@ const Controls = () => {
           >
             →
           </button>
+          <button
+            onClick={() => {
+              ctx.filters.setCurCluster(null);
+              ctx.data.setAutoClusters({});
+            }}
+            title="Clear all auto clusters"
+            style={{marginLeft: '10px'}}
+          >
+            Clear Clusters
+          </button>
         </div>
       )}
       <div className="control flex-break"></div>
@@ -2272,16 +2282,6 @@ const AppProvider = ({ children }) => {
 
   // Organize all state and functions into nested groups
   const contextValue = {
-    data: {
-      rowById,
-      allOtypes,
-      curIds: ids,
-      scores,
-      clusters,
-      pos,
-      autoClusters,
-      curCluster,
-    },
     ui: {
       nCols,
       setNCols,
@@ -2298,6 +2298,17 @@ const AppProvider = ({ children }) => {
       setCurOtypes,
       setCurIds,
       setCurCluster,
+    },
+    data: {
+      rowById,
+      allOtypes,
+      curIds: ids,
+      scores,
+      clusters,
+      pos,
+      autoClusters,
+      curCluster,
+      setAutoClusters,
     },
     actions: {
       setLiked,
