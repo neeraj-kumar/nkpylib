@@ -1414,7 +1414,7 @@ const InfoBar = () => {
       const startTime = Date.now();
       // Start the recurring timer for classifier
       autoLikesTimerRef.current = setInterval(() => {
-        ctx.actions.doLikeClassifier();
+        ctx.actions.doClassifier('likes');
         setAutoLikesElapsed(0); // Reset elapsed time after each run
       }, AUTO_LIKES_DELAY_MS);
 
@@ -1459,7 +1459,7 @@ const InfoBar = () => {
         autoLikesTimerRef.current = null;
       }
     };
-  }, [ctx.classification.autoLikesMode, ctx.actions.doLikeClassifier, ctx.ui.setMessage]);
+  }, [ctx.classification.autoLikesMode, ctx.actions.doClassifier, ctx.ui.setMessage]);
   const incrCols = (incr) => {
     ctx.ui.setNCols((nCols) => {
       let newCols = nCols + incr;
@@ -1545,7 +1545,7 @@ const InfoBar = () => {
           <input
             type="checkbox"
             checked={ctx.classification.autoLikesMode}
-            onChange={(e) => {ctx.classification.setAutoLikesMode(e.target.checked); if (e.target.checked) ctx.actions.doLikeClassifier();}}
+            onChange={(e) => {ctx.classification.setAutoLikesMode(e.target.checked); if (e.target.checked) ctx.actions.doClassifier('likes');}}
             title="Automatically run the likes classifier every 15 seconds"
           />
           Auto Likes
@@ -1555,7 +1555,7 @@ const InfoBar = () => {
         <button
           className={ctx.classification.autoLikesMode ? 'timer-active' : ''}
           style={ctx.classification.autoLikesMode ? {'--progress': `${(autoLikesElapsed / AUTO_LIKES_DELAY_MS) * 100}%`} : {}}
-          onClick={ctx.actions.doLikeClassifier}
+          onClick={() => ctx.actions.doClassifier('likes')}
           title="Run the likes-based classifier to score items"
         >
           Like Classifier
@@ -2034,14 +2034,15 @@ const AppProvider = ({ children }) => {
     refreshMasonry()
   }, [scores, setScores, setCurIds, curIds, refreshMasonry]);
 
-  // Call like-based classifier
-  const doLikeClassifier = React.useCallback(() => {
+  // Call classifier with specified type
+  const doClassifier = React.useCallback((type) => {
     const options = {
+      type: type,
       otypes:['image'],
       cur_ids: curIds,
     };
-    api.classifyLikes(options).then((resp) => {
-      console.log('got like classifier response', resp);
+    api.classify(options).then((resp) => {
+      console.log('got classifier response', resp);
       updateScores(resp.scores);
     });
   }, [curIds]);
@@ -2229,7 +2230,7 @@ const AppProvider = ({ children }) => {
       setDisliked,
       togglePos,
       doSource,
-      doLikeClassifier,
+      doClassifier,
       setQueued,
       setCluster,
       doFilter,
