@@ -694,6 +694,66 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
         time.sleep(max(0, diff))
 
 
+class CachedFileLoader(abc.ABC):
+    """Base class for loading files with mtime-based caching.
+    
+    Maintains instance variables for last modification time and last returned object.
+    Subclasses must implement the `load()` method to define how to load the file.
+    """
+    
+    def __init__(self, path: str):
+        self.path = path
+        self.last_mtime: float = 0
+        self.last_object: Any = None
+    
+    @abc.abstractmethod
+    def load(self) -> Any:
+        """Load and return the object from the file.
+        
+        This method must be implemented by subclasses to define how to load
+        the specific file format and return the appropriate object.
+        """
+        pass
+    
+    def get(self) -> Any:
+        """Get the object, loading from file if it has been modified.
+        
+        Returns the cached object if the file hasn't changed since last load,
+        otherwise loads and caches the new object.
+        """
+        try:
+            if not os.path.exists(self.path):
+                return self.last_object
+                
+            file_mtime = os.path.getmtime(self.path)
+            if file_mtime <= self.last_mtime:
+                # File hasn't changed
+                return self.last_object
+                
+            # File has been modified, load new object
+            self.last_object = self.load()
+            self.last_mtime = file_mtime
+            return self.last_object
+            
+        except Exception as e:
+            logger.warning(f"Failed to load from {self.path}: {e}")
+            return self.last_object
+
+
+class CachedScoresLoader(CachedFileLoader):
+    """Cached loader for scores from joblib classifier files."""
+    
+    def load(self) -> dict[str, float]:
+        """Load scores from saved classifier using joblib."""
+        saved_data = joblib.load(self.path)
+        scores = saved_data.get('scores', {})
+        
+        # Convert keys to strings and values to floats for consistency
+        scores = {str(k): float(v) for k, v in scores.items()}
+        logger.debug(f"Loaded {len(scores)} scores from classifier {self.path} (mtime: {self.last_mtime})")
+        return scores
+
+
 def maybe_load_scores(path: str,
                       current_scores: dict[str, float],
                       last_mtime: float = 0) -> tuple[dict[str, float], float]:
