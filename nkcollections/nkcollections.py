@@ -41,6 +41,7 @@ import traceback
 from argparse import ArgumentParser
 from collections import defaultdict, Counter
 from functools import cache
+from multiprocessing import Process
 from os.path import abspath, exists, join, dirname
 from pprint import pprint
 from queue import Queue, Empty
@@ -599,7 +600,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
                 embs=app.embs,
                 classifiers_dir=classifiers_dir,
             )
-            app.likes_worker.start()
+            #app.likes_worker.start()
             # kick it off by putting a likes task in the queue
             app.likes_worker.add_task('update')
             logger.info(f"Started LikesWorker with classifiers_dir: {classifiers_dir}")
