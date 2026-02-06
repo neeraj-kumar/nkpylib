@@ -93,7 +93,7 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 const api = {
   get: (params) => fetchEndpoint('/get', params),
   classifyPos: (pos) => fetchEndpoint('/classify', { pos }),
-  classifyLikes: (options) => fetchEndpoint('/classify', options),
+  classifyLikes: (options) => fetchEndpoint('/classify', { type: 'likes', ...options }),
   action: (ids, action) => fetchEndpoint('/action', { ids, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
