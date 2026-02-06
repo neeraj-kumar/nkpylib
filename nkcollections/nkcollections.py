@@ -695,7 +695,7 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
 
 
 def maybe_load_scores(path: str, current_scores: dict[str, float], last_mtime: float = 0) -> tuple[dict[str, float], float]:
-    """Load scores from file if it has been modified since last_mtime.
+    """Load scores from saved classifier if it has been modified since last_mtime.
 
     Returns tuple of (scores_dict, new_mtime).
     If file hasn't changed, returns (current_scores, last_mtime).
@@ -703,19 +703,23 @@ def maybe_load_scores(path: str, current_scores: dict[str, float], last_mtime: f
     try:
         if not os.path.exists(path):
             return current_scores, last_mtime
+            
         file_mtime = os.path.getmtime(path)
         if file_mtime <= last_mtime:
             # File hasn't changed
             return current_scores, last_mtime
-        # File has been modified, load new scores
-        with open(path, 'r') as f:
-            new_scores = json.load(f)
+            
+        # File has been modified, load scores from saved classifier
+        saved_data = joblib.load(path)
+        new_scores = saved_data.get('scores', {})
+        
         # Convert keys to strings and values to floats for consistency
         new_scores = {str(k): float(v) for k, v in new_scores.items()}
-        logger.debug(f"Loaded {len(new_scores)} scores from {path} (mtime: {file_mtime})")
+        logger.debug(f"Loaded {len(new_scores)} scores from classifier {path} (mtime: {file_mtime})")
         return new_scores, file_mtime
+        
     except Exception as e:
-        logger.warning(f"Failed to load scores from {path}: {e}")
+        logger.warning(f"Failed to load scores from classifier {path}: {e}")
         return current_scores, last_mtime
 
 
