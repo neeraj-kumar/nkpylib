@@ -1561,6 +1561,14 @@ const InfoBar = () => {
           Like Classifier
         </button>
       </div>
+      <div className="control cluster-classifier">
+        <button
+          onClick={() => ctx.actions.doClassifier('clusters')}
+          title="Auto cluster items"
+        >
+          Clusterize
+        </button>
+      </div>
       <div className="control filter-control">
         <DebouncedInput
           value={filterStr}
@@ -1809,6 +1817,8 @@ const AppProvider = ({ children }) => {
   const [autoLikesMode, setAutoLikesMode] = React.useState(false);
   const [message, setMessage] = React.useState('Messages show up here');
   const [currentSource, setCurrentSource] = React.useState('');
+  const [autoClusters, setAutoClusters] = React.useState({}); // {cluster_num: [ids]}
+  const [curCluster, setCurCluster] = React.useState(null); // currently selected cluster in auto-cluster mode
 
   // initial init
   React.useEffect(() => {
@@ -2037,15 +2047,28 @@ const AppProvider = ({ children }) => {
   // Call classifier with specified type
   const doClassifier = React.useCallback((type) => {
     const options = {
-      type: type,
+      type,
       otypes:['image'],
       cur_ids: curIds,
     };
     api.classify(options).then((resp) => {
-      console.log('got classifier response', resp);
-      updateScores(resp.scores);
+      console.log('got classifier response', type, resp);
+      if (type === 'likes') {
+        updateScores(resp.scores);
+      } else if (type === 'clusters') {
+        console.log('setting auto clusters')
+        const clusters = resp.clusters || {};
+        setAutoClusters(clusters);
+        if (Object.keys(clusters).length > 0) {
+          // set the first cluster key as the cur cluster
+          const firstCluster = Object.keys(clusters)[0];
+          setCurCluster(firstCluster);
+        } else {
+          setCurCluster(null);
+        }
+      }
     });
-  }, [curIds]);
+  }, [curIds, setAutoClusters, setCurCluster]);
 
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
@@ -2197,7 +2220,19 @@ const AppProvider = ({ children }) => {
 
 
   // Done with all state and effects, now preparing for rendering
-  const ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
+  let ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
+  // if we have a cur cluster, limit to that
+  if (curCluster) {
+    const lst = autoClusters[curCluster];
+    console.log('filtering auto clusters for cluster', curCluster, ids.length, lst, ids);
+    ids = ids.filter(id => lst.includes(id));
+    console.log('new ids', ids.length, ids);
+    // schedule a refresh of masonry after the state updates
+    setTimeout(() => {
+      refreshMasonry();
+    }, 500);
+  }
+
 
   // Organize all state and functions into nested groups
   const contextValue = {
@@ -2207,7 +2242,9 @@ const AppProvider = ({ children }) => {
       curIds: ids,
       scores,
       clusters,
-      pos
+      pos,
+      autoClusters,
+      curCluster,
     },
     ui: {
       nCols,
@@ -2223,7 +2260,8 @@ const AppProvider = ({ children }) => {
     filters: {
       curOtypes,
       setCurOtypes,
-      setCurIds
+      setCurIds,
+      setCurCluster,
     },
     actions: {
       setLiked,
