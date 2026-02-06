@@ -1661,6 +1661,23 @@ const Controls = () => {
     globalSetSourceStr = setSourceStr;
   }, [setSourceStr]);
 
+  // Auto cluster navigation functions
+  const navigateAutoCluster = React.useCallback((direction) => {
+    const clusterKeys = Object.keys(ctx.data.autoClusters);
+    if (clusterKeys.length === 0) return;
+    
+    const currentIndex = clusterKeys.indexOf(ctx.data.curCluster);
+    let newIndex;
+    
+    if (direction === 'prev') {
+      newIndex = currentIndex <= 0 ? clusterKeys.length - 1 : currentIndex - 1;
+    } else {
+      newIndex = currentIndex >= clusterKeys.length - 1 ? 0 : currentIndex + 1;
+    }
+    
+    ctx.filters.setCurCluster(clusterKeys[newIndex]);
+  }, [ctx.data.autoClusters, ctx.data.curCluster, ctx.filters.setCurCluster]);
+
   // Check for source parameter in URL on page load
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1793,6 +1810,25 @@ const Controls = () => {
           ))}
         </select>
       </div>
+      {ctx.data.curCluster && (
+        <div className="control auto-cluster-nav">
+          <button
+            onClick={() => navigateAutoCluster('prev')}
+            title="Previous auto cluster"
+          >
+            ←
+          </button>
+          <span style={{margin: '0 10px'}}>
+            Cluster {ctx.data.curCluster}
+          </span>
+          <button
+            onClick={() => navigateAutoCluster('next')}
+            title="Next auto cluster"
+          >
+            →
+          </button>
+        </div>
+      )}
       <div className="control flex-break"></div>
     </div>
   );
