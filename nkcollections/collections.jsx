@@ -92,8 +92,10 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 // API helper functions
 const api = {
   get: (params) => fetchEndpoint('/get', params),
-  classifyPos: (pos) => fetchEndpoint('/classify', { pos }),
+  classify: (options) => fetchEndpoint('/classify', options),
+  classifyPos: (options) => fetchEndpoint('/classify', {type: 'pos', ...options }),
   classifyLikes: (options) => fetchEndpoint('/classify', { type: 'likes', ...options }),
+  classifyClusters: (options) => fetchEndpoint('/classify', { type: 'clusters', ...options }),
   action: (ids, action) => fetchEndpoint('/action', { ids, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
@@ -2035,7 +2037,6 @@ const AppProvider = ({ children }) => {
   // Call like-based classifier
   const doLikeClassifier = React.useCallback(() => {
     const options = {
-      type: 'likes',
       otypes:['image'],
       cur_ids: curIds,
     };
@@ -2138,7 +2139,8 @@ const AppProvider = ({ children }) => {
       return;
     }
     console.log('calling classify for pos', pos);
-    api.classifyPos(pos).then((data) => {
+    //TODO we also need cur_ids?
+    api.classifyPos({pos}).then((data) => {
       console.log('got classify resp', data);
       // update curIds and scores
       if (data.curIds && data.scores){
