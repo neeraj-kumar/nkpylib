@@ -694,10 +694,12 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
         time.sleep(max(0, diff))
 
 
-def maybe_load_scores(path: str, current_scores: dict[str, float], last_mtime: float = 0) -> tuple[dict[str, float], float]:
-    """Load scores from saved classifier if it has been modified since last_mtime.
+def maybe_load_scores(path: str,
+                      current_scores: dict[str, float],
+                      last_mtime: float = 0) -> tuple[dict[str, float], float]:
+    """Load scores from saved classifier if it has been modified since `last_mtime`.
 
-    Returns tuple of (scores_dict, new_mtime).
+    Returns tuple of `(scores_dict, new_mtime)`.
     If file hasn't changed, returns (current_scores, last_mtime).
     """
     try:
