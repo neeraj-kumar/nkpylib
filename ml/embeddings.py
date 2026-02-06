@@ -189,7 +189,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 clusters[key] = dict(num=int(pred_labels[i])+1, score=float(score))
         return clusters
 
-    def cluster(self, n_clusters=-1, method='kmeans', **kwargs) -> list[list[KeyT]]:
+    def cluster(self, n_clusters=-1, method='kmeans', all_keys=None, **kwargs) -> list[list[KeyT]]:
         """Clusters our embeddings.
 
         If `n_clusters` is not positive (default), we set it to the sqrt of the number of
@@ -197,7 +197,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
         Returns a list of lists of keys, where each list is a cluster; in order from largest to smallest.
         """
-        keys, embs = self.get_keys_embeddings(normed=False, scale_mean=True, scale_std=True)
+        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=False, scale_mean=True, scale_std=True)
         if n_clusters <= 0:
             n_clusters = int(np.sqrt(len(keys)))
         clusterer = self.get_clusterer(method=method, n_clusters=n_clusters, **kwargs)

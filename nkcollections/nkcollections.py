@@ -547,8 +547,9 @@ class FilterHandler(MyBaseHandler):
         self.write(dict(msg=msg, q=q, scores=scores))
 
 class ClassifyHandler(MyBaseHandler):
-    def _handle_pos(self, pos):
+    async def _handle_pos(self, **data):
         """Simple positive only classifier"""
+        pos = data.get('pos', [])
         # for now, we use the first pos to set the otype to search over
         with db_session:
             otype = Item[pos[0]].otype
@@ -581,16 +582,36 @@ class ClassifyHandler(MyBaseHandler):
             scores=scores
         ))
 
+    async def _handle_clusters(self,
+                               cur_ids: list[int],
+                               n_clusters: int=5,
+                               method: str='affinity',
+                               **kw):
+        """Does auto-clustering with `n_clusters`"""
+        #TODO get cluster names
+        #TODO weight features differently, based on likes classifier?
+        cur_ids = [int(id) for id in cur_ids]
+        all_keys = [f'{id}:image' for id in cur_ids]
+        ret = self.embs.cluster(all_keys=all_keys, method=method, n_clusters=n_clusters)
+        clusters = {}
+        for i, lst in enumerate(ret):
+            lst = [int(key.split(':')[0]) for key in lst]
+            clusters[i] = lst
+        msg = f'Clustered {len(cur_ids)} ids into {len(clusters)} clusters (req: {n_clusters}) using method {method} and kw {kw}'
+        logger.info(msg)
+        self.write(dict(msg=msg, clusters=clusters))
+
     async def post(self):
         #self.embs.reload_keys()
         # figure out what kind of classification we're doing
         data = json.loads(self.request.body)
-        pos = data.get('pos', [])
-        if pos:
-            return self._handle_pos(pos)
         cls_type = data.get('type', '')
-        if cls_type == 'likes':
-            return await self._handle_likes(**data)
+        func_by_name = dict(
+            likes=self._handle_likes,
+            pos=self._handle_pos,
+            clusters=self._handle_clusters,
+        )
+        return await func_by_name[cls_type](**data)
 
 
 class ClusterHandler(MyBaseHandler):

@@ -1830,7 +1830,10 @@ const Controls = () => {
           <button
             onClick={() => {
               ctx.filters.setCurCluster(null);
-              ctx.data.setAutoClusters({});
+              ctx.filters.setAutoClusters({});
+              setTimeout(() => {
+                ctx.ui.refreshMasonry();
+              }, 500);
             }}
             title="Clear all auto clusters"
             style={{marginLeft: '10px'}}
@@ -2270,9 +2273,8 @@ const AppProvider = ({ children }) => {
   // if we have a cur cluster, limit to that
   if (curCluster) {
     const lst = autoClusters[curCluster];
-    console.log('filtering auto clusters for cluster', curCluster, ids.length, lst, ids);
+    //console.log('filtering auto clusters for cluster', curCluster, ids.length, lst, ids);
     ids = ids.filter(id => lst.includes(id));
-    console.log('new ids', ids.length, ids);
     // schedule a refresh of masonry after the state updates
     setTimeout(() => {
       refreshMasonry();
@@ -2298,6 +2300,7 @@ const AppProvider = ({ children }) => {
       setCurOtypes,
       setCurIds,
       setCurCluster,
+      setAutoClusters,
     },
     data: {
       rowById,
@@ -2308,7 +2311,6 @@ const AppProvider = ({ children }) => {
       pos,
       autoClusters,
       curCluster,
-      setAutoClusters,
     },
     actions: {
       setLiked,
