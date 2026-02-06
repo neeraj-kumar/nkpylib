@@ -317,15 +317,9 @@ class GetHandler(MyBaseHandler):
         # now check for min_like score
         if 'min_like' in kw:
             min_like = float(kw['min_like'])
-            # Load scores from file if available
-            if hasattr(self, 'application') and hasattr(self.application, 'scores_path') and self.application.scores_path:
-                scores_dict, new_mtime = maybe_load_scores(
-                    self.application.scores_path,
-                    self.application.cached_scores,
-                    self.application.scores_mtime
-                )
-                self.application.cached_scores = scores_dict
-                self.application.scores_mtime = new_mtime
+            # Load scores from cached loader if available
+            if hasattr(self.application, 'cached_score_loader'):
+                scores_dict = self.application.cached_score_loader.get() or {}
                 scores = {int(k): v for k, v in scores_dict.items()}
             else:
                 scores = {}
@@ -581,16 +575,10 @@ class ClassifyHandler(MyBaseHandler):
                             method: str='rbf',
                             neg_factor: float=10,
                             **kw):
-        """Gets the latest likes scores from file"""
-        # Load scores from file if available
-        if hasattr(self.application, 'scores_path') and self.application.scores_path:
-            scores, new_mtime = maybe_load_scores(
-                self.application.scores_path,
-                self.application.cached_scores,
-                self.application.scores_mtime
-            )
-            self.application.cached_scores = scores
-            self.application.scores_mtime = new_mtime
+        """Gets the latest likes scores from cached loader"""
+        # Load scores from cached loader if available
+        if hasattr(self.application, 'cached_score_loader'):
+            scores = self.application.cached_score_loader.get() or {}
         else:
             scores = {}
 
@@ -687,7 +675,7 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
         else: # without likes worker
             app.likes_worker = None
             app.cached_score_loader = CachedScoresLoader(join(classifiers_dir, 'likes.joblib'))
-            logger.info(f"Will read scores from: {app.scores_path}")
+            logger.info(f"Will read scores from: {join(classifiers_dir, 'likes.joblib')}")
 
     more_handlers = [
         (r'/get', GetHandler),
