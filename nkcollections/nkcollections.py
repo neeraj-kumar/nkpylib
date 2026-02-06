@@ -83,6 +83,59 @@ from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_req
 
 logger = logging.getLogger(__name__)
 
+class CachedFileLoader(abc.ABC):
+    """Base class for loading files with mtime-based caching.
+
+    Maintains instance variables for last modification time and last returned object.
+    Subclasses must implement the `load()` method to define how to load the file.
+    """
+    def __init__(self, path: str):
+        self.path = path
+        self.last_mtime: float = 0
+        self.last_object: Any = None
+
+    @abc.abstractmethod
+    def load(self) -> Any:
+        """Load and return the object from the file.
+
+        This method must be implemented by subclasses to define how to load
+        the specific file format and return the appropriate object.
+        """
+        ...
+
+    def get(self) -> Any:
+        """Get the object, loading from file if it has been modified.
+
+        Returns the cached object if the file hasn't changed since last load,
+        otherwise loads and caches the new object.
+        """
+        try:
+            if not os.path.exists(self.path):
+                return self.last_object
+            file_mtime = os.path.getmtime(self.path)
+            if file_mtime <= self.last_mtime: # File hasn't changed
+                return self.last_object
+            # File has been modified, load new object
+            self.last_object = self.load()
+            self.last_mtime = file_mtime
+            return self.last_object
+        except Exception as e:
+            logger.warning(f"Failed to load from {self.path}: {e}")
+            return self.last_object
+
+
+class CachedScoresLoader(CachedFileLoader):
+    """Cached loader for scores from joblib classifier files."""
+    def load(self) -> dict[str, float]:
+        """Load scores from saved classifier using joblib."""
+        saved_data = joblib.load(self.path)
+        scores = saved_data.get('scores', {})
+        # Convert keys to strings and values to floats for consistency
+        scores = {str(k): float(v) for k, v in scores.items()}
+        logger.debug(f"Loaded {len(scores)} scores from classifier {self.path} (mtime: {self.last_mtime})")
+        return scores
+
+
 class MyBaseHandler(BaseHandler):
     @property
     def sql_db(self) -> Database:
@@ -540,15 +593,15 @@ class ClassifyHandler(MyBaseHandler):
             self.application.scores_mtime = new_mtime
         else:
             scores = {}
-            
+
         # Convert string keys to int keys for consistency
         scores = {int(k): v for k, v in scores.items()}
-        
+
         # filter down to cur_ids if given
         if cur_ids is not None:
             cur_ids = [int(id) for id in cur_ids]
             scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
-            
+
         self.write(dict(
             msg=f'Likes scores for {len(scores)} items',
             scores=scores
@@ -597,7 +650,7 @@ class ClusterHandler(MyBaseHandler):
         self.write(ret)
 
 
-def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
+def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_path:str='', **kw):
     # load the data file from first arg
     parser = ArgumentParser(description="NK collections main")
     if sqlite_path:
@@ -608,6 +661,7 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         parser.add_argument('--lmdb_path', default=lmdb_path, help="The path to the lmdb database")
     else:
         parser.add_argument('lmdb_path', help="The path to the lmdb database")
+    parser.add_argument('-w', '--worker', default=with_worker, action='store_true', help="Whether to start the worker process")
     parser.add_argument('ignore', nargs='*', help="Ignore extra args")
     #FIXME add images dir and make it accessible via a static path
     kw = {}
@@ -619,25 +673,21 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         temp = NumpyLmdb.open(args.lmdb_path, flag='c')
         del temp
         app.embs = Embeddings([args.lmdb_path])
-        if 0: # version with likes workers
-            app.likes_worker = LikesWorker(embs=embs, classifiers_dir=classifiers_dir)
-            app.likes_worker.start()
-            app.likes_worker.add_task('update')  # Start the main loop
-            logger.info("LikesWorker started successfully")
-
         # Initialize scores file path for reading from worker process
         sources = list(Source._registry.values())
         if sources:
             classifiers_dir = sources[0].classifiers_dir
-            app.scores_path = join(classifiers_dir, 'scores.json')
-            app.cached_scores = {}
-            app.scores_mtime = 0
-            logger.info(f"Will read scores from: {app.scores_path}")
         else:
-            logger.warning("No sources available, scores path not set")
-            app.scores_path = None
-            app.cached_scores = {}
-            app.scores_mtime = 0
+            assert False, "No sources registered, cannot determine classifiers_dir"
+        if args.worker: # version with likes workers
+            app.likes_worker = LikesWorker(embs=embs, classifiers_dir=classifiers_dir)
+            app.likes_worker.start()
+            app.likes_worker.add_task('update')  # Start the main loop
+            logger.info("LikesWorker started successfully")
+        else: # without likes worker
+            app.likes_worker = None
+            app.cached_score_loader = CachedScoresLoader(join(classifiers_dir, 'likes.joblib'))
+            logger.info(f"Will read scores from: {app.scores_path}")
 
     more_handlers = [
         (r'/get', GetHandler),
@@ -694,66 +744,6 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
         time.sleep(max(0, diff))
 
 
-class CachedFileLoader(abc.ABC):
-    """Base class for loading files with mtime-based caching.
-    
-    Maintains instance variables for last modification time and last returned object.
-    Subclasses must implement the `load()` method to define how to load the file.
-    """
-    
-    def __init__(self, path: str):
-        self.path = path
-        self.last_mtime: float = 0
-        self.last_object: Any = None
-    
-    @abc.abstractmethod
-    def load(self) -> Any:
-        """Load and return the object from the file.
-        
-        This method must be implemented by subclasses to define how to load
-        the specific file format and return the appropriate object.
-        """
-        pass
-    
-    def get(self) -> Any:
-        """Get the object, loading from file if it has been modified.
-        
-        Returns the cached object if the file hasn't changed since last load,
-        otherwise loads and caches the new object.
-        """
-        try:
-            if not os.path.exists(self.path):
-                return self.last_object
-                
-            file_mtime = os.path.getmtime(self.path)
-            if file_mtime <= self.last_mtime:
-                # File hasn't changed
-                return self.last_object
-                
-            # File has been modified, load new object
-            self.last_object = self.load()
-            self.last_mtime = file_mtime
-            return self.last_object
-            
-        except Exception as e:
-            logger.warning(f"Failed to load from {self.path}: {e}")
-            return self.last_object
-
-
-class CachedScoresLoader(CachedFileLoader):
-    """Cached loader for scores from joblib classifier files."""
-    
-    def load(self) -> dict[str, float]:
-        """Load scores from saved classifier using joblib."""
-        saved_data = joblib.load(self.path)
-        scores = saved_data.get('scores', {})
-        
-        # Convert keys to strings and values to floats for consistency
-        scores = {str(k): float(v) for k, v in scores.items()}
-        logger.debug(f"Loaded {len(scores)} scores from classifier {self.path} (mtime: {self.last_mtime})")
-        return scores
-
-
 def maybe_load_scores(path: str,
                       current_scores: dict[str, float],
                       last_mtime: float = 0) -> tuple[dict[str, float], float]:
@@ -765,21 +755,21 @@ def maybe_load_scores(path: str,
     try:
         if not os.path.exists(path):
             return current_scores, last_mtime
-            
+
         file_mtime = os.path.getmtime(path)
         if file_mtime <= last_mtime:
             # File hasn't changed
             return current_scores, last_mtime
-            
+
         # File has been modified, load scores from saved classifier
         saved_data = joblib.load(path)
         new_scores = saved_data.get('scores', {})
-        
+
         # Convert keys to strings and values to floats for consistency
         new_scores = {str(k): float(v) for k, v in new_scores.items()}
         logger.debug(f"Loaded {len(new_scores)} scores from classifier {path} (mtime: {file_mtime})")
         return new_scores, file_mtime
-        
+
     except Exception as e:
         logger.warning(f"Failed to load scores from classifier {path}: {e}")
         return current_scores, last_mtime
@@ -798,7 +788,6 @@ def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, scores_p
         # Initialize database and embeddings in this process
         sql_db = init_sql_db(sqlite_path)
         embs = Embeddings([lmdb_path])
-        app.embs = embs
         # Create and start worker
         likes_worker = LikesWorker(
             embs=embs,
