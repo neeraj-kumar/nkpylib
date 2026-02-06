@@ -92,7 +92,7 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 // API helper functions
 const api = {
   get: (params) => fetchEndpoint('/get', params),
-  classify: (pos) => fetchEndpoint('/classify', { pos }),
+  classifyPos: (pos) => fetchEndpoint('/classify', { pos }),
   classifyLikes: (options) => fetchEndpoint('/classify', options),
   action: (ids, action) => fetchEndpoint('/action', { ids, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
@@ -2138,7 +2138,7 @@ const AppProvider = ({ children }) => {
       return;
     }
     console.log('calling classify for pos', pos);
-    api.classify(pos).then((data) => {
+    api.classifyPos(pos).then((data) => {
       console.log('got classify resp', data);
       // update curIds and scores
       if (data.curIds && data.scores){
