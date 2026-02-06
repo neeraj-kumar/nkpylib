@@ -95,9 +95,6 @@ class MyBaseHandler(BaseHandler):
     def embs(self) -> Embeddings:
         return self.application.embs # type: ignore[attr-defined]
 
-    @property
-    def likes_worker(self) -> LikesWorker:
-        return self.application.likes_worker
 
     @property
     @cache
@@ -260,7 +257,18 @@ class GetHandler(MyBaseHandler):
         # now check for min_like score
         if 'min_like' in kw:
             min_like = float(kw['min_like'])
-            scores = {int(id): s for id, s in self.likes_worker.get_scores().items()}
+            # Load scores from file if available
+            if hasattr(self, 'application') and hasattr(self.application, 'scores_path') and self.application.scores_path:
+                scores_dict, new_mtime = maybe_load_scores(
+                    self.application.scores_path,
+                    self.application.cached_scores,
+                    self.application.scores_mtime
+                )
+                self.application.cached_scores = scores_dict
+                self.application.scores_mtime = new_mtime
+                scores = {int(k): v for k, v in scores_dict.items()}
+            else:
+                scores = {}
             newq = [item for item in q if scores.get(item.id, 0.0) >= min_like]
             logger.info(f'  Filtered from {len(q)} -> {len(newq)} items with min_like {min_like}')
             q = newq
@@ -513,16 +521,29 @@ class ClassifyHandler(MyBaseHandler):
                             method: str='rbf',
                             neg_factor: float=10,
                             **kw):
-        """Gets the latest likes scores"""
-        scores = self.likes_worker.get_scores()
+        """Gets the latest likes scores from file"""
+        # Load scores from file if available
+        if hasattr(self.application, 'scores_path') and self.application.scores_path:
+            scores, new_mtime = maybe_load_scores(
+                self.application.scores_path,
+                self.application.cached_scores,
+                self.application.scores_mtime
+            )
+            self.application.cached_scores = scores
+            self.application.scores_mtime = new_mtime
+        else:
+            scores = {}
+            
+        # Convert string keys to int keys for consistency
+        scores = {int(k): v for k, v in scores.items()}
+        
         # filter down to cur_ids if given
         if cur_ids is not None:
             cur_ids = [int(id) for id in cur_ids]
             scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
-        #logger.info(f'Got {len(scores)} scores {list(scores.items())[:10]}')
+            
         self.write(dict(
             msg=f'Likes scores for {len(scores)} items',
-            #msg=f'Likes image classifier with {len(pos)} pos, {len(neg)} neg, {len(scores)} scores in {t1 - t0:.2f}s (training: {times_dict["training"]:.2f}s, inference: {times_dict["inference"]:.2f}s)',
             scores=scores
         ))
 
@@ -592,20 +613,19 @@ def web_main(port: int=12555, sqlite_path:str='', lmdb_path:str='', **kw):
         del temp
         app.embs = Embeddings([args.lmdb_path])
 
-        # Initialize LikesWorker with first source's classifiers_dir
+        # Initialize scores file path for reading from worker process
         sources = list(Source._registry.values())
         if sources:
             classifiers_dir = sources[0].classifiers_dir
-            app.likes_worker = LikesWorker(
-                embs=app.embs,
-                classifiers_dir=classifiers_dir,
-            )
-            #app.likes_worker.start()
-            # kick it off by putting a likes task in the queue
-            app.likes_worker.add_task('update')
-            logger.info(f"Started LikesWorker with classifiers_dir: {classifiers_dir}")
+            app.scores_path = join(classifiers_dir, 'scores.json')
+            app.cached_scores = {}
+            app.scores_mtime = 0
+            logger.info(f"Will read scores from: {app.scores_path}")
         else:
-            logger.warning("No sources available, LikesWorker not initialized")
+            logger.warning("No sources available, scores path not set")
+            app.scores_path = None
+            app.cached_scores = {}
+            app.scores_mtime = 0
 
     more_handlers = [
         (r'/get', GetHandler),
@@ -662,6 +682,140 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
         time.sleep(max(0, diff))
 
 
+def save_scores(scores: dict[str, float], path: str) -> None:
+    """Save scores dict to a JSON file atomically."""
+    import tempfile
+    
+    # Write to temporary file first, then rename for atomicity
+    temp_path = path + '.tmp'
+    try:
+        with open(temp_path, 'w') as f:
+            json.dump(scores, f)
+        os.rename(temp_path, path)
+        logger.debug(f"Saved {len(scores)} scores to {path}")
+    except Exception as e:
+        logger.error(f"Failed to save scores to {path}: {e}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+
+
+def maybe_load_scores(path: str, current_scores: dict[str, float], last_mtime: float = 0) -> tuple[dict[str, float], float]:
+    """Load scores from file if it has been modified since last_mtime.
+    
+    Returns tuple of (scores_dict, new_mtime).
+    If file hasn't changed, returns (current_scores, last_mtime).
+    """
+    try:
+        if not os.path.exists(path):
+            return current_scores, last_mtime
+            
+        file_mtime = os.path.getmtime(path)
+        if file_mtime <= last_mtime:
+            # File hasn't changed
+            return current_scores, last_mtime
+            
+        # File has been modified, load new scores
+        with open(path, 'r') as f:
+            new_scores = json.load(f)
+            
+        # Convert keys to strings and values to floats for consistency
+        new_scores = {str(k): float(v) for k, v in new_scores.items()}
+        logger.debug(f"Loaded {len(new_scores)} scores from {path} (mtime: {file_mtime})")
+        return new_scores, file_mtime
+        
+    except Exception as e:
+        logger.warning(f"Failed to load scores from {path}: {e}")
+        return current_scores, last_mtime
+
+
+def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, scores_path: str = '') -> None:
+    """Standalone process that runs just the LikesWorker.
+    
+    - sqlite_path: Path to the SQLite database
+    - lmdb_path: Path to the LMDB embeddings database  
+    - classifiers_dir: Directory where classifiers are saved
+    - scores_path: Path where scores JSON file should be saved (defaults to classifiers_dir/scores.json)
+    """
+    if not scores_path:
+        scores_path = join(classifiers_dir, 'scores.json')
+        
+    logger.info(f"Starting worker process with sqlite={sqlite_path}, lmdb={lmdb_path}, scores={scores_path}")
+    
+    try:
+        # Initialize database and embeddings in this process
+        sql_db = init_sql_db(sqlite_path)
+        embs = Embeddings([lmdb_path])
+        
+        # Create custom LikesWorker that saves scores periodically
+        class ScoringLikesWorker(LikesWorker):
+            def __init__(self, *args, scores_save_path: str, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.scores_save_path = scores_save_path
+                self.last_save_time = 0
+                self.save_interval = 30.0  # Save every 30 seconds
+                
+            def process_task(self, task):
+                result = super().process_task(task)
+                
+                # Save scores periodically
+                current_time = time.time()
+                if current_time - self.last_save_time > self.save_interval:
+                    try:
+                        save_scores(self.scores, self.scores_save_path)
+                        self.last_save_time = current_time
+                    except Exception as e:
+                        logger.error(f"Failed to save scores in worker: {e}")
+                        
+                return result
+        
+        # Create and start worker
+        likes_worker = ScoringLikesWorker(
+            embs=embs,
+            classifiers_dir=classifiers_dir,
+            scores_save_path=scores_path
+        )
+        likes_worker.start()
+        likes_worker.add_task('update')  # Start the main loop
+        
+        logger.info("LikesWorker started successfully")
+        
+        # Keep process alive
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Received interrupt, shutting down worker...")
+            likes_worker.stop()
+            # Save scores one final time
+            try:
+                save_scores(likes_worker.scores, scores_path)
+                logger.info("Final scores saved")
+            except Exception as e:
+                logger.error(f"Failed to save final scores: {e}")
+                
+    except Exception as e:
+        logger.error(f"Worker process failed: {e}")
+        traceback.print_exc()
+        raise
+
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    web_main()
+    
+    parser = ArgumentParser(description="NK collections")
+    parser.add_argument('mode', choices=['worker', 'server'], help="Run mode: worker or server")
+    parser.add_argument('--sqlite_path', required=True, help="Path to SQLite database")
+    parser.add_argument('--lmdb_path', required=True, help="Path to LMDB database")
+    parser.add_argument('--classifiers_dir', help="Directory for classifiers (worker mode only)")
+    parser.add_argument('--scores_path', help="Path for scores JSON file (worker mode only)")
+    parser.add_argument('--port', type=int, default=12555, help="Server port (server mode only)")
+    
+    args = parser.parse_args()
+    
+    if args.mode == 'worker':
+        if not args.classifiers_dir:
+            parser.error("--classifiers_dir is required for worker mode")
+        worker_main(args.sqlite_path, args.lmdb_path, args.classifiers_dir, args.scores_path or '')
+    elif args.mode == 'server':
+        web_main(port=args.port, sqlite_path=args.sqlite_path, lmdb_path=args.lmdb_path)
