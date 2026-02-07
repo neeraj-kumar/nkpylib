@@ -381,7 +381,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         # kick off downloads
         async def dl_image(row):
             with db_session:
-                await maybe_dl(row.url, row.image_path(), fetch_delay=fetch_delay)
+                path = row.image_path()
+                await maybe_dl(row.url, path, fetch_delay=fetch_delay)
             return row, path
 
         download_tasks = [dl_image(row) for row in rows]
@@ -391,7 +392,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             try:
                 if not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
-                emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
+                emb = await embed_image.single_async(path, model='mobilenet', use_cache=kw.get('use_cache', True))
+                #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
                 logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
                 emb = None
@@ -876,7 +878,6 @@ class Source(abc.ABC):
             n_done += fix(rows, 'text', 'explored_ts', fix_missing=False)
         del db
         logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
-        sys.exit()
 
     @db_session
     def update_embeddings(self, **kw):

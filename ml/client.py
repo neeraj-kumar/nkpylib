@@ -587,7 +587,7 @@ def quick_test():
                 ret = embed_image.single(url, model=model, use_cache=False)
                 print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
             else:
-                num = 100
+                num = 10
                 t0 = time.time()
                 if 1: # image
                     futures = embed_image.batch_futures([url]*num, model=model, use_cache=False)

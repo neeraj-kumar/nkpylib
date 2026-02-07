@@ -361,7 +361,7 @@ class LikesWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
-                    self._explore_users()
+                    #FIXME broken right now self._explore_users()
                     self._update_user_stats()
                     self._update_classifier()
                 except Exception as e:
@@ -809,3 +809,6 @@ class LikesWorker(BackgroundWorker):
                 raise
         updater.commit()
         logger.info(f'Completed embedding generation for benchmark {benchmark_name}: {n_processed} items processed')
+
+    def fix_mn(self):
+        """Fixes mobilenet embeddings"""
