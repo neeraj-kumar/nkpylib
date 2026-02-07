@@ -43,6 +43,7 @@ from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ign
 from tornado.web import RequestHandler
 from tqdm import tqdm
 
+from nkpylib.ml.client import embed_image
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
@@ -708,3 +709,21 @@ class LikesWorker(BackgroundWorker):
             else:
                 logger.info(f'  {metric}: {value}')
         return results
+
+    def run_embedder_on_benchmark(self,
+                                  benchmark_name: str,
+                                  batch_size=100,
+                                  embedder_name='mobilenet',
+                                  id_suffix=':mn_image') -> None:
+        """Runs specified embedder on the benchmark set `benchmark_name`.
+
+        This does the following:
+        - gets all items with benchmark labels
+        - generates their lmdb keys by adding the `id_suffix`
+        - looks for which ones don't already exist in the lmdb database
+        - divides these up into batches of size `batch_size`
+        - creates a `LmdbUpdater` to handle writing to the lmdb
+        - extracts embeddings for these batches using embed_image.batch(model=`embedder_name`)
+        - writes embeddings to lmdb via the `LmdbUpdater`
+        """
+        pass
