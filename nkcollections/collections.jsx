@@ -34,6 +34,8 @@ const QUICK_LINKS = {
   'Pos Images': {"otype":"image","limit":500,"min_like":0.1,"order": "-embed_ts"},
   // users sorted by n pos likes
   Users: {...user_kw, "source": "tumblr", "order": "-lambda o: o.md['stats']['n_pos_like_score']"},
+  // recent users sorted by timestamp
+  'Recent users': {...user_kw, "order": "-ts"},
   // recent embedded images
   Images: {"otype":["image", "video"],"limit":200,"embed_ts":">1","order": "-embed_ts"},
   // queued posts
