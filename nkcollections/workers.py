@@ -726,4 +726,80 @@ class LikesWorker(BackgroundWorker):
         - extracts embeddings for these batches using embed_image.batch(model=`embedder_name`)
         - writes embeddings to lmdb via the `LmdbUpdater`
         """
-        pass
+        logger.info(f'Running embedder {embedder_name} on benchmark {benchmark_name}')
+        
+        # Get all items with benchmark labels
+        with db_session:
+            benchmark_items = Item.select(lambda c: c.md and benchmark_name in c.md)
+            item_data = [(item.id, item.url, item.local_path) for item in benchmark_items]
+        
+        if not item_data:
+            logger.warning(f'No items found for benchmark {benchmark_name}')
+            return
+        
+        logger.info(f'Found {len(item_data)} items in benchmark {benchmark_name}')
+        
+        # Generate LMDB keys and check which ones don't exist
+        lmdb_keys = [f'{item_id}{id_suffix}' for item_id, _, _ in item_data]
+        
+        # Check which keys already exist in LMDB
+        self.embs.reload_keys()
+        existing_keys = set(self.embs.get_keys())
+        missing_items = []
+        
+        for (item_id, url, local_path), lmdb_key in zip(item_data, lmdb_keys):
+            if lmdb_key not in existing_keys:
+                missing_items.append((item_id, url, local_path, lmdb_key))
+        
+        if not missing_items:
+            logger.info(f'All items in benchmark {benchmark_name} already have embeddings')
+            return
+        
+        logger.info(f'Need to generate embeddings for {len(missing_items)} items')
+        
+        # Create LmdbUpdater for writing embeddings
+        lmdb_path = self.embs.lmdb_paths[0]  # Use first LMDB path
+        updater = LmdbUpdater(lmdb_path)
+        
+        # Process in batches
+        n_processed = 0
+        n_batches = (len(missing_items) + batch_size - 1) // batch_size
+        
+        for batch_idx in range(0, len(missing_items), batch_size):
+            batch = missing_items[batch_idx:batch_idx + batch_size]
+            batch_num = batch_idx // batch_size + 1
+            
+            logger.info(f'Processing batch {batch_num}/{n_batches} ({len(batch)} items)')
+            
+            # Prepare image paths for embedding
+            image_paths = []
+            batch_keys = []
+            
+            for item_id, url, local_path, lmdb_key in batch:
+                # Use local_path if available, otherwise use URL
+                image_path = f'/data/{local_path}' if local_path else url
+                image_paths.append(image_path)
+                batch_keys.append(lmdb_key)
+            
+            try:
+                # Extract embeddings using batch processing
+                embeddings = embed_image.batch(image_paths, model=embedder_name)
+                
+                # Write embeddings to LMDB
+                for lmdb_key, embedding in zip(batch_keys, embeddings):
+                    updater.set(lmdb_key, embedding)
+                
+                n_processed += len(batch)
+                logger.info(f'Processed {n_processed}/{len(missing_items)} items')
+                
+            except Exception as e:
+                logger.error(f'Error processing batch {batch_num}: {e}')
+                continue
+        
+        # Finalize the LMDB updates
+        updater.close()
+        
+        # Reload embeddings to include new data
+        self.embs.reload_keys()
+        
+        logger.info(f'Completed embedding generation for benchmark {benchmark_name}: {n_processed} items processed')
