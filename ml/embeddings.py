@@ -364,7 +364,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         # Perform cross-validation if requested
         if cv > 0:
             cv_classifier = self._create_classifier(method=method, C=C, **kw)
-            cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, sample_weight=weights)
+            cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights))
             other_stuff['cv'] = [float(s) for s in cv_scores]
             logger.info(f'Cross-validation scores: {cv_scores}, mean: {cv_scores.mean():.3f}')
         cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)

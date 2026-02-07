@@ -326,6 +326,7 @@ class LikesWorker(BackgroundWorker):
                  method: str = 'sgd',
                  max_pos: int = 10000,
                  neg_factor: float = 10,
+                 image_suffix: str = 'image',
                  sleep_interval: float = 10.0,
                  exclude_top_n: int = 2000):
         super().__init__(name)
@@ -334,10 +335,11 @@ class LikesWorker(BackgroundWorker):
         self.method = method
         self.max_pos = max_pos
         self.neg_factor = neg_factor
+        self.image_suffix = image_suffix
         self.sleep_interval = sleep_interval
         self.exclude_top_n = exclude_top_n
         # Set classifier path -- no need to create dir since save_classifier does that
-        self.classifier_path = join(self.classifiers_dir, 'likes.joblib')
+        self.classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
 
         # State tracking
         self.scores: dict[str, float] = {}
@@ -418,12 +420,12 @@ class LikesWorker(BackgroundWorker):
     def _get_training_set(self, current_pos_ids: list[int]|None=None) -> tuple[list[str], list[str]]:
         """Generates a training set based on current likes and dislikes.
 
-        Returns `(pos, neg)`, where each are lists of keys like `['123:image', ...]`.
+        Returns `(pos, neg)`, where each are lists of keys like `['123:{image_suffix}', ...]`.
         """
         self.embs.reload_keys()
         if current_pos_ids is None:
             current_pos_ids = self._get_current_pos_ids()
-        pos = [f'{id}:image' for id in sorted(current_pos_ids)]
+        pos = [f'{id}:{self.image_suffix}' for id in sorted(current_pos_ids)]
         # randomly sample max_pos of these
         if len(pos) > self.max_pos: #TODO recency bias?
             pos = random.sample(pos, self.max_pos)
@@ -447,7 +449,7 @@ class LikesWorker(BackgroundWorker):
             neg_ids = disliked_ids + additional_neg_ids
         else:
             neg_ids = disliked_ids[:int(neg_sample_size)]
-        neg = [f'{id}:image' for id in neg_ids]
+        neg = [f'{id}:{self.image_suffix}' for id in neg_ids]
         logger.info(f'Sampled {len(pos)} pos and {len(neg)} neg ({len(disliked_ids)} disliked)')
         return pos, neg
 
@@ -466,7 +468,7 @@ class LikesWorker(BackgroundWorker):
         try:
             pos, neg = self._get_training_set(current_pos_ids=current_pos_ids)
             all_ids = self._get_all_image_ids()
-            to_cls = [f'{id}:image' for id in all_ids]
+            to_cls = [f'{id}:{self.image_suffix}' for id in all_ids]
             logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
             # Train and run classifier
             t0 = time.time()
@@ -523,7 +525,7 @@ class LikesWorker(BackgroundWorker):
         if not scores:
             return {}
         #return scores
-        fix = lambda k: k if (isinstance(k, int) or ':' in k) else f'{k}:image'
+        fix = lambda k: k if (isinstance(k, int) or ':' in k) else f'{k}:{self.image_suffix}'
         scores = {fix(k): v for k, v in scores.items()}
         pos = [fix(id) for id in pos]
         logger.debug(f'running rescore on {len(scores)} scores with {len(pos)} positives')
@@ -613,7 +615,7 @@ class LikesWorker(BackgroundWorker):
             # Load the classifier
             saved_data = self.embs.load_and_setup_classifier(self.classifier_path)
             classifier = saved_data['classifier']
-            to_cls = [f'{id}:image' for id in unclassified_ids]
+            to_cls = [f'{id}:{self.image_suffix}' for id in unclassified_ids]
             # Get embeddings and run inference+rescoring
             self.embs.reload_keys()
             t0 = time.time()
@@ -642,11 +644,22 @@ class LikesWorker(BackgroundWorker):
         Get training data (exactly like _update_classifier), then for those Items in the sqlite
         database, set `md[name] = {label}`, where label is either +1 or -1 for pos/neg examples,
         respectively.
+
+        We also further restrict the training set to only items that exist locally.
         """
         if not name:
             name = 'like-benchmark-' + time.strftime('%Y%m%d')
         logger.info(f'Generating benchmark dataset: {name}')
         pos, neg = self._get_training_set()
+        print(f'Initial pos: {len(pos)}, {len(neg)}: {pos[:5]}, {neg[:5]}')
+        with db_session:
+            def item_exists(key: str) -> bool:
+                item_id = int(key.split(':')[0])
+                item = Item[item_id]
+                return item is not None and item.image_path() is not None and exists(item.image_path())
+
+            pos = [p for p in pos if item_exists(p)]
+            neg = [n for n in neg if item_exists(n)]
         logger.info(f'Benchmark {name}: {len(pos)} positives, {len(neg)} negatives')
         label_by_id = {(key.split(':')[0]): 1 for key in pos}
         label_by_id.update({int(key.split(':')[0]): -1 for key in neg})
@@ -662,14 +675,14 @@ class LikesWorker(BackgroundWorker):
                     n_updated += 1
         logger.info(f'Updated {n_updated} items with benchmark labels for {name}')
 
-    def run_benchmark(self, name: str) -> dict[str, float]:
+    def run_benchmark(self, name: str, item_suffix: str='image') -> dict[str, float]:
         """Runs benchmark evaluation for the given benchmark set `name`.
 
         Computes accuracy, balanced accuracy, precision, recall, F1, etc.
 
         Returns dict with evaluation metrics.
         """
-        logger.info(f'Running benchmark evaluation for: {name}')
+        logger.info(f'Running benchmark evaluation for: {name} with suffix {item_suffix}')
         # Get all items with the benchmark label
         with db_session:
             benchmark_items = Item.select(lambda c: c.md and name in c.md)
@@ -682,9 +695,20 @@ class LikesWorker(BackgroundWorker):
         if not labels:
             logger.warning(f'Benchmark {name} needs both positive and negative examples')
             return {}
-        # run inference
-        scores = self._run_inference_blocking(list(labels))['new_scores']
-        scores = {int(k): v for k, v in scores.items()}
+        # run training and inference
+        self.embs.reload_keys()
+        pos = [f'{id}:{item_suffix}' for id in pos_ids]
+        neg = [f'{id}:{item_suffix}' for id in neg_ids]
+        cls, scores, other_stuff = self.embs.train_and_run_classifier(
+            pos=pos,
+            neg=neg,
+            to_cls=pos+neg,
+            method='sgd',
+            cv=5
+        )
+        #TODO check if scores are based on cv folds or not
+        scores = {int(k.split(':')[0]): v for k, v in scores.items()}
+        logger.info(f'Other stuff: {other_stuff}')
         print(f'Got {len(scores)} scores for {len(labels)} benchmark items: {list(scores.items())[:5]}')
         # some bookkeeping
         benchmark_scores = {}
@@ -727,79 +751,61 @@ class LikesWorker(BackgroundWorker):
         - writes embeddings to lmdb via the `LmdbUpdater`
         """
         logger.info(f'Running embedder {embedder_name} on benchmark {benchmark_name}')
-        
+        images_dir = Source.first_source().images_dir
         # Get all items with benchmark labels
         with db_session:
             benchmark_items = Item.select(lambda c: c.md and benchmark_name in c.md)
-            item_data = [(item.id, item.url, item.local_path) for item in benchmark_items]
-        
+            item_data = [(item.id, item.url, item.image_path()) for item in benchmark_items]
+        logger.info(f'Found {len(item_data)} items in benchmark {benchmark_name}: {item_data[:5]}')
         if not item_data:
-            logger.warning(f'No items found for benchmark {benchmark_name}')
             return
-        
-        logger.info(f'Found {len(item_data)} items in benchmark {benchmark_name}')
-        
         # Generate LMDB keys and check which ones don't exist
         lmdb_keys = [f'{item_id}{id_suffix}' for item_id, _, _ in item_data]
-        
-        # Check which keys already exist in LMDB
         self.embs.reload_keys()
         existing_keys = set(self.embs.get_keys())
-        missing_items = []
-        
+        todo = []
         for (item_id, url, local_path), lmdb_key in zip(item_data, lmdb_keys):
             if lmdb_key not in existing_keys:
-                missing_items.append((item_id, url, local_path, lmdb_key))
-        
-        if not missing_items:
-            logger.info(f'All items in benchmark {benchmark_name} already have embeddings')
+                todo.append((item_id, url, local_path, lmdb_key))
+        logger.info(f'Need to generate embeddings for {len(todo)} items')
+        if not todo:
             return
-        
-        logger.info(f'Need to generate embeddings for {len(missing_items)} items')
-        
         # Create LmdbUpdater for writing embeddings
-        lmdb_path = self.embs.lmdb_paths[0]  # Use first LMDB path
+        lmdb_path = self.embs.inputs[0].path  # Use first LMDB path
+        logger.info(f'Using LMDB path: {lmdb_path}, {embed_image}')
         updater = LmdbUpdater(lmdb_path)
-        
         # Process in batches
         n_processed = 0
-        n_batches = (len(missing_items) + batch_size - 1) // batch_size
-        
-        for batch_idx in range(0, len(missing_items), batch_size):
-            batch = missing_items[batch_idx:batch_idx + batch_size]
-            batch_num = batch_idx // batch_size + 1
-            
-            logger.info(f'Processing batch {batch_num}/{n_batches} ({len(batch)} items)')
-            
-            # Prepare image paths for embedding
+        n_batches = (len(todo) + batch_size - 1) // batch_size
+        for start in tqdm(range(0, len(todo), batch_size)):
+            batch = todo[start:start + batch_size]
+            batch_num = start // batch_size + 1
+            logger.debug(f'Processing batch {batch_num}/{n_batches} ({len(batch)} items)')
             image_paths = []
             batch_keys = []
-            
             for item_id, url, local_path, lmdb_key in batch:
                 # Use local_path if available, otherwise use URL
-                image_path = f'/data/{local_path}' if local_path else url
+                image_path = local_path or url
                 image_paths.append(image_path)
                 batch_keys.append(lmdb_key)
-            
             try:
                 # Extract embeddings using batch processing
-                embeddings = embed_image.batch(image_paths, model=embedder_name)
-                
-                # Write embeddings to LMDB
-                for lmdb_key, embedding in zip(batch_keys, embeddings):
-                    updater.set(lmdb_key, embedding)
-                
+                futures = embed_image.batch_futures(image_paths, model=embedder_name)
+                for lmdb_key, future in zip(batch_keys, futures):
+                    try:
+                        embedding = future.result(timeout=5)
+                    except Exception as e:
+                        logger.error(f'Error extracting embedding for {lmdb_key} (path: {image_paths[batch_keys.index(lmdb_key)]}): {e}')
+                        embedding = None
+                        continue
+                    if embedding is not None:
+                        md = dict(ts=time.time(), benchmark=benchmark_name, embedder=embedder_name)
+                        updater.add(lmdb_key, embedding=embedding, metadata=md)
                 n_processed += len(batch)
-                logger.info(f'Processed {n_processed}/{len(missing_items)} items')
-                
+                logger.debug(f'Processed {n_processed}/{len(todo)} items')
             except Exception as e:
                 logger.error(f'Error processing batch {batch_num}: {e}')
-                continue
-        
-        # Finalize the LMDB updates
-        updater.close()
-        
-        # Reload embeddings to include new data
-        self.embs.reload_keys()
-        
+                print(traceback.format_exc())
+                raise
+        updater.commit()
         logger.info(f'Completed embedding generation for benchmark {benchmark_name}: {n_processed} items processed')

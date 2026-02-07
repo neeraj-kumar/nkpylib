@@ -75,7 +75,7 @@ from nkpylib.ml.client import call_vlm, embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed
+from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed, IMAGE_SUFFIX
 from nkpylib.nkcollections.workers import LikesWorker
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
@@ -167,48 +167,6 @@ class MyBaseHandler(BaseHandler):
 
 class GetHandler(MyBaseHandler):
     @db_session
-    def _apply_rel_filters(self, q: Query, rel_filters: dict[str, Any]) -> Query:
-        """Apply rel-based filters to the query.
-
-        Handles filters like:
-        - rels.like=True/False (existence)
-        - rels.queue.count>=2 (rel metadata)
-        - rels.queue.ts>1234567890 (rel timestamp)
-        """
-        me = Item.get_me()
-        for filter_key, filter_value in rel_filters.items():
-            # Parse the filter key: rels.{rtype}[.{property}]
-            parts = filter_key.split('.')
-            if len(parts) < 2:
-                continue
-            rtype = parts[1]  # e.g., 'like', 'queue'
-            if len(parts) == 2:
-                # Simple existence check: rels.like=True/False
-                if isinstance(filter_value, bool):
-                    if filter_value:
-                        # Must have this rel type
-                        q = q.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
-                    else:
-                        # Must NOT have this rel type
-                        q = q.filter(lambda c: not pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
-            elif len(parts) == 3:
-                # Property-based filter: rels.queue.count>=2
-                property_name = parts[2]  # e.g., 'count', 'ts'
-
-                # For complex rel filters, we need to post-process since we can't easily
-                # filter on processed rel data in the SQL query. We'll get candidate items
-                # that have the rel type, then filter in Python.
-                if property_name in ['count', 'ts']:
-                    # First filter to items that have this rel type
-                    q = q.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
-
-                    # Store the property filter for post-processing
-                    if not hasattr(q, '_rel_property_filters'):
-                        q._rel_property_filters = []
-                    q._rel_property_filters.append((rtype, property_name, filter_value))
-        return q
-
-    @db_session
     def build_query(self, kw: dict[str, Any]) -> Query:
         """Builds up the database query to get items matching the given kw filters.
 
@@ -259,6 +217,8 @@ class GetHandler(MyBaseHandler):
             #q = q.filter(has_ancestor) #TODO doesn't work
             # partial workaround (one-level up only)
             q = q.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
+        if 'mn' in kw:
+            q = q.filter(lambda c: c.md['like-benchmark-20260207'])
         # Handle numeric fields
         # TODO how to handle JSON fields (particularly md)?
         numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
@@ -325,6 +285,48 @@ class GetHandler(MyBaseHandler):
         t2 = time.time()
         #logger.info(f'Built query in {t1 - t0:.3f}s, applied limit in {t2 - t1:.3f}s, output type: {type(q)}')
         #print(f'q2: {q}')
+        return q
+
+    @db_session
+    def _apply_rel_filters(self, q: Query, rel_filters: dict[str, Any]) -> Query:
+        """Apply rel-based filters to the query.
+
+        Handles filters like:
+        - rels.like=True/False (existence)
+        - rels.queue.count>=2 (rel metadata)
+        - rels.queue.ts>1234567890 (rel timestamp)
+        """
+        me = Item.get_me()
+        for filter_key, filter_value in rel_filters.items():
+            # Parse the filter key: rels.{rtype}[.{property}]
+            parts = filter_key.split('.')
+            if len(parts) < 2:
+                continue
+            rtype = parts[1]  # e.g., 'like', 'queue'
+            if len(parts) == 2:
+                # Simple existence check: rels.like=True/False
+                if isinstance(filter_value, bool):
+                    if filter_value:
+                        # Must have this rel type
+                        q = q.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
+                    else:
+                        # Must NOT have this rel type
+                        q = q.filter(lambda c: not pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
+            elif len(parts) == 3:
+                # Property-based filter: rels.queue.count>=2
+                property_name = parts[2]  # e.g., 'count', 'ts'
+
+                # For complex rel filters, we need to post-process since we can't easily
+                # filter on processed rel data in the SQL query. We'll get candidate items
+                # that have the rel type, then filter in Python.
+                if property_name in ['count', 'ts']:
+                    # First filter to items that have this rel type
+                    q = q.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
+
+                    # Store the property filter for post-processing
+                    if not hasattr(q, '_rel_property_filters'):
+                        q._rel_property_filters = []
+                    q._rel_property_filters.append((rtype, property_name, filter_value))
         return q
 
     @classmethod
@@ -536,7 +538,7 @@ class FilterHandler(MyBaseHandler):
             is_neg = False
         q_emb = await embed_text.single_async(q, model='clip')
         self.embs.reload_keys()
-        all_keys = [f'{id}:image' for id in cur_ids]
+        all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
         results = self.embs.simple_nearest_neighbors(pos=[q_emb], n_neighbors=1000, metric='cosine', all_keys=all_keys)
         # returns list of (score, key)
         scores = {key.split(':')[0]: score**(1.0/5) for score, key in results}
@@ -568,9 +570,6 @@ class ClassifyHandler(MyBaseHandler):
     async def _handle_likes(self,
                             cur_ids: list[int]|None=None,
                             otypes=['image'],
-                            feature_types=None,
-                            method: str='rbf',
-                            neg_factor: float=10,
                             **kw):
         """Gets the latest likes scores from cached loader"""
         scores = self.application.get_scores()
@@ -585,13 +584,13 @@ class ClassifyHandler(MyBaseHandler):
     async def _handle_clusters(self,
                                cur_ids: list[int],
                                n_clusters: int=5,
-                               method: str='affinity',
+                               method: str='kmeans',
                                **kw):
         """Does auto-clustering with `n_clusters`"""
         #TODO get cluster names
         #TODO weight features differently, based on likes classifier?
         cur_ids = [int(id) for id in cur_ids]
-        all_keys = [f'{id}:image' for id in cur_ids]
+        all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
         ret = self.embs.cluster(all_keys=all_keys, method=method, n_clusters=n_clusters)
         clusters = {}
         for i, lst in enumerate(ret):
@@ -680,8 +679,9 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
             logger.info("LikesWorker started successfully")
         else: # without likes worker
             app.likes_worker = None
-            app.cached_score_loader = CachedScoresLoader(join(classifiers_dir, 'likes.joblib'), {})
-            logger.info(f"Will read scores from: {join(classifiers_dir, 'likes.joblib')}")
+            classifier_path = join(classifiers_dir, 'likes-mn_image.joblib')
+            app.cached_score_loader = CachedScoresLoader(classifier_path, {})
+            logger.info(f"Will read scores from: {classifier_path}")
         def app_get_scores(app):
             """Returns the latest scores from the `app`"""
             if hasattr(app, 'cached_score_loader'):
@@ -748,14 +748,14 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
         time.sleep(max(0, diff))
 
 
-def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, **kw) -> None:
+def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_suffix: str='mn_image', **kw) -> None:
     """Standalone process that runs just the LikesWorker.
 
     - sqlite_path: Path to the SQLite database
     - lmdb_path: Path to the LMDB embeddings database
     - classifiers_dir: Directory where classifiers are saved
     """
-    logger.info(f"Starting worker process with sqlite={sqlite_path}, lmdb={lmdb_path}")
+    logger.info(f"Starting worker process with sqlite={sqlite_path}, lmdb={lmdb_path}, image_suffix={image_suffix}")
     try:
         # Initialize database and embeddings in this process
         sql_db = init_sql_db(sqlite_path)
@@ -764,6 +764,7 @@ def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, **kw) ->
         likes_worker = LikesWorker(
             embs=embs,
             classifiers_dir=classifiers_dir,
+            image_suffix=image_suffix,
         )
         likes_worker.add_task('update')  # Start the main loop
         likes_worker.run()

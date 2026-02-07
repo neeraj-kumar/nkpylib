@@ -56,6 +56,8 @@ sql_db = Database()
 
 J = lambda obj: json.dumps(obj, indent=2)
 
+IMAGE_SUFFIX = 'mn_image'
+
 async def ret_immediate(func_output) -> Any:
     """Given some `func_output`, we want to return something asap.
 
@@ -190,14 +192,25 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             me = cls.get(source='me')
             return me
 
-    @classmethod
-    def image_path(cls, row, images_dir: str='') -> str:
-        """Returns the image path for a given image `row`"""
-        if not row:
-            return ''
-        url = row.url
-        ext = row.md.get('ext', url.split('.')[-1])
-        mk = row.md.get('media_key', row.id)
+    def get_source(self) -> Source|None:
+        """Returns the Source object for this item, if available."""
+        return Source._registry.get(self.source)
+
+    def image_path(self, images_dir: str|None=None) -> str:
+        """Returns the image path for our row.
+
+        If `images_dir` is None, we try to find the appropriate source to get the images_dir, and if
+        we can't find it, we just return a path in the current directory.
+        """
+        if images_dir is None:
+            source = self.get_source()
+            if source:
+                images_dir = source.images_dir
+            else:
+                images_dir = ''
+        url = self.url
+        ext = self.md.get('ext', url.split('.')[-1])
+        mk = self.md.get('media_key', self.id)
         path = abspath(join(images_dir, f'{mk}.{ext}'))
         return path
 
@@ -237,9 +250,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         # add local image path if we have it
         if self.otype == 'image' and self.embed_ts and self.embed_ts > 0:
             # Find the appropriate source to get images_dir
-            source = Source._registry.get(self.source)
-            if source:
-                local_path = self.image_path(self, images_dir=source.images_dir)
+            local_path = self.image_path()
+            if exists(local_path):
                 r['local_path'] = os.path.relpath(local_path)
         # Add parent_url if self has a parent
         if self.parent:
@@ -352,7 +364,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     async def update_image_embeddings(cls,
                                       q: Query,
                                       lmdb_path: str,
-                                      images_dir: str,
                                       limit: int,
                                       fetch_delay: float=0.1,
                                       **kw) -> int:
@@ -370,8 +381,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         # kick off downloads
         async def dl_image(row):
             with db_session:
-                path = cls.image_path(row, images_dir=images_dir)
-                await maybe_dl(row.url, path, fetch_delay=fetch_delay)
+                await maybe_dl(row.url, row.image_path(), fetch_delay=fetch_delay)
             return row, path
 
         download_tasks = [dl_image(row) for row in rows]
@@ -379,6 +389,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         embedding_tasks = []
         async def embed_image_task(row, key, path):
             try:
+                if not exists(path) or os.path.getsize(path) == 0:
+                    raise FileNotFoundError(f'File not found or empty')
                 emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
                 logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
@@ -388,7 +400,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         done = set()
         for task in asyncio.as_completed(download_tasks):
             row, path = await task
-            key = f'{row.id}:image'
+            key = f'{row.id}:{IMAGE_SUFFIX}'
             if key in updater or key in done:
                 logger.info(f' skipping image {row}, key={key} already in lmdb')
                 continue
@@ -418,9 +430,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     async def update_image_descriptions(cls,
                                         q,
                                         lmdb_path: str,
-                                        images_dir: str,
                                         limit: int,
-                                        vlm_prompt: str|None='briefly describe this image',
+                                        vlm_prompt: str|None='Briefly describe this image. Include a list of tags at the end.',
                                         sys_prompt: str|None=None,
                                         vlm_model: str='fastvlm',
                                         **kw) -> int:
@@ -449,7 +460,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 ]
             else:
                 messages = vlm_prompt
-            path = cls.image_path(row, images_dir=images_dir)
+            path = row.image_path()
             try:
                 desc = await call_vlm.single_async((path, messages), model=vlm_model)
             except Exception as e:
@@ -532,13 +543,12 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         q2 = q.limit(limit)
         #print(f'here with {common_kw}: {q2}')
         image_task = asyncio.create_task(
-            cls.update_image_embeddings(images_dir=images_dir, fetch_delay=fetch_delay, limit=limit, **common_kw)
+            cls.update_image_embeddings(fetch_delay=fetch_delay, limit=limit, **common_kw)
         )
         desc_task = asyncio.create_task(
             cls.update_image_descriptions(vlm_prompt=vlm_prompt,
                                           sys_prompt=sys_prompt,
                                           vlm_model=vlm_model,
-                                          images_dir=images_dir,
                                           limit=limit,
                                           **common_kw)
         )
@@ -727,6 +737,11 @@ class Source(abc.ABC):
         return list(cls._registry.values())
 
     @classmethod
+    def first_source(cls) -> Source|None:
+        """Returns the first source in our registry, or None if no sources."""
+        return next(iter(cls._registry.values()), None)
+
+    @classmethod
     def can_parse(cls, url: str) -> bool:
         """Returns if this source can parse the given url"""
         return False
@@ -849,18 +864,19 @@ class Source(abc.ABC):
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype in ('text', 'link'))
             n_missing += fix(rows, 'text', 'embed_ts', fix_missing=True)
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype == 'image')
-            n_missing += fix(rows, 'image', 'embed_ts', fix_missing=True)
+            n_missing += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=True)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is not None and c.explored_ts > 0)
             n_missing += fix(rows, 'text', 'explored_ts', fix_missing=True)
             # now deal with embeddings present in lmdb but not marked done in sqlite
             rows = Item.select(lambda c: c.otype in ('text', 'link') and c.embed_ts is None)
             n_done += fix(rows, 'text', 'embed_ts', fix_missing=False)
             rows = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None)
-            n_done += fix(rows, 'image', 'embed_ts', fix_missing=False)
+            n_done += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=False)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is None)
             n_done += fix(rows, 'text', 'explored_ts', fix_missing=False)
         del db
         logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
+        sys.exit()
 
     @db_session
     def update_embeddings(self, **kw):
