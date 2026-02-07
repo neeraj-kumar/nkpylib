@@ -1823,7 +1823,7 @@ const Controls = () => {
             ←
           </button>
           <span style={{margin: '0 10px'}}>
-            Cluster {ctx.data.curCluster}
+            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster]?.length || 0})
           </span>
           <button
             onClick={() => navigateAutoCluster('next')}
