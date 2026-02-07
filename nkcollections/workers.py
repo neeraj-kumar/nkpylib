@@ -470,6 +470,8 @@ class LikesWorker(BackgroundWorker):
             all_ids = self._get_all_image_ids()
             to_cls = [f'{id}:{self.image_suffix}' for id in all_ids]
             logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
+            # Reload keys before training
+            self.embs.reload_keys()
             # Train and run classifier
             t0 = time.time()
             if 1:
