@@ -183,29 +183,60 @@ class FunctionWrapper:
         kwargs = self._preprocess(kwargs)
         return self.batch(inputs, *args, **kwargs)
 
-    async def single_async(self, input: Any, *args: Any, **kwargs: Any) -> Any:
+    async def single_async(self, input: Any, timeout: float|None=None, *args, **kwargs) -> Any:
         """Single input asynchronous mode, passing a single input.
 
         This is an async function that can be awaited.
+
+        You can optionally pass in a `timeout` in seconds to wait for. It will raise a
+        `TimeoutError` if the call takes longer than the specified time. By default, there is no
+        timeout.
         """
         kwargs = self._preprocess(kwargs)
-        loop = asyncio.get_running_loop()
-        # async executor doesn't allow kwargs, so make a partial
-        task = partial(self.core_func, input, *args, **kwargs)
-        #TODO see if we want to set this executor to our instance of executor
-        result = await loop.run_in_executor(None, task)
+        if 0: # old code
+            loop = asyncio.get_running_loop()
+            # async executor doesn't allow kwargs, so make a partial
+            task = partial(self.core_func, input, *args, **kwargs)
+            #TODO see if we want to set this executor to our instance of executor
+            result = await loop.run_in_executor(None, task)
+        else:
+            task = asyncio.create_task(asyncio.to_thread(self.core_func, input, *args, **kwargs))
+            result = await asyncio.wait_for(task, timeout=timeout)
         return self._process_output(result)
 
-    async def batch_async(self, inputs: list[Any], *args: Any, **kwargs: Any) -> list[Any]:
-        """Batch input asynchronous mode, processing a list of inputs."""
+    async def batch_async(self, inputs: list[Any], timeout: float|None=None, *args, **kwargs) -> list[Any]:
+        """Batch input asynchronous mode, processing a list of inputs.
+
+        All are called with the same set of `args` and `kwargs`. This is an async function that can
+        be awaited.
+
+        You can optionally pass in a `timeout` in seconds to wait for (per input). It will raise a
+        `TimeoutError` if the call takes longer than the specified time. By default, there is no
+        timeout.
+
+        Note that the returned list of outputs will always be the same length as the inputs. Any
+        exceptions (including timeouts) are caught and returned in the output list at the
+        corresponding index, so you should check.
+        """
         kwargs = self._preprocess(kwargs)
-        loop = asyncio.get_running_loop()
-        task = partial(self.core_func, *args, **kwargs)
-        tasks = [loop.run_in_executor(None, task, inp) for inp in inputs]
+        if 0: # old method
+            loop = asyncio.get_running_loop()
+            task = partial(self.core_func, *args, **kwargs)
+            tasks = [loop.run_in_executor(None, task, inp) for inp in inputs]
+        else:
+            tasks = [asyncio.create_task(asyncio.to_thread(self.core_func, inp, *args, **kwargs)) for inp in inputs]
+            if timeout is not None:
+                tasks = [asyncio.wait_for(task, timeout=timeout) for task in tasks]
         if self.progress_msg:
             tasks = list(tqdm(asyncio.as_completed(tasks), total=len(inputs), desc=self.progress_msg))
-        results = await asyncio.gather(*tasks)
-        return [self._process_output(result) for result in results]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        ret = []
+        for r in results:
+            if isinstance(r, Exception):
+                ret.append(r)
+            else:
+                ret.append(self._process_output(r))
+        return ret
 
     def single_future(self, input: Any, *args: Any, **kwargs: Any) -> Any:
         """Single input futures mode which returns a future with the started computation."""
