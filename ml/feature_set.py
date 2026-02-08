@@ -165,7 +165,13 @@ class FeatureSet(Mapping, Generic[KeyT]):
         else:
             self_keys = set(self._keys)
             times.append(time.time())
-            keys = [k for k in keys if k in self_keys]
+            done = set()
+            new_keys = []
+            for k in keys:
+                if k in self_keys and k not in done:
+                    new_keys.append(k)
+                    done.add(k)
+            keys = new_keys
             times.append(time.time())
             if not keys:
                 embs = np.zeros((0, self.n_dims), dtype=self.dtype)
