@@ -32,9 +32,10 @@ import joblib
 import numpy as np
 
 from scipy.spatial.distance import cdist
-from sklearn.base import BaseEstimator # type: ignore
+from sklearn.base import clone, BaseEstimator, ClassifierMixin, ClusterMixin # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import TruncatedSVD # type: ignore
+from sklearn.kernel_approximation import RBFSampler
 from sklearn.linear_model import SGDClassifier # type: ignore
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_recall_fscore_support, roc_auc_score # type: ignore
 from sklearn.model_selection import cross_val_score
@@ -60,6 +61,73 @@ from nkpylib.ml.nklmdb import (
 
 logger = logging.getLogger(__name__)
 
+
+class MixtureOfLinear(BaseEstimator, ClassifierMixin):
+    """A Mixture-of-Linears classifier for binary classification.
+
+    This performs clustering on the positive examples, and then trains a linear SVM for each cluster
+    vs the negatives.
+
+    You can optionally do an RBF transform on the input features before training the SVMs, which can
+    help if the data is not linearly separable. This is done using `RBFSampler`, which approximates
+    the RBF kernel.
+    """
+    #FIXME get this working
+    def __init__(self,
+                 clusterer:ClusterMixin|None=None,
+                 classifier: ClassifierMixin|None=None,
+                 n_rbf_components=0, #FIXME
+                 gamma="scale"):
+        """Give it the `clusterer` and `classifier` you want to use, and other params.
+
+        - The default clusterer is `MiniBatchKMeans` with 5 clusters
+        - The default classifier is Linear SGD with balanced class
+        - The default RBF transform is 2000 components with gamma='scale'
+          - Set n_rbf_components to 0 to disable the RBF transform
+        """
+        if clusterer is None:
+            clusterer = MiniBatchKMeans(n_clusters=5)
+            self.n_clusters = 5
+        else:
+            self.n_clusters = clusterer.n_clusters if hasattr(clusterer, 'n_clusters') else None
+        self.clusterer = clusterer
+        if classifier is None:
+            classifier = SGDClassifier(class_weight="balanced")
+        self.classifier = classifier
+        self.n_rbf_components = n_rbf_components
+        self.gamma = gamma
+
+    def fit(self, X, y, **kw):
+        logger.info(f'Input to MixtureOfLinear fit: X {X.shape}, y {Counter(y).most_common()}')
+        X_pos = np.vstack([row for row, label in zip(X, y) if label > 0])
+        X_neg = np.vstack([row for row, label in zip(X, y) if label <= 0])
+        logger.info(f'Positive examples: {X_pos.shape}, Negative examples: {X_neg.shape}')
+        pos_clusters = self.clusterer.fit_predict(X_pos)
+        self.models_ = []
+        for k in range(len(set(pos_clusters))):
+            Xp = X_pos[pos_clusters == k]
+            Xk = np.vstack([Xp, X_neg])
+            yk = np.hstack([np.ones(len(Xp)), np.zeros(len(X_neg))])
+            pipe = Pipeline([("clf", clone(self.classifier))])
+            if self.n_rbf_components > 0:
+                pipe.insert(0, ("rbf", RBFSampler(
+                    gamma=self.gamma,
+                    n_components=self.n_rbf_components,
+                )))
+            pipe.fit(Xk, yk)
+            self.models_.append(pipe)
+        return self
+
+    def decision_function(self, X):
+        scores = np.column_stack([
+            m.decision_function(X) for m in self.models_
+        ])
+        return scores.max(axis=1)
+
+    def predict(self, X):
+        return (self.decision_function(X) > 0).astype(int)
+
+
 KeyT = TypeVar('KeyT')
 
 class Embeddings(FeatureSet, Generic[KeyT]):
@@ -74,6 +142,21 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         else:
             raise NotImplementedError(f'Clustering method {method!r} not implemented.')
         return clusterer
+
+    def _create_classifier(self, method: str='rbf', C=1, class_weight='balanced', **kw) -> Any:
+        """Creates a classifier instance without training it."""
+        clf_kw = dict(class_weight=class_weight, **kw)
+        match method:
+            case 'rbf':
+                return SVC(kernel='rbf', C=C, **clf_kw)
+            case 'linear':
+                return SVC(kernel='linear', C=C, **clf_kw)
+            case 'sgd':
+                return SGDClassifier(**clf_kw)
+            case 'mixlinear':
+                return MixtureOfLinear(classifier=SGDClassifier(**clf_kw), **kw)
+            case _:
+                raise NotImplementedError(f'Classifier method {method!r} not implemented.')
 
     def count_clustering_conflicts(self, labels: dict[KeyT, int], predictions: dict[KeyT, int]) -> dict[str, int]:
         """Count conflicts between labeled and predicted cluster assignments.
