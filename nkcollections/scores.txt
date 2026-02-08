@@ -1,0 +1,29 @@
+Feb 7: trying out rbf sampler
+
+no sampling:
+2026-02-07 22:19:06,105 - train_and_run_classifier:374 - INFO - Cross-validation scores: [0.62523438 0.61184468 0.58965544 0.57770138 0.57629502], mean: 0.596
+2026-02-07 22:21:43,535 - train_and_run_classifier:374 - INFO - Cross-validation scores: [0.63339581 0.59965636 0.61613558 0.63297665 0.5484652 ], mean: 0.606
+
+
+sampling with 2k
+2026-02-07 22:14:58,267 - train_and_run_classifier:374 - INFO - Cross-validation scores: [0.65165024 0.70678868 0.63772877 0.78359143 0.57727202], mean: 0.671
+2026-02-07 22:16:24,342 - train_and_run_classifier:374 - INFO - Cross-validation scores: [0.72395467 0.68886284 0.63642048 0.67237202 0.51305299], mean: 0.647
+
+
+sampling with 4k and scale:
+2026-02-07 22:46:46,949 - train_and_run_classifier:375 - INFO - Cross-validation scores: [0.66614652 0.7178747  0.73808223 0.78419287 0.70310549], mean: 0.722
+2026-02-07 22:48:33,291 - train_and_run_classifier:375 - INFO - Cross-validation scores: [0.75425051 0.72490445 0.71000702 0.69284767 0.65860697], mean: 0.708
+2026-02-07 22:50:14,105 - train_and_run_classifier:375 - INFO - Cross-validation scores: [0.67090285 0.68953688 0.62809917 0.74658869 0.64140351], mean: 0.675
+2026-02-07 22:53:38,484 - train_and_run_classifier:375 - INFO - Cross-validation scores: [0.77327841 0.64422853 0.71822775 0.78756316 0.70687913], mean: 0.726
+
+
+sampling with 5k:
+2026-02-07 22:32:04,908 - train_and_run_classifier:374 - INFO - Cross-validation scores: [0.71805686 0.75632615 0.72250859 0.7491213  0.65078497], mean: 0.719
+
+
+and gamma='scale'
+2026-02-07 22:35:53,482 - train_and_run_classifier:375 - INFO - Cross-validation scores: [0.72478139 0.74664272 0.7322767  0.7857589  0.68550906], mean: 0.735
+
+2026-02-07 22:44:56,698 - train_and_run_classifier:375 - INFO - Cross-validation scores: [0.75634122 0.70420667 0.67069934 0.72970653 0.61606307], mean: 0.695
+
+
