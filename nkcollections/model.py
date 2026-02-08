@@ -392,7 +392,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             try:
                 if not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
-                emb = await embed_image.single_async(path, model='mobilenet', use_cache=kw.get('use_cache', True))
+                emb = await embed_image.single_async(path, timeout=5, model='mobilenet', use_cache=kw.get('use_cache', True))
                 #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
                 logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
@@ -464,7 +464,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 messages = vlm_prompt
             path = row.image_path()
             try:
-                desc = await call_vlm.single_async((path, messages), model=vlm_model)
+                desc = await call_vlm.single_async((path, messages), timeout=30, model=vlm_model)
             except Exception as e:
                 logger.warning(f'Error generating desc for image {row}, path={path}: {e}')
                 desc = ''
@@ -480,7 +480,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 if desc:
                     row.md['desc'] = desc
                     try:
-                        text_embedding = embed_text.single(desc, model='qwen_emb')
+                        text_embedding = await embed_text.single_async(desc, timeout=5, model='qwen_emb')
                         ts = int(time.time())
                         updater.add(key, embedding=text_embedding, metadata=dict(desc=desc, embed_ts=ts))
                         row.explored_ts = ts
@@ -556,6 +556,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         )
         ret = {}
         ret['n_text'], ret['n_images'], ret['n_descs'] = await asyncio.gather(text_task, image_task, desc_task)
+        print(f'Done with update_embeddings_async in {cls}, got {ret}')
         return ret
 
     @classmethod
@@ -570,7 +571,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                           fetch_delay: float=0.1,
                           **kw) -> dict[str, int]:
         """Calls the async version"""
-        return run_async(cls.update_embeddings_async(
+        ret = run_async(cls.update_embeddings_async(
             lmdb_path=lmdb_path,
             images_dir=images_dir,
             ids=ids,
@@ -581,6 +582,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             fetch_delay=fetch_delay,
             **kw
         ))
+        print(f'Sync Done with update_embeddings in {cls}, got {ret}')
+        return ret
 
 
 class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
