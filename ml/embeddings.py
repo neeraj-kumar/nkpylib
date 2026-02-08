@@ -434,6 +434,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         weights = []
         test_keys = []
         test_X = []
+        logger.info(f'Got {len(keys)} keys, {len(set(keys))} unique keys')
         for k, emb in zip(keys, embs):
             if k in pos_set or k in neg_set:
                 train_X.append(emb)
@@ -442,8 +443,14 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             if k in to_cls:
                 test_keys.append(k)
                 test_X.append(emb)
-        trainX = np.vstack(train_X)
+        train_X = np.vstack(train_X)
+        #sampler = RBFSampler(gamma=1.0/len(emb), n_components=5000)
+        sampler = RBFSampler(gamma='scale', n_components=4000)
+        if method in ('linear', 'sgd'):
+            other_stuff['sampler'] = sampler
+            train_X = sampler.fit_transform(train_X)
         times.append(time.time())
+        logger.info(f'In training, trainX: {train_X.shape}, y: {Counter(y).most_common()}')
         # Perform cross-validation if requested
         if cv > 0:
             cv_classifier = self._create_classifier(method=method, C=C, **kw)
@@ -452,7 +459,9 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             logger.info(f'Cross-validation scores: {cv_scores}, mean: {cv_scores.mean():.3f}')
         cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
-        scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(np.vstack(test_X)))}
+        test_X = np.vstack(test_X)
+        test_X = sampler.transform(test_X)
+        scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(test_X))}
         times.append(time.time())
         other_stuff['times'] = dict(
             training=times[3] - times[2],
@@ -464,7 +473,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
     def run_classifier(self,
                        to_cls: list[KeyT],
                        classifier: BaseEstimator,
-                       scaler: StandardScaler|None=None) -> dict[KeyT, Any]:
+                       scaler: StandardScaler|None=None,
+                       sampler: RBFSampler|None=None) -> dict[KeyT, Any]:
         """Runs `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
         keys, embs, scaler = self.get_keys_embeddings(
@@ -477,21 +487,10 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         )
         if not keys:
             return {}
+        if sampler is not None:
+            embs = sampler.transform(embs)
         scores_array = classifier.decision_function(embs)
         return {key: float(score) for key, score in zip(keys, scores_array)}
-
-    def _create_classifier(self, method: str='rbf', C=1, class_weight='balanced', **kw) -> Any:
-        """Creates a classifier instance without training it."""
-        clf_kw = dict(class_weight=class_weight, **kw)
-        match method:
-            case 'rbf':
-                return SVC(kernel='rbf', C=C, **clf_kw)
-            case 'linear':
-                return SVC(kernel='linear', C=C, **clf_kw)
-            case 'sgd':
-                return SGDClassifier(**clf_kw)
-            case _:
-                raise NotImplementedError(f'Classifier method {method!r} not implemented.')
 
     def train_classifier(self,
                          X: nparray2d,
