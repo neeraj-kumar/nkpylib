@@ -1,11 +1,9 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO move operations to worker
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers
 #TODO general slowness
-#TODO benchmark mobilenet
 #TODO remove bad images
 #TODO diversity on likes classifier?
 #TODO handle reblog keys
@@ -45,6 +43,7 @@ import traceback
 
 from argparse import ArgumentParser
 from collections import defaultdict, Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import cache
 from multiprocessing import Process
 from os.path import abspath, exists, join, dirname
@@ -78,7 +77,7 @@ from nkpylib.ml.client import embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed, IMAGE_SUFFIX
+from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed, IMAGE_SUFFIX, ACTIONS
 from nkpylib.nkcollections.workers import CollectionsWorker
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
@@ -490,7 +489,6 @@ class DwellHandler(MyBaseHandler):
     def post(self):
         pass
 
-
 class ActionHandler(MyBaseHandler):
     """The user took some action, which we will store in our `rels` table."""
     async def post(self):
@@ -498,12 +496,10 @@ class ActionHandler(MyBaseHandler):
         data = json.loads(self.request.body)
         action = data.pop('action', '')
         logger.info(f'ActionHandler got action={action}, {data}')
-        assert action in 'like unlike dislike undislike queue unqueue explore'.split()
+        assert action in ACTIONS
         ids = [int(i) for i in data.pop('ids')]
-        # Start the generator and get the immediate result
-        gen = Rel.handle_me_action(ids=ids, action=action, **data)
-        _ = await gen.__anext__()
-        # Respond to client immediately after database updates
+        # Get the generic result (source-specific processing happens later)
+        await Rel.handle_me_action(ids=ids, action=action, **data)
         with db_session:
             q = Item.select(lambda c: c.id in ids)
             updated_rows, _ = await GetHandler.query_to_web(q)
@@ -512,14 +508,7 @@ class ActionHandler(MyBaseHandler):
                 msg=f'Took action {action} on {ids}',
                 updated_rows=updated_rows,
             ))
-        # Fire-and-forget the rest of the generator (source processing)
-        async def finish_source_processing():
-            try:
-                await gen.__anext__()  # This will finish the source processing
-            except StopAsyncIteration:
-                pass  # Generator finished normally
 
-        self.background_task(finish_source_processing())
 
 class FilterHandler(MyBaseHandler):
     async def post(self):
@@ -715,7 +704,10 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
                                 more_kw=kw,
                                 on_start=on_start)
 
-def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Callable|None=None,
+def embeddings_main(batch_size: int=20,
+                    loop_delay: float=10,
+                    source_timeout_factor: float=0.5,
+                    loop_callback: Callable|None=None,
                     **kw):
     """Runs embedding updates from the command line in an infinite loop.
 
@@ -724,6 +716,8 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
     Params:
     - batch_size: The number of embeddings to process per source per otype per loop iteration
     - loop_delay: The desired max delay between loop iterations, in seconds
+    - source_timeout_factor: How long to wait for each source to do one round of updates. This is
+      number of seconds * batch_size.
     - loop_callback: An optional callback to call at the end of each loop iteration, given the
       counts of embeddings updated. If this returns a dict, then we replace our kw with those.
     - kw: Any other kw are passed to Source.update_embeddings
@@ -732,14 +726,21 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
     logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
     for s in sources:
         s.cleanup_embeddings(s.lmdb_path)
+    executor = ThreadPoolExecutor()
     while 1:
+        with db_session:
+            commit()
         counts = Counter()
         t0 = time.time()
+        futures = {}
+        for s in sources:
+            future = executor.submit(s.update_embeddings, limit=batch_size, **kw)
+            futures[future] = s
         try:
-            for s in sources:
-                print(f'Updating embeddings for source {s} with kw {kw}...')
-                cur = s.update_embeddings(limit=batch_size, **kw)
-                print(f'  Updated embeddings for source {s}, got counts {cur}')
+            for future in as_completed(futures, timeout=source_timeout_factor * batch_size * len(sources)):
+                s = futures[future]
+                cur = future.result()
+                logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
                 for k, v in cur.items():
                     counts[k] += v
         except Exception as e:

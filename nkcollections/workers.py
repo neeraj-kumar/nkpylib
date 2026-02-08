@@ -47,7 +47,7 @@ from nkpylib.ml.client import embed_image
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import Item, Rel, Source, ret_immediate
+from nkpylib.nkcollections.model import Item, Rel, Source, ret_immediate, ACTIONS
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async, background_task
@@ -240,6 +240,21 @@ class BackgroundWorker(abc.ABC):
             logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
             return dict(counts)
 
+    async def _handle_user_actions(self, max_items:int= 10) -> None:
+        """Handles user actions that are in the table but have not been done."""
+        with db_session:
+            actions = Rel.select(lambda r: r.rtype in ACTIONS and r.md['processed_ts'] is None)[:max_items]
+            for a in actions:
+                s = a.tgt.get_source()
+                logger.info(f'handling action {a} with source {s}')
+                try:
+                    await s.handle_me_action([a.tgt.id], a.rtype)
+                    a.md['processed_ts'] = time.time()
+                except Exception as e:
+                    logger.error(f'Error handling action {a}: {e}')
+                    a.md['processed_ts'] = -1
+
+
     async def _explore_users(self, min_count=80) -> None:
         """Explores users who have more than `min_count` reblogs queued."""
         with db_session:
@@ -377,6 +392,7 @@ class CollectionsWorker(BackgroundWorker):
                 t0 = time.time()
                 try:
                     run_async(self._explore_users())
+                    run_async(self._handle_user_actions())
                     self._update_user_stats()
                     self._update_classifier()
                 except Exception as e:

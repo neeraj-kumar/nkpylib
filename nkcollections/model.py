@@ -58,6 +58,9 @@ J = lambda obj: json.dumps(obj, indent=2)
 
 IMAGE_SUFFIX = 'mn_image'
 
+ACTIONS = 'like unlike dislike undislike queue unqueue explore'.split()
+
+
 async def ret_immediate(func_output) -> Any:
     """Given some `func_output`, we want to return something asap.
 
@@ -619,7 +622,7 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         return list(ret)
 
     @classmethod
-    async def handle_me_action(cls, ids: list[int], action: str, **kw):
+    async def handle_me_action(cls, ids: list[int], action: str, **kw) -> None:
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`."""
         with db_session:
             items = Item.select(lambda c: c.id in ids)[:]
@@ -670,21 +673,11 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                         r = Rel.get(**get_kw)
                         if r:
                             r.delete()
-                    case 'explore': # explore the given item...source-dependent only
-                        pass
+                    case 'explore': # explore the given item: just add a new rel
+                        r = Rel(src=me, rtype='explore', tgt=item, ts=ts)
                     case _:
                         logger.info(f'Unknown me action {action}')
-                by_src = rels_by_item_by_source[item.source]
-                by_src[item] = []
-                if r is not None:
-                    by_src[item].append(r)
-        yield rels_by_item_by_source  # Yield after immediate work is done
-        print(f'In Rel.handle_me_action after yield, got rels_by_item_by_source={rels_by_item_by_source}')
-        # now call this method on each source for custom handling
-        for source, rels_by_item in rels_by_item_by_source.items():
-            src = Source._registry.get(source)
-            if src:
-                await src.handle_me_action(ids, action, **kw)
+        return
 
 
 def init_sql_db(path: str) -> Database:
@@ -762,7 +755,7 @@ class Source(abc.ABC):
     async def handle_me_action(self, ids: list[int], action: str, **kw) -> None:
         """Handles an action (e.g. 'like' or 'unlike') from "me" on the given list of `items`.
 
-        This is called after generic processing, with a list of item ids.
+        This is called at some point after generic processing, with a list of item ids.
 
         The default implementation does nothing, but subclasses can override this.
         """
@@ -915,4 +908,4 @@ class Source(abc.ABC):
                     ids.extend([item.id for item in items])
                 logger.info(f'Found {n} liked undone items for source {self.name}, prioritizing {len(ids)}')
         #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
-        return Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, ids=ids, **kw)
+        return Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, **kw)

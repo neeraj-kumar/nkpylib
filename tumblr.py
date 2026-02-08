@@ -66,7 +66,7 @@ def obj_get(path: str, obj: dict, default: Any=None) -> Any:
 class TumblrApi:
     """Core Tumblr API functionality - authentication, requests, data parsing"""
     NAME = 'tumblr'
-    MIN_DELAY = 0.3 # between requests
+    MIN_DELAY = 0.2 # between requests
 
     COMMON_HEADERS = {
         "Accept": "application/json;format=camelcase", # Accept header used by Tumblr’s API
