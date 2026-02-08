@@ -1,5 +1,6 @@
 /* NK Collections React App
  *
+ * TODO global search by image
  * TODO searching by text should use the current source params and just modify that?
  * TODO use recent likes to determine how to prioritize feed
  * TODO add an overall diversity slider that modifies recency priorities?
@@ -1823,7 +1824,7 @@ const Controls = () => {
             ←
           </button>
           <span style={{margin: '0 10px'}}>
-            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster]?.length || 0})
+            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster].length || 0})
           </span>
           <button
             onClick={() => navigateAutoCluster('next')}
