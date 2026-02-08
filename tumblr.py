@@ -38,7 +38,7 @@ from nkpylib.nkcollections.nkcollections import (
     Source,
     web_main,
 )
-from nkpylib.nkcollections.workers import LikesWorker
+from nkpylib.nkcollections.workers import CollectionsWorker
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.nkpony import sqlite_pragmas, GetMixin, recursive_to_dict
@@ -448,16 +448,9 @@ class Tumblr(TumblrApi, Source):
                         continue
                     logger.info(f'Tumblr exploring user: {user} -> {user.url}')
                     try:
-                        print('Before commit...')
                         commit()
-                        print(f'After commit...')
                         #await self.parse(user.url)
-                        #FIXME any awaits are not working here...
-                        # async sleep for a second
-                        await asyncio.sleep(1)
-                        print(f'after async sleep')
                         await self.check_logged_in()
-                        print(f'After check_logged_in...')
                         posts, offset, total = await self.get_blog_archive(user.url, n_posts=300)
                         print(f'Got {len(posts)} posts')
                         self.create_collection_from_posts(posts)
@@ -814,13 +807,13 @@ def gen_benchmark(**kw):
     """Generates a benchmark set"""
     return #FIXME remove when we want to generate a new set
     t = Tumblr()
-    lw = LikesWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
+    lw = CollectionsWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
     lw.gen_benchmark_set()
 
 def run_benchmark(name='like-benchmark-20260202-175744', **kw):
     """Runs the benchmark with given `name`"""
     t = Tumblr()
-    lw = LikesWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
+    lw = CollectionsWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
     lw.run_benchmark(name=name)
 
 

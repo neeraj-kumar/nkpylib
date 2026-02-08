@@ -240,7 +240,7 @@ class BackgroundWorker(abc.ABC):
             logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
             return dict(counts)
 
-    def _explore_users(self, min_count=80) -> None:
+    async def _explore_users(self, min_count=80) -> None:
         """Explores users who have more than `min_count` reblogs queued."""
         with db_session:
             users = Item.select(lambda u: u.otype == 'user' and u.explored_ts is None and u.md['n_queued_reblogs'] is not None)
@@ -252,7 +252,13 @@ class BackgroundWorker(abc.ABC):
         if not to_explore:
             return
         logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
-        run_async(ret_immediate(Rel.handle_me_action(to_explore, 'explore')))
+        gen = Rel.handle_me_action(to_explore, 'explore')
+        # iterate over this async generator
+        async for x in gen:
+            logger.info(f'  Explore Result: {x}')
+            pass
+        logger.info(f'Done exploring users')
+        #await ret_immediate(Rel.handle_me_action(to_explore, 'explore'))
 
     @db_session
     def _update_user_stats(self, max_users:int=1000) -> None:
@@ -311,18 +317,27 @@ class BackgroundWorker(abc.ABC):
         return self.running and self.thread is not None and self.thread.is_alive()
 
 
-class LikesWorker(BackgroundWorker):
-    """Background worker that maintains likes-based image classifier state.
+class CollectionsWorker(BackgroundWorker):
+    """Background worker for collections.
 
-    Continuously monitors for changes in liked images and updates classifier scores.
-    Maintains a dict of scores (id->score), tracks the last computed time, and
-    saves classifiers to disk for persistence.
+    This does a few different things in a loop:
+    - Updates like scores:
+      - If the set of liked items has changed, it retrains the classifier and updates scores.
+      - If not, but there are new items with embeddings that haven't been scored, it runs inference
+        on those items to update scores.
+      - In both cases, the updated scores are written out with the current classifier to a joblib
+        file for use by other parts of the system.
+    - Updates user stats: periodically updates user statistics in the database, such as counts of
+      different content types, average like scores, etc. This is used for exploration and other
+      features.
+    - User exploration: periodically checks for users who have a large number of queued reblogs and
+      automatically triggers them for exploration.
     """
 
     def __init__(self,
                  embs: Embeddings,
                  classifiers_dir: str,
-                 name: str = "LikesWorker",
+                 name: str = "CollectionsWorker",
                  method: str = 'sgd',
                  max_pos: int = 10000,
                  neg_factor: float = 10,
@@ -361,11 +376,12 @@ class LikesWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
-                    #FIXME broken right now self._explore_users()
+                    run_async(self._explore_users())
                     self._update_user_stats()
                     self._update_classifier()
                 except Exception as e:
                     logger.error(f"Error in process_task: {e}")
+                    print(traceback.format_exc())
                 elapsed = time.time() - t0
                 diff = self.sleep_interval - elapsed
                 if diff > 0:
@@ -464,7 +480,7 @@ class LikesWorker(BackgroundWorker):
             # Run inference
             r = self.run_inference()
             logging.debug(f'Running inference result: {r}')
-            return dict(status='no_change', pos_count=len(current_pos_ids))
+            return
         try:
             pos, neg = self._get_training_set(current_pos_ids=current_pos_ids)
             all_ids = self._get_all_image_ids()
@@ -476,7 +492,7 @@ class LikesWorker(BackgroundWorker):
             t0 = time.time()
             if 1:
                 classifier, scores, other_stuff = self.embs.train_and_run_classifier(
-                    pos=pos, neg=neg, to_cls=to_cls, method=self.method
+                    pos=pos, neg=neg, to_cls=to_cls, method=self.method, cv=5
                 )
                 joblib.dump(dict(classifier=classifier, scores=scores, other_stuff=other_stuff), 'blah.joblib')
             else:
@@ -505,18 +521,9 @@ class LikesWorker(BackgroundWorker):
             })
             t2 = time.time()
             logger.info(f"Updated likes classifier in {t1-t0:.2f}s+{t2-t1:.2f}s, v{self.last['classifier_version']}")
-            return dict(
-                status='updated',
-                pos_count=len(pos),
-                neg_count=len(neg),
-                scores_count=len(self.scores),
-                classifier_path=self.classifier_path,
-                **other_stuff
-            )
         except Exception as e:
             logger.error(f"Error updating likes classifier: {e}")
             print(traceback.format_exc())
-            return dict(status='error', error=str(e))
 
     def get_scores(self) -> dict[str, float]:
         """Get current classifier scores."""
@@ -623,7 +630,8 @@ class LikesWorker(BackgroundWorker):
             t0 = time.time()
             new_scores = self.embs.run_classifier(to_cls=to_cls,
                                                   classifier=classifier,
-                                                  scaler=saved_data.get('scaler', None))
+                                                  scaler=saved_data.get('scaler', None),
+                                                  sampler=saved_data.get('sampler', None))
             new_scores = {key.split(':')[0]: score for key, score in new_scores.items()}
             t1 = time.time()
             new_scores = self.rescore(new_scores, list(self.last['pos_ids']))

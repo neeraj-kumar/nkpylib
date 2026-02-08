@@ -1,6 +1,9 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
+#TODO move operations to worker
+#TODO separate out config on sources vs overall
+#TODO investigate multiple linear classifiers
 #TODO general slowness
 #TODO benchmark mobilenet
 #TODO remove bad images
@@ -71,12 +74,12 @@ from pony.orm import (
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
-from nkpylib.ml.client import call_vlm, embed_image, embed_text
+from nkpylib.ml.client import embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed, IMAGE_SUFFIX
-from nkpylib.nkcollections.workers import LikesWorker
+from nkpylib.nkcollections.workers import CollectionsWorker
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async
@@ -151,7 +154,7 @@ class MyBaseHandler(BaseHandler):
         return self.application.embs # type: ignore[attr-defined]
 
     @property
-    def likes_worker(self) -> LikesWorker:
+    def likes_worker(self) -> CollectionsWorker:
         if hasattr(self.application, 'likes_worker'):
             return self.application.likes_worker # type: ignore[attr-defined]
         else:
@@ -536,7 +539,7 @@ class FilterHandler(MyBaseHandler):
                 q = q[4:].strip()
         else:
             is_neg = False
-        q_emb = await embed_text.single_async(q, model='clip')
+        q_emb = await embed_text.single_async(q, timeout=5, model='clip')
         self.embs.reload_keys()
         all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
         results = self.embs.simple_nearest_neighbors(pos=[q_emb], n_neighbors=1000, metric='cosine', all_keys=all_keys)
@@ -591,6 +594,7 @@ class ClassifyHandler(MyBaseHandler):
         #TODO weight features differently, based on likes classifier?
         cur_ids = [int(id) for id in cur_ids]
         all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
+        self.embs.reload_keys()
         ret = self.embs.cluster(all_keys=all_keys, method=method, n_clusters=n_clusters)
         clusters = {}
         for i, lst in enumerate(ret):
@@ -673,10 +677,10 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
         else:
             assert False, "No sources registered, cannot determine classifiers_dir"
         if args.worker: # version with likes workers
-            app.likes_worker = LikesWorker(embs=app.embs, classifiers_dir=classifiers_dir)
+            app.likes_worker = CollectionsWorker(embs=app.embs, classifiers_dir=classifiers_dir)
             app.likes_worker.start()
             app.likes_worker.add_task('update')  # Start the main loop
-            logger.info("LikesWorker started successfully")
+            logger.info("CollectionsWorker started successfully")
         else: # without likes worker
             app.likes_worker = None
             classifier_path = join(classifiers_dir, 'likes-mn_image.joblib')
@@ -733,7 +737,9 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
         t0 = time.time()
         try:
             for s in sources:
+                print(f'Updating embeddings for source {s} with kw {kw}...')
                 cur = s.update_embeddings(limit=batch_size, **kw)
+                print(f'  Updated embeddings for source {s}, got counts {cur}')
                 for k, v in cur.items():
                     counts[k] += v
         except Exception as e:
@@ -749,7 +755,7 @@ def embeddings_main(batch_size: int=20, loop_delay: float=10, loop_callback: Cal
 
 
 def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_suffix: str='mn_image', **kw) -> None:
-    """Standalone process that runs just the LikesWorker.
+    """Standalone process that runs just the CollectionsWorker.
 
     - sqlite_path: Path to the SQLite database
     - lmdb_path: Path to the LMDB embeddings database
@@ -761,14 +767,14 @@ def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_su
         sql_db = init_sql_db(sqlite_path)
         embs = Embeddings([lmdb_path])
         # Create and start worker
-        likes_worker = LikesWorker(
+        likes_worker = CollectionsWorker(
             embs=embs,
             classifiers_dir=classifiers_dir,
             image_suffix=image_suffix,
         )
         likes_worker.add_task('update')  # Start the main loop
         likes_worker.run()
-        logger.info("LikesWorker started successfully")
+        logger.info("CollectionsWorker started successfully")
     except Exception as e:
         logger.error(f"Worker process failed: {e}")
         traceback.print_exc()
