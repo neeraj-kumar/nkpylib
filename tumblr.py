@@ -364,9 +364,9 @@ class Tumblr(TumblrApi, Source):
 
     @classmethod
     def get_blog_name(cls, url: str) -> str:
+        """A tumblr blog name is either in the format xyz.tumblr.com or tumblr.com/xyz"""
         if '/' not in url:
             return url
-        # first get the blog name, which is either in the format xyz.tumblr.com or tumblr.com/xyz
         parsed = urlparse(url)
         netloc = parsed.netloc.lower()
         path = parsed.path.lower()
@@ -476,9 +476,11 @@ class Tumblr(TumblrApi, Source):
                 try:
                     commit()
                     await self.check_logged_in()
-                    notes = await self.get_post_notes(post.md['blog_name'], post_id)
+                    blog_name = post.md.get('blog_name') or self.get_blog_name(post.url)
+                    logger.info(f'  Getting notes for post {post_id} on blog {blog_name}...')
+                    notes = await self.get_post_notes(blog_name, post_id)
                 except Exception as e:
-                    logger.warning(f'  Failed to get notes for post {post.md["post_id"]}: {e}')
+                    logger.warning(f'  Failed to get notes for post {post_id}: {e}')
                     post.explored_ts = -1
                     continue
                 logger.info(f'  Got {len(notes)} notes for post {post_id}')
