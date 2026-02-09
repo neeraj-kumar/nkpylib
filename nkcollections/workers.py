@@ -267,15 +267,9 @@ class BackgroundWorker(abc.ABC):
         if not to_explore:
             return
         logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
-        gen = Rel.handle_me_action(to_explore, 'explore')
-        # iterate over this async generator
-        async for x in gen:
-            logger.info(f'  Explore Result: {x}')
-            pass
+        await Rel.handle_me_action(to_explore, 'explore')
         logger.info(f'Done exploring users')
-        #await ret_immediate(Rel.handle_me_action(to_explore, 'explore'))
 
-    @db_session
     def _update_user_stats(self, max_users:int=1000) -> None:
         """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
 
@@ -283,39 +277,44 @@ class BackgroundWorker(abc.ABC):
         """
         n_updated = 0
         t0 = time.time()
-        users = Item.select(lambda u: u.otype == 'user')
-        # sort by last stats time
-        last_times = []
-        for u in users:
-            if u.md.setdefault('stats', {}) is None:
-                u.md['stats'] = {}
-            last_times.append(u.md['stats'].get('ts', 0))
-        users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])][:max_users]
-        user_ids = {u.id for u in users}
+        with db_session:
+            users = Item.select(lambda u: u.otype == 'user')
+            # sort by last stats time
+            last_times = []
+            for u in users:
+                if u.md.setdefault('stats', {}) is None:
+                    u.md['stats'] = {}
+                last_times.append(u.md['stats'].get('ts', 0))
+            users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])][:max_users]
+            user_ids = {u.id for u in users}
         # first build a dict from user id to list of their item ids
         items_by_user = defaultdict(list)
         n_items = 0
-        items = Item.select(lambda i: i.otype in ('post', 'image', 'video'))
-        items = items.filter(lambda i: i.parent and (i.parent.id in user_ids or (i.parent.parent and i.parent.parent.id in user_ids)))
-        for item in items:
-            user = item.get_closest(otype='user')
-            if not user or user.id not in user_ids:
-                continue
-            items_by_user[user.id].append(item.id)
-            n_items += 1
-        logger.info(f'Starting to get stats for {len(users)} users with {n_items} items')
-        for user in users:
+        with db_session:
+            items = Item.select(lambda i: i.otype in ('post', 'image', 'video'))
+            items = items.filter(lambda i: i.parent and (i.parent.id in user_ids or (i.parent.parent and i.parent.parent.id in user_ids)))
+            for item in items:
+                user = item.get_closest(otype='user')
+                if not user or user.id not in user_ids:
+                    continue
+                items_by_user[user.id].append(item.id)
+                n_items += 1
+        logger.info(f'Starting to get stats for {len(user_ids)} users with {n_items} items')
+        for user_id in user_ids:
             try:
-                stats = self._compute_user_stats(user.id, items_by_user[user.id])
-                # Update user's metadata with computed stats
-                if user.md is None:
-                    user.md = {}
-                # add the queued reblogs
-                stats['n_queued_reblogs'] = user.md.get('n_queued_reblogs', 0)
-                user.md['stats'] = stats
-                n_updated += 1
+                stats = self._compute_user_stats(user_id, items_by_user[user_id])
+                with db_session:
+                    user = Item[user_id]
+                    # Update user's metadata with computed stats
+                    if user.md is None:
+                        user.md = {}
+                    # add the queued reblogs
+                    stats['n_queued_reblogs'] = user.md.get('n_queued_reblogs', 0)
+                    user.md['stats'] = stats
+                    n_updated += 1
             except Exception as e:
                 logger.error(f"Error computing stats for user {user.id}: {e}")
+                print(traceback.format_exc())
                 continue
         t1 = time.time()
         logger.info(f"Updated stats for {n_updated} users in {t1 - t0:.2f}s")
