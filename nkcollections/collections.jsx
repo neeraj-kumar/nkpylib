@@ -2022,6 +2022,8 @@ const AppProvider = ({ children }) => {
     if (resetData) {
       setRowById({});
       setClusters({});
+      setAutoClusters({});
+      setCurCluster(null);
     }
     // if we have both a video and image of the same thing, filter the video out
     const toDel = [];
