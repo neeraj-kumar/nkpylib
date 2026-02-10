@@ -33,7 +33,7 @@ const QUICK_LINKS = {
   // unexplored but queued
   'Q users': {...user_kw, "explored_ts": "<>", "order": "-lambda o: o.md['n_queued_reblogs']"},
   // recent positive liked images
-  'Pos Images': {"otype":"image","limit":500,"min_like":0.1,"order": "-embed_ts"},
+  'Pos Images': {"otype":"image","limit":200,"min_like":0.1,"order": "-embed_ts"},
   // users sorted by n pos likes
   Users: {...user_kw, "source": "tumblr", "order": "-lambda o: o.md['stats']['n_pos_like_score']"},
   // recent users sorted by timestamp
@@ -1250,7 +1250,8 @@ const Obj = (props) => {
           className={cClasses.join(' ')}
           onClick={(e) => {
             e.stopPropagation();
-            ctx.actions.togglePos(id);
+            //ctx.actions.togglePos(id);
+            ctx.actions.searchPos(id);
           }}
           title={ctx.data.pos.includes(id) ? "Remove from positive examples" : "Add to positive examples"}
         >
@@ -1680,16 +1681,13 @@ const Controls = () => {
   const navigateAutoCluster = React.useCallback((direction) => {
     const clusterKeys = Object.keys(ctx.data.autoClusters);
     if (clusterKeys.length === 0) return;
-    
     const currentIndex = clusterKeys.indexOf(ctx.data.curCluster);
     let newIndex;
-    
     if (direction === 'prev') {
       newIndex = currentIndex <= 0 ? clusterKeys.length - 1 : currentIndex - 1;
     } else {
       newIndex = currentIndex >= clusterKeys.length - 1 ? 0 : currentIndex + 1;
     }
-    
     ctx.filters.setCurCluster(clusterKeys[newIndex]);
   }, [ctx.data.autoClusters, ctx.data.curCluster, ctx.filters.setCurCluster]);
 
@@ -2017,8 +2015,8 @@ const AppProvider = ({ children }) => {
     }
   }, [curIds, nCols, mode]); // Re-run when items or columns change
 
+  // Add or update rows by id (object metadata)
   const updateRowById = React.useCallback((updatedRows) => {
-    // use immer to update rowById
     setRowById((rowById) => immer.produce(rowById, (draft) => {
       Object.entries(updatedRows).forEach(([id, row]) => {
         draft[id] = row;
@@ -2034,6 +2032,7 @@ const AppProvider = ({ children }) => {
       setClusters({});
       setAutoClusters({});
       setCurCluster(null);
+      setScores({});
     }
     // if we have both a video and image of the same thing, filter the video out
     const toDel = [];
@@ -2055,8 +2054,9 @@ const AppProvider = ({ children }) => {
     } else {
       setCurIds(Object.keys(newRowById));
     }
-    setAllOtypes(data.allOtypes);
-
+    if (data.allOtypes) {
+      setAllOtypes(data.allOtypes);
+    }
     // In clustering mode, initialize clusters for new objects
     if (mode === 'cluster') {
       setClusters((prevClusters) => {
@@ -2070,7 +2070,11 @@ const AppProvider = ({ children }) => {
         return newClusters;
       });
     }
-  }, [updateRowById, setCurIds, setAllOtypes, mode, setClusters]);
+    // sets our scores if we got them
+    if (data.scores) {
+      updateScores(data.scores);
+    }
+  }, [updateRowById, setCurIds, setAllOtypes, mode, setClusters, updateScores]);
 
   // Function to manually refresh Masonry layout
   const refreshMasonry = React.useCallback(() => {
@@ -2139,6 +2143,18 @@ const AppProvider = ({ children }) => {
     });
   }, [curIds, setAutoClusters, setCurCluster]);
 
+  // sets the pos to do a new search
+  const searchPos = React.useCallback((id) => {
+    const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
+    const sourceObj = JSON.parse(sourceStr);
+    console.log('in search pos for', id, sourceObj);
+    if (sourceObj.offset) {
+      sourceObj.offset = 0;
+    }
+    sourceObj.pos = [id];
+    doSource(JSON.stringify(sourceObj), true);
+  }, [doSource]);
+
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
     setPos((pos) => {
@@ -2166,6 +2182,7 @@ const AppProvider = ({ children }) => {
     return resp;
   }, [updateRowById]);
 
+  // specific action handlers that call the generic one with the appropriate action string
   const setLiked = React.useCallback((id, likedState) => {
     const action = likedState ? 'like' : 'unlike';
     doAction([id], action);
@@ -2228,7 +2245,7 @@ const AppProvider = ({ children }) => {
     });
   }, [setClusters, curIds]);
 
-  // function to call classification, whenever pos changes
+  // call classification whenever pos changes
   React.useEffect(() => {
     if (pos.length === 0) {
       setScores({});
@@ -2329,6 +2346,7 @@ const AppProvider = ({ children }) => {
       setLiked,
       setDisliked,
       togglePos,
+      searchPos,
       doSource,
       doClassifier,
       setQueued,

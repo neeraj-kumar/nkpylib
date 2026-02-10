@@ -172,15 +172,21 @@ class GetHandler(MyBaseHandler):
     def build_query(self, kw: dict[str, Any]) -> Query:
         """Builds up the database query to get items matching the given kw filters.
 
-        For string fields, the value can be a string (exact match) or a list of strings (any of).
-        For numeric fields, the value can be a number (exact match) or a string with an operator
-        such as '>=123', '<=456', '>789', '<1011', '!=1213'.
-
-        For rel-based filters, use rels.{rtype}.{property} format:
-        - rels.like=True/False (existence)
-        - rels.queue.count>=2 (rel metadata)
-        - rels.queue.ts>1234567890 (rel timestamp)
+        - For string fields, the value can be a string (exact match) or a list of strings (any of).
+        - For numeric fields, the value can be a number (exact match) or a string with an operator
+          such as '>=123', '<=456', '>789', '<1011', '!=1213'.
+        - Use 'parent' or 'ancestor' filters to filter by parent or any ancestor item.
+          - For now, ancestor only searches parent + grandparent
+        - Use 'ids' with a num spec string like '1,2,5-10' to filter by specific item ids.
+        - Use 'order' with a field name, optionally prefixed by '-' for descending
+          - For JSON fields, use the format field[key], e.g. md[like-benchmark-20260207].
+        - For rel-based filters, use rels.{rtype}.{property} format:
+          - rels.like=True/False (existence)
+          - rels.queue.count>=2 (rel metadata)
+          - rels.queue.ts>1234567890 (rel timestamp)
+        - Use 'min_like' to filter by a minimum like score from the likes classifier.
         """
+        logger.info(f'Building query with filters: {kw}')
         t0 = time.time()
         q = Item.select()
 
@@ -250,41 +256,81 @@ class GetHandler(MyBaseHandler):
                         q = q.filter(lambda c: getattr(c, field) == float(value))
                 else: # Exact match
                     q = q.filter(lambda c: getattr(c, field) == value)
-        # order value will be a field name, optionally prefixed by - for descending
-        order_field = kw.get('order', '-id')
+        limit = int(kw['limit'])
+        offset = int(kw.get('offset', 0))
+        do_ordering = True
+        # score/ml-based filters
+        if 'min_like' in kw or 'pos' in kw:
+            logger.info(f'Applying score/ml-based filters')
+            # get only ids
+            if isinstance(q, Query):
+                q = q.without_distinct()
+                # pre-limit the query if we have a limit and min_like filter
+                if 'min_like' in kw and 'pos' not in kw and limit:
+                    q = q.limit(int((limit+offset)/ 0.1))
+            ids_only = [item.id for item in q]
+            logger.info(f'  Got {len(ids_only)} candidate ids')
+            # check for min_like score
+            if 'min_like' in kw:
+                min_like = float(kw['min_like'])
+                logger.info(f'Checking for min like')
+                scores = self.application.get_scores()
+                out_ids = [id for id in ids_only if scores.get(id, 0.0) >= min_like]
+                logger.info(f'  Filtered from {len(ids_only)} -> {len(out_ids)} items with min_like {min_like}')
+            # check for sorting by pos
+            if 'pos' in kw:
+                pos = kw['pos']
+                logger.info(f'Finding similar from {pos} to {len(ids_only)}')
+                self.embs.reload_keys()
+                sim = find_similar(pos, embs=self.embs, cur_ids=ids_only)
+                scores = sim['scores']
+                min_score = min(scores.values()) if scores else 0.0
+                out_ids = sorted(ids_only, key=lambda id: scores.get(id, min_score-10), reverse=True)
+                do_ordering = False
+            q = out_ids
         manual_reverse = False
-        if '[' in order_field: # JSON access, so do it via an eval() call
-            if order_field.startswith('-'):
-                # using desc() does not work for JSON field ordering
-                manual_reverse = True
-                order_field = order_field[1:]
-            q = eval(f'q.order_by({order_field})')
-        else:
-            if order_field.startswith('-'):
-                q = q.order_by(lambda c: desc(getattr(c, order_field[1:])))
-            else:
-                q = q.order_by(lambda c: getattr(c, order_field))
-        #print(f'q1: {q.get_sql()}')
-        t1 = time.time()
-        if manual_reverse: # fetch all items, reverse
-            q = q[:]
-            q = q[::-1]
+        if do_ordering: # if we haven't already ordered by a score-based method
+            # order value will be a field name, optionally prefixed by - for descending
+            order_field = kw.get('order', '-id')
+            if isinstance(q, Query): # for query objects
+                if '[' in order_field: # JSON access, so do it via an eval() call
+                    if order_field.startswith('-'):
+                        # using desc() does not work for JSON field ordering
+                        manual_reverse = True
+                        order_field = order_field[1:]
+                    q = eval(f'q.order_by({order_field})')
+                else:
+                    if order_field.startswith('-'):
+                        q = q.order_by(lambda c: desc(getattr(c, order_field[1:])))
+                    else:
+                        q = q.order_by(lambda c: getattr(c, order_field))
+            else: # the query is a list of items/objects
+                if q and isinstance(q[0], int):
+                    q = [Item[id] for id in q]
+                def key_func(item):
+                    if '[' in order_field:
+                        return eval(f'item.{order_field}')
+                    else:
+                        return getattr(item, order_field.lstrip('-'))
+
+                q.sort(key=key_func, reverse=order_field.startswith('-'))
+            t1 = time.time()
+            if manual_reverse: # fetch all items, reverse
+                q = q[:]
+                q = q[::-1]
         # if there was a limit parameter, set it
         if 'limit' in kw:
-            limit = int(kw['limit'])
-            offset = int(kw.get('offset', 0))
             if manual_reverse: # we've already fetch items and reversed them, so just limit
                 q = q[offset:limit+offset]
             else:
-                q = q.limit(limit, offset=offset)
-        # now check for min_like score
-        if 'min_like' in kw:
-            min_like = float(kw['min_like'])
-            scores = self.application.get_scores()
-            newq = [item for item in q if scores.get(item.id, 0.0) >= min_like]
-            logger.info(f'  Filtered from {len(q)} -> {len(newq)} items with min_like {min_like}')
-            q = newq
+                if isinstance(q, Query):
+                    q = q.limit(limit, offset=offset)
+                else:
+                    q = q[offset:limit+offset]
         t2 = time.time()
+        # now convert ids to full items, if needed
+        if not isinstance(q, Query) and q and isinstance(q[0], int):
+            q = [Item[id] for id in q]
         #logger.info(f'Built query in {t1 - t0:.3f}s, applied limit in {t2 - t1:.3f}s, output type: {type(q)}')
         #print(f'q2: {q}')
         return q
@@ -540,29 +586,30 @@ class FilterHandler(MyBaseHandler):
         msg = f'FilterHandler got {len(scores)} scores for query "{q}"'
         self.write(dict(msg=msg, q=q, scores=scores))
 
+
+def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|None) -> dict[str, Any]:
+    """Searches for similarity to `pos` amongst `cur_ids` using `embs`"""
+    pos = [f'{p}:{IMAGE_SUFFIX}' for p in pos]
+    if cur_ids is None:
+        all_keys = [k for k in embs if k.endswith(f':{IMAGE_SUFFIX}')]
+    else:
+        all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
+    logger.info(f'got pos={pos}, {len(all_keys)} all keys: {all_keys[:5]}...')
+    ret = embs.similar(pos, all_keys=all_keys, method='nn')
+    scores, curIds = zip(*ret)
+    return dict(
+        pos=pos,
+        scores={int(id.split(':')[0]): score for id, score in zip(curIds, scores)},
+        msg=f'Classified {len(scores)} items with pos {pos}',
+    )
+
 class ClassifyHandler(MyBaseHandler):
     async def _handle_pos(self,
                           cur_ids: list[int]|None=None,
                           **data):
         """Simple positive only classifier"""
         pos = data.get('pos', [])
-        # for now, we use the first pos to set the otype to search over
-        with db_session:
-            otype = Item[pos[0]].otype
-        pos = [f'{p}:{IMAGE_SUFFIX}' for p in pos]
-        if cur_ids is None:
-            all_keys = [k for k in self.embs if k.endswith(f':{IMAGE_SUFFIX}')]
-        else:
-            all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
-        logger.info(f'ClassifyHandler got pos={pos}, {otype}, {len(all_keys)} total keys: {all_keys[:5]}...')
-         # get similar from embs
-        ret = self.embs.similar(pos, all_keys=all_keys, method='nn')
-        #logger.info(f'Got ret {ret}')
-        scores, curIds = zip(*ret)
-        self.write(dict(pos=pos,
-                        scores={id.split(':')[0]: score for id, score in zip(curIds, scores)},
-                        msg=f'Classified {len(scores)} items with pos {pos}',
-                        ))
+        return find_similar(pos, embs=self.embs, cur_ids=cur_ids)
 
     async def _handle_likes(self,
                             cur_ids: list[int]|None=None,
@@ -573,10 +620,10 @@ class ClassifyHandler(MyBaseHandler):
         if cur_ids is not None:
             cur_ids = [int(id) for id in cur_ids]
             scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
-        self.write(dict(
+        return dict(
             msg=f'Likes scores for {len(scores)} items',
             scores=scores
-        ))
+        )
 
     async def _handle_clusters(self,
                                cur_ids: list[int],
@@ -594,8 +641,7 @@ class ClassifyHandler(MyBaseHandler):
             lst = [int(key.split(':')[0]) for key in lst]
             clusters[i] = lst
         msg = f'Clustered {len(cur_ids)} ids into {len(clusters)} clusters (req: {n_clusters}) using method {method} and kw {kw}'
-        logger.info(msg)
-        self.write(dict(msg=msg, clusters=clusters))
+        return dict(msg=msg, clusters=clusters)
 
     async def post(self):
         #self.embs.reload_keys()
@@ -609,7 +655,12 @@ class ClassifyHandler(MyBaseHandler):
             clusters=self._handle_clusters,
         )
         self.embs.reload_keys()
-        return await func_by_name[cls_type](**data)
+        ret = await func_by_name[cls_type](**data)
+        if not ret:
+            return
+        if ret.get('msg'):
+            logger.info(ret['msg'])
+        self.write(ret)
 
 
 class ClusterHandler(MyBaseHandler):
