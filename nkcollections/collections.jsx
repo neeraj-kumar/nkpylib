@@ -2151,6 +2151,18 @@ const AppProvider = ({ children }) => {
     if (sourceObj.offset) {
       sourceObj.offset = 0;
     }
+    // Unset source if it exists
+    if (sourceObj.source) {
+      delete sourceObj.source;
+    }
+    // Set otype to image
+    sourceObj.otype = 'image';
+    // Set default limit if not present
+    if (!sourceObj.limit) {
+      sourceObj.limit = 200;
+    }
+    // Set embed_ts to ">0"
+    sourceObj.embed_ts = '>0';
     sourceObj.pos = [id];
     doSource(JSON.stringify(sourceObj), true);
   }, [doSource]);
