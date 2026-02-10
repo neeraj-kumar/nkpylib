@@ -143,15 +143,25 @@ def timed(func: Callable) -> Callable:
     else:
         return sync_wrapper
 
-async def maybe_dl(url: str, path: str, fetch_delay: float=0.1) -> bool:
+async def maybe_dl(url: str, path: str, fetch_delay: float=0.1, timeout: float=-1) -> bool:
     """Downloads the given url to the given dir if it doesn't already exist there (and is not empty).
+
+    - fetch_delay: minimum delay in seconds between fetches, to avoid overwhelming servers. This
+      limit is per domain.
+    - timeout: if > 0, the maximum time in seconds to wait for the download. If the download doesn't
+      complete in that time then raises TimeoutError. If <= 0, no timeout is applied.
 
     Returns if we actually downloaded the file.
     """
     if exists(path) and os.path.getsize(path) > 0:
         return False
     logger.debug(f'downloading image {url} -> {path}')
-    r = await make_request_async(url, headers={'Accept': 'image/*,video/*'}, min_delay=fetch_delay)
+    r = await asyncio.wait_for(
+            make_request_async(
+                url,
+                headers={'Accept': 'image/*,video/*'},
+                min_delay=fetch_delay,
+            ), timeout if timeout > 0 else None)
     try:
         os.makedirs(dirname(path), exist_ok=True)
     except Exception as e:
@@ -385,7 +395,11 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         async def dl_image(row):
             with db_session:
                 path = row.image_path()
-                await maybe_dl(row.url, path, fetch_delay=fetch_delay)
+                try:
+                    await maybe_dl(row.url, path, fetch_delay=fetch_delay, timeout=30)
+                except Exception as e:
+                    logger.warning(f'Error downloading image for row id={row.id}, url={row.url}, path={path}: {e}')
+                    path = ''
             return row, path
 
         download_tasks = [dl_image(row) for row in rows]
@@ -393,12 +407,13 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         embedding_tasks = []
         async def embed_image_task(row, key, path):
             try:
-                if not exists(path) or os.path.getsize(path) == 0:
+                if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
                 emb = await embed_image.single_async(path, timeout=5, model='mobilenet', use_cache=kw.get('use_cache', True))
                 #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
                 logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
+                print(traceback.format_exc())
                 emb = None
             return (row, key, emb)
 
