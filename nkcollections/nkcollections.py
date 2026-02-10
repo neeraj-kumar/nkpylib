@@ -541,23 +541,28 @@ class FilterHandler(MyBaseHandler):
         self.write(dict(msg=msg, q=q, scores=scores))
 
 class ClassifyHandler(MyBaseHandler):
-    async def _handle_pos(self, **data):
+    async def _handle_pos(self,
+                          cur_ids: list[int]|None=None,
+                          **data):
         """Simple positive only classifier"""
         pos = data.get('pos', [])
         # for now, we use the first pos to set the otype to search over
         with db_session:
             otype = Item[pos[0]].otype
-        pos = [f'{p}:{otype}' for p in pos]
-        all_keys = [k for k in self.embs if k.endswith(f':{otype}')]
+        pos = [f'{p}:{IMAGE_SUFFIX}' for p in pos]
+        if cur_ids is None:
+            all_keys = [k for k in self.embs if k.endswith(f':{IMAGE_SUFFIX}')]
+        else:
+            all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
         logger.info(f'ClassifyHandler got pos={pos}, {otype}, {len(all_keys)} total keys: {all_keys[:5]}...')
          # get similar from embs
         ret = self.embs.similar(pos, all_keys=all_keys, method='nn')
-        logger.info(f'Got ret {ret}')
+        #logger.info(f'Got ret {ret}')
         scores, curIds = zip(*ret)
-        curIds = [p.split(':')[0] for p in curIds]
         self.write(dict(pos=pos,
-                        scores={id: score for id, score in zip(curIds, scores)},
-                        curIds=curIds))
+                        scores={id.split(':')[0]: score for id, score in zip(curIds, scores)},
+                        msg=f'Classified {len(scores)} items with pos {pos}',
+                        ))
 
     async def _handle_likes(self,
                             cur_ids: list[int]|None=None,
@@ -583,7 +588,6 @@ class ClassifyHandler(MyBaseHandler):
         #TODO weight features differently, based on likes classifier?
         cur_ids = [int(id) for id in cur_ids]
         all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
-        self.embs.reload_keys()
         ret = self.embs.cluster(all_keys=all_keys, method=method, n_clusters=n_clusters)
         clusters = {}
         for i, lst in enumerate(ret):
@@ -597,12 +601,14 @@ class ClassifyHandler(MyBaseHandler):
         #self.embs.reload_keys()
         # figure out what kind of classification we're doing
         data = json.loads(self.request.body)
+        logger.info(f'ClassifyHandler got data {data}')
         cls_type = data.get('type', '')
         func_by_name = dict(
             likes=self._handle_likes,
             pos=self._handle_pos,
             clusters=self._handle_clusters,
         )
+        self.embs.reload_keys()
         return await func_by_name[cls_type](**data)
 
 
