@@ -749,22 +749,19 @@ def embeddings_main(batch_size: int=20,
             except Exception as e:
                 logger.warning(f'Error updating embeddings for source {s}: {e}')
                 print(traceback.format_exc())
-            
-            # Cancel all remaining futures
-            for future in futures:
-                if not future.done():
-                    future.cancel()
                     
         except StopIteration:
             logger.warning('No futures completed')
         except TimeoutError:
-            logger.warning(f'No source completed within {per_timeout}s, cancelling all')
-            for future in futures:
-                if not future.done():
-                    future.cancel()
+            logger.warning(f'No source completed within {per_timeout}s')
         except Exception as e:
             logger.warning(f'Error in embeddings main loop: {e}')
             print(traceback.format_exc())
+        finally:
+            # Cancel all remaining futures
+            for future in futures:
+                if not future.done():
+                    future.cancel()
         if loop_callback:
             out = loop_callback(counts)
             if isinstance(out, dict):
