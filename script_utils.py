@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from nkpylib.utils import specialize
 
-def cli_runner(func_list: list[Callable[..., Any]],
+def _cli_runner(func_list: list[Callable[..., Any]],
                description='',
                add_arbitrary=True,
                pre_func: Callable[..., Any]|None=None,
@@ -75,3 +75,11 @@ def cli_runner(func_list: list[Callable[..., Any]],
         pre_func(**kwargs)
     func = funcs[kwargs.pop('func')]
     return func(**kwargs) # type: ignore[operator]
+
+def cli_runner(func_list: list[Callable[..., Any]], **kw) -> Any:
+    """An alternative to my written one that uses argh"""
+    #TODO see if we can allow arbitrary key=value commands...
+    import argh
+    parser = argh.ArghParser()
+    parser.add_commands(func_list)
+    parser.dispatch()
