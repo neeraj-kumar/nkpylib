@@ -737,12 +737,16 @@ def embeddings_main(batch_size: int=20,
             future = executor.submit(s.update_embeddings, limit=batch_size, **kw)
             futures[future] = s
         try:
-            for future in as_completed(futures, timeout=source_timeout_factor * batch_size * len(sources)):
+            for future in as_completed(futures):
                 s = futures[future]
-                cur = future.result()
-                logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
-                for k, v in cur.items():
-                    counts[k] += v
+                try:
+                    cur = future.result(timeout=source_timeout_factor * batch_size)
+                    logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
+                    for k, v in cur.items():
+                        counts[k] += v
+                except Exception as e:
+                    logger.warning(f'Error updating embeddings for source {s}: {e}')
+                    print(traceback.format_exc())
         except Exception as e:
             logger.warning(f'Error in embeddings main loop: {e}')
             print(traceback.format_exc())
