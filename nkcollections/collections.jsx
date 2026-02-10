@@ -2155,6 +2155,13 @@ const AppProvider = ({ children }) => {
     if (sourceObj.source) {
       delete sourceObj.source;
     }
+    // Remove parent and ancestor if they exist
+    if (sourceObj.parent) {
+      delete sourceObj.parent;
+    }
+    if (sourceObj.ancestor) {
+      delete sourceObj.ancestor;
+    }
     // Set otype to image
     sourceObj.otype = 'image';
     // Set default limit if not present
