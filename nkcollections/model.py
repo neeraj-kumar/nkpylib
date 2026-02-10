@@ -523,6 +523,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                           vlm_model: str='fastvlm',
                           limit: int=-1,
                           fetch_delay: float=0.1,
+                          source: str|None=None,
                           **kw) -> dict[str, int]:
         """Updates the embeddings for all relevant rows in our table.
 
@@ -556,6 +557,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         if limit <= 0:
             limit = 10000000
         q = cls.select(lambda c: (ids is None or c.id in ids))
+        if source is not None:
+            q = q.filter(lambda c: c.source == source)
         q = q.order_by(desc(Item.id))
         common_kw = dict(q=q, lmdb_path=lmdb_path, **kw)
         # start async tasks for all 3 subfunctions
@@ -574,7 +577,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         )
         ret = {}
         ret['n_text'], ret['n_images'], ret['n_descs'] = await asyncio.gather(text_task, image_task, desc_task)
-        print(f'Done with update_embeddings_async in {cls}, got {ret}')
         return ret
 
     @classmethod
@@ -600,7 +602,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             fetch_delay=fetch_delay,
             **kw
         ))
-        print(f'Sync Done with update_embeddings in {cls}, got {ret}')
+        #print(f'Sync Done with update_embeddings in {cls}, got {ret}')
         return ret
 
 
@@ -894,33 +896,12 @@ class Source(abc.ABC):
     def update_embeddings(self, **kw):
         """Updates the embeddings for this Source.
 
-        By default, this just calls Item.update_embeddings, filtered to the ids of items from
-        this source. If 'ids' is given in kw, we further filter to those ids.
+        By default, this just calls Item.update_embeddings, with the `source` explicitly set to our
+        source.
 
         We pass all `kw` to Item.update_embeddings.
         """
-        source_ids = select(c.id for c in Item if c.source == self.name)[:]
-        # if we had a list of input ids, filter to those
-        if 'ids' in kw and kw['ids'] is not None:
-            ids = [id for id in source_ids if id in kw['ids']]
-        else:
-            ids = source_ids
-        # if we have a limit, then check our likes to see if those need to be prioritized
-        limit = kw.get('limit', None)
-        if 0 and limit:
-            by_type = defaultdict(list)
-            n = 0
-            for item in Rel.get_likes():
-                if item.embed_ts:
-                    continue
-                if item.id in ids:
-                    by_type[item.otype].append(item)
-                    n += 1
-            # reset ids to just 'limit' number of these, by type
-            if n:
-                ids = []
-                for otype, items in by_type.items():
-                    ids.extend([item.id for item in items])
-                logger.info(f'Found {n} liked undone items for source {self.name}, prioritizing {len(ids)}')
+        if 'source' not in kw:
+            kw['source'] = self.name
         #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
         return Item.update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, **kw)
