@@ -727,6 +727,7 @@ def embeddings_main(batch_size: int=20,
     for s in sources:
         s.cleanup_embeddings(s.lmdb_path)
     executor = ThreadPoolExecutor()
+    per_timeout = source_timeout_factor * batch_size
     while 1:
         with db_session:
             commit()
@@ -737,10 +738,10 @@ def embeddings_main(batch_size: int=20,
             future = executor.submit(s.update_embeddings, limit=batch_size, **kw)
             futures[future] = s
         try:
-            for future in as_completed(futures):
+            for future in as_completed(futures, timeout=per_timeout):
                 s = futures[future]
                 try:
-                    cur = future.result(timeout=source_timeout_factor * batch_size)
+                    cur = future.result(timeout=per_timeout)
                     logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
                     for k, v in cur.items():
                         counts[k] += v
