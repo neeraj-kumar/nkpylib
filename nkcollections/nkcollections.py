@@ -738,16 +738,30 @@ def embeddings_main(batch_size: int=20,
             future = executor.submit(s.update_embeddings, limit=batch_size, **kw)
             futures[future] = s
         try:
-            for future in as_completed(futures, timeout=per_timeout):
-                s = futures[future]
-                try:
-                    cur = future.result(timeout=per_timeout)
-                    logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
-                    for k, v in cur.items():
-                        counts[k] += v
-                except Exception as e:
-                    logger.warning(f'Error updating embeddings for source {s}: {e}')
-                    print(traceback.format_exc())
+            # Wait for at most per_timeout seconds for the first future to complete
+            completed_future = next(as_completed(futures, timeout=per_timeout))
+            s = futures[completed_future]
+            try:
+                cur = completed_future.result()
+                logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
+                for k, v in cur.items():
+                    counts[k] += v
+            except Exception as e:
+                logger.warning(f'Error updating embeddings for source {s}: {e}')
+                print(traceback.format_exc())
+            
+            # Cancel all remaining futures
+            for future in futures:
+                if not future.done():
+                    future.cancel()
+                    
+        except StopIteration:
+            logger.warning('No futures completed')
+        except TimeoutError:
+            logger.warning(f'No source completed within {per_timeout}s, cancelling all')
+            for future in futures:
+                if not future.done():
+                    future.cancel()
         except Exception as e:
             logger.warning(f'Error in embeddings main loop: {e}')
             print(traceback.format_exc())
