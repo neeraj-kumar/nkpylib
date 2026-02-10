@@ -3,6 +3,7 @@
  * TODO global search by image
  * TODO searching by text should use the current source params and just modify that?
  * TODO use recent likes to determine how to prioritize feed
+ * TODO queued model?
  * TODO add an overall diversity slider that modifies recency priorities?
  * TODO filter users by seen/recent/scored posts
  * TODO if a post is explored, have toggle to show its rebloggers, scored
@@ -99,8 +100,6 @@ const api = {
   get: (params) => fetchEndpoint('/get', params),
   classify: (options) => fetchEndpoint('/classify', options),
   classifyPos: (options) => fetchEndpoint('/classify', {type: 'pos', ...options }),
-  classifyLikes: (options) => fetchEndpoint('/classify', { type: 'likes', ...options }),
-  classifyClusters: (options) => fetchEndpoint('/classify', { type: 'clusters', ...options }),
   action: (ids, action) => fetchEndpoint('/action', { ids, action }),
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
@@ -117,7 +116,18 @@ const STYLES = `
   border: 1px solid #888;
   padding: 5px;
   margin-bottom: 10px;
+  max-height: 200px;
 }
+
+.labeled obj {
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.labeled img {
+  max-height: 150px;
+}
+
 
 .randomize-btn {
   display: none;
@@ -1167,7 +1177,7 @@ const Obj = (props) => {
   if (ctx.ui.mode !== 'multicol') {
     classes.push('single-col');
   } else {
-    cClasses.push('hidden');
+    //cClasses.push('hidden');
   }
   if (isHovered && ctx.ui.mode === 'cluster') {
     classes.push('keyboard-active');
@@ -2101,11 +2111,12 @@ const AppProvider = ({ children }) => {
   }, [scores, setScores, setCurIds, curIds, refreshMasonry]);
 
   // Call classifier with specified type
-  const doClassifier = React.useCallback((type) => {
-    const options = {
+  const doClassifier = React.useCallback((type, options) => {
+    options = {
       type,
       otypes:['image'],
       cur_ids: curIds,
+      ...options
     };
     api.classify(options).then((resp) => {
       console.log('got classifier response', type, resp);
@@ -2122,6 +2133,8 @@ const AppProvider = ({ children }) => {
         } else {
           setCurCluster(null);
         }
+      } else if (type === 'pos') {
+        updateScores(resp.scores);
       }
     });
   }, [curIds, setAutoClusters, setCurCluster]);
@@ -2213,23 +2226,11 @@ const AppProvider = ({ children }) => {
   // function to call classification, whenever pos changes
   React.useEffect(() => {
     if (pos.length === 0) {
-      // reset curIds to all ids and scores to empty
-      setCurIds(Object.keys(rowById));
       setScores({});
       return;
     }
     console.log('calling classify for pos', pos);
-    //TODO we also need cur_ids?
-    api.classifyPos({pos}).then((data) => {
-      console.log('got classify resp', data);
-      // update curIds and scores
-      if (data.curIds && data.scores){
-        setCurIds(data.curIds);
-        setScores(data.scores);
-      }
-    }).catch(() => {
-      // Error already handled by fetchEndpoint
-    });
+    doClassifier('pos', {pos});
   }, [pos]);
 
   // the source string can be either a url or a JSON string of parameters
