@@ -2145,7 +2145,12 @@ const AppProvider = ({ children }) => {
       if (pos.includes(id)) {
         return pos.filter((x) => x !== id);
       } else {
-        return [...pos, id];
+        // If there are already positive items, replace them with just this new item
+        if (pos.length > 0) {
+          return [id];
+        } else {
+          return [...pos, id];
+        }
       }
     });
   });
