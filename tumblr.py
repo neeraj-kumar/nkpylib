@@ -812,7 +812,7 @@ def gen_benchmark(**kw):
     lw = CollectionsWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
     lw.gen_benchmark_set()
 
-def run_benchmark(name='like-benchmark-20260202-175744', **kw):
+def run_benchmark(name:str='like-benchmark-20260202-175744', **kw):
     """Runs the benchmark with given `name`"""
     t = Tumblr()
     lw = CollectionsWorker(embs=Embeddings([t.lmdb_path]), classifiers_dir=t.classifiers_dir)
@@ -821,5 +821,5 @@ def run_benchmark(name='like-benchmark-20260202-175744', **kw):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    cli_runner([update_blogs, test_post, update_embeddings, web, gen_benchmark, run_benchmark],
-               config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))
+    funcs = [update_blogs, test_post, update_embeddings, web, gen_benchmark, run_benchmark]
+    cli_runner(funcs, config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))
