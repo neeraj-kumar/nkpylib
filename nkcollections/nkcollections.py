@@ -256,7 +256,7 @@ class GetHandler(MyBaseHandler):
                         q = q.filter(lambda c: getattr(c, field) == float(value))
                 else: # Exact match
                     q = q.filter(lambda c: getattr(c, field) == value)
-        limit = int(kw['limit'])
+        limit = int(kw.get('limit', 10000000))
         offset = int(kw.get('offset', 0))
         do_ordering = True
         # score/ml-based filters
