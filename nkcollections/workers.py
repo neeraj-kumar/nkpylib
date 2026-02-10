@@ -270,7 +270,7 @@ class BackgroundWorker(abc.ABC):
         await Rel.handle_me_action(to_explore, 'explore')
         logger.info(f'Done exploring users')
 
-    def _update_user_stats(self, max_users:int=1000) -> None:
+    def _update_user_stats(self, max_users:int=300) -> None:
         """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
 
         I'm tuning `max_users` to be under 30 secs.
