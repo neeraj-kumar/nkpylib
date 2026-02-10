@@ -711,9 +711,10 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
                                 on_start=on_start)
 
 def embeddings_main(batch_size: int=20,
-                    loop_delay: float=10,
+                    loop_delay: float=1,
                     source_timeout_factor: float=0.5,
                     loop_callback: Callable|None=None,
+                    cleanup_freq: int=100,
                     **kw):
     """Runs embedding updates from the command line in an infinite loop.
 
@@ -730,32 +731,41 @@ def embeddings_main(batch_size: int=20,
     """
     sources = list(Source._registry.values())
     logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
-    for s in sources:
-        s.cleanup_embeddings(s.lmdb_path)
     executor = ThreadPoolExecutor()
     per_timeout = source_timeout_factor * batch_size
+
+    i = 0
     while 1:
         with db_session:
             commit()
+            if i % cleanup_freq == 0:
+                for s in sources:
+                    s.cleanup_embeddings(s.lmdb_path)
+                commit()
         counts = Counter()
         t0 = time.time()
         futures = {}
         for s in sources:
             future = executor.submit(s.update_embeddings, limit=batch_size, **kw)
             futures[future] = s
-        try:
-            # Wait for at most per_timeout seconds for the first future to complete
-            completed_future = next(as_completed(futures, timeout=per_timeout))
-            s = futures[completed_future]
+        def finish_future(future):
+            if not future.done():
+                return
             try:
-                cur = completed_future.result()
-                logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
+                cur = future.result()
+                s = futures[future]
+                if sum(cur.values()) > 0:
+                    logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
                 for k, v in cur.items():
                     counts[k] += v
             except Exception as e:
                 logger.warning(f'Error updating embeddings for source {s}: {e}')
                 print(traceback.format_exc())
-                    
+
+        try:
+            # Wait for at most per_timeout seconds for the first future to complete
+            completed_future = next(as_completed(futures, timeout=per_timeout))
+            finish_future(completed_future)
         except StopIteration:
             logger.warning('No futures completed')
         except TimeoutError:
@@ -764,9 +774,11 @@ def embeddings_main(batch_size: int=20,
             logger.warning(f'Error in embeddings main loop: {e}')
             print(traceback.format_exc())
         finally:
-            # Cancel all remaining futures
+            # Finish/cancel all remaining futures
             for future in futures:
-                if not future.done():
+                if future.done():
+                    finish_future(future)
+                else:
                     future.cancel()
         if loop_callback:
             out = loop_callback(counts)
