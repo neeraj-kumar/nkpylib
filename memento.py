@@ -17,9 +17,12 @@ from typing import Any, Iterator, TypedDict
 
 import requests
 
+from tqdm import tqdm
+
 from nkpylib.web_utils import make_request
 from nkpylib.ml.client import call_llm
 from nkpylib.ml.llm_utils import load_llm_json
+from nkpylib.script_utils import cli_runner
 
 
 logger = logging.getLogger(__name__)
@@ -264,6 +267,9 @@ class MementoDB:
         resp = update_entry(self.library_id, entry_id, library_info=self.info, **kw)
         #print(resp)
         # update our local version
+        #print(f'local keys before update: {self.entries.keys()}')
+        if entry_id not in self.entries:
+            self.entries[entry_id] = dict(id=entry_id, fields={}, status='active')
         self.entries[entry_id]['fields'].update(**kw)
         return resp
 
@@ -419,13 +425,34 @@ def simple_test(**kw):
     serp = search_entries("tt0140352", r["movies"])
     p(serp)
 
+def test_movies(**kw):
+    MovieDB.test()
+
+def edit_food_reviews(mode, path='new-reviews.json', old_path='food-reviews.json', **kw):
+    """Edits the food reviews.
+
+    If mode='export', then exports the reviews to a JSON file, with id and description for each review.
+    If mode='import', then imports the reviews from a JSON file, updating the description for each review.
+    """
+    revs = FoodReviews()
+    if mode == 'export':
+        data = {r['id']: r['fields']['description'] for r in revs}
+        with open(old_path, 'w') as f:
+            json.dump(data, f, indent=2)
+    elif mode == 'import':
+        with open(path, 'r') as f:
+            new_data = json.load(f)
+        with open(old_path, 'r') as f:
+            old_data = json.load(f)
+        data = {id: new_data[id] for id, v in new_data.items() if old_data[id] != v}
+        print(f'Found {len(data)} reviews to update compared to {len(old_data)} old and {len(new_data)} new')
+        for id, desc in tqdm(data.items()):
+            #print(f'Updating review {id} to have description {desc}')
+            revs.update(id, description=desc)
+    else:
+        raise ValueError(f"Invalid mode {mode}, expected 'export' or 'import'.")
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Memento Database Utilities")
-    test_movies = lambda **kw: MovieDB.test()
-    funcs = {f.__name__: f for f in [simple_test, test_movies, migrate_food]}
-    parser.add_argument("func", choices=funcs.keys(), help="Function to run")
-    args = parser.parse_args()
-    kw = vars(args)
-    func = funcs[kw.pop("func")]
-    func(**kw)
+    cli_runner([simple_test, test_movies, migrate_food, edit_food_reviews])

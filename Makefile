@@ -136,3 +136,10 @@ twitter-serve:
 ## updates twitter embeddings
 twitter-embeddings:
 	@python3 twitter.py update_embeddings
+
+## edits my food reviews
+edit-food-reviews:
+	#jq 'to_entries | .[:200] | from_entries' food-reviews.json | llm 'You will be provided a JSON dict mapping ids to restaurant reviews. In the reviews, remove all references to Erin and her preferences, leaving the rest of the reviews unchanged. Whenever there are references to "both of us", change it to just "I" or "me". Output a JSON dict in the exact same format as the input, with the same ids.' - > new-reviews.json
+	#jq 'to_entries | .[200:400] | from_entries' food-reviews.json | llm 'You will be provided a JSON dict mapping ids to restaurant reviews. In the reviews, remove all references to Erin and her preferences, leaving the rest of the reviews unchanged. Whenever there are references to "both of us", change it to just "I" or "me". Output a JSON dict in the exact same format as the input, with the same ids.' - > new-reviews-2.json
+	#jq 'to_entries | .[400:600] | from_entries' food-reviews.json | llm 'You will be provided a JSON dict mapping ids to restaurant reviews. In the reviews, remove all references to Erin and her preferences, leaving the rest of the reviews unchanged. Whenever there are references to "both of us", change it to just "I" or "me". Output a JSON dict in the exact same format as the input, with the same ids.' - > new-reviews-3.json
+	#jq 'to_entries | .[600:] | from_entries' food-reviews.json | llm 'You will be provided a JSON dict mapping ids to restaurant reviews. In the reviews, remove all references to Erin and her preferences, leaving the rest of the reviews unchanged. Whenever there are references to "both of us", change it to just "I" or "me". Output a JSON dict in the exact same format as the input, with the same ids.' - > new-reviews-4.json
