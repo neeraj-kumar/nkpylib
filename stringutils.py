@@ -1273,9 +1273,20 @@ def get_matching_parens(s, ptype='(') -> list[tuple[int, int]]:
         raise ValueError(f"Unmatched opening parenthesis at indices {stack} in string: {s}")
     return matches
 
+def extract_tags_from_desc(desc: str) -> list[str]:
+    """Given a vlm-generated description with tags at the end, extracts the tags as a list of strings."""
+    # look for the last occurrence of 'Tags:'
+    tag_start = desc.lower().rfind('tags:')
+    if tag_start == -1:
+        return []
+    # extract the substring after 'Tags:'
+    tags_str = desc[tag_start + len('tags:'):].strip()
+    # split on commas and strip whitespace
+    tags = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+    return tags
 
-
-if __name__ == "__main__":
+def test_parser():
+    """Tests out the filename parser"""
     parser = FilenameParser()
     examples = [
         'test filename (2013) on date [2013-01-01].mp4',
@@ -1285,3 +1296,17 @@ if __name__ == "__main__":
         segs = parser.parse(e)
         pprint((segs, [s.clean for s in segs]))
         print()
+
+def parse_tags(tsv_path: str, **kw) -> None:
+    """Driver to parse tags from file.
+
+    This opens `tsv_path`, which can have any set of columns, as long as the last one is the one to
+    operate on. For each input row (after the first, which this just duplicates with the addition of
+    a 'tags' column), it extracts tags from the last column using `extract_tags_from_desc`, and then
+    writes out a new TSV with the same columns plus a 'tags' column at the end, which contains the
+    extracted tags as a comma-separated string.
+    """
+
+
+if __name__ == "__main__":
+    pass
