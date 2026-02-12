@@ -1306,6 +1306,36 @@ def parse_tags(tsv_path: str, **kw) -> None:
     writes out a new TSV with the same columns plus a 'tags' column at the end, which contains the
     extracted tags as a comma-separated string.
     """
+    output_path = kw.get('output_path', tsv_path.replace('.tsv', '_with_tags.tsv'))
+    
+    with open(tsv_path, 'r', encoding='utf-8') as infile:
+        reader = csv.reader(infile, delimiter='\t')
+        
+        # Read header row
+        header = next(reader)
+        new_header = header + ['tags']
+        
+        rows = []
+        for row in reader:
+            if not row:  # Skip empty rows
+                continue
+            
+            # Extract tags from the last column
+            desc = row[-1] if row else ''
+            tags = extract_tags_from_desc(desc)
+            tags_str = ', '.join(tags)
+            
+            # Add tags column to the row
+            new_row = row + [tags_str]
+            rows.append(new_row)
+    
+    # Write output file
+    with open(output_path, 'w', encoding='utf-8', newline='') as outfile:
+        writer = csv.writer(outfile, delimiter='\t')
+        writer.writerow(new_header)
+        writer.writerows(rows)
+    
+    print(f"Processed {len(rows)} rows, output written to {output_path}")
 
 
 if __name__ == "__main__":
