@@ -31,6 +31,8 @@ from typing import Any, NamedTuple, Union
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import url2pathname, urlretrieve
 
+from nkpylib.script_utils import cli_runner
+
 class GeneralJSONEncoder(json.JSONEncoder):
     """A general-purpose JSON encoder that can handle common non-json-able types.
 
@@ -1297,46 +1299,36 @@ def test_parser():
         pprint((segs, [s.clean for s in segs]))
         print()
 
-def parse_tags(tsv_path: str, **kw) -> None:
+def parse_tags(tsv_path: str, tag_dlm: str=';', **kw) -> None:
     """Driver to parse tags from file.
 
     This opens `tsv_path`, which can have any set of columns, as long as the last one is the one to
     operate on. For each input row (after the first, which this just duplicates with the addition of
     a 'tags' column), it extracts tags from the last column using `extract_tags_from_desc`, and then
     writes out a new TSV with the same columns plus a 'tags' column at the end, which contains the
-    extracted tags as a comma-separated string.
+    extracted tags as a string delimited by the `tag_dlm`.
     """
-    output_path = kw.get('output_path', tsv_path.replace('.tsv', '_with_tags.tsv'))
-    
     with open(tsv_path, 'r', encoding='utf-8') as infile:
         reader = csv.reader(infile, delimiter='\t')
-        
-        # Read header row
         header = next(reader)
         new_header = header + ['tags']
-        
         rows = []
         for row in reader:
             if not row:  # Skip empty rows
                 continue
-            
             # Extract tags from the last column
             desc = row[-1] if row else ''
             tags = extract_tags_from_desc(desc)
-            tags_str = ', '.join(tags)
-            
+            tags_str = tag_dlm.join(tags)
             # Add tags column to the row
             new_row = row + [tags_str]
             rows.append(new_row)
-    
     # Write output file
-    with open(output_path, 'w', encoding='utf-8', newline='') as outfile:
-        writer = csv.writer(outfile, delimiter='\t')
-        writer.writerow(new_header)
-        writer.writerows(rows)
-    
-    print(f"Processed {len(rows)} rows, output written to {output_path}")
+    # set the newline to just '\n'
+    writer = csv.writer(sys.stdout, delimiter='\t', lineterminator='\n')
+    writer.writerow(new_header)
+    writer.writerows(rows)
 
 
 if __name__ == "__main__":
-    pass
+    cli_runner([parse_tags])
