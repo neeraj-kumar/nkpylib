@@ -944,7 +944,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
     
     switch (type) {
       case 'image':
-        const imageUrl = data.local_path ? `/data/${data.local_path}` : data.url;
+        const imageUrl = data.local_path || data.url;
         const videoUrl = data.md && data.md.video_url;
         if (isShowingVideo && videoUrl) {
           return (
@@ -1023,7 +1023,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
           </div>
         );
       case 'video':
-        const posterUrl = data.md.poster_url && data.local_path ? `/data/${data.local_path}` : data.md.poster_url;
+        const posterUrl = data.md.poster_url && data.local_path || data.md.poster_url;
         if (isShowingVideo) {
           return (
             <div style={{position: 'relative'}}>
@@ -1346,7 +1346,7 @@ const Obj = (props) => {
           {otype === 'image' && (
             <div className="content">
               <ImageWithVideo
-                imageUrl={props.local_path ? `/data/${props.local_path}` : url}
+                imageUrl={props.local_path || url}
                 videoUrl={md && md.video_url}
                 id={id}
                 liked={liked}

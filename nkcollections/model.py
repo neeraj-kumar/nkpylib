@@ -266,6 +266,12 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             local_path = self.image_path()
             if exists(local_path):
                 r['local_path'] = os.path.relpath(local_path)
+                # add small version of it if not a gifv
+                if not local_path.endswith('.gifv'):
+                    r['local_path'] = 'http://192.168.1.135:8183/thumbs/w200/' + r['local_path']
+                else:
+                    r['local_path'] = '/data/'+r['local_path']
+                #print(f'Got local path {r["local_path"]}')
         # Add parent_url if self has a parent
         if self.parent:
             r['parent_url'] = self.parent.url

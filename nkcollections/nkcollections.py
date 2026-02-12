@@ -1,6 +1,7 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
+#TODO faster search-by-example using intersection of sql + scores?
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers
 #TODO general slowness

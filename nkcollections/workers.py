@@ -834,6 +834,3 @@ class CollectionsWorker(BackgroundWorker):
                 raise
         updater.commit()
         logger.info(f'Completed embedding generation for benchmark {benchmark_name}: {n_processed} items processed')
-
-    def fix_mn(self):
-        """Fixes mobilenet embeddings"""
