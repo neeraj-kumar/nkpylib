@@ -23,19 +23,19 @@ DEFAULT_MAX_TOKENS = 32768
 class ModelConfig:
     name: str
     max_tokens: int=DEFAULT_MAX_TOKENS
-    max_dims: int=0
-    default_dims: int=0
+    max_dims: int=0 # for embeddings
+    default_dims: int=0 # same as max if not given
 
 DEFAULT_MODELS = dict(
     # sentence embedding models for lots of text
-    st=ModelConfig('BAAI/bge-large-en-v1.5'),
-    sentence=ModelConfig('BAAI/bge-large-en-v1.5'),
+    st=ModelConfig('BAAI/bge-large-en-v1.5', max_dims=1024, max_tokens=512),
+    sentence=ModelConfig('BAAI/bge-large-en-v1.5', max_dims=1024, max_tokens=512),
     # clip for image <-> text embeddings in same space
-    clip=ModelConfig("openai/clip-vit-large-patch14"),
-    image=ModelConfig('openai/clip-vit-large-patch14'),
+    clip=ModelConfig("openai/clip-vit-large-patch14", max_dims=768),
+    image=ModelConfig('openai/clip-vit-large-patch14', max_dims=768),
     # fast image model is mobilenet
-    mobilenet=ModelConfig('mobilenet_v3'),
-    fast_image=ModelConfig('mobilenet_v3'),
+    mobilenet=ModelConfig('mobilenet_v3', max_dims=576),
+    fast_image=ModelConfig('mobilenet_v3', max_dims=576),
     # jina-clip-v2 for better image <-> text embeddings in the same space
     # - Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance
     #   at all (and might even slightly improve it for some tasks).
@@ -68,23 +68,20 @@ DEFAULT_MODELS = dict(
     html=ModelConfig('moonshotai/Kimi-K2-Instruct-0905', max_tokens=262144),
     oldhtml=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
     # nomic is a good model for text embeddings
-    nomic=ModelConfig('nomic-ai/nomic-embed-text-v1.5'),
+    nomic=ModelConfig('nomic-ai/nomic-embed-text-v1.5', max_dims=768, max_tokens=8192),
     # suitable for generating code
     code=ModelConfig('Qwen/Qwen2.5-Coder-32B-Instruct', max_tokens=32768),
     # speech transcription
     whisper=ModelConfig('openai/whisper-large-v3'),
     speech=ModelConfig('openai/whisper-large-v3'),
     transcription=ModelConfig('openai/whisper-large-v3'),
-    # small fast ada text embedding model
-    ada=ModelConfig('text-embedding-ada-002'),
     # e5 embeddings with 1024 output dims
-    e5=ModelConfig('intfloat/e5-large-v2'),
+    e5=ModelConfig('intfloat/e5-large-v2', max_dims=1024, max_tokens=514),
     # qwen3 embeddings (large and small)
-    qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B'),
-    qwen_emb_small=ModelConfig('Qwen/Qwen3-Embedding-0.6B'),
+    qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B', max_dims=4096, max_tokens=32768),
+    qwen_emb_small=ModelConfig('Qwen/Qwen3-Embedding-0.6B', max_dims=1024, max_tokens=32768),
     # groq fastest
     groq=ModelConfig('openai/gpt-oss-20b', max_tokens=8192),
-
 )
 
 LOCAL_MODELS = os.listdir(join(dirname(__file__), 'models/')) + ['openai/clip-vit-large-patch14']
