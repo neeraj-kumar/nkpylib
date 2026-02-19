@@ -638,6 +638,46 @@ const STYLES = `
   border-opacity: 0.6;
 }
 
+/* Details expansion styles */
+.object.details-expanded {
+  height: 800px;
+  overflow-y: auto;
+}
+
+.details-content {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 3px;
+  font-size: 0.8em;
+  max-height: 700px;
+  overflow-y: auto;
+}
+
+.details-content h5 {
+  margin: 0 0 10px 0;
+  color: #495057;
+}
+
+.details-content .detail-item {
+  margin-bottom: 8px;
+  padding: 4px;
+  background-color: white;
+  border-radius: 2px;
+}
+
+.details-content .detail-key {
+  font-weight: bold;
+  color: #495057;
+  margin-right: 8px;
+}
+
+.details-content .detail-value {
+  color: #6c757d;
+  word-break: break-word;
+}
+
 /* Quick links styles */
 .quick-links {
   display: flex;
@@ -1174,6 +1214,9 @@ const Obj = (props) => {
   if (disliked) {
     classes.push('disliked');
   }
+  if (showDetails) {
+    classes.push('details-expanded');
+  }
   let cClasses = ['icon-button', 'classify-icon', (ctx.data.pos.includes(id) ? 'selected' : '')];
   if (ctx.ui.mode !== 'multicol') {
     classes.push('single-col');
@@ -1290,6 +1333,16 @@ const Obj = (props) => {
         >
           {queued ? '➖' : '➕'}
         </div>
+        <div
+          className="icon-button details-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowDetails(!showDetails);
+          }}
+          title={showDetails ? "Hide details" : "Show details"}
+        >
+          {showDetails ? '📄' : '📋'}
+        </div>
         {otype === 'user' && !props.compact.includes('Error') && (
           <div
             className="icon-button explore-user-icon"
@@ -1389,6 +1442,27 @@ const Obj = (props) => {
           setCurrentIndex={setCurrentMediaIndex}
           setLiked={ctx.actions.setLiked}
         />
+      )}
+
+      {/* Details section */}
+      {showDetails && (
+        <div className="details-content">
+          <h5>Details</h5>
+          {detailed ? (
+            <div dangerouslySetInnerHTML={{__html: detailed}} />
+          ) : (
+            <div>
+              {Object.entries(md || {}).map(([key, value]) => (
+                <div key={key} className="detail-item">
+                  <span className="detail-key">{key}:</span>
+                  <span className="detail-value">
+                    {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
     </div>
