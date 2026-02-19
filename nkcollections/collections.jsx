@@ -54,6 +54,30 @@ const json_str = (obj) => {
   return JSON.stringify(obj, null, 2);
 };
 
+const elapsedStr = (ts) => {
+  // Convert ts to Date object if it's a number (timestamp)
+  const date = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+  const now = new Date();
+  const diffMs = now - date;
+  
+  if (diffMs < 0) return '0s'; // Handle future dates
+  
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  const diffWeeks = Math.floor(diffDays / 7);
+  const diffMonths = Math.floor(diffDays / 30); // Approximate
+  
+  // Return the largest unit that has a value > 1, or the next smaller unit
+  if (diffMonths > 1) return `${diffMonths}mo`;
+  if (diffWeeks > 1) return `${diffWeeks}w`;
+  if (diffDays > 1) return `${diffDays}d`;
+  if (diffHours > 1) return `${diffHours}h`;
+  if (diffMins > 1) return `${diffMins}m`;
+  return `${diffSecs}s`;
+};
+
 // Global reference for message handling
 let globalSetMessage = null;
 let globalSetSourceStr = null;
