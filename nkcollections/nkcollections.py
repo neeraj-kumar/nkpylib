@@ -396,8 +396,6 @@ class GetHandler(MyBaseHandler):
         else:
             ret = {r.id: recursive_to_dict(r) for r in items}
         times.append(time.time())
-        times.append(time.time())
-        # prepare items for web (rels are now handled inside for_web)
         for item in items:
             await item.for_web(ret[item.id])
         times.append(time.time())
