@@ -1966,7 +1966,7 @@ const AppProvider = ({ children }) => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
   //const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
-  const [curOtypes, setCurOtypes] = React.useState(['image', 'video', 'user', 'post']);
+  const [curOtypes, setCurOtypes] = React.useState(['image', 'video', 'user']);
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
