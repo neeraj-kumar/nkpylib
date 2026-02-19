@@ -661,10 +661,7 @@ const STYLES = `
 }
 
 .details-content .detail-item {
-  margin-bottom: 8px;
-  padding: 4px;
   background-color: white;
-  border-radius: 2px;
 }
 
 .details-content .detail-key {
@@ -1340,6 +1337,11 @@ const Obj = (props) => {
           onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
+            setTimeout(() => {
+              if (ctx.ui.refreshMasonry) {
+                ctx.ui.refreshMasonry();
+              }
+            }, 300);
           }}
           title={showDetails ? "Hide details" : "Show details"}
         >
@@ -1449,7 +1451,6 @@ const Obj = (props) => {
       {/* Details section */}
       {showDetails && (
         <div className="details-content">
-          <h5>Details</h5>
           {detailed ? (
             <div dangerouslySetInnerHTML={{__html: detailed}} />
           ) : (
