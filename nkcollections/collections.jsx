@@ -1555,7 +1555,7 @@ const Obj = (props) => {
                     <div className="detail-item">
                       <span className="detail-key">embed_ts:</span>
                       <span className="detail-value">
-                        {props.embed_ts > 0 ? new Date(props.embed_ts * 1000).toLocaleString() : 'Error'}
+                        {props.embed_ts > 0 ? `${elapsedStr(props.embed_ts)} ago` : 'Error'}
                       </span>
                     </div>
                   )}
@@ -1563,7 +1563,7 @@ const Obj = (props) => {
                     <div className="detail-item">
                       <span className="detail-key">explored_ts:</span>
                       <span className="detail-value">
-                        {props.explored_ts > 0 ? new Date(props.explored_ts * 1000).toLocaleString() : 'Error'}
+                        {props.explored_ts > 0 ? `${elapsedStr(props.explored_ts)} ago` : 'Error'}
                       </span>
                     </div>
                   )}

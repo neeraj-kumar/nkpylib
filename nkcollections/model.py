@@ -287,7 +287,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             compact = f'{self.source}: <a href="{self.url}" target="_blank">{self.name or self.url}</a>'
             if self.explored_ts:
                 if self.explored_ts > 0:
-                    compact += f'<br>Last explored: {time.ctime(self.explored_ts)}'
+                    compact += f'<br>Last explored: {elapsedStr(self.explored_ts)} ago'
                 else:
                     compact += f'<br>Error'
             else:
@@ -301,8 +301,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     if k == 'ts': # skip the update time, we don't care
                         continue
                     if k.endswith('_ts'):
-                        diff = now - v
-                        v = f'{time.ctime(v)} ({int(diff//3600)}h ago)'
+                        v = f'{elapsedStr(v)} ago'
                     if isinstance(v, float):
                         v = f'{v:.2f}'
                     compact += f'<li>{k}: {v}</li>'
