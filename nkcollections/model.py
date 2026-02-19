@@ -71,6 +71,8 @@ def elapsed_str(ts: float) -> str:
     """
     if ts is None or ts == 0:
         return 'null'
+    if ts < 0:
+        return f'error: {ts}'
     now = time.time()
     diff_secs = int(now - ts)
     if diff_secs < 0:
