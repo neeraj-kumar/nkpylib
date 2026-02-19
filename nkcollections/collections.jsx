@@ -678,7 +678,7 @@ const STYLES = `
 
 /* Details expansion styles */
 .object.details-expanded {
-  height: 800px;
+  max-height: 800px;
   overflow-y: auto;
 }
 
@@ -1563,6 +1563,7 @@ const Obj = (props) => {
               )}
               {/* Show timestamps if they exist */}
               {showTs('ts', props)}
+              {showTs('seen_ts', props)}
               {showTs('embed_ts', props)}
               {showTs('explored_ts', props)}
               {/* Show md below rels */}

@@ -559,12 +559,12 @@ class Tumblr(TumblrApi, Source):
         # Handle queued_post_reblogs relations by enriching them with user data
         if 'rels' in r and 'queued_post_reblogs' in r['rels']:
             queued_rels = r['rels']['queued_post_reblogs']
-            print(f'For item {item} had queued_post_reblogs: {queued_rels}')
+            logger.debug(f'For item {item} had queued_post_reblogs: {queued_rels}')
             # Handle both single rel (dict) and multiple rels (list)
             if isinstance(queued_rels, dict):
                 queued_rels = [queued_rels]
             enriched_reblogs = []
-            print(f'Enriching {len(queued_rels)} queued_post_reblogs for item {item.id}')
+            logger.info(f'Enriching {len(queued_rels)} queued_post_reblogs for item {item.id}')
             # get all the relevant users
             user_ids = [r['tgt_id'] for r in queued_rels]
             with db_session:
@@ -594,7 +594,7 @@ class Tumblr(TumblrApi, Source):
                 ]
 
             enriched_reblogs.sort(key=key_fn)
-            print(f'Final enriched: {enriched_reblogs}')
+            logger.debug(f'Final enriched: {enriched_reblogs}')
             r['rels']['queued_post_reblogs'] = enriched_reblogs
 
     @db_session
