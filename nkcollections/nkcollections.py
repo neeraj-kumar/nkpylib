@@ -399,41 +399,34 @@ class GetHandler(MyBaseHandler):
         # fetch rels for items and their containing posts
         me = Item.get_me()
         rels_by_id = defaultdict(list)
-        
         # Get all post IDs for items that have containing posts
         post_ids = set()
         for item in items:
             post = item.get_closest(otype='post')
             if post and post.id != item.id:
                 post_ids.add(post.id)
-        
         # Fetch rels for both items and their posts
         all_target_ids = set(cur_ids) | post_ids
-        for r in Rel.select(lambda r: r.src == me and r.tgt.id in all_target_ids):
+        for r in Rel.select(lambda r: r.tgt.id in all_target_ids or r.src.id in all_target_ids):
             rels_by_id[r.tgt.id].append(r)
-        
+            rels_by_id[r.src.id].append(r) # also store by src id for easy lookup when merging
         # For each item, merge its rels with its containing post's rels
         final_rels_by_id = defaultdict(list)
         for item in items:
             item_rels = rels_by_id[item.id]
             post = item.get_closest(otype='post')
-            
             if post and post.id != item.id:
                 post_rels = rels_by_id[post.id]
-                
                 # Group rels by rtype
                 item_rels_by_type = defaultdict(list)
                 post_rels_by_type = defaultdict(list)
-                
                 for rel in item_rels:
                     item_rels_by_type[rel.rtype].append(rel)
                 for rel in post_rels:
                     post_rels_by_type[rel.rtype].append(rel)
-                
                 # Merge: item rels override post rels for same rtype
                 merged_rels = []
                 all_rtypes = set(item_rels_by_type.keys()) | set(post_rels_by_type.keys())
-                
                 for rtype in all_rtypes:
                     if rtype in item_rels_by_type:
                         # Item has rels of this type, use them
@@ -441,12 +434,10 @@ class GetHandler(MyBaseHandler):
                     else:
                         # Only post has rels of this type, use post's
                         merged_rels.extend(post_rels_by_type[rtype])
-                
                 final_rels_by_id[item.id] = merged_rels
             else:
                 # No containing post or item is the post itself
                 final_rels_by_id[item.id] = item_rels
-        
         rels_by_id = final_rels_by_id
         times.append(time.time())
         # prepare items for web
