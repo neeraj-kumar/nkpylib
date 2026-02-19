@@ -33,7 +33,8 @@ const QUICK_LINKS = {
   // unexplored but queued
   'Q users': {...user_kw, "explored_ts": "<>", "order": "-lambda o: o.md['n_queued_reblogs']"},
   // recent positive liked images
-  'Pos Images': {"otype":"image","limit":200,"min_like":0.1,"order": "-embed_ts"},
+  'Pos Images': {"otype":"image","limit":200,"order": "-embed_ts"},
+  //FIXME'Pos Images': {"otype":"image","limit":200,"min_like":0.1,"order": "-embed_ts"},
   // users sorted by n pos likes
   Users: {...user_kw, "source": "tumblr", "order": "-lambda o: o.md['stats']['n_pos_like_score']"},
   // recent users sorted by timestamp
