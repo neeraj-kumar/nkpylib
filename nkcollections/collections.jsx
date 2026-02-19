@@ -1502,7 +1502,7 @@ const Obj = (props) => {
                                 <span className="reblog-stats">
                                   {reblog.stats && Object.keys(reblog.stats).length > 0 ? (
                                     Object.entries(reblog.stats)
-                                      .filter(([key, value]) => !key.endsWith('_ts') && key !== 'ts' && value !== null && value !== 0)
+                                      .filter(([key, value]) => !key.endsWith('_ts') && key !== 'ts' && !key.endsWith('_url') && value !== null && value !== 0)
                                       .slice(0, 3)
                                       .map(([key, value]) => `${key}: ${typeof value === 'number' ? value.toFixed(0) : value}`)
                                       .join(', ')

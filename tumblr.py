@@ -584,8 +584,25 @@ class Tumblr(TumblrApi, Source):
                         'n_total': rel_data.get('n_total', 0),
                         'ts': rel_data.get('ts', 0),
                     })
-            # Replace the original queued_post_reblogs with enriched version
+            # Sort the enriched reblogs by the specified criteria
             if enriched_reblogs:
+                def sane_sort(a, b, key):
+                    """Sort function that takes a key function returning an array of sort keys"""
+                    key_a = key(a)
+                    key_b = key(b)
+                    for i in range(len(key_a)):
+                        if key_a[i] < key_b[i]:
+                            return 1  # b comes first (descending)
+                        elif key_a[i] > key_b[i]:
+                            return -1  # a comes first (descending)
+                    return 0  # equal
+                
+                from functools import cmp_to_key
+                enriched_reblogs.sort(key=cmp_to_key(lambda a, b: sane_sort(a, b, lambda x: [
+                    x['stats'].get('n_pos_like_score', 0),
+                    x.get('n_queued_reblogs', 0),
+                    x['stats'].get('n_images', 0)
+                ])))
                 r['rels']['queued_post_reblogs'] = enriched_reblogs
 
     @db_session
