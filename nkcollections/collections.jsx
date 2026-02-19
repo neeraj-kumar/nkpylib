@@ -2172,8 +2172,11 @@ const AppProvider = ({ children }) => {
     // Set embed_ts to ">0"
     sourceObj.embed_ts = '>0';
     sourceObj.pos = [id];
-    doSource(JSON.stringify(sourceObj), true);
-  }, [doSource]);
+    // Open in new window instead of current window
+    const newSourceStr = JSON.stringify(sourceObj);
+    const url = `?source=${encodeURIComponent(newSourceStr)}`;
+    window.open(url, '_blank');
+  }, []);
 
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
