@@ -255,7 +255,7 @@ class BackgroundWorker(abc.ABC):
                     a.md['processed_ts'] = -1
 
 
-    async def _explore_users(self, min_count=80) -> None:
+    async def _explore_users(self, min_count=50) -> None:
         """Explores users who have more than `min_count` reblogs queued."""
         with db_session:
             users = Item.select(lambda u: u.otype == 'user' and u.explored_ts is None and u.md['n_queued_reblogs'] is not None)
