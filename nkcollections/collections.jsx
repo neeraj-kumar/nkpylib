@@ -1776,7 +1776,7 @@ const InfoBar = () => {
           onClick={() => ctx.actions.doClassifier('likes')}
           title="Run the likes-based classifier to score items"
         >
-          Like Classifier
+          Likes
         </button>
       </div>
       <div className="control cluster-classifier">
@@ -1810,7 +1810,7 @@ const InfoBar = () => {
       <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
       <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
       <div className="control refresh-masonry">
-        <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">Refresh layout</button>
+        <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">↻ </button>
       </div>
       <div className="flex-break"></div>
       <div className="control message-display">
@@ -1959,7 +1959,7 @@ const Controls = () => {
           onKeyDown={keyHandler}
           size="52"
         />
-        <button onClick={() => ctx.actions.doSource(sourceStr)} title="Load data from the source string">Set Source</button>
+        <button onClick={() => ctx.actions.doSource(sourceStr)} title="Load data from the source string">Set</button>
         {!IS_MOBILE && (
           <button className="source-from-clipboard-btn" onClick={doSourceFromClipboard} title="Paste source from clipboard and load">Source from Clipboard</button>
         )}
