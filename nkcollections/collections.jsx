@@ -1155,7 +1155,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
 
 const Obj = (props) => {
   const ctx = React.useContext(AppContext);
-  let {id, otype, url, md, score, rels, source, media_blocks} = props;
+  let {id, otype, url, md, score, rels, source, media_blocks, detailed} = props;
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
@@ -1174,6 +1174,8 @@ const Obj = (props) => {
   const hasMultipleMedia = media_blocks && media_blocks.length > 1;
   // Hover state for keyboard shortcuts
   const [isHovered, setIsHovered] = React.useState(false);
+  // Details expansion state
+  const [showDetails, setShowDetails] = React.useState(false);
 
   const mediaDivs = [
     (<div key="a"
