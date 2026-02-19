@@ -1477,9 +1477,9 @@ const Obj = (props) => {
             <div className="content">
               <div className="video-link" style={{position: 'relative'}}>
                 <img src={md.poster_url} alt={`Video ${id} poster`} />
-                <a 
-                  href={url} 
-                  target="_blank" 
+                <a
+                  href={url}
+                  target="_blank"
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -1530,7 +1530,7 @@ const Obj = (props) => {
                               .filter(reblog => reblog.stats && reblog.stats.n_images && reblog.stats.n_images > 0)
                               .map((reblog, index) => (
                               <div key={index} className="reblog-item">
-                                <a 
+                                <a
                                   href={`?source=${encodeURIComponent(JSON.stringify({ancestor: reblog.id, otype: "image", limit: 200}))}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -1560,6 +1560,7 @@ const Obj = (props) => {
                 </div>
               )}
               {/* Show timestamps if they exist */}
+              {showTs('ts', props)}
               {showTs('embed_ts', props)}
               {showTs('explored_ts', props)}
               {/* Show md below rels */}
