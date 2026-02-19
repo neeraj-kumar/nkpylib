@@ -55,6 +55,7 @@ const json_str = (obj) => {
 };
 
 const elapsedStr = (ts) => {
+  if (ts === null || ts === 0) return 'null';
   // Convert ts to Date object if it's a number (timestamp)
   const date = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
   const now = new Date();

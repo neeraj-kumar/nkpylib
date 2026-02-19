@@ -69,6 +69,8 @@ def elapsed_str(ts: float) -> str:
     Returns the largest unit that has a value > 1, or the next smaller unit.
     Values are rounded down (no decimals).
     """
+    if ts is None or ts == 0:
+        return 'null'
     now = time.time()
     diff_secs = int(now - ts)
     if diff_secs < 0:
