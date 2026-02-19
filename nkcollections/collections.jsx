@@ -1490,7 +1490,9 @@ const Obj = (props) => {
                       <span className="detail-value">
                         {key === 'queued_post_reblogs' && Array.isArray(value) ? (
                           <div className="queued-reblogs-list">
-                            {value.map((reblog, index) => (
+                            {value
+                              .filter(reblog => reblog.stats && reblog.stats.n_images && reblog.stats.n_images > 0)
+                              .map((reblog, index) => (
                               <div key={index} className="reblog-item">
                                 <a 
                                   href={`?source=${encodeURIComponent(JSON.stringify({ancestor: reblog.id, otype: "image", limit: 200}))}`}
