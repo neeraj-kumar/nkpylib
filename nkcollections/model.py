@@ -244,12 +244,11 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             item = item.parent
         return None
 
-    async def for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
+    async def for_web(self, r: dict[str, Any]) -> None:
         """Cleans up this item for web use.
 
-        The web representation of this object is in `r`, which this modifies. Also pass in the list
-        of `rels` where this item is the target (for now we assume the src was 'me'). We assume rels
-        is in sorted order.
+        The web representation of this object is in `r`, which this modifies. Rels are fetched
+        and processed internally, including merging with containing post rels.
 
         Item changes:
         - for images with embeddings, adds 'local_path' relative to cwd
@@ -313,34 +312,61 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             detailed = compact #TODO
             r['compact'] = compact
             #r['detailed'] = detailed
-        self.rels_for_web(r, rels)
+        self.rels_for_web(r)
         # call the source-specific version of this function
         source = Source._registry.get(self.source)
         if source:
-            source.item_for_web(self, r, rels)
+            source.item_for_web(self, r)
 
-    def rels_for_web(self, r: dict[str, Any], rels: list[Rel]) -> None:
+    def rels_for_web(self, r: dict[str, Any]) -> None:
         """Deal with rels for web representation.
 
         This does:
+        - fetches rels for this item and its containing post (if different)
+        - merges them with item rels taking precedence over post rels for same rtype
         - adds a 'rels' sub-dict to `r` with keys being the rtype and values being dicts or lists
         - if there's only one rel of a given type, the value is a dict with 'ts' and any metadata
         - if there are multiple rels of a given type, the value is a list of such dicts
         - special processing:
           - for 'like' rels, we only keep the latest one (highest ts)
         """
-        #TODO figure out what to do about queued_post_reblogs, which is (postid, userid) -> {n_total, n_as_...}
-        R = r['rels'] = {}
-        rels_by_type = {}
+        from collections import defaultdict
+        
+        me = Item.get_me()
+        
+        # Get rels for this item
+        item_rels = list(Rel.select(lambda r: r.src == me and r.tgt == self))
+        
+        # Get rels for containing post if different from this item
+        post_rels = []
+        post = self.get_closest(otype='post')
+        if post and post.id != self.id:
+            post_rels = list(Rel.select(lambda r: r.src == me and r.tgt == post))
         
         # Group rels by type
-        for rel in rels:
-            if rel.rtype not in rels_by_type:
-                rels_by_type[rel.rtype] = []
-            rels_by_type[rel.rtype].append(rel)
+        item_rels_by_type = defaultdict(list)
+        post_rels_by_type = defaultdict(list)
         
-        # Process each rel type
-        for rtype, rel_list in rels_by_type.items():
+        for rel in item_rels:
+            item_rels_by_type[rel.rtype].append(rel)
+        for rel in post_rels:
+            post_rels_by_type[rel.rtype].append(rel)
+        
+        # Merge: item rels override post rels for same rtype
+        merged_rels_by_type = {}
+        all_rtypes = set(item_rels_by_type.keys()) | set(post_rels_by_type.keys())
+        
+        for rtype in all_rtypes:
+            if rtype in item_rels_by_type:
+                # Item has rels of this type, use them
+                merged_rels_by_type[rtype] = item_rels_by_type[rtype]
+            else:
+                # Only post has rels of this type, use post's
+                merged_rels_by_type[rtype] = post_rels_by_type[rtype]
+        
+        # Process each rel type for web output
+        R = r['rels'] = {}
+        for rtype, rel_list in merged_rels_by_type.items():
             if rtype == 'like':
                 # Special processing: only keep the latest like rel
                 latest_rel = max(rel_list, key=lambda r: r.ts)
@@ -772,7 +798,7 @@ class Source(abc.ABC):
     def __repr__(self) -> str:
         return f'Source<{self.name}>'
 
-    def item_for_web(self, item: Item, r: dict[str, Any], rels: list[Rel]) -> None:
+    def item_for_web(self, item: Item, r: dict[str, Any]) -> None:
         """Source-specific processing of an item for web representation.
 
         This is called from Item.for_web after generic processing.
