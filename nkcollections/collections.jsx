@@ -1547,25 +1547,20 @@ const Obj = (props) => {
                 </div>
               )}
               {/* Show timestamps if they exist */}
-              {(props.embed_ts || props.explored_ts) && (
-                <div>
-                  <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Timestamps:</h6>
-                  {props.embed_ts && (
-                    <div className="detail-item">
-                      <span className="detail-key">embed_ts:</span>
-                      <span className="detail-value">
-                        {props.embed_ts > 0 ? `${elapsedStr(props.embed_ts)}` : 'Error'}
-                      </span>
-                    </div>
-                  )}
-                  {props.explored_ts && (
-                    <div className="detail-item">
-                      <span className="detail-key">explored_ts:</span>
-                      <span className="detail-value">
-                        {props.explored_ts > 0 ? `${elapsedStr(props.explored_ts)}` : 'Error'}
-                      </span>
-                    </div>
-                  )}
+              {props.embed_ts && (
+                <div className="detail-item">
+                  <span className="detail-key">embed_ts:</span>
+                  <span className="detail-value">
+                    {elapsedStr(props.embed_ts)}
+                  </span>
+                </div>
+              )}
+              {props.explored_ts && (
+                <div className="detail-item">
+                  <span className="detail-key">explored_ts:</span>
+                  <span className="detail-value">
+                    {elapsedStr(props.explored_ts)}
+                  </span>
                 </div>
               )}
               {/* Show md below rels */}
