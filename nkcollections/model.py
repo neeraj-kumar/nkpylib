@@ -360,14 +360,14 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         for rtype, rel_list in merged_rels_by_type.items():
             if len(rel_list) == 1: # Single rel: store as dict
                 rel = rel_list[0]
-                md = dict(ts=rel.ts)
+                md = dict(ts=rel.ts, src_id=rel.src.id, tgt_id=rel.tgt.id)
                 if rel.md:
                     md.update(rel.md)
                 R[rtype] = md
             else: # Multiple rels: store as list of dicts
                 rel_dicts = []
                 for rel in rel_list:
-                    md = dict(ts=rel.ts)
+                    md = dict(ts=rel.ts, src_id=rel.src.id, tgt_id=rel.tgt.id)
                     if rel.md:
                         md.update(rel.md)
                     rel_dicts.append(md)
