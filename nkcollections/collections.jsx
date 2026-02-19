@@ -77,6 +77,19 @@ const elapsedStr = (ts) => {
   return `${diffSecs}s ago`;
 };
 
+const showTs = (tsName, props) => {
+  const ts = props[tsName];
+  if (!ts) return null;
+  return (
+    <div className="detail-item">
+      <span className="detail-key">{tsName}:</span>
+      <span className="detail-value">
+        {elapsedStr(ts)}
+      </span>
+    </div>
+  );
+};
+
 // Global reference for message handling
 let globalSetMessage = null;
 let globalSetSourceStr = null;
@@ -1547,22 +1560,8 @@ const Obj = (props) => {
                 </div>
               )}
               {/* Show timestamps if they exist */}
-              {props.embed_ts && (
-                <div className="detail-item">
-                  <span className="detail-key">embed_ts:</span>
-                  <span className="detail-value">
-                    {elapsedStr(props.embed_ts)}
-                  </span>
-                </div>
-              )}
-              {props.explored_ts && (
-                <div className="detail-item">
-                  <span className="detail-key">explored_ts:</span>
-                  <span className="detail-value">
-                    {elapsedStr(props.explored_ts)}
-                  </span>
-                </div>
-              )}
+              {showTs('embed_ts', props)}
+              {showTs('explored_ts', props)}
               {/* Show md below rels */}
               {md && Object.keys(md).length > 0 && (
                 <div>
