@@ -550,6 +550,46 @@ class Tumblr(TumblrApi, Source):
         post_data['media_blocks'] = media_blocks
         return post_data
 
+    def item_for_web(self, item: Item, r: dict[str, Any]) -> None:
+        """Tumblr-specific processing of an item for web representation.
+        
+        This enriches queued_post_reblogs relations with user information.
+        """
+        super().item_for_web(item, r)
+        
+        # Handle queued_post_reblogs relations by enriching them with user data
+        if 'rels' in r and 'queued_post_reblogs' in r['rels']:
+            queued_rels = r['rels']['queued_post_reblogs']
+            # Handle both single rel (dict) and multiple rels (list)
+            if isinstance(queued_rels, dict):
+                queued_rels = [queued_rels]
+            
+            enriched_reblogs = []
+            for rel_data in queued_rels:
+                # Find the user this rel points to
+                with db_session:
+                    # Get the rel object to find the target user
+                    rel = Rel.select(lambda r: r.src.id == item.id and r.rtype == 'queued_post_reblogs').first()
+                    if rel and rel.tgt:
+                        user_item = rel.tgt
+                        enriched_reblogs.append({
+                            'id': user_item.id,
+                            'name': user_item.name or user_item.md.get('blog_name', ''),
+                            'url': user_item.url,
+                            'blog_name': user_item.md.get('blog_name', ''),
+                            'title': user_item.md.get('title', ''),
+                            'n_queued_reblogs': user_item.md.get('n_queued_reblogs', 0),
+                            'stats': user_item.md.get('stats', {}),
+                            'n_as_reblogger': rel_data.get('n_as_reblogger', 0),
+                            'n_as_rebloggee': rel_data.get('n_as_rebloggee', 0),
+                            'n_total': rel_data.get('n_total', 0),
+                            'ts': rel_data.get('ts', 0),
+                        })
+            
+            # Replace the original queued_post_reblogs with enriched version
+            if enriched_reblogs:
+                r['rels']['queued_post_reblogs'] = enriched_reblogs
+
     @db_session
     def create_collection_from_posts(self,
                                      posts: list[dict],
