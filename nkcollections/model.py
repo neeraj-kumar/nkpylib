@@ -726,6 +726,8 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             ts = int(time.time())
             rels_by_item_by_source = defaultdict(dict)
             for item in items:
+                # Update seen_ts for any action
+                item.seen_ts = ts
                 r: None|Rel = None
                 match action:
                     case 'like': # create or update the rel (only 1 like possible)
