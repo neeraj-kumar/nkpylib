@@ -82,7 +82,10 @@ def elapsed_str(ts: float) -> str:
     diff_days = diff_hours // 24
     diff_weeks = diff_days // 7
     diff_months = diff_days // 30  # Approximate
+    diff_years = diff_days // 365  # Approximate
     # Return the largest unit that has a value > 1, or the next smaller unit
+    if diff_years > 1:
+        return f'{diff_years}y ago'
     if diff_months > 1:
         return f'{diff_months}mo ago'
     if diff_weeks > 1:

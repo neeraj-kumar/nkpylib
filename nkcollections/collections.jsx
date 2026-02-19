@@ -68,7 +68,9 @@ const elapsedStr = (ts) => {
   const diffDays = Math.floor(diffHours / 24);
   const diffWeeks = Math.floor(diffDays / 7);
   const diffMonths = Math.floor(diffDays / 30); // Approximate
+  const diffYears = Math.floor(diffDays / 365); // Approximate
   // Return the largest unit that has a value > 1, or the next smaller unit
+  if (diffYears > 1) return `${diffYears}y ago`;
   if (diffMonths > 1) return `${diffMonths}mo ago`;
   if (diffWeeks > 1) return `${diffWeeks}w ago`;
   if (diffDays > 1) return `${diffDays}d ago`;
