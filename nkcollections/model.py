@@ -63,26 +63,21 @@ ACTIONS = 'like unlike dislike undislike queue unqueue explore'.split()
 
 def elapsed_str(ts: float) -> str:
     """Returns a compact human readable string showing elapsed time since the given timestamp.
-    
+
     - ts: Unix timestamp (seconds since epoch)
-    
+
     Returns the largest unit that has a value > 1, or the next smaller unit.
     Values are rounded down (no decimals).
     """
-    import time
-    
     now = time.time()
     diff_secs = int(now - ts)
-    
     if diff_secs < 0:
         return '0s ago'  # Handle future dates
-    
     diff_mins = diff_secs // 60
     diff_hours = diff_mins // 60
     diff_days = diff_hours // 24
     diff_weeks = diff_days // 7
     diff_months = diff_days // 30  # Approximate
-    
     # Return the largest unit that has a value > 1, or the next smaller unit
     if diff_months > 1:
         return f'{diff_months}mo ago'
@@ -927,7 +922,7 @@ class Source(abc.ABC):
         n_missing = 0
         n_done = 0
         with db_session:
-            def fix(rows: list[Item], key_suffix: str, ts_field: str, fix_missing: bool) -> int:
+            def fix(rows: list[Item], key_suffix: str, ts_field: str, fix_missing: bool, db) -> int:
                 """Fix synchronization between sqlite and lmdb.
 
                 - fix_missing: If True, fix items marked done in sqlite but missing in lmdb. If
@@ -954,18 +949,18 @@ class Source(abc.ABC):
 
             # first deal with embeddings wrongly marked as done in sqlite but missing in lmdb
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype in ('text', 'link'))
-            n_missing += fix(rows, 'text', 'embed_ts', fix_missing=True)
+            n_missing += fix(rows, 'text', 'embed_ts', fix_missing=True, db=db)
             rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype == 'image')
-            n_missing += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=True)
+            n_missing += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=True, db=db)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is not None and c.explored_ts > 0)
-            n_missing += fix(rows, 'text', 'explored_ts', fix_missing=True)
+            n_missing += fix(rows, 'text', 'explored_ts', fix_missing=True, db=db)
             # now deal with embeddings present in lmdb but not marked done in sqlite
             rows = Item.select(lambda c: c.otype in ('text', 'link') and c.embed_ts is None)
-            n_done += fix(rows, 'text', 'embed_ts', fix_missing=False)
+            n_done += fix(rows, 'text', 'embed_ts', fix_missing=False, db=db)
             rows = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None)
-            n_done += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=False)
+            n_done += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=False, db=db)
             rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is None)
-            n_done += fix(rows, 'text', 'explored_ts', fix_missing=False)
+            n_done += fix(rows, 'text', 'explored_ts', fix_missing=False, db=db)
         del db
         logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
 

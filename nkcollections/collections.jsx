@@ -59,16 +59,13 @@ const elapsedStr = (ts) => {
   const date = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
   const now = new Date();
   const diffMs = now - date;
-  
   if (diffMs < 0) return '0s ago'; // Handle future dates
-  
   const diffSecs = Math.floor(diffMs / 1000);
   const diffMins = Math.floor(diffSecs / 60);
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
   const diffWeeks = Math.floor(diffDays / 7);
   const diffMonths = Math.floor(diffDays / 30); // Approximate
-  
   // Return the largest unit that has a value > 1, or the next smaller unit
   if (diffMonths > 1) return `${diffMonths}mo ago`;
   if (diffWeeks > 1) return `${diffWeeks}w ago`;
