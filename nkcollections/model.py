@@ -330,32 +330,24 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         - special processing:
           - for 'like' rels, we only keep the latest one (highest ts)
         """
-        from collections import defaultdict
-        
         me = Item.get_me()
-        
         # Get rels for this item
-        item_rels = list(Rel.select(lambda r: r.src == me and r.tgt == self))
-        
+        item_rels = list(Rel.select(lambda r: r.src == self or r.tgt == self))
         # Get rels for containing post if different from this item
         post_rels = []
         post = self.get_closest(otype='post')
         if post and post.id != self.id:
-            post_rels = list(Rel.select(lambda r: r.src == me and r.tgt == post))
-        
+            post_rels = list(Rel.select(lambda r: r.src == post or r.tgt == post))
         # Group rels by type
         item_rels_by_type = defaultdict(list)
         post_rels_by_type = defaultdict(list)
-        
         for rel in item_rels:
             item_rels_by_type[rel.rtype].append(rel)
         for rel in post_rels:
             post_rels_by_type[rel.rtype].append(rel)
-        
         # Merge: item rels override post rels for same rtype
         merged_rels_by_type = {}
         all_rtypes = set(item_rels_by_type.keys()) | set(post_rels_by_type.keys())
-        
         for rtype in all_rtypes:
             if rtype in item_rels_by_type:
                 # Item has rels of this type, use them
@@ -363,26 +355,16 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             else:
                 # Only post has rels of this type, use post's
                 merged_rels_by_type[rtype] = post_rels_by_type[rtype]
-        
         # Process each rel type for web output
         R = r['rels'] = {}
         for rtype, rel_list in merged_rels_by_type.items():
-            if rtype == 'like':
-                # Special processing: only keep the latest like rel
-                latest_rel = max(rel_list, key=lambda r: r.ts)
-                md = dict(ts=latest_rel.ts)
-                if latest_rel.md:
-                    md.update(latest_rel.md)
-                R[rtype] = md
-            elif len(rel_list) == 1:
-                # Single rel: store as dict
+            if len(rel_list) == 1: # Single rel: store as dict
                 rel = rel_list[0]
                 md = dict(ts=rel.ts)
                 if rel.md:
                     md.update(rel.md)
                 R[rtype] = md
-            else:
-                # Multiple rels: store as list of dicts
+            else: # Multiple rels: store as list of dicts
                 rel_dicts = []
                 for rel in rel_list:
                     md = dict(ts=rel.ts)
