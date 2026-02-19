@@ -675,6 +675,31 @@ const STYLES = `
   word-break: break-word;
 }
 
+.queued-reblogs-list {
+  margin-top: 5px;
+}
+
+.reblog-item {
+  margin-bottom: 3px;
+  padding: 2px 0;
+}
+
+.reblog-item a {
+  color: #007bff;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.reblog-item a:hover {
+  text-decoration: underline;
+}
+
+.reblog-stats {
+  margin-left: 8px;
+  font-size: 0.9em;
+  color: #6c757d;
+}
+
 /* Quick links styles */
 .quick-links {
   display: flex;
@@ -1463,7 +1488,26 @@ const Obj = (props) => {
                     <div key={key} className="detail-item">
                       <span className="detail-key">{key}:</span>
                       <span className="detail-value">
-                        {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                        {key === 'queued_post_reblogs' && Array.isArray(value) ? (
+                          <div className="queued-reblogs-list">
+                            {value.map((reblog, index) => (
+                              <div key={index} className="reblog-item">
+                                <a 
+                                  href={`?source=${encodeURIComponent(JSON.stringify({ancestor: reblog.id, otype: "image", limit: 200}))}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  {reblog.blog_name}
+                                </a>
+                                <span className="reblog-stats">
+                                  ({reblog.n_total} total, {reblog.n_as_reblogger} as reblogger)
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)
+                        )}
                       </span>
                     </div>
                   ))}
