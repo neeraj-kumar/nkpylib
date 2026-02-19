@@ -61,6 +61,42 @@ IMAGE_SUFFIX = 'mn_image'
 ACTIONS = 'like unlike dislike undislike queue unqueue explore'.split()
 
 
+def elapsed_str(ts: float) -> str:
+    """Returns a compact human readable string showing elapsed time since the given timestamp.
+    
+    - ts: Unix timestamp (seconds since epoch)
+    
+    Returns the largest unit that has a value > 1, or the next smaller unit.
+    Values are rounded down (no decimals).
+    """
+    import time
+    
+    now = time.time()
+    diff_secs = int(now - ts)
+    
+    if diff_secs < 0:
+        return '0s'  # Handle future dates
+    
+    diff_mins = diff_secs // 60
+    diff_hours = diff_mins // 60
+    diff_days = diff_hours // 24
+    diff_weeks = diff_days // 7
+    diff_months = diff_days // 30  # Approximate
+    
+    # Return the largest unit that has a value > 1, or the next smaller unit
+    if diff_months > 1:
+        return f'{diff_months}mo'
+    if diff_weeks > 1:
+        return f'{diff_weeks}w'
+    if diff_days > 1:
+        return f'{diff_days}d'
+    if diff_hours > 1:
+        return f'{diff_hours}h'
+    if diff_mins > 1:
+        return f'{diff_mins}m'
+    return f'{diff_secs}s'
+
+
 async def ret_immediate(func_output) -> Any:
     """Given some `func_output`, we want to return something asap.
 
@@ -287,7 +323,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             compact = f'{self.source}: <a href="{self.url}" target="_blank">{self.name or self.url}</a>'
             if self.explored_ts:
                 if self.explored_ts > 0:
-                    compact += f'<br>Last explored: {elapsedStr(self.explored_ts)} ago'
+                    compact += f'<br>Last explored: {elapsed_str(self.explored_ts)} ago'
                 else:
                     compact += f'<br>Error'
             else:
@@ -301,7 +337,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     if k == 'ts': # skip the update time, we don't care
                         continue
                     if k.endswith('_ts'):
-                        v = f'{elapsedStr(v)} ago'
+                        v = f'{elapsed_str(v)} ago'
                     if isinstance(v, float):
                         v = f'{v:.2f}'
                     compact += f'<li>{k}: {v}</li>'
