@@ -75,7 +75,7 @@ def elapsed_str(ts: float) -> str:
     diff_secs = int(now - ts)
     
     if diff_secs < 0:
-        return '0s'  # Handle future dates
+        return '0s ago'  # Handle future dates
     
     diff_mins = diff_secs // 60
     diff_hours = diff_mins // 60
@@ -85,16 +85,16 @@ def elapsed_str(ts: float) -> str:
     
     # Return the largest unit that has a value > 1, or the next smaller unit
     if diff_months > 1:
-        return f'{diff_months}mo'
+        return f'{diff_months}mo ago'
     if diff_weeks > 1:
-        return f'{diff_weeks}w'
+        return f'{diff_weeks}w ago'
     if diff_days > 1:
-        return f'{diff_days}d'
+        return f'{diff_days}d ago'
     if diff_hours > 1:
-        return f'{diff_hours}h'
+        return f'{diff_hours}h ago'
     if diff_mins > 1:
-        return f'{diff_mins}m'
-    return f'{diff_secs}s'
+        return f'{diff_mins}m ago'
+    return f'{diff_secs}s ago'
 
 
 async def ret_immediate(func_output) -> Any:
@@ -323,7 +323,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             compact = f'{self.source}: <a href="{self.url}" target="_blank">{self.name or self.url}</a>'
             if self.explored_ts:
                 if self.explored_ts > 0:
-                    compact += f'<br>Last explored: {elapsed_str(self.explored_ts)} ago'
+                    compact += f'<br>Last explored: {elapsed_str(self.explored_ts)}'
                 else:
                     compact += f'<br>Error'
             else:
@@ -337,7 +337,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     if k == 'ts': # skip the update time, we don't care
                         continue
                     if k.endswith('_ts'):
-                        v = f'{elapsed_str(v)} ago'
+                        v = f'{elapsed_str(v)}'
                     if isinstance(v, float):
                         v = f'{v:.2f}'
                     compact += f'<li>{k}: {v}</li>'

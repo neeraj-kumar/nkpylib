@@ -60,7 +60,7 @@ const elapsedStr = (ts) => {
   const now = new Date();
   const diffMs = now - date;
   
-  if (diffMs < 0) return '0s'; // Handle future dates
+  if (diffMs < 0) return '0s ago'; // Handle future dates
   
   const diffSecs = Math.floor(diffMs / 1000);
   const diffMins = Math.floor(diffSecs / 60);
@@ -70,12 +70,12 @@ const elapsedStr = (ts) => {
   const diffMonths = Math.floor(diffDays / 30); // Approximate
   
   // Return the largest unit that has a value > 1, or the next smaller unit
-  if (diffMonths > 1) return `${diffMonths}mo`;
-  if (diffWeeks > 1) return `${diffWeeks}w`;
-  if (diffDays > 1) return `${diffDays}d`;
-  if (diffHours > 1) return `${diffHours}h`;
-  if (diffMins > 1) return `${diffMins}m`;
-  return `${diffSecs}s`;
+  if (diffMonths > 1) return `${diffMonths}mo ago`;
+  if (diffWeeks > 1) return `${diffWeeks}w ago`;
+  if (diffDays > 1) return `${diffDays}d ago`;
+  if (diffHours > 1) return `${diffHours}h ago`;
+  if (diffMins > 1) return `${diffMins}m ago`;
+  return `${diffSecs}s ago`;
 };
 
 // Global reference for message handling
@@ -1555,7 +1555,7 @@ const Obj = (props) => {
                     <div className="detail-item">
                       <span className="detail-key">embed_ts:</span>
                       <span className="detail-value">
-                        {props.embed_ts > 0 ? `${elapsedStr(props.embed_ts)} ago` : 'Error'}
+                        {props.embed_ts > 0 ? `${elapsedStr(props.embed_ts)}` : 'Error'}
                       </span>
                     </div>
                   )}
@@ -1563,7 +1563,7 @@ const Obj = (props) => {
                     <div className="detail-item">
                       <span className="detail-key">explored_ts:</span>
                       <span className="detail-value">
-                        {props.explored_ts > 0 ? `${elapsedStr(props.explored_ts)} ago` : 'Error'}
+                        {props.explored_ts > 0 ? `${elapsedStr(props.explored_ts)}` : 'Error'}
                       </span>
                     </div>
                   )}
