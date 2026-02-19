@@ -355,6 +355,7 @@ class CollectionsWorker(BackgroundWorker):
                  method: str = 'sgd',
                  max_pos: int = 10000,
                  neg_factor: float = 10,
+                 min_new_liked: int = 50,
                  image_suffix: str = 'image',
                  sleep_interval: float = 10.0,
                  exclude_top_n: int = 2000):
@@ -364,6 +365,7 @@ class CollectionsWorker(BackgroundWorker):
         self.method = method
         self.max_pos = max_pos
         self.neg_factor = neg_factor
+        self.min_new_liked = min_new_liked
         self.image_suffix = image_suffix
         self.sleep_interval = sleep_interval
         self.exclude_top_n = exclude_top_n
@@ -502,10 +504,10 @@ class CollectionsWorker(BackgroundWorker):
             logging.debug(f'Running inference result: {r}')
             return
         
-        # Only retrain if we have more than 50 new likes since last training
+        # Only retrain if we have enough new likes since last training
         new_likes_count = current_pos_count - last_pos_count
-        if new_likes_count <= 50:
-            logger.info(f"Only {new_likes_count} new likes (need >50), running inference only")
+        if new_likes_count <= self.min_new_liked:
+            logger.info(f"Only {new_likes_count} new likes (need >{self.min_new_liked}), running inference only")
             # Run inference
             r = self.run_inference()
             logging.debug(f'Running inference result: {r}')
