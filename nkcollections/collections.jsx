@@ -315,6 +315,13 @@ const STYLES = `
 .button-bar {
   display: flex;
   justify-content: center;
+  position: sticky;
+  top: 0;
+  background-color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(5px);
+  z-index: 10;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .button-bar .icon-button {
