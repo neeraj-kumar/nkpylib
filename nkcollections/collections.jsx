@@ -1370,7 +1370,7 @@ const Obj = (props) => {
           }}
           title={showDetails ? "Hide details" : "Show details"}
         >
-          {showDetails ? '📄' : '📋'}
+          {showDetails ? '📄' : (rels.queued_post_reblogs ? '📊' : '📋')}
         </div>
         {otype === 'user' && !props.compact.includes('Error') && (
           <div
