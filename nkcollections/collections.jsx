@@ -1455,14 +1455,34 @@ const Obj = (props) => {
             <div dangerouslySetInnerHTML={{__html: detailed}} />
           ) : (
             <div>
-              {Object.entries(md || {}).map(([key, value]) => (
-                <div key={key} className="detail-item">
-                  <span className="detail-key">{key}:</span>
-                  <span className="detail-value">
-                    {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
-                  </span>
+              {/* Show rels first if they exist */}
+              {rels && Object.keys(rels).length > 0 && (
+                <div>
+                  <h6 style={{margin: '0 0 8px 0', color: '#495057'}}>Relations:</h6>
+                  {Object.entries(rels).map(([key, value]) => (
+                    <div key={key} className="detail-item">
+                      <span className="detail-key">{key}:</span>
+                      <span className="detail-value">
+                        {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+              {/* Show md below rels */}
+              {md && Object.keys(md).length > 0 && (
+                <div>
+                  <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Metadata:</h6>
+                  {Object.entries(md).map(([key, value]) => (
+                    <div key={key} className="detail-item">
+                      <span className="detail-key">{key}:</span>
+                      <span className="detail-value">
+                        {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
