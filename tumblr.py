@@ -552,40 +552,38 @@ class Tumblr(TumblrApi, Source):
 
     def item_for_web(self, item: Item, r: dict[str, Any]) -> None:
         """Tumblr-specific processing of an item for web representation.
-        
+
         This enriches queued_post_reblogs relations with user information.
         """
         super().item_for_web(item, r)
-        
         # Handle queued_post_reblogs relations by enriching them with user data
         if 'rels' in r and 'queued_post_reblogs' in r['rels']:
             queued_rels = r['rels']['queued_post_reblogs']
+            print(f'For item {item} had queued_post_reblogs: {queued_rels}')
             # Handle both single rel (dict) and multiple rels (list)
             if isinstance(queued_rels, dict):
                 queued_rels = [queued_rels]
-            
             enriched_reblogs = []
-            for rel_data in queued_rels:
-                # Find the user this rel points to
-                with db_session:
-                    # Get the rel object to find the target user
-                    rel = Rel.select(lambda r: r.src.id == item.id and r.rtype == 'queued_post_reblogs').first()
-                    if rel and rel.tgt:
-                        user_item = rel.tgt
-                        enriched_reblogs.append({
-                            'id': user_item.id,
-                            'name': user_item.name or user_item.md.get('blog_name', ''),
-                            'url': user_item.url,
-                            'blog_name': user_item.md.get('blog_name', ''),
-                            'title': user_item.md.get('title', ''),
-                            'n_queued_reblogs': user_item.md.get('n_queued_reblogs', 0),
-                            'stats': user_item.md.get('stats', {}),
-                            'n_as_reblogger': rel_data.get('n_as_reblogger', 0),
-                            'n_as_rebloggee': rel_data.get('n_as_rebloggee', 0),
-                            'n_total': rel_data.get('n_total', 0),
-                            'ts': rel_data.get('ts', 0),
-                        })
-            
+            print(f'Enriching {len(queued_rels)} queued_post_reblogs for item {item.id}')
+            # get all the relevant users
+            user_ids = [r['tgt_id'] for r in queued_rels]
+            with db_session:
+                users_by_id = {u.id: u for u in Item.select(lambda i: i.id in user_ids)}
+                for rel_data in queued_rels:
+                    user = users_by_id.get(rel_data['tgt_id'])
+                    enriched_reblogs.append({
+                        'id': user.id,
+                        'name': user.name or user.md.get('blog_name', ''),
+                        'url': user.url,
+                        'blog_name': user.md.get('blog_name', ''),
+                        'title': user.md.get('title', ''),
+                        'n_queued_reblogs': user.md.get('n_queued_reblogs', 0),
+                        'stats': user.md.get('stats', {}),
+                        'n_as_reblogger': rel_data.get('n_as_reblogger', 0),
+                        'n_as_rebloggee': rel_data.get('n_as_rebloggee', 0),
+                        'n_total': rel_data.get('n_total', 0),
+                        'ts': rel_data.get('ts', 0),
+                    })
             # Replace the original queued_post_reblogs with enriched version
             if enriched_reblogs:
                 r['rels']['queued_post_reblogs'] = enriched_reblogs
@@ -822,7 +820,7 @@ def process_posts(posts):
                     print(f'  unknown content type: {c["type"]}')
         if i == 500:
             print('Liking this post...')
-            like_post(post_id=p['id'], reblog_key=p['reblogKey'])
+            #like_post(post_id=p['id'], reblog_key=p['reblogKey'])
 
 
 def update_blogs(config_path: str, **kw):
