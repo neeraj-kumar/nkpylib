@@ -1500,7 +1500,15 @@ const Obj = (props) => {
                                   {reblog.blog_name}
                                 </a>
                                 <span className="reblog-stats">
-                                  ({reblog.n_total} total, {reblog.n_as_reblogger} as reblogger)
+                                  {reblog.stats && Object.keys(reblog.stats).length > 0 ? (
+                                    Object.entries(reblog.stats)
+                                      .filter(([key, value]) => !key.endsWith('_ts') && key !== 'ts')
+                                      .slice(0, 3)
+                                      .map(([key, value]) => `${key}: ${typeof value === 'number' ? value.toFixed(0) : value}`)
+                                      .join(', ')
+                                  ) : (
+                                    `${reblog.n_total} total, ${reblog.n_as_reblogger} as reblogger`
+                                  )}
                                 </span>
                               </div>
                             ))}
