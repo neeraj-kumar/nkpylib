@@ -323,18 +323,47 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         """Deal with rels for web representation.
 
         This does:
-        - adds a 'rels' sub-dict to `r` with keys being the rtype and values being dicts
-        - each rel dict has 'ts' and any metadata from the rel's md
+        - adds a 'rels' sub-dict to `r` with keys being the rtype and values being dicts or lists
+        - if there's only one rel of a given type, the value is a dict with 'ts' and any metadata
+        - if there are multiple rels of a given type, the value is a list of such dicts
         - special processing:
           - for 'like' rels, we only keep the latest one (highest ts)
         """
         #TODO figure out what to do about queued_post_reblogs, which is (postid, userid) -> {n_total, n_as_...}
         R = r['rels'] = {}
+        rels_by_type = {}
+        
+        # Group rels by type
         for rel in rels:
-            # all rels should map from rtype to a dict, including at least the ts
-            md = R[rel.rtype] = dict(ts=rel.ts)
-            if rel.md:
-                md.update(rel.md)
+            if rel.rtype not in rels_by_type:
+                rels_by_type[rel.rtype] = []
+            rels_by_type[rel.rtype].append(rel)
+        
+        # Process each rel type
+        for rtype, rel_list in rels_by_type.items():
+            if rtype == 'like':
+                # Special processing: only keep the latest like rel
+                latest_rel = max(rel_list, key=lambda r: r.ts)
+                md = dict(ts=latest_rel.ts)
+                if latest_rel.md:
+                    md.update(latest_rel.md)
+                R[rtype] = md
+            elif len(rel_list) == 1:
+                # Single rel: store as dict
+                rel = rel_list[0]
+                md = dict(ts=rel.ts)
+                if rel.md:
+                    md.update(rel.md)
+                R[rtype] = md
+            else:
+                # Multiple rels: store as list of dicts
+                rel_dicts = []
+                for rel in rel_list:
+                    md = dict(ts=rel.ts)
+                    if rel.md:
+                        md.update(rel.md)
+                    rel_dicts.append(md)
+                R[rtype] = rel_dicts
 
     @classmethod
     async def update_text_embeddings(cls, q: Query, limit: int, lmdb_path: str, **kw) -> int:
