@@ -376,6 +376,7 @@ class CollectionsWorker(BackgroundWorker):
             'pos_ids': frozenset(),
             'saved_classifier': None,
             'classifier_version': 0.0,
+            'pos_count': 0,
         }
         self._load_and_run_initial_inference()
 
@@ -490,12 +491,27 @@ class CollectionsWorker(BackgroundWorker):
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
             return
+        
+        current_pos_count = len(current_pos_ids)
+        last_pos_count = self.last.get('pos_count', 0)
+        
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
             # Run inference
             r = self.run_inference()
             logging.debug(f'Running inference result: {r}')
             return
+        
+        # Only retrain if we have more than 50 new likes since last training
+        new_likes_count = current_pos_count - last_pos_count
+        if new_likes_count <= 50:
+            logger.info(f"Only {new_likes_count} new likes (need >50), running inference only")
+            # Run inference
+            r = self.run_inference()
+            logging.debug(f'Running inference result: {r}')
+            return
+        
+        logger.info(f"Found {new_likes_count} new likes, retraining classifier")
         try:
             pos, neg = self._get_training_set(current_pos_ids=current_pos_ids)
             all_ids = self._get_all_image_ids()
@@ -533,6 +549,7 @@ class CollectionsWorker(BackgroundWorker):
                 'pos_ids': current_pos_ids,
                 'saved_classifier': saved_classifier,
                 'classifier_version': saved_classifier['created_at'],
+                'pos_count': current_pos_count,
             })
             t2 = time.time()
             logger.info(f"Updated likes classifier in {t1-t0:.2f}s+{t2-t1:.2f}s, v{self.last['classifier_version']}")
@@ -581,7 +598,9 @@ class CollectionsWorker(BackgroundWorker):
             for k, v in saved_data.get('scores', {}).items():
                 self.scores[int(k)] = float(v)
             # note that these have already been rescored, so we don't redo it.
-            logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores")
+            # Also update pos_count from saved data
+            self.last['pos_count'] = saved_data.get('pos_count', len(pos_ids))
+            logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores, {self.last['pos_count']} pos examples")
         except Exception as e:
             logger.warning(f"Failed to load existing classifier: {e}\n{traceback.format_exc()}")
 
