@@ -1726,7 +1726,7 @@ const InfoBar = () => {
 
   return (
     <div className="infobar">
-      <div>{n} items ({nWithScores} scored, {nWithLikes} liked, {nWithDislikes} disliked, {nWithQueued} queued) </div>
+      <div>{n} items ({nWithScores} 🥇, {nWithLikes} ♥, {nWithDislikes} ❌, {nWithQueued} ⌛) </div>
       {sscores.length > 0 && (
         <div className="score-stats">
           , {nPos} ({pPos.toFixed(1)}%) pos
@@ -1798,7 +1798,7 @@ const InfoBar = () => {
             ←
           </button>
           <span style={{margin: '0 10px'}}>
-            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster]?.length || 0})
+            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster].length || 0})
           </span>
           <button
             onClick={() => navigateAutoCluster('next')}
@@ -2076,7 +2076,7 @@ const AppProvider = ({ children }) => {
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 6);
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 12); //FIXME
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
