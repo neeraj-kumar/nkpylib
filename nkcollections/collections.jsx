@@ -1604,6 +1604,7 @@ const InfoBar = () => {
   const [autoLikesElapsed, setAutoLikesElapsed] = React.useState(0);
   const autoLikesTimerRef = React.useRef(null);
 
+
   // Function to handle next page navigation
   const doNextPage = React.useCallback(() => {
     try {
@@ -1779,14 +1780,47 @@ const InfoBar = () => {
           Likes
         </button>
       </div>
-      <div className="control cluster-classifier">
-        <button
-          onClick={() => ctx.actions.doClassifier('clusters')}
-          title="Auto cluster items"
-        >
-          Clusterize
-        </button>
-      </div>
+      {Object.keys(ctx.data.autoClusters).length === 0 ? (
+        <div className="control cluster-classifier">
+          <button
+            onClick={() => ctx.actions.doClassifier('clusters')}
+            title="Auto cluster items"
+          >
+            Clusterize
+          </button>
+        </div>
+      ) : (
+        <div className="control auto-cluster-nav">
+          <button
+            onClick={() => navigateAutoCluster('prev')}
+            title="Previous auto cluster"
+          >
+            ←
+          </button>
+          <span style={{margin: '0 10px'}}>
+            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster]?.length || 0})
+          </span>
+          <button
+            onClick={() => navigateAutoCluster('next')}
+            title="Next auto cluster"
+          >
+            →
+          </button>
+          <button
+            onClick={() => {
+              ctx.filters.setCurCluster(null);
+              ctx.filters.setAutoClusters({});
+              setTimeout(() => {
+                ctx.ui.refreshMasonry();
+              }, 500);
+            }}
+            title="Clear all auto clusters"
+            style={{marginLeft: '10px'}}
+          >
+            Clear Clusters
+          </button>
+        </div>
+      )}
       <div className="control filter-control">
         <DebouncedInput
           value={filterStr}
@@ -2025,38 +2059,6 @@ const Controls = () => {
           ))}
         </select>
       </div>
-      {ctx.data.curCluster && (
-        <div className="control auto-cluster-nav">
-          <button
-            onClick={() => navigateAutoCluster('prev')}
-            title="Previous auto cluster"
-          >
-            ←
-          </button>
-          <span style={{margin: '0 10px'}}>
-            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster].length || 0})
-          </span>
-          <button
-            onClick={() => navigateAutoCluster('next')}
-            title="Next auto cluster"
-          >
-            →
-          </button>
-          <button
-            onClick={() => {
-              ctx.filters.setCurCluster(null);
-              ctx.filters.setAutoClusters({});
-              setTimeout(() => {
-                ctx.ui.refreshMasonry();
-              }, 500);
-            }}
-            title="Clear all auto clusters"
-            style={{marginLeft: '10px'}}
-          >
-            Clear Clusters
-          </button>
-        </div>
-      )}
       <div className="control flex-break"></div>
     </div>
   );
