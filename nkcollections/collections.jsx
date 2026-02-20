@@ -1604,6 +1604,19 @@ const InfoBar = () => {
   const [autoLikesElapsed, setAutoLikesElapsed] = React.useState(0);
   const autoLikesTimerRef = React.useRef(null);
 
+  // Auto cluster navigation functions
+  const navigateAutoCluster = React.useCallback((direction) => {
+    const clusterKeys = Object.keys(ctx.data.autoClusters);
+    if (clusterKeys.length === 0) return;
+    const currentIndex = clusterKeys.indexOf(ctx.data.curCluster);
+    let newIndex;
+    if (direction === 'prev') {
+      newIndex = currentIndex <= 0 ? clusterKeys.length - 1 : currentIndex - 1;
+    } else {
+      newIndex = currentIndex >= clusterKeys.length - 1 ? 0 : currentIndex + 1;
+    }
+    ctx.filters.setCurCluster(clusterKeys[newIndex]);
+  }, [ctx.data.autoClusters, ctx.data.curCluster, ctx.filters.setCurCluster]);
 
   // Function to handle next page navigation
   const doNextPage = React.useCallback(() => {
