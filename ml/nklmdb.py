@@ -294,7 +294,7 @@ class LmdbUpdater(CollectionUpdater):
                  db_path: str,
                  init_fn: Callable=NumpyLmdb.open,
                  map_size: int=2**32,
-                 n_procs: int=4,
+                 n_procs: int=1,
                  **kw):
         """Initialize the updater with the given db_path and `init_fn` (to pick which flavor)
 
@@ -302,8 +302,14 @@ class LmdbUpdater(CollectionUpdater):
 
         All other `kw` are passed to the CollectionUpdater constructor.
         """
+        global db, my_id
         super().__init__(add_fn=self._add_fn, **kw)
-        self.pool = ProcessPoolExecutor(max_workers=n_procs, initializer=self.init_worker, initargs=(db_path, init_fn, map_size))
+        if n_procs > 1:
+            self.pool = ProcessPoolExecutor(max_workers=n_procs, initializer=self.init_worker, initargs=(db_path, init_fn, map_size))
+        else:
+            self.pool = None
+            db = init_fn(db_path, flag='c', map_size=map_size, autogrow=True)
+            my_id = 'main'
         self.futures = []
 
     @staticmethod
@@ -329,8 +335,11 @@ class LmdbUpdater(CollectionUpdater):
 
         This calls key_in_db in a worker process.
         """
-        future = self.pool.submit(self.key_in_db, key)
-        return future.result()
+        if self.pool:
+            future = self.pool.submit(self.key_in_db, key)
+            return future.result()
+        else:
+            return self.key_in_db(key)
 
     @staticmethod
     def key_in_db(key: str) -> bool:
@@ -373,15 +382,19 @@ class LmdbUpdater(CollectionUpdater):
         db.sync()
 
     def _add_fn(self, to_add: dict[str, list]) -> None:
-        future = self.pool.submit(self.batch_add, to_add['ids'], to_add['objects'])
-        self.futures.append(future)
+        if self.pool:
+            future = self.pool.submit(self.batch_add, to_add['ids'], to_add['objects'])
+            self.futures.append(future)
+        else:
+            self.batch_add(to_add['ids'], to_add['objects'])
 
     def sync(self):
         """Makes sure all pending writes are done."""
         logger.info(f'Calling sync')
-        for f in self.futures:
-            f.result()
-        self.futures = []
+        if self.pool:
+            for f in self.futures:
+                f.result()
+            self.futures = []
 
 
 class LmdbTree(Tree):
