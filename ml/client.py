@@ -490,7 +490,7 @@ def strsim(input_: tuple[str, str], model='clip', use_cache=True, **kw) -> Respo
     a, b = input_
     return single_call("strsim", a=a, b=b, model=model, use_cache=use_cache, **kw)
 
-@execution_wrapper(final_func=lambda x: x['data'][0]['embedding'])
+@execution_wrapper(final_func=embed_final_func)
 def embed_image(img: str, model='image', use_cache=True, **kw) -> ResponseT:
     """Embeds an image (url or local path or loaded PIL image) using the specified model.
 
