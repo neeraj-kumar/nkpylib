@@ -82,7 +82,6 @@ from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed
 from nkpylib.nkcollections.workers import CollectionsWorker
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
-from nkpylib.thread_utils import run_async
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
@@ -579,7 +578,7 @@ def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|Non
     else:
         all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
     logger.info(f'got pos={pos}, {len(all_keys)} all keys: {all_keys[:5]}...')
-    ret = embs.similar(pos, all_keys=all_keys, method='nn')
+    ret = embs.similar(pos, all_keys=all_keys, method='nn') #FIXME
     scores, curIds = zip(*ret)
     return dict(
         pos=pos,

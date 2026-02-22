@@ -42,7 +42,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.pipeline import Pipeline # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
-from sklearn.svm import SVC # type: ignore
+from sklearn.svm import LinearSVC, SVC # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
@@ -62,42 +62,39 @@ from nkpylib.ml.nklmdb import (
 logger = logging.getLogger(__name__)
 
 
-def apply_cls_weights(X: Sequence[Sequence[float]]|np.ndarray, classifier: BaseEstimator) -> np.ndarray:
-    """Apply linear classifier feature weights to feature vectors.
+def apply_cls_weights(X: array2d, classifier: BaseEstimator) -> nparray2d:
+    """Apply classifier feature weights to feature vectors.
 
     - X: 2D sequence/array of shape `(n_samples, n_features)`
-    - classifier: Trained `sklearn` linear classifier (`SVC` with `kernel='linear'` or `SGDClassifier`)
+    - classifier: Trained `sklearn` classifier
+      - For now, we only handle `SVC` with `kernel='linear'` or `SGDClassifier`
 
     Returns a reweighted `np.ndarray` of shape `(n_samples, n_features)`, produced by element-wise
     multiplication of each feature column by the corresponding classifier weight. For multiclass
     models, uses the mean absolute coefficient across classes to obtain a single weight per feature.
     """
+    #FIXME note that if the classifier was trained using RBF sampler, we have to replicate that
     X_arr = np.asarray(X)
     if X_arr.ndim != 2:
         raise ValueError(f'X must be 2D (n_samples, n_features); got shape {X_arr.shape}')
-
     coef: np.ndarray|None = None
     match classifier:
         case SVC() if getattr(classifier, 'kernel', None) == 'linear':
             coef = getattr(classifier, 'coef_', None)
-        case SGDClassifier():
+        case SGDClassifier() | LinearSVC():
             coef = getattr(classifier, 'coef_', None)
         case _:
-            raise NotImplementedError('apply_cls_weights supports only linear SVC (kernel="linear") or SGDClassifier.')
-
+            raise NotImplementedError('apply_cls_weights supports only linear SVC or SGDClassifier.')
     if coef is None:
         raise ValueError('Classifier does not expose coef_. Ensure it is a trained linear model.')
-
     coef_arr = np.asarray(coef)
     if coef_arr.ndim == 1:
         weights = coef_arr
-    else:
-        # Aggregate multiclass weights to a single per-feature vector
+    else: # Aggregate multiclass weights to a single per-feature vector
         weights = np.mean(np.abs(coef_arr), axis=0)
-
+    weights = np.abs(weights) # take absolute value to get importance regardless of direction
     if weights.shape[0] != X_arr.shape[1]:
         raise ValueError(f'Feature dimension mismatch: weights has {weights.shape[0]} dims, X has {X_arr.shape[1]}.')
-
     return X_arr * weights
 
 

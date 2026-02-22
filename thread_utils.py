@@ -196,15 +196,18 @@ def is_async_callable(obj: typing.Any) -> bool:
 def run_async(coroutine):
     """Runs given async `coroutine` synchronously."""
     try:
+        logger.warning(f'Checking for loop for {coroutine}')
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        # No running loop, safe to create one
-        return asyncio.run(coroutine)
+        logger.warning(f'Hit run_async with no running loop, creating one for {coroutine}')
     else:
+        logger.warning(f'Found loop: {loop} for {coroutine}')
         # Already running, create a new task and wait for result
         future = asyncio.ensure_future(coroutine)
         done, _ = loop.run_until_complete(asyncio.wait([future]))
         return future.result()
+    # No running loop, safe to create one
+    return asyncio.run(coroutine)
 
 def sync_or_async(async_func):
     """Decorator that turns an async function into either sync or async depending on the caller.

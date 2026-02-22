@@ -5,9 +5,6 @@ with large models. The idea is that all the heavy dependencies (and different im
 encapsulated here, and you can interact with this using the `client.py` module without taking on any
 of the dependencies.
 
-In the future, I hope to make this more general and more robust, but for now it's a simple fastapi
-server.
-
 To run it:
 
     uvicorn server:app --reload --port 8234 --host 0.0.0.0
@@ -62,10 +59,11 @@ from abc import ABC, abstractmethod
 from collections import Counter, OrderedDict
 from concurrent.futures import ProcessPoolExecutor, Future, ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from functools import wraps
 from hashlib import sha256
 from pprint import pformat
 from asyncio import Lock, Condition
-from typing import Any, Callable, Literal, Optional, Union
+from typing import Any, Callable, Literal, Optional, Union, Type
 from urllib.request import urlretrieve
 
 import anyio
@@ -75,6 +73,8 @@ import requests
 import torch
 
 from PIL import Image
+from fastapi import HTTPException, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from tqdm import tqdm
 
@@ -108,6 +108,15 @@ async def lifespan(app: fastapi.FastAPI):
     cleanup_executors()
 
 app = fastapi.FastAPI(lifespan=lifespan)
+
+# request queue sizes for different types of limits
+SEMAPHORES = {
+    "extfast": asyncio.Semaphore(20),
+    "extslow": asyncio.Semaphore(20),
+    "fast": asyncio.Semaphore(20),
+    "medium": asyncio.Semaphore(10),
+    "slow": asyncio.Semaphore(2),
+}
 
 MODEL_CACHE: dict = {}
 RESULTS_CACHE: dict = {}
@@ -243,7 +252,7 @@ class Model(ABC):
         self.lock = Lock()
         self.condition = Condition()
         self.model: Any = None
-        self.cache = RESULTS_CACHE.setdefault(self.__class__, OrderedDict())
+        self.cache = RESULTS_CACHE.setdefault(self, OrderedDict())
         self.timing: dict[str, Any] = dict(
             model=model_name,
             n_calls=0,
@@ -267,6 +276,7 @@ class Model(ABC):
             self.pending_requests: list = []
             self.batch_lock = Lock()
             self.batch_timer: Optional[asyncio.Task] = None
+        logger.warning(f'Starting up {self.__class__.__name__} {self.model_name} with use_cache {self.use_cache}, auto_batching {self.enable_auto_batching}')
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__}:{self.model_name}>'
@@ -392,6 +402,11 @@ class Model(ABC):
                 return ret
             except Exception as e:
                 logger.warning(f'Error during model {self.model_name} run on input {input}: {e}')
+                return dict(
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    model=self.model_name, input=str(input)[:100],
+                )
             finally:
                 # Common cleanup
                 self.callers[caller] -= 1
@@ -869,7 +884,7 @@ class ExternalEmbeddingModel(EmbeddingModel):
     via the provider system.
     """
     def __init__(self, **kw):
-        super().__init__(enable_auto_batching=True, **kw)
+        super().__init__(enable_auto_batching=False, **kw)
 
     async def _run(self, input: Any, **kw) -> dict:
         ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
@@ -974,6 +989,16 @@ ALL_SINGLETON_MODELS = [
     ExternalTranscriptionModel,
 ]
 
+EMOJI_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <text y=".9em" font-size="90">🚀</text>
+</svg>
+"""
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(content=EMOJI_SVG, media_type="image/svg+xml")
+
 @app.get("/v1/status")
 async def status():
     """Returns server status and model information.
@@ -988,6 +1013,7 @@ async def status():
         ts=time.time(),
         MODEL_CACHE=[str(k) for k in MODEL_CACHE],
         RESULTS_CACHE={str(k): len(v) for k, v, in RESULTS_CACHE.items()},
+        SEMAPHORES={k: sem._value for k, sem in SEMAPHORES.items()},
     )
     for model in ALL_SINGLETON_MODELS:
         instances = model._instances
@@ -1014,21 +1040,92 @@ class BaseRequest(BaseModel):
     - model: a string representing the model name to use, or a short string that gets looked up in
       DEFAULT_MODELS
     - use_cache: a boolean indicating whether to use the cache for this request (by default no)
+    - q_timeout: if >0, max seconds to wait in the queue before erroring out
+    - proc_timeout: if >0, max seconds to allow for processing before erroring out
     - kwargs: a dictionary of additional keyword arguments to pass to the model
       (not actually used by all models)
     - provider: a string representing the external provider to use (e.g. 'deepinfra')
     - caller: a string representing the caller of the API (e.g. 'nkpylib')
     """
     model: str
-    use_cache: bool=False
+    use_cache: bool=True
+    q_timeout: float=-1
+    proc_timeout: float=-1
     kwargs: dict={}
     provider: str=''
     caller: str=''
 
+async def run_with_processing_timeout(coro, timeout: float):
+    """Run `coro` with a processing timeout.
+
+    Cancels the root task and all subtasks if timeout occurs.
+    Returns the result if completed in time.
+    Raises asyncio.TimeoutError if processing timed out.
+    """
+    loop = asyncio.get_running_loop()
+    main_task = loop.create_task(coro)
+    try:
+        return await asyncio.wait_for(main_task, timeout=timeout)
+    except asyncio.TimeoutError:
+        # Cancel the main task (all subtasks inherit the cancellation)
+        main_task.cancel()
+        try:
+            await main_task
+        except asyncio.CancelledError:
+            pass  # expected
+        raise
+
+def concurrency_endpoint(tier: str):
+    """Decorator for FastAPI endpoints to handle concurrency with semaphores and timeouts.
+
+    - tier: A string representing the concurrency tier
+
+    We read the following from the request object from the function call
+    - q_timeout: Timeout for waiting to acquire the semaphore
+    - proc_timeout: Timeout for processing the request after acquiring the semaphore
+    """
+    sem = SEMAPHORES[tier]
+    def decorator(func: Callable[[BaseRequest], asyncio.Future]):
+        @wraps(func)
+        async def wrapper(req: BaseRequest):
+            q_timeout = getattr(req, 'q_timeout', -1)
+            proc_timeout = getattr(req, 'proc_timeout', -1)
+            if q_timeout <= 0:
+                q_timeout = 100000000 # effectively infinite
+            if proc_timeout <= 0:
+                proc_timeout = 100000000
+            async def gen():
+                # --- queue admission with timeout ---
+                try:
+                    await asyncio.wait_for(sem.acquire(), timeout=q_timeout)
+                except asyncio.TimeoutError:
+                    raise HTTPException(status_code=429, detail="queue timeout")
+                try:
+                    # --- processing starts: emit sentinel ---
+                    #yield b"\n"
+                    # --- execute the actual endpoint logic with processing timeout ---
+                    result = await run_with_processing_timeout(func(req), timeout=proc_timeout)
+                    return result
+                    #yield json.dumps(result).encode("utf-8")
+                except asyncio.TimeoutError:
+                    raise HTTPException(status_code=503, detail="processing timeout")
+                finally:
+                    sem.release()
+
+            # for streaming:
+            #return StreamingResponse(gen(), media_type="application/json")
+            # for non-streaming:
+            result = await gen()
+            return result
+
+
+        return wrapper
+    return decorator
+
 # setup fastapi chat endpoint
 class ChatRequest(BaseRequest):
     messages: str|list[Msg]|list[dict[str,str]]
-    model: str='chat' # this will get mapped based on DEFAULT_MODELS['chat']
+    model: str='chat'
     max_tokens: int=0
 
 
@@ -1059,6 +1156,7 @@ async def chat_impl(req: ChatRequest):
     return ret
 
 @app.post("/v1/chat")
+@concurrency_endpoint(tier='extfast')
 async def chat(req: ChatRequest):
     """Chat completion endpoint.
 
@@ -1069,6 +1167,7 @@ async def chat(req: ChatRequest):
     return await chat_impl(req)
 
 @app.post("/v1/chat/completions")
+@concurrency_endpoint(tier='extfast')
 async def chat_completion(req: ChatRequest):
     """OpenAI-compatible chat completions endpoint.
 
@@ -1087,6 +1186,7 @@ class VLMRequest(BaseRequest):
 
 
 @app.post("/v1/vlm")
+@concurrency_endpoint(tier='extslow')
 async def vlm(req: VLMRequest):
     """Vision-Language Model endpoint for multimodal chat.
 
@@ -1115,6 +1215,7 @@ class TextEmbeddingRequest(BaseRequest):
 
 
 @app.post("/v1/embeddings")
+@concurrency_endpoint(tier='medium')
 async def text_embeddings(req: TextEmbeddingRequest):
     """Text embedding endpoint.
 
@@ -1140,6 +1241,7 @@ class ImageEmbeddingRequest(BaseRequest):
 
 
 @app.post("/v1/image_embeddings")
+@concurrency_endpoint(tier='fast')
 async def image_embeddings(req: ImageEmbeddingRequest):
     """Image embedding endpoint.
 
@@ -1167,6 +1269,7 @@ class StrSimRequest(BaseRequest):
     model: str=_default('clip')
 
 @app.post("/v1/strsim")
+@concurrency_endpoint(tier='medium')
 async def strsim(req: StrSimRequest):
     """String similarity endpoint using embedding cosine similarity.
 
@@ -1207,6 +1310,7 @@ class GetTextRequest(BaseRequest):
     model: str='get_text' # this is not actually used right now
 
 @app.post("/v1/get_text")
+@concurrency_endpoint(tier='medium')
 async def get_text_api(req: GetTextRequest):
     """Text extraction endpoint.
 
@@ -1228,6 +1332,7 @@ class TranscriptionRequest(BaseRequest):
     provider: str='deepinfra'
 
 @app.post("/v1/transcription")
+@concurrency_endpoint(tier='slow')
 async def speech_transcription(req: TranscriptionRequest):
     """Speech transcription endpoint.
 
@@ -1267,6 +1372,7 @@ def cleanup_executors():
     Shuts down all tracked `ProcessPoolExecutor` instances to prevent
     hanging processes when the server restarts or shuts down.
     """
+    print(f'cleaning up executors')
     for executor in _EXECUTORS:
         try:
             executor.shutdown(wait=False)

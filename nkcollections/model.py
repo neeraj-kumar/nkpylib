@@ -206,6 +206,7 @@ async def maybe_dl(url: str, path: str, fetch_delay: float=0.1, timeout: float=-
         pass
     with open(path, 'wb') as f:
         f.write(r.content)
+        logger.debug(f'  Downloaded {url} to {path}')
     return True
 
 class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
@@ -304,7 +305,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             if exists(local_path):
                 r['local_path'] = os.path.relpath(local_path)
                 if 1: # replace with our image resizer
-                    r['local_path'] = 'http://192.168.1.135:8183/thumbs/w300/' + r['local_path']
+                    #r['local_path'] = 'http://192.168.1.135:8183/thumbs/w300/' + r['local_path']
+                    r['local_path'] = 'http://aphex.local:8183/thumbs/w300/' + r['local_path']
                 else: # serve directly from here
                     r['local_path'] = '/data/'+r['local_path']
                 #print(f'Got local path {r["local_path"]}')
@@ -488,11 +490,11 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
-                emb = await embed_image.single_async(path, timeout=5, model='mobilenet', use_cache=kw.get('use_cache', True))
+                emb = await embed_image.single_async(path, timeout=15, model='mobilenet', use_cache=kw.get('use_cache', True))
                 #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
-                logger.warning(f'Error embedding image for row id={row.id}, path={path}: {e}')
-                print(traceback.format_exc())
+                logger.warning(f'Error embedding image for row {row}, {path}: {type(e)}: {e}')
+                #print(traceback.format_exc())
                 emb = None
             return (row, key, emb)
 

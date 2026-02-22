@@ -28,7 +28,7 @@ In addition, the wrapper allows you to specify the following:
 
 The core functions and their inputs and other parameters are:
 - `call_llm`: LLM chat completion with a given input prompt or list of prompts
-  - `model`: The model to use. Default is 'mistral-7b-instruct-v0.2.Q4_K_M.gguf'
+  - `model`: The model to use. Default is 'chat'
   - In `final` mode, returns the text of the first choice
 - `embed_text`: Embeds an input string using the specified model
   - `model`: The model to use. Default is 'sentence', which maps to 'BAAI/bge-large-en-v1.5'
@@ -219,14 +219,9 @@ class FunctionWrapper:
         corresponding index, so you should check.
         """
         kwargs = self._preprocess(kwargs)
-        if 0: # old method
-            loop = asyncio.get_running_loop()
-            task = partial(self.core_func, *args, **kwargs)
-            tasks = [loop.run_in_executor(None, task, inp) for inp in inputs]
-        else:
-            tasks = [asyncio.create_task(asyncio.to_thread(self.core_func, inp, *args, **kwargs)) for inp in inputs]
-            if timeout is not None:
-                tasks = [asyncio.wait_for(task, timeout=timeout) for task in tasks]
+        tasks = [asyncio.create_task(asyncio.to_thread(self.core_func, inp, *args, **kwargs)) for inp in inputs]
+        if timeout is not None:
+            tasks = [asyncio.wait_for(task, timeout=timeout) for task in tasks]
         if self.progress_msg:
             tasks = list(tqdm(asyncio.as_completed(tasks), total=len(inputs), desc=self.progress_msg))
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -292,7 +287,24 @@ def single_call(endpoint: str, model:Optional[str]=None, **kw) -> ResponseT:
     data = dict(**kw)
     if model is not None:
         data['model'] = model
-    return requests.post(url, json=data).json()
+    if 0: # streaming version with sentinel
+        with requests.post(url, json=data, stream=True) as r:
+            if r.status_code == 429:
+                raise RuntimeError("queue timeout")
+            if r.status_code == 503:
+                raise RuntimeError("processing timeout")
+            r.raise_for_status()
+            it = r.iter_content(chunk_size=1)
+            try:
+                next(it)
+            except StopIteration:
+                raise RuntimeError("empty body")
+            t0 = time.monotonic()
+            remaining = b"".join(it)
+            data = json.loads(remaining.decode("utf-8"))
+            return data
+    else:
+        return requests.post(url, json=data).json()
 
 def llm_final_func(resp):
     """Final function for LLM responses to return the text of the first choice."""
@@ -305,32 +317,11 @@ def llm_final_func(resp):
         raise ValueError(f"No choices in response from LLM server: {resp}")
     return resp['choices'][0]['message']['content']
 
-@execution_wrapper(final_func=llm_final_func)
-def call_llm_completion(prompt: str,
-                        max_tokens:int =0,
-                        model:Optional[str] =None,
-                        use_cache=True,
-                        **kw) -> ResponseT:
-    """Calls our local llm server for a completion.
-
-    Uses the 'mistral-7b-instruct-v0.2.Q4_K_M.gguf' model by default.
-
-    Returns the raw json response (as a dict).
-    """
-    return single_call("completions",
-                       prompt=prompt,
-                       max_tokens=max_tokens,
-                       model=model,
-                       use_cache=use_cache,
-                       **kw)
-
-
 def call_llm_impl(messages: str|list[Msg]|list[dict[str,str]],
                   max_tokens:int=0,
                   image: str='',
                   model:Optional[str] =None,
                   session_id:str ='',
-                  use_cache=True,
                   session_cache={},
                   **kw) -> ResponseT:
     """Implementation for llm and vlm chat completions.
@@ -348,7 +339,7 @@ def call_llm_impl(messages: str|list[Msg]|list[dict[str,str]],
         lst += messages
         messages = lst
         logger.debug(f'for session {session_id}, using messages {messages}')
-    call_kwargs = dict(messages=messages, max_tokens=max_tokens, model=model, use_cache=use_cache, **kw)
+    call_kwargs = dict(messages=messages, max_tokens=max_tokens, model=model, **kw)
     if image:
         if isinstance(image, str): # it's already an image or url
             ret = single_call("vlm", image=image, **call_kwargs)
@@ -372,6 +363,8 @@ def call_llm(prompts: str|list[Msg],
              model:Optional[str] =None,
              session_id:str ='',
              use_cache=True,
+             q_timeout: float=-1,
+             proc_timeout: float=-1,
              session_cache={},
              **kw) -> ResponseT:
     """Calls our local llm server for a chat completion.
@@ -393,7 +386,10 @@ def call_llm(prompts: str|list[Msg],
                          model=model,
                          session_id=session_id,
                          use_cache=use_cache,
-                         session_cache=session_cache)
+                         q_timeout=q_timeout,
+                         proc_timeout=proc_timeout,
+                         session_cache=session_cache,
+                         **kw)
 
 
 @execution_wrapper(final_func=llm_final_func)
@@ -402,6 +398,8 @@ def call_vlm(inputs: tuple[str, str|list[Msg]],
              model:Optional[str] =None,
              session_id:str ='',
              use_cache=True,
+             q_timeout: float=-1,
+             proc_timeout: float=-1,
              session_cache={},
              **kw) -> ResponseT:
     """Calls our local vlm server for a VLM chat completion.
@@ -424,10 +422,25 @@ def call_vlm(inputs: tuple[str, str|list[Msg]],
                          model=model,
                          session_id=session_id,
                          use_cache=use_cache,
-                         session_cache=session_cache)
+                         q_timeout=q_timeout,
+                         proc_timeout=proc_timeout,
+                         session_cache=session_cache,
+                         **kw)
 
+def embed_final_func(x):
+    try:
+        return x['data'][0]['embedding']
+    except Exception as e:
+        #logger.error(f"Error processing embedding response: {type(e)}: {e}")
+        if isinstance(x, dict) and 'error' in x:
+            error_type = x.get('error_type', 'RuntimeError')
+            # raise the error with the message from the response, and include the full response in the exception message for debugging
+            error = eval(f'{error_type}({x["error"]}') if error_type in globals() else RuntimeError(x['error'])
+            raise error
+        else:
+            raise e
 
-@execution_wrapper(final_func=lambda x: x['data'][0]['embedding'])
+@execution_wrapper(final_func=embed_final_func)
 def embed_text(s: str,
                model: str='sentence',
                use_cache=True,
