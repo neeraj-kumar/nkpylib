@@ -1133,13 +1133,14 @@ async def run_with_processing_timeout(coro, timeout: float):
     try:
         return await asyncio.wait_for(main_task, timeout=timeout)
     except asyncio.TimeoutError:
+        raise
+    finally: # make sure we always cancel the task on any error
         # Cancel the main task (all subtasks inherit the cancellation)
         main_task.cancel()
         try:
             await main_task
         except asyncio.CancelledError:
             pass  # expected
-        raise
 
 def concurrency_endpoint(tier: str):
     """Decorator for FastAPI endpoints to handle concurrency with semaphores and timeouts.
@@ -1157,9 +1158,9 @@ def concurrency_endpoint(tier: str):
             q_timeout = getattr(req, 'q_timeout', -1)
             proc_timeout = getattr(req, 'proc_timeout', -1)
             if q_timeout <= 0:
-                q_timeout = 100000000 # effectively infinite
+                q_timeout = 100000
             if proc_timeout <= 0:
-                proc_timeout = 100000000
+                proc_timeout = 100000
             async def gen():
                 # --- queue admission with timeout ---
                 try:
@@ -1438,7 +1439,6 @@ def cleanup_executors():
     Shuts down all tracked `ProcessPoolExecutor` instances to prevent
     hanging processes when the server restarts or shuts down.
     """
-    print(f'cleaning up executors')
     for executor in _EXECUTORS:
         try:
             executor.shutdown(wait=False)
