@@ -487,7 +487,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
         download_tasks = [dl_image(row) for row in rows]
         # kick off embeddings as downloads complete
-        embedding_tasks = []
+        pending = set()
+        n_images = 0
+        n_success = 0
         async def embed_image_task(row, key, path):
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
@@ -508,24 +510,41 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 logger.info(f' skipping image {row}, key={key} already in lmdb')
                 continue
             done.add(key)
-            embedding_tasks.append(embed_image_task(row, key, path))
-        # kick off postprocessing of embeddings as they complete
-        n_images = 0
-        n_success = 0
-        for task in asyncio.as_completed(embedding_tasks):
-            row, key, emb = await task
-            ts = int(time.time())
-            with db_session:
-                # update the lmdb and sqlite
-                logger.debug(f' emb for image {row}, key={key}, {emb[:10] if emb is not None else "failed"}')
-                if emb is None: # error
-                    updater.add(key, metadata=dict(embed_ts=ts, error='image embedding failed'))
-                    row.embed_ts = -1 #TODO in the future decrement this
-                else:
-                    updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
-                    row.embed_ts = ts
-                    n_success += 1
-            n_images += 1
+            t = asyncio.create_task(embed_image_task(row, key, path))
+            pending.add(t)
+            if pending:
+                done_tasks, pending = await asyncio.wait(pending, timeout=0, return_when=asyncio.FIRST_COMPLETED)
+                for dt in done_tasks:
+                    row2, key2, emb2 = await dt
+                    ts = int(time.time())
+                    with db_session:
+                        # update the lmdb and sqlite
+                        logger.debug(f' emb for image {row2}, key={key2}, {emb2[:10] if emb2 is not None else "failed"}')
+                        if emb2 is None: # error
+                            updater.add(key2, metadata=dict(embed_ts=ts, error='image embedding failed'))
+                            row2.embed_ts = -1 #TODO in the future decrement this
+                        else:
+                            updater.add(key2, embedding=emb2, metadata=dict(embed_ts=ts))
+                            row2.embed_ts = ts
+                            n_success += 1
+                    n_images += 1
+        # kick off postprocessing of remaining embeddings
+        while pending:
+            done_tasks, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done_tasks:
+                row, key, emb = await task
+                ts = int(time.time())
+                with db_session:
+                    # update the lmdb and sqlite
+                    logger.debug(f' emb for image {row}, key={key}, {emb[:10] if emb is not None else "failed"}')
+                    if emb is None: # error
+                        updater.add(key, metadata=dict(embed_ts=ts, error='image embedding failed'))
+                        row.embed_ts = -1 #TODO in the future decrement this
+                    else:
+                        updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
+                        row.embed_ts = ts
+                        n_success += 1
+                n_images += 1
         updater.commit()
         if n_images > 0:
             logger.info(f'  Updated embeddings for {n_images} images, {n_success} success')
