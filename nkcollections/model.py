@@ -305,8 +305,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             if exists(local_path):
                 r['local_path'] = os.path.relpath(local_path)
                 if 1: # replace with our image resizer
-                    #r['local_path'] = 'http://192.168.1.135:8183/thumbs/w300/' + r['local_path']
-                    r['local_path'] = 'http://aphex.local:8183/thumbs/w300/' + r['local_path']
+                    r['local_path'] = 'http://192.168.1.135:8183/thumbs/w300/' + r['local_path']
+                    #r['local_path'] = 'http://aphex.local:8183/thumbs/w300/' + r['local_path']
                 else: # serve directly from here
                     r['local_path'] = '/data/'+r['local_path']
                 #print(f'Got local path {r["local_path"]}')
@@ -355,7 +355,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         # call the source-specific version of this function
         source = Source._registry.get(self.source)
         if source:
-            source.item_for_web(self, r)
+            await source.item_for_web(self, r)
 
     def rels_for_web(self, r: dict[str, Any]) -> None:
         """Deal with rels for web representation.
@@ -490,7 +490,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
-                emb = await embed_image.single_async(path, timeout=15, model='mobilenet', use_cache=kw.get('use_cache', True))
+                emb = await embed_image.single_async(path, timeout=25, model='mobilenet', use_cache=kw.get('use_cache', True))
                 #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
                 logger.warning(f'Error embedding image for row {row}, {path}: {type(e)}: {e}')
@@ -509,6 +509,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             embedding_tasks.append(embed_image_task(row, key, path))
         # kick off postprocessing of embeddings as they complete
         n_images = 0
+        n_success = 0
         for task in asyncio.as_completed(embedding_tasks):
             row, key, emb = await task
             ts = int(time.time())
@@ -521,10 +522,11 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 else:
                     updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
                     row.embed_ts = ts
+                    n_success += 1
             n_images += 1
         updater.commit()
         if n_images > 0:
-            logger.info(f'  Updated embeddings for {n_images} images')
+            logger.info(f'  Updated embeddings for {n_images} images, {n_success} success')
         return n_images
 
     @classmethod
@@ -640,7 +642,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         q = cls.select(lambda c: (ids is None or c.id in ids))
         if source is not None:
             q = q.filter(lambda c: c.source == source)
-        q = q.order_by(desc(Item.id))
+        q = q.order_by((Item.id))
+        #q = q.order_by(desc(Item.id))
         common_kw = dict(q=q, lmdb_path=lmdb_path, **kw)
         # start async tasks for all 3 subfunctions
         text_task = asyncio.create_task(cls.update_text_embeddings(limit=limit, **common_kw))
@@ -658,6 +661,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         )
         ret = {}
         ret['n_text'], ret['n_images'], ret['n_descs'] = await asyncio.gather(text_task, image_task, desc_task)
+        logger.info(f'Finished updating embeddings async: {ret}')
+        #TODO we seem to hang here, but it's not clear why/what's going on
+        #TODO maybe it's image downloads which are hanging?
         return ret
 
     @classmethod
@@ -683,7 +689,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             fetch_delay=fetch_delay,
             **kw
         ))
-        #print(f'Sync Done with update_embeddings in {cls}, got {ret}')
+        print(f'Sync Done with update_embeddings in {cls}, got {ret}')
         return ret
 
 
@@ -821,7 +827,7 @@ class Source(abc.ABC):
     def __repr__(self) -> str:
         return f'Source<{self.name}>'
 
-    def item_for_web(self, item: Item, r: dict[str, Any]) -> None:
+    async def item_for_web(self, item: Item, r: dict[str, Any]) -> None:
         """Source-specific processing of an item for web representation.
 
         This is called from Item.for_web after generic processing.

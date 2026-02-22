@@ -550,12 +550,12 @@ class Tumblr(TumblrApi, Source):
         post_data['media_blocks'] = media_blocks
         return post_data
 
-    def item_for_web(self, item: Item, r: dict[str, Any]) -> None:
+    async def item_for_web(self, item: Item, r: dict[str, Any]) -> None:
         """Tumblr-specific processing of an item for web representation.
 
         This enriches queued_post_reblogs relations with user information.
         """
-        super().item_for_web(item, r)
+        await super().item_for_web(item, r)
         # Handle queued_post_reblogs relations by enriching them with user data
         if 'rels' in r and 'queued_post_reblogs' in r['rels']:
             queued_rels = r['rels']['queued_post_reblogs']

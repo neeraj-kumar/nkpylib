@@ -365,8 +365,14 @@ class TaskRunner:
 
     def __del__(self):
         self.run_loop_done = True
-        self.pool.shutdown()
-        self.futures_thread.join()
+        try:
+            self.pool.shutdown(wait=False, cancel_futures=True)
+        except Exception as e:
+            logging.exception(f"Error shutting down pool: {e}")
+        try:
+            self.futures_thread.join(timeout=0)
+        except Exception as e:
+            logging.exception(f"Error joining futures thread: {e}")
 
     def process_output(self, output, task):
         if task.status != Status.DONE:
