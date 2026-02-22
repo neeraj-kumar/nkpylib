@@ -491,9 +491,13 @@ class Model(ABC):
             return
         batch = self.pending_requests[:]
         self.pending_requests.clear()
-        if self.batch_timer:
-            self.batch_timer.cancel()
-            self.batch_timer = None
+        # Safely clear/cancel the timer. If we're running inside the timer task,
+        # don't self-cancel; just clear the reference.
+        cur_task = asyncio.current_task()
+        timer_task = self.batch_timer
+        self.batch_timer = None
+        if timer_task and timer_task is not cur_task and not timer_task.done():
+            timer_task.cancel()
         batch_start_time = time.time()
         try:
             results = await self._run_batch(batch)
