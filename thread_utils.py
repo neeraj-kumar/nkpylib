@@ -29,7 +29,7 @@ from typing import Any, Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
-def chained_producer_consumers(functions: list[function],
+def chained_producer_consumers(functions: list[Callable],
                                sleep_interval: float=0.1,
                                get_timeout: float=0.5) -> Iterable[Any]:
     """
