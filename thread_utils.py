@@ -589,10 +589,10 @@ class ProducerConsumerPipeline:
 
     async def run_async(self, inputs) -> AsyncIterator[Any]:
         """Run the pipeline asynchronously.
-
+        
         Args:
         - inputs: An iterable or async iterable of input items
-
+        
         Yields:
         - Items produced by the final stage of the pipeline
         """
@@ -603,6 +603,24 @@ class ProducerConsumerPipeline:
             exc_policies=self.exc_policies
         )
         async for item in backend.run(inputs):
+            yield item
+
+    def run_sync(self, inputs) -> Iterable[Any]:
+        """Run the pipeline synchronously using threads.
+        
+        Args:
+        - inputs: An iterable of input items
+        
+        Yields:
+        - Items produced by the final stage of the pipeline
+        """
+        backend = ThreadedPipelineBackend(
+            funcs=self.funcs,
+            q_sizes=self.q_sizes,
+            concurrencies=self.concurrencies,
+            exc_policies=self.exc_policies
+        )
+        for item in backend.run(inputs):
             yield item
 
 
@@ -745,6 +763,154 @@ class AsyncPipelineBackend:
                 await asyncio.gather(*self._tasks, return_exceptions=True)
 
 
+class ThreadedPipelineBackend:
+    """Threaded implementation of a multi-stage producer-consumer pipeline."""
+    
+    def __init__(self,
+                 funcs: list[Callable[[Any], Any]],
+                 q_sizes: list[int],
+                 concurrencies: list[int],
+                 exc_policies: list[str]):
+        self.funcs = funcs
+        self.q_sizes = q_sizes
+        self.concurrencies = concurrencies
+        self.exc_policies = exc_policies
+        self.cancel_event = threading.Event()
+        self._sentinel = object()
+        self._threads: list[threading.Thread] = []
+
+    def _stage_worker(self,
+                     stage_idx: int,
+                     func: Callable[[Any], Any],
+                     in_q: Queue,
+                     out_q: Queue|None,
+                     policy: str):
+        """Worker for a single stage."""
+        while not self.cancel_event.is_set():
+            try:
+                item = in_q.get(timeout=0.5)
+                in_q.task_done()
+                
+                if item is self._sentinel:
+                    if out_q:
+                        out_q.put(self._sentinel)
+                    break
+
+                try:
+                    result = func(item)
+                    if out_q:
+                        out_q.put(result)
+                except Exception as e:
+                    match policy:
+                        case 'stop':
+                            # Skip this item, continue with next
+                            continue
+                        case 'return':
+                            # Forward error object to next stage
+                            if out_q:
+                                error_obj = dict(
+                                    type='error',
+                                    error=e,
+                                    stage=stage_idx,
+                                    item=item,
+                                    tb=traceback.format_exc()
+                                )
+                                out_q.put(error_obj)
+                        case 'raise':
+                            # Stop entire pipeline
+                            self.cancel_event.set()
+                            if out_q:
+                                error_obj = dict(
+                                    type='error',
+                                    error=e,
+                                    stage=stage_idx,
+                                    item=item,
+                                    tb=traceback.format_exc()
+                                )
+                                out_q.put(error_obj)
+                            raise
+            except Empty:
+                continue
+            except Exception:
+                # Thread is being shut down or other error
+                break
+
+    def _start_workers(self, queues: list[Queue]):
+        """Start all worker threads."""
+        for i, func in enumerate(self.funcs):
+            in_q = queues[i]
+            out_q = queues[i + 1] if i + 1 < len(queues) else None
+            
+            for _ in range(self.concurrencies[i]):
+                thread = threading.Thread(
+                    target=self._stage_worker,
+                    args=(i, func, in_q, out_q, self.exc_policies[i]),
+                    daemon=True
+                )
+                thread.start()
+                self._threads.append(thread)
+
+    def run(self, inputs) -> Iterable[Any]:
+        """Run the pipeline and yield results."""
+        # Create queues
+        queues: list[Queue] = []
+        for q_size in self.q_sizes:
+            queues.append(Queue(maxsize=q_size))
+        
+        # Start workers
+        self._start_workers(queues)
+        
+        # Feed inputs in a separate thread
+        def _feed():
+            try:
+                for item in inputs:
+                    if self.cancel_event.is_set():
+                        break
+                    queues[0].put(item)
+            finally:
+                # Send sentinel to each worker of first stage
+                for _ in range(self.concurrencies[0]):
+                    queues[0].put(self._sentinel)
+
+        feeder_thread = threading.Thread(target=_feed, daemon=True)
+        feeder_thread.start()
+        
+        # Yield results from final queue
+        last_q = queues[-1]
+        sentinels_received = 0
+        expected_sentinels = self.concurrencies[-1] if len(self.concurrencies) > 0 else 1
+        
+        try:
+            while not self.cancel_event.is_set():
+                try:
+                    item = last_q.get(timeout=0.5)
+                    last_q.task_done()
+                    
+                    if item is self._sentinel:
+                        sentinels_received += 1
+                        if sentinels_received >= expected_sentinels:
+                            break
+                        continue
+                    
+                    yield item
+                except Empty:
+                    # Check if feeder thread is still alive
+                    if not feeder_thread.is_alive() and last_q.empty():
+                        # All threads might be done, check if any are still alive
+                        alive_threads = [t for t in self._threads if t.is_alive()]
+                        if not alive_threads:
+                            break
+                    continue
+        finally:
+            # Clean up
+            self.cancel_event.set()
+            feeder_thread.join(timeout=1.0)
+            
+            # Wait for worker threads to complete
+            for thread in self._threads:
+                thread.join(timeout=1.0)
+
+
 def test_prod_cons():
     def example_producer():
         for i in range(20):
@@ -792,6 +958,33 @@ def test_prod_cons():
 
     # Uncomment to run async example
     # asyncio.run(async_example())
+
+    # Example sync pipeline usage
+    def sync_example():
+        def sync_producer():
+            for i in range(5):
+                time.sleep(0.1)
+                yield f"sync_item_{i}"
+
+        def sync_processor(item):
+            time.sleep(0.05)
+            return f"processed_{item}"
+
+        def sync_final(item):
+            return item.upper()
+
+        pipeline = ProducerConsumerPipeline(
+            funcs=[sync_processor, sync_final],
+            q_size=10,
+            concurrency=[2, 1],
+            exc_policy='stop'
+        )
+
+        for result in pipeline.run_sync(sync_producer()):
+            logger.debug(f"Sync pipeline result: {result}")
+
+    # Uncomment to run sync example
+    # sync_example()
 
 
 if __name__ == "__main__":
