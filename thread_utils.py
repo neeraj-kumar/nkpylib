@@ -521,57 +521,69 @@ class Singleton:
 
 
 class ProducerConsumerPipeline:
-    """Facade for configuring a multi-stage producer-consumer pipeline.
+    """Class for configuring a multi-stage producer-consumer pipeline.
 
     This does not implement execution; it normalizes and validates stage configuration
     that can be used by either a threaded or an asyncio backend.
 
-    Init params can be specified as a single value (applied to all stages) or as a list
+    The main input is `funcs`, which is a list of callables, one per stage. Conceptually speaking,
+    the output of func i is fed as the input to func i+1, and so on. The functions are fed a list of
+    items which they process as efficiently as possible, with execution of later stages starting as
+    soon as they have any work to do.
+
+    The other key init params can be specified as a single value (applied to all stages) or as a list
     aligned to `funcs`:
-    - funcs: list of callables, one per stage
-    - q_size: int | list[int] — per-stage output queue size
-    - concurrency: int | list[int] — workers/threads per stage
-    - exceptions: str | list[str] — exception policy per stage ('ignore' | 'return' | 'stop_item' | 'stop_pipeline' | 'retry')
+    - q_size: per-stage output queue size
+    - concurrency: workers/threads per stage
+    - exc_policy: exception policy per stage, one of: return, stop, raise
+
+    The exception policies are as follows:
+    - return: return the exception object as the output of the stage for that item
+    - stop: stop processing the current item and do not pass it to downstream stages, but
+      continue with the next item
+    - raise: raise an error and stop processing the entire pipeline immediately
     """
     def __init__(self,
                  funcs: list[Callable[[Any], Any]],
                  q_size: int|list[int]=100,
                  concurrency: int|list[int]=1,
-                 exceptions: str|list[str]='ignore'):
+                 exc_policy: str|list[str]='ignore'):
         assert funcs and isinstance(funcs, list), 'funcs must be a non-empty list of callables'
         for f in funcs:
             assert callable(f), f'All funcs must be callable, got {type(f)}'
-
         n = len(funcs)
+        def _set_normed(value, name):
+            """Sets `value` as instance variable `name`.
 
-        def _norm(value, name: str):
-            # Accept scalar or list; expand scalar to per-stage list
+            Accepts scalar or list; expands scalar to per-stage list.
+            """
             if isinstance(value, (list, tuple)):
-                assert len(value) == n, f'{name} must have length {n} to match funcs'
-                return list(value)
-            return [value] * n
+                assert len(value) == n, f'{name} must have length {n} to match funcs: {value}'
+                ret = list(value)
+            ret = [value] * n
+            setattr(self, name, ret)
 
-        self.funcs: list[Callable[[Any], Any]] = funcs
-        self.q_size_by_stage: list[int] = _norm(q_size, 'q_size')
-        self.concurrency_by_stage: list[int] = _norm(concurrency, 'concurrency')
-        self.exceptions_by_stage: list[str] = _norm(exceptions, 'exceptions')
+        self.funcs = funcs
+        _set_normed(q_size, 'q_sizes')
+        _set_normed(concurrency, 'concurrencies')
+        _set_normed(exc_policy, 'exc_policies')
 
         # Basic validation
-        for i, c in enumerate(self.concurrency_by_stage):
+        for i, c in enumerate(self.concurrencies):
             assert isinstance(c, int) and c >= 1, f'concurrency[{i}] must be >= 1'
-        for i, q in enumerate(self.q_size_by_stage):
+        for i, q in enumerate(self.q_sizes):
             assert isinstance(q, int) and q >= 0, f'q_size[{i}] must be >= 0'
-        valid_policies = {'ignore', 'return', 'stop_item', 'stop_pipeline', 'retry'}
-        for i, p in enumerate(self.exceptions_by_stage):
+        valid_policies = {'return', 'stop', 'raise'}
+        for i, p in enumerate(self.exc_policies):
             assert isinstance(p, str) and p in valid_policies, f'exceptions[{i}] must be one of {sorted(valid_policies)}'
 
     def as_dict(self) -> dict[str, Any]:
         """Returns a dict view of the normalized config."""
         return dict(
             funcs=self.funcs,
-            q_size=self.q_size_by_stage,
-            concurrency=self.concurrency_by_stage,
-            exceptions=self.exceptions_by_stage,
+            q_size=self.q_sizes,
+            concurrency=self.concurrencies,
+            exceptions=self.exc_policies,
         )
 
 
