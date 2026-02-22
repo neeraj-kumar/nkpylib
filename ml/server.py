@@ -722,36 +722,102 @@ class EmbeddingModel(Model):
 
         - batch: List of dicts with 'input' and 'kw'
 
-        This generic version processes multiple inputs concurrently and efficiently:
-        1. First runs `_preprocess_single` concurrently using `asyncio.gather` on all inputs
-        2. Batches the preprocessed inputs and runs `_batch_inference` in a thread
+        Behavior:
+        - Preprocess all items concurrently; capture per-item exceptions.
+        - Run batch inference on successfully preprocessed subset.
+        - If batch inference fails, fall back to per-item inference for all remaining items.
+        - Always return a results list aligned to the input order, with per-item errors when needed.
         """
         logger.debug(f'Running {self} embeddings batch of size {len(batch)}')
         inputs = [item['input'] for item in batch]
+        n = len(inputs)
         t0 = time.time()
+
+        # 1) Preprocess concurrently, capturing exceptions per item.
+        tasks = [self._preprocess_single(inp) for inp in inputs]
+        preprocessed_or_exc = await asyncio.gather(*tasks, return_exceptions=True)
+        t1 = time.time()
+
+        # Prepare results placeholders and collect successful indices
+        results: list[dict|None] = [None] * n
+        ok_idx: list[int] = []
+        ok_items: list[Any] = []
+        for i, value in enumerate(preprocessed_or_exc):
+            if isinstance(value, Exception):
+                # Map preprocess error to per-item result
+                results[i] = dict(
+                    object='list',
+                    data=[],
+                    model=self.model_name,
+                    n_dims=0,
+                    error=str(value),
+                    error_type=type(value).__name__,
+                )
+            else:
+                ok_idx.append(i)
+                ok_items.append(value)
+
+        # Early exit if nothing to infer
+        if not ok_idx:
+            # Fill timing for all items (errors only)
+            for i in range(n):
+                assert results[i] is not None
+                results[i].setdefault('timing', {}).update(
+                    model=self.model_name,
+                    generate=t1 - t0,
+                    preprocess_time=(t1 - t0) / max(n, 1),
+                    inference_time=0.0,
+                )
+            return results  # type: ignore[return-value]
+
+        # 2) Try batch inference for successful subset
+        embeddings_ok: list[Any] | None = None
+        t2_start = time.time()
         try:
-            tasks = [self._preprocess_single(inp) for inp in inputs]
-            preprocessed_inputs = await asyncio.gather(*tasks)
-            t1 = time.time()
-            batch_embeddings = await asyncio.to_thread(self._batch_inference, preprocessed_inputs)
-            t2 = time.time()
+            embeddings_ok = await asyncio.to_thread(self._batch_inference, ok_items)
+            t2_end = time.time()
+            # Map embeddings back to original indices
+            for j, orig_i in enumerate(ok_idx):
+                embedding = embeddings_ok[j]
+                results[orig_i] = self.postprocess(embedding)
         except Exception as e:
-            logger.warning(f'Error during batch embedding: {e}')
-            return []
-        results = []
-        for i, input_data in enumerate(inputs):
-            embedding = batch_embeddings[i]
-            result = self.postprocess(embedding)
-            # Add timing info (shared across batch)
-            result['timing'] = dict(
+            logger.warning(f'Batch inference failed; falling back to per-item inference: {e}')
+            # 3) Fallback: per-item inference for all remaining items
+            # Note: we use _batch_inference on single-item lists to keep code paths consistent.
+            per_item_results: list[tuple[int, dict]] = []
+            async def run_single(i: int, item: Any):
+                try:
+                    emb_single = await asyncio.to_thread(self._batch_inference, [item])
+                    return i, self.postprocess(emb_single[0])
+                except Exception as ex:
+                    return i, dict(
+                        object='list',
+                        data=[],
+                        model=self.model_name,
+                        n_dims=0,
+                        error=str(ex),
+                        error_type=type(ex).__name__,
+                    )
+
+            per_item = await asyncio.gather(*[run_single(i, itm) for i, itm in zip(ok_idx, ok_items)])
+            t2_end = time.time()
+            for i, res in per_item:
+                results[i] = res
+
+        # 4) Finalize: add shared timing to all items and return aligned list
+        preprocess_time_avg = (t1 - t0) / max(n, 1)
+        inference_time_total = max(0.0, t2_end - t2_start)
+        for i in range(n):
+            assert results[i] is not None
+            results[i].setdefault('timing', {}).update(
                 model=self.model_name,
-                generate=t2 - t0,
-                preprocess_time=(t1 - t0) / len(inputs),
-                inference_time=(t2 - t1),
+                generate=(t2_end - t0),
+                preprocess_time=preprocess_time_avg,
+                inference_time=inference_time_total,
             )
-            results.append(result)
-        logger.debug(f'Processed batch of {len(inputs)} in {t2-t0:.2f}s')
-        return results
+
+        logger.debug(f'Processed batch of {n} in {t2_end - t0:.2f}s (ok: {len(ok_idx)}, err: {n - len(ok_idx)})')
+        return results  # type: ignore[return-value]
 
     def postprocess(self, embedding: nparray1d) -> dict:
         """Converts embedding to OpenAI-compatible format.
