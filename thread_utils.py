@@ -589,10 +589,10 @@ class ProducerConsumerPipeline:
 
     async def run_async(self, inputs) -> AsyncIterator[Any]:
         """Run the pipeline asynchronously.
-        
+
         Args:
         - inputs: An iterable or async iterable of input items
-        
+
         Yields:
         - Items produced by the final stage of the pipeline
         """
@@ -608,7 +608,6 @@ class ProducerConsumerPipeline:
 
 class AsyncPipelineBackend:
     """Async implementation of a multi-stage producer-consumer pipeline."""
-    
     def __init__(self,
                  funcs: list[Callable[[Any], Any]],
                  q_sizes: list[int],
@@ -632,22 +631,20 @@ class AsyncPipelineBackend:
         return result
 
     async def _stage_worker(self,
-                           stage_idx: int,
-                           func: Callable[[Any], Any],
-                           in_q: asyncio.Queue,
-                           out_q: asyncio.Queue|None,
-                           policy: str):
+                            stage_idx: int,
+                            func: Callable[[Any], Any],
+                            in_q: asyncio.Queue,
+                            out_q: asyncio.Queue|None,
+                            policy: str):
         """Worker for a single stage."""
         while not self.cancel_event.is_set():
             try:
                 item = await in_q.get()
                 in_q.task_done()
-                
                 if item is self._sentinel:
                     if out_q:
                         await out_q.put(self._sentinel)
                     break
-
                 try:
                     result = await self._maybe_await(func, item)
                     if out_q:
@@ -689,7 +686,6 @@ class AsyncPipelineBackend:
         for i, func in enumerate(self.funcs):
             in_q = queues[i]
             out_q = queues[i + 1] if i + 1 < len(queues) else None
-            
             for _ in range(self.concurrencies[i]):
                 task = asyncio.create_task(
                     self._stage_worker(
@@ -704,23 +700,17 @@ class AsyncPipelineBackend:
 
     async def run(self, inputs) -> AsyncIterator[Any]:
         """Run the pipeline and yield results."""
-        # Create queues
-        queues: list[asyncio.Queue] = []
-        for q_size in self.q_sizes:
-            queues.append(asyncio.Queue(maxsize=q_size))
-        
-        # Start workers
+        queues = [asyncio.Queue(maxsize=q_size) for q_size in self.q_sizes]
         await self._start_workers(queues)
-        
-        # Feed inputs
         async def _feed():
+            """Feed input items into the first queue, then send sentinels when done."""
             try:
-                if hasattr(inputs, '__aiter__'):
+                if hasattr(inputs, '__aiter__'): # async iterable
                     async for item in inputs:
                         if self.cancel_event.is_set():
                             break
                         await queues[0].put(item)
-                else:
+                else: # sync iterable
                     for item in inputs:
                         if self.cancel_event.is_set():
                             break
@@ -731,41 +721,31 @@ class AsyncPipelineBackend:
                     await queues[0].put(self._sentinel)
 
         feeder_task = asyncio.create_task(_feed())
-        
-        # Yield results from final queue
         last_q = queues[-1]
         sentinels_received = 0
         expected_sentinels = self.concurrencies[-1] if len(self.concurrencies) > 0 else 1
-        
         try:
             while not self.cancel_event.is_set():
                 item = await last_q.get()
                 last_q.task_done()
-                
                 if item is self._sentinel:
                     sentinels_received += 1
                     if sentinels_received >= expected_sentinels:
                         break
                     continue
-                
                 yield item
         finally:
-            # Clean up
             await feeder_task
             self.cancel_event.set()
-            
             # Cancel all tasks
             for task in self._tasks:
                 task.cancel()
-            
             # Wait for tasks to complete
             if self._tasks:
                 await asyncio.gather(*self._tasks, return_exceptions=True)
 
 
-if __name__ == "__main__":
-    # example usage
-    logging.basicConfig(level=logging.DEBUG)
+def test_prod_cons():
     def example_producer():
         for i in range(20):
             logger.debug(f"Starting item {i}")
@@ -813,3 +793,7 @@ if __name__ == "__main__":
     # Uncomment to run async example
     # asyncio.run(async_example())
 
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    test_prod_cons()
