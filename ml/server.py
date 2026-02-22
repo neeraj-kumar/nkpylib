@@ -479,7 +479,10 @@ class Model(ABC):
         await asyncio.sleep(self.max_wait_ms / 1000)
         async with self.batch_lock:
             if self.pending_requests:
-                await self._flush_batch()
+                try:
+                    await self._flush_batch()
+                except Exception as e:
+                    logger.error(f'Error flushing batch in timer: {e}')
 
     async def _flush_batch(self):
         """Process the current batch of pending requests, handling caching, timing, etc.
@@ -492,18 +495,63 @@ class Model(ABC):
             self.batch_timer.cancel()
             self.batch_timer = None
         batch_start_time = time.time()
-        results = await self._run_batch(batch)
+        try:
+            results = await self._run_batch(batch)
+        except Exception as e:
+            # Ensure we always resolve all futures on any batch exception
+            batch_end_time = time.time()
+            batch_inference_time = batch_end_time - batch_start_time
+            # Update global timing stats even on failure
+            self.timing['n_batch_calls'] += 1
+            self.timing['n_batch_inferences'] += len(batch)
+            self.timing['inference_time'] += batch_inference_time
+            for item in batch:
+                if not item['future'].done():
+                    item['future'].set_exception(RuntimeError(f'Error during batch processing of model {self.model_name}: {e}'))
+            return
         batch_end_time = time.time()
         batch_inference_time = batch_end_time - batch_start_time
         # Update global timing stats
         self.timing['n_batch_calls'] += 1
         self.timing['n_batch_inferences'] += len(batch)
         self.timing['inference_time'] += batch_inference_time
-        if not results: # there was some error, so mark all as done with an error
+        if not results:  # there was some error, so mark all as done with an error
             for item in batch:
                 if not item['future'].done():
                     item['future'].set_exception(RuntimeError(f'Error during batch processing of model {self.model_name}'))
             return
+
+        # Handle length mismatches defensively to avoid dangling futures
+        if not isinstance(results, list):
+            for item in batch:
+                if not item['future'].done():
+                    item['future'].set_exception(RuntimeError(f'Invalid batch results for model {self.model_name}'))
+            return
+
+        if len(results) != len(batch):
+            if len(results) > len(batch):
+                logger.warning(f'Batch results longer than batch size for model {self.model_name}: results={len(results)} batch={len(batch)}; truncating')
+                results = results[:len(batch)]
+            else:
+                # Partial results: resolve what we have, error the rest
+                logger.warning(f'Partial batch results for model {self.model_name}: results={len(results)} batch={len(batch)}')
+                for item, result in zip(batch[:len(results)], results):
+                    result.setdefault('timing', {}).update(
+                        batch_start=batch_start_time,
+                        batch_end=batch_end_time,
+                        batch_size=len(batch),
+                        avg_inference_time=batch_inference_time / len(batch),
+                        from_batch=True,
+                        found_cache=False,
+                    )
+                    self.timing['n_calls'] += 1
+                    if not item['future'].done():
+                        item['future'].set_result(result)
+                for item in batch[len(results):]:
+                    if not item['future'].done():
+                        item['future'].set_exception(RuntimeError(f'Partial batch results in model {self.model_name}'))
+                return
+
         # update each item's timing and set the result
         for item, result in zip(batch, results):
             result.setdefault('timing', {}).update(
