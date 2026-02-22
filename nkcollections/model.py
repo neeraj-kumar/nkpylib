@@ -38,6 +38,7 @@ from pony.orm import (
     Required,
     Set,
     select,
+    set_sql_debug,
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
@@ -229,6 +230,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     seen_ts = Optional(float, index=True)
     # time we last extracted embeddings for this item
     embed_ts = Optional(float, index=True)
+    composite_index(source, otype)
     # all other metadata
     md = Optional(Json)
     # cumulative seconds spent on this item
@@ -490,7 +492,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
-                emb = await embed_image.single_async(path, timeout=25, model='mobilenet', use_cache=kw.get('use_cache', True))
+                emb = await embed_image.single_async(path, model='mobilenet', use_cache=kw.get('use_cache', True))
                 #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
                 logger.warning(f'Error embedding image for row {row}, {path}: {type(e)}: {e}')
@@ -565,7 +567,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 messages = vlm_prompt
             path = row.image_path()
             try:
-                desc = await call_vlm.single_async((path, messages), timeout=30, model=vlm_model)
+                desc = await call_vlm.single_async((path, messages), model=vlm_model)
             except Exception as e:
                 logger.warning(f'Error generating desc for image {row}, path={path}: {e}')
                 desc = ''
@@ -581,7 +583,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 if desc:
                     row.md['desc'] = desc
                     try:
-                        text_embedding = await embed_text.single_async(desc, timeout=5, model='qwen_emb')
+                        text_embedding = await embed_text.single_async(desc, model='qwen_emb')
                         ts = int(time.time())
                         updater.add(key, embedding=text_embedding, metadata=dict(desc=desc, embed_ts=ts))
                         row.explored_ts = ts
@@ -637,13 +639,14 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
         We return a dict with the number of embeddings updated for each type
         """
+        #set_sql_debug(True, show_values=True)
         if limit <= 0:
             limit = 10000000
         q = cls.select(lambda c: (ids is None or c.id in ids))
         if source is not None:
             q = q.filter(lambda c: c.source == source)
-        q = q.order_by((Item.id))
-        #q = q.order_by(desc(Item.id))
+        #q = q.order_by((Item.id))
+        q = q.order_by(desc(Item.id))
         common_kw = dict(q=q, lmdb_path=lmdb_path, **kw)
         # start async tasks for all 3 subfunctions
         text_task = asyncio.create_task(cls.update_text_embeddings(limit=limit, **common_kw))
