@@ -520,6 +520,61 @@ class Singleton:
         return self
 
 
+class ProducerConsumerPipeline:
+    """Facade for configuring a multi-stage producer-consumer pipeline.
+
+    This does not implement execution; it normalizes and validates stage configuration
+    that can be used by either a threaded or an asyncio backend.
+
+    Init params can be specified as a single value (applied to all stages) or as a list
+    aligned to `funcs`:
+    - funcs: list of callables, one per stage
+    - q_size: int | list[int] — per-stage output queue size
+    - concurrency: int | list[int] — workers/threads per stage
+    - exceptions: str | list[str] — exception policy per stage ('ignore' | 'return' | 'stop_item' | 'stop_pipeline' | 'retry')
+    """
+    def __init__(self,
+                 funcs: list[Callable[[Any], Any]],
+                 q_size: int|list[int]=100,
+                 concurrency: int|list[int]=1,
+                 exceptions: str|list[str]='ignore'):
+        assert funcs and isinstance(funcs, list), 'funcs must be a non-empty list of callables'
+        for f in funcs:
+            assert callable(f), f'All funcs must be callable, got {type(f)}'
+
+        n = len(funcs)
+
+        def _norm(value, name: str):
+            # Accept scalar or list; expand scalar to per-stage list
+            if isinstance(value, (list, tuple)):
+                assert len(value) == n, f'{name} must have length {n} to match funcs'
+                return list(value)
+            return [value] * n
+
+        self.funcs: list[Callable[[Any], Any]] = funcs
+        self.q_size_by_stage: list[int] = _norm(q_size, 'q_size')
+        self.concurrency_by_stage: list[int] = _norm(concurrency, 'concurrency')
+        self.exceptions_by_stage: list[str] = _norm(exceptions, 'exceptions')
+
+        # Basic validation
+        for i, c in enumerate(self.concurrency_by_stage):
+            assert isinstance(c, int) and c >= 1, f'concurrency[{i}] must be >= 1'
+        for i, q in enumerate(self.q_size_by_stage):
+            assert isinstance(q, int) and q >= 0, f'q_size[{i}] must be >= 0'
+        valid_policies = {'ignore', 'return', 'stop_item', 'stop_pipeline', 'retry'}
+        for i, p in enumerate(self.exceptions_by_stage):
+            assert isinstance(p, str) and p in valid_policies, f'exceptions[{i}] must be one of {sorted(valid_policies)}'
+
+    def as_dict(self) -> dict[str, Any]:
+        """Returns a dict view of the normalized config."""
+        return dict(
+            funcs=self.funcs,
+            q_size=self.q_size_by_stage,
+            concurrency=self.concurrency_by_stage,
+            exceptions=self.exceptions_by_stage,
+        )
+
+
 if __name__ == "__main__":
     # example usage
     logging.basicConfig(level=logging.DEBUG)
