@@ -46,8 +46,8 @@ DEFAULT_MODELS = dict(
     qwen=ModelConfig('Qwen/Qwen3-30B-A3B', max_tokens=32768),
     qwen_large=ModelConfig('Qwen/Qwen3-235B-A22B', max_tokens=32768),
     # llama3 for default good perf on various text tasks
-    llama3=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
-    text=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
+    llama3=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
+    text=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     # llama3 turbo as all-purpose default fast model
     llama3_turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     turbo=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
