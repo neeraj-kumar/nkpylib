@@ -1366,9 +1366,19 @@ const Obj = (props) => {
             //ctx.actions.togglePos(id);
             ctx.actions.searchPos(id);
           }}
-          title={ctx.data.pos.includes(id) ? "Remove from positive examples" : "Add to positive examples"}
+          title={ctx.data.pos.includes(id) ? "Remove from positive examples" : "Search for similar images"}
         >
           🎯
+        </div>
+        <div
+          className="icon-button search-pos-users-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            ctx.actions.searchPos(id, 'user');
+          }}
+          title="Search for similar users"
+        >
+          👥
         </div>
         <div
           className="icon-button open-icon"
@@ -2361,7 +2371,7 @@ const AppProvider = ({ children }) => {
   }, [curIds, setAutoClusters, setCurCluster]);
 
   // sets the pos to do a new search
-  const searchPos = React.useCallback((id) => {
+  const searchPos = React.useCallback((id, otype = 'image') => {
     const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
     const sourceObj = JSON.parse(sourceStr);
     console.log('in search pos for', id, sourceObj);
@@ -2379,8 +2389,8 @@ const AppProvider = ({ children }) => {
     if (sourceObj.ancestor) {
       delete sourceObj.ancestor;
     }
-    // Set otype to image
-    sourceObj.otype = 'image';
+    // Set otype to the specified type
+    sourceObj.otype = otype;
     // Set default limit if not present
     if (!sourceObj.limit) {
       sourceObj.limit = 200;
