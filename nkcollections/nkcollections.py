@@ -311,7 +311,9 @@ class GetHandler(MyBaseHandler):
                             user = image_item.get_closest(otype='user')
                             if user:
                                 if 'min_images' in kw:
-                                    n_images = user.md.get('stats', {}).get('n_images', 0)
+                                    if 'stats' not in user.md:
+                                        continue
+                                    n_images = user.md['stats'].get('n_images', 0)
                                     #logger.info(f'User {user.id} has {n_images} images vs min_images {kw["min_images"]}')
                                     if n_images < int(kw['min_images']):
                                         continue

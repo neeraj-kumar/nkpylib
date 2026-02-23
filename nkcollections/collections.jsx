@@ -2027,15 +2027,16 @@ const Controls = () => {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            toggleTumblrSource();
+            ctx.actions.toggleTumblrSource();
           }}
           title="Toggle tumblr source filter"
           style={{
             fontWeight: (() => {
               try {
+                const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
                 const currentSourceObj = JSON.parse(sourceStr);
                 return currentSourceObj.source === 'tumblr' ? 'bold' : 'normal';
-              } catch {
+              } catch (error) {
                 return 'normal';
               }
             })()
@@ -2166,16 +2167,12 @@ const AppProvider = ({ children }) => {
               return api.get(params);
             }).then((data) => {
               updateData(data, true);
-            }).catch(() => {
-              // Error already handled by fetchEndpoint
             });
           } else {
             try {
               const params = JSON.parse(decodedSource);
               api.get(params).then((data) => {
                 updateData(data, true);
-              }).catch(() => {
-                // Error already handled by fetchEndpoint
               });
             } catch (error) {
               console.error('Invalid JSON in source string:', error);
@@ -2396,15 +2393,18 @@ const AppProvider = ({ children }) => {
     const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
     const sourceObj = JSON.parse(sourceStr);
     console.log('in search pos for', id, sourceObj, otype);
-    const toDel = ['offset', 'source', 'parent', 'ancestor'];
+    const toDel = ['offset', 'parent', 'ancestor'];
     switch(otype) {
       case 'image':
+        toDel.push('source');
         // For images, set embed_ts to ">0"
         sourceObj.embed_ts = '>0';
         break;
       case 'user':
-        // For users, remove order and embed_ts filters
+        // For users, remove embed_ts filters
         toDel.push('embed_ts', 'order');
+        sourceObj.min_images = 100;
+        sourceObj.source = 'tumblr';
         break;
     }
     // reset various fields
@@ -2529,9 +2529,9 @@ const AppProvider = ({ children }) => {
   // Toggle tumblr source filter
   const toggleTumblrSource = React.useCallback(() => {
     try {
+      const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
       const currentSourceObj = JSON.parse(sourceStr);
       let newSourceObj;
-      
       if (currentSourceObj.source === 'tumblr') {
         // Remove tumblr source if it's already set
         newSourceObj = { ...currentSourceObj };
@@ -2540,14 +2540,13 @@ const AppProvider = ({ children }) => {
         // Add tumblr source
         newSourceObj = { ...currentSourceObj, source: 'tumblr' };
       }
-      
       const newSourceStr = JSON.stringify(newSourceObj);
-      setSourceStr(newSourceStr);
+      globalSetSourceStr(newSourceStr);
       doSource(newSourceStr);
     } catch (error) {
       console.error('Failed to toggle tumblr source:', error);
     }
-  }, [sourceStr, doSource]);
+  }, [doSource]);
 
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback((inputStr, updateSourceStr = false) => {
@@ -2647,7 +2646,8 @@ const AppProvider = ({ children }) => {
       setCluster,
       doFilter,
       doSearch,
-      doAction
+      doAction,
+      toggleTumblrSource,
     },
     history: {
       currentSource
