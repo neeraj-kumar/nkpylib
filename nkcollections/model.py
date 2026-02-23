@@ -26,7 +26,6 @@ from pony.orm import (
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
-from nkpylib.nkcollections.embeddings import update_embeddings
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.thread_utils import (
     background_task,
@@ -551,6 +550,7 @@ class Source(abc.ABC):
 
         We pass all `kw` to the embeddings functions.
         """
+        from nkpylib.nkcollections.embeddings import update_embeddings
         if 'source' not in kw:
             kw['source'] = self.name
         #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
