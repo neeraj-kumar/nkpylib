@@ -1381,6 +1381,16 @@ const Obj = (props) => {
           👥
         </div>
         <div
+          className="icon-button same-user-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            ctx.actions.searchSameUser(id);
+          }}
+          title="Search for images from the same user"
+        >
+          👤
+        </div>
+        <div
           className="icon-button open-icon"
           onClick={(e) => {
             e.stopPropagation();
@@ -2426,6 +2436,31 @@ const AppProvider = ({ children }) => {
     window.open(url, '_blank');
   }, []);
 
+  // search for images from the same user
+  const searchSameUser = React.useCallback((id) => {
+    const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
+    const sourceObj = JSON.parse(sourceStr);
+    console.log('in search same user for', id, sourceObj);
+    const toDel = ['offset', 'parent', 'ancestor', 'pos'];
+    // reset various fields
+    toDel.forEach((key) => {
+      if (key in sourceObj) {
+        delete sourceObj[key];
+      }
+    });
+    // Set otype to image and same_user to the item id
+    sourceObj.otype = 'image';
+    sourceObj.same_user = id;
+    // Set default limit if not present
+    if (!sourceObj.limit) {
+      sourceObj.limit = 200;
+    }
+    // Open in new window instead of current window
+    const newSourceStr = JSON.stringify(sourceObj);
+    const url = `?source=${encodeURIComponent(newSourceStr)}`;
+    window.open(url, '_blank');
+  }, []);
+
   // toggles the given id in the pos array
   const togglePos = React.useCallback((id) => {
     setPos((pos) => {
@@ -2648,6 +2683,7 @@ const AppProvider = ({ children }) => {
       doSearch,
       doAction,
       toggleTumblrSource,
+      searchSameUser,
     },
     history: {
       currentSource

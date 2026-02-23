@@ -239,6 +239,15 @@ class GetHandler(MyBaseHandler):
             #q = q.filter(has_ancestor) #TODO doesn't work
             # partial workaround (one-level up only)
             q = q.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
+        if 'same_user' in kw:
+            item_id = int(kw['same_user'])
+            # Find the closest user for this item and use as ancestor
+            with db_session:
+                item = Item[item_id]
+                user = item.get_closest(otype='user')
+                if user:
+                    ancestor_id = user.id
+                    q = q.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
         if 'mn' in kw:
             q = q.filter(lambda c: c.md['like-benchmark-20260207'])
         # Handle numeric fields
