@@ -185,6 +185,8 @@ class GetHandler(MyBaseHandler):
           - rels.queue.count>=2 (rel metadata)
           - rels.queue.ts>1234567890 (rel timestamp)
         - Use 'min_like' to filter by a minimum like score from the likes classifier.
+        - Use 'pos' to filter by similarity to a positive example (id or id list) using the embeddings.
+          - We check otype to determine whether we want to return users or images
         """
         logger.info(f'Building query with filters: {kw}')
         t0 = time.time()
@@ -261,13 +263,10 @@ class GetHandler(MyBaseHandler):
         do_ordering = True
         # score/ml-based filters
         if 'min_like' in kw or 'pos' in kw:
-            logger.info(f'Applying score/ml-based filters')
+            logger.info(f'Applying score/ml-based filters to q: {q.get_sql()}')
             # get only ids
             if isinstance(q, Query):
                 q = q.without_distinct()
-                # pre-limit the query if we have a limit and min_like filter
-                if 'min_like' in kw and 'pos' not in kw and limit:
-                    q = q.limit(int((limit+offset)/ 0.1))
             ids_only = [item.id for item in q]
             logger.info(f'  Got {len(ids_only)} candidate ids')
             # check for min_like score
@@ -282,10 +281,17 @@ class GetHandler(MyBaseHandler):
                 pos = kw['pos']
                 logger.info(f'Finding similar from {pos} to {len(ids_only)}')
                 self.embs.reload_keys()
-                sim = find_similar(pos, embs=self.embs, cur_ids=ids_only)
-                scores = sim['scores']
-                min_score = min(scores.values()) if scores else 0.0
-                out_ids = sorted(ids_only, key=lambda id: scores.get(id, min_score-10), reverse=True)
+                if kw['otype'] == 'image':
+                    sim = find_similar(pos, embs=self.embs, cur_ids=ids_only)
+                    scores = sim['scores']
+                    min_score = min(scores.values()) if scores else 0.0
+                    out_ids = sorted(ids_only, key=lambda id: scores.get(id, min_score-10), reverse=True)
+                elif kw['otype'] == 'user':
+                    # check similarity from pos to all images
+                    sim = find_similar(pos, embs=self.embs, cur_ids=None)
+                    logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
+                    # accumulate scores by user id, adding up scores of their images
+
                 do_ordering = False
             q = out_ids
         manual_reverse = False
