@@ -443,7 +443,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         async def embed_stage(row_text_tuple):
             row, text = row_text_tuple
             key = f'{row.id}:text'
-            
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping text {row}, key={key} already in lmdb')
@@ -473,7 +472,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             row, text_embedding, error = result
             key = f'{row.id}:text'
             ts = int(time.time())
-            
             if text_embedding is not None:
                 updater.add(key, embedding=text_embedding, metadata=dict(embed_ts=ts))
                 with db_session:
@@ -522,12 +520,10 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         async def embed_stage(row_path_tuple):
             row, path = row_path_tuple
             key = f'{row.id}:{IMAGE_SUFFIX}'
-            
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping image {row}, key={key} already in lmdb')
                 return (row, None, None)
-
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
@@ -551,7 +547,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             row, emb, error = result
             key = f'{row.id}:{IMAGE_SUFFIX}'
             ts = int(time.time())
-            
             with db_session:
                 # update the lmdb and sqlite
                 logger.debug(f' emb for image {row}, key={key}, {emb[:10] if emb is not None else "failed"}')
@@ -586,16 +581,13 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         """
         if not vlm_prompt or not vlm_model:
             return 0
-
         with db_session:
             rows = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None).limit(limit)
             if not rows:
                 return 0
             logger.info(f'Updating descriptions for {len(rows)} image rows: {rows[:5]}...')
-
         updater = LmdbUpdater(lmdb_path, n_procs=1)
         n_descs = 0
-
         # Stage 1: Generate VLM descriptions
         async def vlm_stage(row):
             if sys_prompt:
@@ -605,7 +597,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 ]
             else:
                 messages = vlm_prompt
-            
             path = row.image_path()
             try:
                 desc = await call_vlm.single_async((path, messages), model=vlm_model)
@@ -617,10 +608,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         # Stage 2: Generate text embeddings
         async def embed_stage(row_desc_tuple):
             row, desc = row_desc_tuple
-            
             if not desc:
                 return (row, desc, None, None)
-            
             try:
                 text_embedding = await embed_text.single_async(desc, model='qwen_emb')
                 return (row, desc, text_embedding, None)
@@ -640,7 +629,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         async for result in pipeline.run_async(rows):
             row, desc, text_embedding, error = result
             key = f'{row.id}:text'
-            
             with db_session:
                 if desc:
                     row.md['desc'] = desc
@@ -654,7 +642,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                         row.explored_ts = -1  # TODO decrement on more errors
                 else:  # failed to get description
                     row.explored_ts = -1  # TODO decrement on more errors
-
         updater.commit()
         if n_descs > 0:
             logger.info(f'Updated descriptions for {n_descs} images')
