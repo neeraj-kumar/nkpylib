@@ -1364,7 +1364,7 @@ const Obj = (props) => {
           onClick={(e) => {
             e.stopPropagation();
             //ctx.actions.togglePos(id);
-            ctx.actions.searchPos(id);
+            ctx.actions.searchPos(id, 'image');
           }}
           title={ctx.data.pos.includes(id) ? "Remove from positive examples" : "Search for similar images"}
         >
@@ -1580,6 +1580,7 @@ const Obj = (props) => {
               )}
               {/* Show timestamps if they exist */}
               {showTs('ts', props)}
+              {showTs('added_ts', props)}
               {showTs('seen_ts', props)}
               {showTs('embed_ts', props)}
               {showTs('explored_ts', props)}
@@ -2371,32 +2372,33 @@ const AppProvider = ({ children }) => {
   }, [curIds, setAutoClusters, setCurCluster]);
 
   // sets the pos to do a new search
-  const searchPos = React.useCallback((id, otype = 'image') => {
+  const searchPos = React.useCallback((id, otype) => {
     const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
     const sourceObj = JSON.parse(sourceStr);
-    console.log('in search pos for', id, sourceObj);
-    if (sourceObj.offset) {
-      sourceObj.offset = 0;
+    console.log('in search pos for', id, sourceObj, otype);
+    const toDel = ['offset', 'source', 'parent', 'ancestor'];
+    switch(otype) {
+      case 'image':
+        // For images, set embed_ts to ">0"
+        sourceObj.embed_ts = '>0';
+        break;
+      case 'user':
+        // For users, remove order and embed_ts filters
+        toDel.push('embed_ts', 'order');
+        break;
     }
-    // Unset source if it exists
-    if (sourceObj.source) {
-      delete sourceObj.source;
-    }
-    // Remove parent and ancestor if they exist
-    if (sourceObj.parent) {
-      delete sourceObj.parent;
-    }
-    if (sourceObj.ancestor) {
-      delete sourceObj.ancestor;
-    }
+    // reset various fields
+    toDel.forEach((key) => {
+      if (key in sourceObj) {
+        delete sourceObj[key];
+      }
+    });
     // Set otype to the specified type
     sourceObj.otype = otype;
     // Set default limit if not present
     if (!sourceObj.limit) {
       sourceObj.limit = 200;
     }
-    // Set embed_ts to ">0"
-    sourceObj.embed_ts = '>0';
     sourceObj.pos = [id];
     // Open in new window instead of current window
     const newSourceStr = JSON.stringify(sourceObj);
