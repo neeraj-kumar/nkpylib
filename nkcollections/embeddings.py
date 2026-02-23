@@ -63,7 +63,7 @@ async def _run_embedding_pipeline(
         stages: list[Callable],
         pipeline_config: dict,
         updater: LmdbUpdater,
-        result_processor: Callable[[Any, LmdbUpdater], dict]) -> dict:
+        result_processor: Callable[[Any, LmdbUpdater], Counter]) -> Counter:
     """Generic pipeline runner for embedding tasks."""
     pipeline = ProducerConsumerPipeline(funcs=stages, **pipeline_config)
     counts = Counter()
@@ -71,14 +71,14 @@ async def _run_embedding_pipeline(
         stats = result_processor(result, updater)
         counts.update(stats)
     updater.commit()
-    return dict(counts)
+    return counts
 
 def _update_database_from_result(
         result: PipelineResult,
         updater: LmdbUpdater,
         key_suffix: str,
         ts_field: str,
-        success_callback: Callable[[Any, Any, int], None] = None) -> dict:
+        success_callback: Callable[[Any, Any, int], None] = None) -> Counter:
     """Generic database updater for embedding results."""
     key = f'{result.row.id}:{key_suffix}'
     ts = int(time.time())
@@ -94,7 +94,7 @@ def _update_database_from_result(
             setattr(result.row, ts_field, -1)
         counts['errors'] += 1
     counts['total'] += 1
-    return dict(counts)
+    return counts
 
 
 def _create_embedding_stage(
@@ -125,16 +125,16 @@ def _create_embedding_stage(
     return embed_stage
 
 
-async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> dict:
+async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> Counter:
     """Updates text embeddings for the given query `q`.
 
     This select 'text' and 'link' otypes and updates their embeddings.
-    Returns a dict with embedding statistics.
+    Returns a Counter with embedding statistics.
     """
     with db_session:
         rows = q.filter(lambda c: c.otype in ('text', 'link') and not c.embed_ts).limit(limit)
         if not rows:
-            return {}
+            return Counter()
         logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
     
     updater = LmdbUpdater(lmdb_path, n_procs=1)
@@ -180,7 +180,7 @@ async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> 
         )
     )
     
-    if stats.get('updated', 0) > 0:
+    if stats['updated'] > 0:
         logger.info(f'  Updated embeddings for {stats["updated"]} text rows')
     return stats
 
@@ -189,16 +189,16 @@ async def update_image_embeddings(q: Query,
                                   lmdb_path: str,
                                   limit: int,
                                   fetch_delay: float=0.1,
-                                  **kw) -> dict:
+                                  **kw) -> Counter:
     """Updates images embeddings for the given query `q`.
 
     This select 'image' rows, downloads them if needed, and updates their embeddings.
-    Returns a dict with embedding statistics.
+    Returns a Counter with embedding statistics.
     """
     with db_session:
         rows = q.filter(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
     if not rows:
-        return {}
+        return Counter()
     
     updater = LmdbUpdater(lmdb_path, n_procs=1)
     logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
@@ -252,8 +252,8 @@ async def update_image_embeddings(q: Query,
         )
     )
     
-    if stats.get('updated', 0) > 0:
-        logger.info(f'  Updated embeddings for {stats["updated"]} images, {stats.get("success", 0)} successful')
+    if stats['updated'] > 0:
+        logger.info(f'  Updated embeddings for {stats["updated"]} images, {stats["success"]} successful')
     return stats
 
 
@@ -263,21 +263,21 @@ async def update_image_descriptions(q,
                                     vlm_prompt: str|None='Briefly describe this image. Include a list of tags at the end.',
                                     sys_prompt: str|None=None,
                                     vlm_model: str='fastvlm',
-                                    **kw) -> dict:
+                                    **kw) -> Counter:
     """Updates image descriptions using VLM for images that have been explored.
 
     Filters to images where explored_ts is not null, generates descriptions via VLM,
     embeds the descriptions, and updates both LMDB and SQLite metadata.
 
-    Returns a dict with description statistics.
+    Returns a Counter with description statistics.
     """
     if not vlm_prompt or not vlm_model:
-        return {}
+        return Counter()
     
     with db_session:
         rows = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None).limit(limit)
         if not rows:
-            return {}
+            return Counter()
         logger.info(f'Updating descriptions for {len(rows)} image rows: {rows[:5]}...')
     
     updater = LmdbUpdater(lmdb_path, n_procs=1)
@@ -342,10 +342,9 @@ async def update_image_descriptions(q,
         counts['total'] += 1
     
     updater.commit()
-    stats = dict(counts)
-    if stats.get('updated', 0) > 0:
-        logger.info(f'Updated descriptions for {stats["updated"]} images')
-    return stats
+    if counts['updated'] > 0:
+        logger.info(f'Updated descriptions for {counts["updated"]} images')
+    return counts
 
 
 async def update_embeddings_async(lmdb_path: str,
@@ -425,9 +424,8 @@ async def update_embeddings_async(lmdb_path: str,
     for k, v in desc_stats.items():
         ret[f'desc_{k}'] = v
     
-    ret_dict = dict(ret)
-    logger.info(f'Finished updating embeddings async: {ret_dict}')
-    return ret_dict
+    logger.info(f'Finished updating embeddings async: {dict(ret)}')
+    return dict(ret)
 
 
 def update_embeddings(lmdb_path: str,
