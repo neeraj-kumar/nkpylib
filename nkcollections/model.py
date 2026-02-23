@@ -421,37 +421,72 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         This select 'text' and 'link' otypes and updates their embeddings.
         Returns the number of embeddings updated.
         """
-        return 0 #FIXME
         with db_session:
             rows = q.filter(lambda c: c.otype in ('text', 'link') and not c.embed_ts).limit(limit)
             if not rows:
                 return 0
             logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
-            inputs = []
-            row_by_key = {}
-            for r in rows:
-                if not r.md:
-                    continue
-                key = f'{r.id}:text'
-                row_by_key[key] = r
-                if r.otype == 'text' and 'text' in r.md:
-                    inputs.append((key, r.md['text']))
-                elif r.otype == 'link' and 'title' in r.md:
-                    inputs.append((key, f"{r.md['title']}: {r.url}"))
 
-        def md_func(key, input):
-            row = row_by_key[key]
-            ts = int(time.time())
-            with db_session:
-                row.embed_ts = ts
-            return dict(embed_ts=ts)
+        updater = LmdbUpdater(lmdb_path, n_procs=1)
+        n_text = 0
 
-        # Run the blocking operation in a thread pool
-        loop = asyncio.get_event_loop()
-        n_text = await loop.run_in_executor(
-            None,
-            lambda: batch_extract_embeddings(inputs=inputs, embedding_type='text', md_func=md_func, db_path=lmdb_path, **kw)
+        # Stage 1: Extract text content from rows
+        async def extract_text_stage(row):
+            if not row.md:
+                return (row, '')
+            
+            text = ''
+            if row.otype == 'text' and 'text' in row.md:
+                text = row.md['text']
+            elif row.otype == 'link' and 'title' in row.md:
+                text = f"{row.md['title']}: {row.url}"
+            
+            return (row, text)
+
+        # Stage 2: Generate text embeddings and update database
+        async def embed_and_update_stage(row_text_tuple):
+            nonlocal n_text
+            row, text = row_text_tuple
+            key = f'{row.id}:text'
+            
+            # Skip if already in lmdb
+            if key in updater:
+                logger.info(f' skipping text {row}, key={key} already in lmdb')
+                return row
+
+            if not text:
+                logger.debug(f'Skipping {row} with no text content')
+                return row
+
+            try:
+                text_embedding = await embed_text.single_async(text, model='qwen_emb')
+                ts = int(time.time())
+                updater.add(key, embedding=text_embedding, metadata=dict(embed_ts=ts))
+                with db_session:
+                    row.embed_ts = ts
+                n_text += 1
+            except Exception as e:
+                logger.warning(f'Error embedding text for {row}: {e}')
+                ts = int(time.time())
+                updater.add(key, metadata=dict(embed_ts=ts, error='text embedding failed'))
+                with db_session:
+                    row.embed_ts = -1
+            
+            return row
+
+        # Create and run pipeline
+        pipeline = ProducerConsumerPipeline(
+            funcs=[extract_text_stage, embed_and_update_stage],
+            q_size=[20, 10],  # Moderate queues for both stages
+            concurrency=[2, 3],  # Fewer text extraction workers, more embedding workers
+            exc_policy='stop'  # Skip failed items but continue processing
         )
+
+        # Process all rows through the pipeline
+        async for result in pipeline.run_async(rows):
+            pass  # Results are handled in the embed_and_update_stage
+
+        updater.commit()
         if n_text > 0:
             logger.info(f'  Updated embeddings for {n_text} text rows')
         return n_text
