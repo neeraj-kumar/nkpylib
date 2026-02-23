@@ -52,7 +52,7 @@ from queue import Queue, Empty
 from threading import Thread
 from typing import Any, Callable
 
-import joblib
+import joblib # type: ignore
 import termcolor
 import tornado.web
 
@@ -77,7 +77,8 @@ from nkpylib.ml.client import embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed, IMAGE_SUFFIX, ACTIONS
+from nkpylib.nkcollections.embeddings import IMAGE_SUFFIX, cleanup_embeddings
+from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed, ACTIONS
 from nkpylib.nkcollections.workers import CollectionsWorker
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
@@ -187,7 +188,7 @@ class GetHandler(MyBaseHandler):
         """
         logger.info(f'Building query with filters: {kw}')
         t0 = time.time()
-        q = Item.select()
+        q: Any = Item.select()
 
         # Handle rel-based filters first (they may need to modify the query significantly)
         rel_filters = {k: v for k, v in kw.items() if k.startswith('rels.')}
@@ -273,7 +274,7 @@ class GetHandler(MyBaseHandler):
             if 'min_like' in kw:
                 min_like = float(kw['min_like'])
                 logger.info(f'Checking for min like')
-                scores = self.application.get_scores()
+                scores = self.application.get_scores() # type: ignore[attr-defined]
                 out_ids = [id for id in ids_only if scores.get(id, 0.0) >= min_like]
                 logger.info(f'  Filtered from {len(ids_only)} -> {len(out_ids)} items with min_like {min_like}')
             # check for sorting by pos
@@ -411,28 +412,21 @@ class GetHandler(MyBaseHandler):
         filtered_items = []
 
         for item in items:
-            # Get all rels for this item
-            rels = list(Rel.select(lambda r: r.src == me and r.tgt == item))
-
             # Create a temporary dict to hold processed rels (like rels_for_web does)
-            temp_dict = {'rels': {}}
-            item.rels_for_web(temp_dict, rels)
+            temp_dict: dict[str, Any] = {'rels': {}}
+            item.rels_for_web(temp_dict)
             processed_rels = temp_dict['rels']
-
             # Check if item passes all property filters
             passes_all_filters = True
             for rtype, property_name, filter_value in property_filters:
                 if rtype not in processed_rels:
                     passes_all_filters = False
                     break
-
                 rel_data = processed_rels[rtype]
                 actual_value = rel_data.get(property_name)
-
                 if actual_value is None:
                     passes_all_filters = False
                     break
-
                 # Apply the filter based on the operator in filter_value
                 if isinstance(filter_value, str) and any(op in filter_value for op in ['>=', '<=', '!=', '>', '<']):
                     filter_value = filter_value.replace(' ', '')
@@ -598,7 +592,7 @@ class ClassifyHandler(MyBaseHandler):
                             otypes=['image'],
                             **kw):
         """Gets the latest likes scores from cached loader"""
-        scores = self.application.get_scores()
+        scores = self.application.get_scores() # type: ignore[attr-defined]
         if cur_ids is not None:
             cur_ids = [int(id) for id in cur_ids]
             scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
@@ -762,20 +756,20 @@ def embeddings_main(batch_size: int=20,
       counts of embeddings updated. If this returns a dict, then we replace our kw with those.
     - kw: Any other kw are passed to Source.update_embeddings
     """
+def cleanup_embeddings(lmdb_path: str):
     sources = list(Source._registry.values())
     logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
     executor = ThreadPoolExecutor()
     per_timeout = source_timeout_factor * batch_size
-
     i = 0
     while 1:
         with db_session:
             commit()
             if i % cleanup_freq == 0:
                 for s in sources:
-                    s.cleanup_embeddings(s.lmdb_path)
+                    cleanup_embeddings(s.lmdb_path)
                 commit()
-        counts = Counter()
+        counts: Counter = Counter()
         t0 = time.time()
         futures = {}
         for s in sources:
@@ -833,7 +827,7 @@ def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_su
     try:
         # Initialize database and embeddings in this process
         sql_db = init_sql_db(sqlite_path)
-        embs = Embeddings([lmdb_path])
+        embs: Embeddings = Embeddings([lmdb_path])
         # Create and start worker
         likes_worker = CollectionsWorker(
             embs=embs,
