@@ -429,7 +429,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             stages: list[Callable],
             pipeline_config: dict,
             updater: LmdbUpdater,
-            result_processor: Callable[[Any, LmdbUpdater], dict]) -> dict:
+            result_processor: Callable[[Any, LmdbUpdater], dict]) -> Counter:
         """Generic pipeline runner for embedding tasks."""
         pipeline = ProducerConsumerPipeline(funcs=stages, **pipeline_config)
         counts = Counter()
@@ -437,7 +437,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             stats = result_processor(result, updater)
             counts.update(stats)
         updater.commit()
-        return dict(counts)
+        return counts
 
     @classmethod
     def _update_database_from_result(
@@ -446,7 +446,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             updater: LmdbUpdater,
             key_suffix: str,
             ts_field: str,
-            success_callback: Callable[[Item, Any, int], None] = None) -> dict:
+            success_callback: Callable[[Item, Any, int], None] = None) -> Counter:
         """Generic database updater for embedding results."""
         key = f'{result.row.id}:{key_suffix}'
         ts = int(time.time())
@@ -462,15 +462,16 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 setattr(result.row, ts_field, -1)
             counts['errors'] += 1
         counts['total'] += 1
-        return dict(counts)
+        return counts
 
     @classmethod
-    def _create_embedding_stage(cls,
-                                embed_func: Callable,
-                                model: str,
-                                key_suffix: str,
-                                updater: LmdbUpdater,
-                                data_extractor: Callable[[Any], Any] = lambda x: x.data if hasattr(x, 'data') else x.get('data')):
+    def _create_embedding_stage(
+            cls,
+            embed_func: Callable,
+            model: str,
+            key_suffix: str,
+            updater: LmdbUpdater,
+            data_extractor = lambda x: x.data if hasattr(x, 'data') else x.get('data')):
         """Factory for creating embedding stages."""
         async def embed_stage(input_data):
             if isinstance(input_data, PipelineResult):
@@ -479,7 +480,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 row = input_data['row']
             else:
                 row = input_data
-            
             key = f'{row.id}:{key_suffix}'
             # Skip if already in lmdb
             if key in updater:
@@ -509,9 +509,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             if not rows:
                 return 0
             logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
-        
         updater = LmdbUpdater(lmdb_path, n_procs=1)
-        
         # Stage 1: Extract text content from rows
         async def extract_text_stage(row):
             if not row.md:
@@ -522,7 +520,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             elif row.otype == 'link' and 'title' in row.md:
                 text = f"{row.md['title']}: {row.url}"
             return PipelineResult(row=row, data=text)
-
         # Stage 2: Generate text embeddings using factory
         embed_stage = cls._create_embedding_stage(
             embed_func=embed_text,
@@ -531,13 +528,11 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             updater=updater,
             data_extractor=lambda x: x.get('data')  # Extract text from dict
         )
-        
         # Success callback for text embeddings
         def text_success_callback(row, embedding, ts):
             updater.add(f'{row.id}:text', embedding=embedding, metadata=dict(embed_ts=ts))
             with db_session:
                 row.embed_ts = ts
-        
         # Run pipeline
         stats = await cls._run_embedding_pipeline(
             rows=rows,
@@ -552,7 +547,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 result, updater, 'text', 'embed_ts', text_success_callback
             )
         )
-        
         if stats.get('updated', 0) > 0:
             logger.info(f'  Updated embeddings for {stats["updated"]} text rows')
         return stats
@@ -573,10 +567,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             rows = q.filter(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
         if not rows:
             return 0
-        
         updater = LmdbUpdater(lmdb_path, n_procs=1)
         logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
-        
         # Stage 1: Download images
         async def download_stage(row):
             with db_session:
@@ -587,7 +579,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 except Exception as e:
                     logger.warning(f'Error downloading image for row id={row.id}, url={row.url}, path={path}: {e}')
                     return PipelineResult(row=row, data='')
-
         # Stage 2: Generate embeddings using factory
         def validate_image_path(input_data):
             if isinstance(input_data, PipelineResult):
@@ -597,7 +588,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             if not path or not exists(path) or os.path.getsize(path) == 0:
                 raise FileNotFoundError(f'File not found or empty: {path}')
             return path
-
         embed_stage = cls._create_embedding_stage(
             embed_func=embed_image,
             model='mobilenet',  #FIXME: should be 'clip'
@@ -605,7 +595,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             updater=updater,
             data_extractor=validate_image_path
         )
-        
         # Success callback for image embeddings
         def image_success_callback(row, embedding, ts):
             key = f'{row.id}:{IMAGE_SUFFIX}'
@@ -613,7 +602,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             with db_session:
                 row.embed_ts = ts
                 logger.debug(f' emb for image {row}, key={key}, {embedding[:10] if embedding is not None else "failed"}')
-        
         # Run pipeline
         stats = await cls._run_embedding_pipeline(
             rows=rows,
@@ -628,7 +616,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 result, updater, IMAGE_SUFFIX, 'embed_ts', image_success_callback
             )
         )
-        
         if stats.get('updated', 0) > 0:
             logger.info(f'  Updated embeddings for {stats["updated"]} images, {stats.get("success", 0)} successful')
         return stats
@@ -651,15 +638,12 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         """
         if not vlm_prompt or not vlm_model:
             return 0
-        
         with db_session:
             rows = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None).limit(limit)
             if not rows:
                 return 0
             logger.info(f'Updating descriptions for {len(rows)} image rows: {rows[:5]}...')
-        
         updater = LmdbUpdater(lmdb_path, n_procs=1)
-        
         # Stage 1: Generate VLM descriptions
         async def vlm_stage(row):
             if sys_prompt:
@@ -669,7 +653,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 ]
             else:
                 messages = vlm_prompt
-            
             path = row.image_path()
             try:
                 desc = await call_vlm.single_async((path, messages), model=vlm_model)
@@ -686,7 +669,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             updater=updater,
             data_extractor=lambda x: x.get('data')  # Extract desc from dict
         )
-        
         # We need a custom approach for descriptions since we need both desc and embedding
         # Let's use the original approach but with some refactored components
         pipeline = ProducerConsumerPipeline(
@@ -695,13 +677,11 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             concurrency=[3, 2],
             exc_policy='stop'
         )
-        
         counts = Counter()
         async for result in pipeline.run_async(rows):
             # Handle the complex case where we need both description and embedding
             # We lost the description, need to get it from row.md
             desc = result.row.md.get('desc', '') if result.row.md else ''
-                
             key = f'{result.row.id}:text'
             with db_session:
                 if result.data is not None and desc:
@@ -718,7 +698,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     result.row.explored_ts = -1
                     counts['no_desc'] += 1
             counts['total'] += 1
-        
         updater.commit()
         stats = dict(counts)
         if stats.get('updated', 0) > 0:
@@ -790,7 +769,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                                           **common_kw)
         )
         text_stats, image_stats, desc_stats = await asyncio.gather(text_task, image_task, desc_task)
-        
         # Merge all counters with prefixes to avoid key conflicts
         ret = Counter()
         for k, v in text_stats.items():
@@ -799,7 +777,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             ret[f'image_{k}'] = v
         for k, v in desc_stats.items():
             ret[f'desc_{k}'] = v
-        
         ret_dict = dict(ret)
         logger.info(f'Finished updating embeddings async: {ret_dict}')
         #TODO we seem to hang here, but it's not clear why/what's going on
