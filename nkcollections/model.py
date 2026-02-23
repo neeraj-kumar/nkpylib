@@ -48,7 +48,7 @@ from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
-from nkpylib.thread_utils import run_async, background_task, classify_func_output
+from nkpylib.thread_utils import run_async, background_task, classify_func_output, ProducerConsumerPipeline
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
@@ -559,14 +559,18 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         """
         if not vlm_prompt or not vlm_model:
             return 0
-        updater = LmdbUpdater(lmdb_path, n_procs=1)
+
         with db_session:
             rows = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None).limit(limit)
             if not rows:
                 return 0
             logger.info(f'Updating descriptions for {len(rows)} image rows: {rows[:5]}...')
-        # Create VLM tasks for all images
-        async def vlm_task(row):
+
+        updater = LmdbUpdater(lmdb_path, n_procs=1)
+        n_descs = 0
+
+        # Stage 1: Generate VLM descriptions
+        async def vlm_stage(row):
             if sys_prompt:
                 messages = [
                     dict(role='system', content=sys_prompt),
@@ -574,20 +578,21 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 ]
             else:
                 messages = vlm_prompt
+            
             path = row.image_path()
             try:
                 desc = await call_vlm.single_async((path, messages), model=vlm_model)
+                return (row, desc)
             except Exception as e:
                 logger.warning(f'Error generating desc for image {row}, path={path}: {e}')
-                desc = ''
-            return row, desc
+                return (row, '')
 
-        vlm_tasks = [vlm_task(row) for row in rows]
-        # Process VLM results as they complete
-        n_descs = 0
-        for task in asyncio.as_completed(vlm_tasks):
-            row, desc = await task
+        # Stage 2: Generate text embeddings and update database
+        async def embed_and_update_stage(row_desc_tuple):
+            nonlocal n_descs
+            row, desc = row_desc_tuple
             key = f'{row.id}:text'
+            
             with db_session:
                 if desc:
                     row.md['desc'] = desc
@@ -600,8 +605,23 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     except Exception as e:
                         logger.warning(f'Error embedding description {desc} for {row}: {e}')
                         updater.add(key, metadata=dict(desc=desc, embed_ts=time.time(), error='text embedding failed'))
-                else: # failed to get description
-                    row.explored_ts = -1 #TODO decrement on more errors
+                else:  # failed to get description
+                    row.explored_ts = -1  # TODO decrement on more errors
+            
+            return row  # Pass through for potential further processing
+
+        # Create and run pipeline
+        pipeline = ProducerConsumerPipeline(
+            funcs=[vlm_stage, embed_and_update_stage],
+            q_size=[50, 20],  # Larger queue for VLM stage, smaller for embedding
+            concurrency=[3, 2],  # More VLM workers, fewer embedding workers
+            exc_policy='stop'  # Skip failed items but continue processing
+        )
+
+        # Process all rows through the pipeline
+        async for result in pipeline.run_async(rows):
+            pass  # Results are handled in the embed_and_update_stage
+
         updater.commit()
         if n_descs > 0:
             logger.info(f'Updated descriptions for {n_descs} images')
