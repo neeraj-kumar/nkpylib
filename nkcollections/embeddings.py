@@ -104,17 +104,12 @@ def _create_embedding_stage(
         model: str,
         key_suffix: str,
         updater: LmdbUpdater,
-        data_extractor = lambda x: x.data if hasattr(x, 'data') else x.get('data')):
+        data_extractor: Callable[[PipelineResult], Any] = lambda x: x.data):
     """Factory for creating embedding stages."""
-    async def embed_stage(input_data):
-        if isinstance(input_data, PipelineResult):
-            row = input_data.row
-        elif isinstance(input_data, dict):
-            row = input_data['row']
-        else:
-            row = input_data
-        
+    async def embed_stage(input_data: PipelineResult) -> PipelineResult:
+        row = input_data.row
         key = f'{row.id}:{key_suffix}'
+        
         # Skip if already in lmdb
         if key in updater:
             logger.info(f' skipping {row}, key={key} already in lmdb')
@@ -163,7 +158,7 @@ async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> 
         model='qwen_emb',
         key_suffix='text',
         updater=updater,
-        data_extractor=lambda x: x.data if hasattr(x, 'data') else x.get('data')
+        data_extractor=lambda x: x.data
     )
     
     # Success callback for text embeddings
@@ -222,11 +217,8 @@ async def update_image_embeddings(q: Query,
                 return PipelineResult(row=row, data='')
 
     # Stage 2: Generate embeddings using factory
-    def validate_image_path(input_data):
-        if isinstance(input_data, PipelineResult):
-            path = input_data.data
-        else:
-            path = input_data.get('data')
+    def validate_image_path(input_data: PipelineResult) -> str:
+        path = input_data.data
         if not path or not exists(path) or os.path.getsize(path) == 0:
             raise FileNotFoundError(f'File not found or empty: {path}')
         return path
@@ -316,7 +308,7 @@ async def update_image_descriptions(q,
         model='qwen_emb',
         key_suffix='text',
         updater=updater,
-        data_extractor=lambda x: x.data if hasattr(x, 'data') else x.get('data')
+        data_extractor=lambda x: x.data
     )
     
     # We need a custom approach for descriptions since we need both desc and embedding
