@@ -735,7 +735,7 @@ class ThreadedPipelineBackend(PipelineBackend):
 
     def run(self, inputs) -> Iterable[Any]:
         """Run the pipeline and yield results."""
-        queues [Queue(maxsize=q_size) for q_size in self.q_sizes]
+        queues = [Queue(maxsize=q_size) for q_size in self.q_sizes]
         self._start_workers(queues)
         def _feed():
             """Feed inputs in a separate thread"""
