@@ -5,33 +5,17 @@ import asyncio
 import json
 import logging
 import os
-import random
-import re
-import shutil
-import sys
-import threading
 import time
-import traceback
 
-from argparse import ArgumentParser
-from collections import defaultdict, Counter
-from functools import cache
+from collections import defaultdict
 from os.path import abspath, exists, join, dirname
-from pprint import pprint
-from queue import Queue, Empty
-from threading import Thread
 from typing import Any, Callable
-
-import joblib
-import termcolor
-import tornado.web
 
 from pony.orm import (
     composite_index,
     commit,
     Database,
     db_session,
-    desc,
     Json,
     Optional,
     PrimaryKey,
@@ -42,14 +26,15 @@ from pony.orm import (
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
-from nkpylib.ml.client import call_vlm, embed_image, embed_text
-from nkpylib.ml.constants import data_url_from_file
-from nkpylib.ml.embeddings import Embeddings
-from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
+from nkpylib.nkcollections.embeddings import update_embeddings
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
-from nkpylib.stringutils import parse_num_spec
-from nkpylib.thread_utils import run_async, background_task, classify_func_output
-from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
+from nkpylib.thread_utils import (
+    background_task,
+    classify_func_output,
+    consume_async_generator,
+    consume_sync_generator,
+)
+from nkpylib.time_utils import elapsed_str
 
 logger = logging.getLogger(__name__)
 
@@ -58,45 +43,6 @@ sql_db = Database()
 J = lambda obj: json.dumps(obj, indent=2)
 
 ACTIONS = 'like unlike dislike undislike queue unqueue explore'.split()
-
-
-def elapsed_str(ts: float) -> str:
-    """Returns a compact human readable string showing elapsed time since the given timestamp.
-
-    - ts: Unix timestamp (seconds since epoch)
-
-    Returns the largest unit that has a value > 1, or the next smaller unit.
-    Values are rounded down (no decimals).
-    """
-    if ts is None or ts == 0:
-        return 'null'
-    if ts < 0:
-        return f'error: {ts}'
-    now = time.time()
-    diff_secs = int(now - ts)
-    if diff_secs < 0:
-        return '0s ago'  # Handle future dates
-    diff_mins = diff_secs // 60
-    diff_hours = diff_mins // 60
-    diff_days = diff_hours // 24
-    diff_weeks = diff_days // 7
-    diff_months = diff_days // 30  # Approximate
-    diff_years = diff_days // 365  # Approximate
-    # Return the largest unit that has a value > 1, or the next smaller unit
-    if diff_years > 1:
-        return f'{diff_years}y ago'
-    if diff_months > 1:
-        return f'{diff_months}mo ago'
-    if diff_weeks > 1:
-        return f'{diff_weeks}w ago'
-    if diff_days > 1:
-        return f'{diff_days}d ago'
-    if diff_hours > 1:
-        return f'{diff_hours}h ago'
-    if diff_mins > 1:
-        return f'{diff_mins}m ago'
-    return f'{diff_secs}s ago'
-
 
 async def ret_immediate(func_output) -> Any:
     """Given some `func_output`, we want to return something asap.
@@ -135,28 +81,6 @@ async def ret_immediate(func_output) -> Any:
             return first_value
         except StopIteration:
             return None
-
-
-async def consume_async_generator(async_gen):
-    """Consume the rest of an async generator in the background."""
-    print(f'in consume_async_generator with {async_gen}')
-    a = await async_gen.__anext__() # just to check if we can get a value, will be consumed in the loop below
-    print(f'got next val {a}')
-    try:
-        async for _ in async_gen:
-            print(f'consuming async generator, got value {_}')
-            pass  # Just consume, don't do anything with the values
-    except Exception as e:
-        logger.warning(f"Error consuming async generator: {e}")
-
-
-def consume_sync_generator(gen):
-    """Consume the rest of a sync generator in the background."""
-    try:
-        for _ in gen:
-            pass  # Just consume, don't do anything with the values
-    except Exception as e:
-        logger.warning(f"Error consuming sync generator: {e}")
 
 
 def timed(func: Callable) -> Callable:
@@ -384,7 +308,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                         md.update(rel.md)
                     rel_dicts.append(md)
                 R[rtype] = rel_dicts
-
 
 
 class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
@@ -632,13 +555,7 @@ class Source(abc.ABC):
 
         We pass all `kw` to the embeddings functions.
         """
-        from .embeddings import update_embeddings
         if 'source' not in kw:
             kw['source'] = self.name
         #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
         return update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, **kw)
-
-    def cleanup_embeddings(self):
-        """Cleans up discrepancies between our sqlite and lmdb for this source."""
-        from .embeddings import cleanup_embeddings
-        return cleanup_embeddings(self.lmdb_path)

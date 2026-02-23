@@ -125,6 +125,26 @@ def sync_or_async(async_func):
 
     return wrapper
 
+def consume_sync_generator(gen):
+    """Consume the rest of a sync generator in the background."""
+    try:
+        for _ in gen:
+            pass  # Just consume, don't do anything with the values
+    except Exception as e:
+        logger.warning(f"Error consuming sync generator: {e}")
+
+async def consume_async_generator(async_gen):
+    """Consume the rest of an async generator in the background."""
+    logger.info(f'in consume_async_generator with {async_gen}')
+    a = await async_gen.__anext__() # just to check if we can get a value, will be consumed in the loop below
+    logger.info(f'got next val {a}')
+    try:
+        async for _ in async_gen:
+            logger.info(f'consuming async generator, got value {_}')
+            pass  # Just consume, don't do anything with the values
+    except Exception as e:
+        logger.warning(f"Error consuming async generator: {e}")
+
 def background_task(func_or_coroutine) -> None:
     """Runs a task in the background, ignore the result and errors.
 
@@ -799,10 +819,6 @@ def test_prod_cons():
 
     # Function chain
     functions = [example_producer, example_processor, example_final_processor]
-
-    # Start the chained producer-consumer processing
-    for final_result in chained_producer_consumers(functions, sleep_interval=0.1):
-        logger.debug(f"Final output: {final_result}")
 
     # Example async pipeline usage
     async def async_example():

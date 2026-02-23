@@ -38,6 +38,43 @@ def parse_ts(ts: float|int|str) -> float:
         return ret + frac
     return ts
 
+def elapsed_str(ts: float) -> str:
+    """Returns a compact human readable string showing elapsed time since the given timestamp.
+
+    - ts: Unix timestamp (seconds since epoch)
+
+    Returns the largest unit that has a value > 1, or the next smaller unit.
+    Values are rounded down (no decimals).
+    """
+    if ts is None or ts == 0:
+        return 'null'
+    if ts < 0:
+        return f'error: {ts}'
+    now = time.time()
+    diff_secs = int(now - ts)
+    if diff_secs < 0:
+        return '0s ago'  # Handle future dates
+    diff_mins = diff_secs // 60
+    diff_hours = diff_mins // 60
+    diff_days = diff_hours // 24
+    diff_weeks = diff_days // 7
+    diff_months = diff_days // 30  # Approximate
+    diff_years = diff_days // 365  # Approximate
+    # Return the largest unit that has a value > 1, or the next smaller unit
+    if diff_years > 1:
+        return f'{diff_years}y ago'
+    if diff_months > 1:
+        return f'{diff_months}mo ago'
+    if diff_weeks > 1:
+        return f'{diff_weeks}w ago'
+    if diff_days > 1:
+        return f'{diff_days}d ago'
+    if diff_hours > 1:
+        return f'{diff_hours}h ago'
+    if diff_mins > 1:
+        return f'{diff_mins}m ago'
+    return f'{diff_secs}s ago'
+
 
 class PerfTracker:
     """A class to track performance metrics like time and memory usage of a code block"""
