@@ -72,6 +72,7 @@ from pony.orm import (
     exists as pony_exists,
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
+from tqdm import tqdm # type: ignore
 
 from nkpylib.ml.client import embed_text
 from nkpylib.ml.constants import data_url_from_file
@@ -291,26 +292,21 @@ class GetHandler(MyBaseHandler):
                     sim = find_similar(pos, embs=self.embs, cur_ids=None)
                     logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
                     # accumulate scores by user id, adding up scores of their images
-                    user_scores = defaultdict(list)
+                    user_scores = Counter()
                     with db_session:
                         for image_id, score in sim['scores'].items():
-                            # Get the user (parent) for this image
-                            image_item = Item.get(image_id)
-                            if image_item and image_item.parent:
-                                user_id = image_item.parent.id
-                                user_scores[user_id].append(score)
-                    
-                    # Calculate aggregate score for each user (mean of their image scores)
-                    user_final_scores = {}
-                    for user_id, scores_list in user_scores.items():
-                        if scores_list:
-                            user_final_scores[user_id] = sum(scores_list) / len(scores_list)
-                    
-                    # Filter ids_only to only include users that have scores, and sort by score
-                    min_score = min(user_final_scores.values()) if user_final_scores else 0.0
-                    out_ids = sorted(ids_only, key=lambda id: user_final_scores.get(id, min_score-10), reverse=True)
-                    logger.info(f'  Found {len(user_final_scores)} users with similarity scores')
-
+                            #if score < 0: continue
+                            image_item = Item[image_id]
+                            user = image_item.get_closest(otype='user')
+                            if user:
+                                if 'min_images' in kw:
+                                    n_images = user.md.get('stats', {}).get('n_images', 0)
+                                    #logger.info(f'User {user.id} has {n_images} images vs min_images {kw["min_images"]}')
+                                    if n_images < int(kw['min_images']):
+                                        continue
+                                user_scores[user.id] += score
+                    out_ids = sorted(ids_only, key=lambda id: user_scores.get(id, -100), reverse=True)
+                    logger.info(f'  Found {len(user_scores)} users with similarity scores: {user_scores.most_common(5)}, {out_ids[:5]}')
                 do_ordering = False
             q = out_ids
         manual_reverse = False
@@ -345,7 +341,7 @@ class GetHandler(MyBaseHandler):
                 q = q[::-1]
         # if there was a limit parameter, set it
         if 'limit' in kw:
-            if manual_reverse: # we've already fetch items and reversed them, so just limit
+            if manual_reverse: # we've already fetched items and reversed them, so just limit
                 q = q[offset:limit+offset]
             else:
                 if isinstance(q, Query):
@@ -781,7 +777,6 @@ def embeddings_main(batch_size: int=20,
       counts of embeddings updated. If this returns a dict, then we replace our kw with those.
     - kw: Any other kw are passed to Source.update_embeddings
     """
-def cleanup_embeddings(lmdb_path: str):
     sources = list(Source._registry.values())
     logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
     executor = ThreadPoolExecutor()
