@@ -318,7 +318,7 @@ class GetHandler(MyBaseHandler):
                                     if n_images < int(kw['min_images']):
                                         continue
                                 user_scores[user.id] += score
-                    out_ids = sorted(ids_only, key=lambda id: user_scores.get(id, -100), reverse=True)
+                    out_ids = sorted(ids_only, key=lambda id: user_scores.get(id, -10000), reverse=True)
                     logger.info(f'  Found {len(user_scores)} users with similarity scores: {user_scores.most_common(5)}, {out_ids[:5]}')
                 do_ordering = False
             q = out_ids
