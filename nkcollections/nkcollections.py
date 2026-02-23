@@ -198,9 +198,20 @@ class GetHandler(MyBaseHandler):
         if rel_filters:
             q = self._apply_rel_filters(q, rel_filters)
 
-        # Handle ids parameter (num spec)
+        # Handle ids parameter (number or list of numbers)
         if 'ids' in kw:
-            ids = parse_num_spec(kw['ids'])
+            ids_value = kw['ids']
+            if isinstance(ids_value, (int, str)):
+                # Single ID or num spec string
+                if isinstance(ids_value, str):
+                    ids = parse_num_spec(ids_value)
+                else:
+                    ids = [ids_value]
+            elif isinstance(ids_value, list):
+                # List of IDs
+                ids = [int(id) for id in ids_value]
+            else:
+                raise ValueError(f"Invalid ids parameter type: {type(ids_value)}")
             q = q.filter(lambda c: c.id in ids)
         # Handle string fields
         string_fields = ['source', 'stype', 'otype', 'url', 'name']
