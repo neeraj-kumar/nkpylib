@@ -426,21 +426,17 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             if not rows:
                 return 0
             logger.info(f'Updating embeddings for upto {len(rows)} text rows: {rows[:5]}...')
-
         updater = LmdbUpdater(lmdb_path, n_procs=1)
         n_text = 0
-
         # Stage 1: Extract text content from rows
         async def extract_text_stage(row):
             if not row.md:
                 return (row, '')
-            
             text = ''
             if row.otype == 'text' and 'text' in row.md:
                 text = row.md['text']
             elif row.otype == 'link' and 'title' in row.md:
                 text = f"{row.md['title']}: {row.url}"
-            
             return (row, text)
 
         # Stage 2: Generate text embeddings and update database
@@ -448,16 +444,13 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             nonlocal n_text
             row, text = row_text_tuple
             key = f'{row.id}:text'
-            
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping text {row}, key={key} already in lmdb')
                 return row
-
             if not text:
                 logger.debug(f'Skipping {row} with no text content')
                 return row
-
             try:
                 text_embedding = await embed_text.single_async(text, model='qwen_emb')
                 ts = int(time.time())
@@ -471,7 +464,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 updater.add(key, metadata=dict(embed_ts=ts, error='text embedding failed'))
                 with db_session:
                     row.embed_ts = -1
-            
             return row
 
         # Create and run pipeline
@@ -481,11 +473,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             concurrency=[2, 3],  # Fewer text extraction workers, more embedding workers
             exc_policy='stop'  # Skip failed items but continue processing
         )
-
         # Process all rows through the pipeline
         async for result in pipeline.run_async(rows):
             pass  # Results are handled in the embed_and_update_stage
-
         updater.commit()
         if n_text > 0:
             logger.info(f'  Updated embeddings for {n_text} text rows')
@@ -507,12 +497,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             rows = q.filter(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
         if not rows:
             return 0
-        
         updater = LmdbUpdater(lmdb_path, n_procs=1)
         logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
-        n_images = 0
-        n_success = 0
-
+        counts = Counter()
         # Stage 1: Download images
         async def download_stage(row):
             with db_session:
@@ -526,15 +513,12 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
         # Stage 2: Generate embeddings and update database
         async def embed_and_update_stage(row_path_tuple):
-            nonlocal n_images, n_success
             row, path = row_path_tuple
             key = f'{row.id}:{IMAGE_SUFFIX}'
-            
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping image {row}, key={key} already in lmdb')
                 return row
-
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
@@ -543,7 +527,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             except Exception as e:
                 logger.warning(f'Error embedding image for row {row}, {path}: {type(e)}: {e}')
                 emb = None
-
             ts = int(time.time())
             with db_session:
                 # update the lmdb and sqlite
@@ -554,8 +537,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 else:
                     updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
                     row.embed_ts = ts
-                    n_success += 1
-            n_images += 1
+                    counts['success'] += 1
+            counts['images'] += 1
             return row
 
         # Create and run pipeline
@@ -565,15 +548,13 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             concurrency=[5, 3],  # More download workers, fewer embedding workers
             exc_policy='stop'  # Skip failed items but continue processing
         )
-
         # Process all rows through the pipeline
         async for result in pipeline.run_async(rows):
             pass  # Results are handled in the embed_and_update_stage
-
         updater.commit()
-        if n_images > 0:
-            logger.info(f'  Updated embeddings for {n_images} images, {n_success} success')
-        return n_images
+        if counts['images'] > 0:
+            logger.info(f'  Updated embeddings for: {counts.most_common()}')
+        return counts['images']
 
     @classmethod
     async def update_image_descriptions(cls,
@@ -722,7 +703,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             cls.update_image_descriptions(vlm_prompt=vlm_prompt,
                                           sys_prompt=sys_prompt,
                                           vlm_model=vlm_model,
-                                          limit=limit//5,
+                                          limit=limit//15,
                                           **common_kw)
         )
         ret = {}
