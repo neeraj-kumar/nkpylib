@@ -423,10 +423,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             updater: LmdbUpdater,
             result_processor: Callable[[Any, LmdbUpdater], tuple[int, dict]]) -> tuple[int, dict]:
         """Generic pipeline runner for embedding tasks."""
-        pipeline = ProducerConsumerPipeline(
-            funcs=stages,
-            **pipeline_config
-        )
+        pipeline = ProducerConsumerPipeline(funcs=stages, **pipeline_config)
         counts = Counter()
         n_updated = 0
         async for result in pipeline.run_async(rows):
