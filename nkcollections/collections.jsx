@@ -2023,6 +2023,26 @@ const Controls = () => {
         )}
       </div>
       <div className="control quick-links">
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            toggleTumblrSource();
+          }}
+          title="Toggle tumblr source filter"
+          style={{
+            fontWeight: (() => {
+              try {
+                const currentSourceObj = JSON.parse(sourceStr);
+                return currentSourceObj.source === 'tumblr' ? 'bold' : 'normal';
+              } catch {
+                return 'normal';
+              }
+            })()
+          }}
+        >
+          tumblr
+        </a>
         {Object.entries(QUICK_LINKS).map(([name, query]) => (
           <a
             key={name}
@@ -2505,6 +2525,29 @@ const AppProvider = ({ children }) => {
     console.log('calling classify for pos', pos);
     doClassifier('pos', {pos});
   }, [pos]);
+
+  // Toggle tumblr source filter
+  const toggleTumblrSource = React.useCallback(() => {
+    try {
+      const currentSourceObj = JSON.parse(sourceStr);
+      let newSourceObj;
+      
+      if (currentSourceObj.source === 'tumblr') {
+        // Remove tumblr source if it's already set
+        newSourceObj = { ...currentSourceObj };
+        delete newSourceObj.source;
+      } else {
+        // Add tumblr source
+        newSourceObj = { ...currentSourceObj, source: 'tumblr' };
+      }
+      
+      const newSourceStr = JSON.stringify(newSourceObj);
+      setSourceStr(newSourceStr);
+      doSource(newSourceStr);
+    } catch (error) {
+      console.error('Failed to toggle tumblr source:', error);
+    }
+  }, [sourceStr, doSource]);
 
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback((inputStr, updateSourceStr = false) => {
