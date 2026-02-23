@@ -69,7 +69,7 @@ async def _run_embedding_pipeline(
     counts: Counter = Counter()
     try:
         async for result in pipeline.run_async(rows):
-            logger.info(f'Processing result for row {result.row.id} through result processor')
+            #logger.info(f'Processing result for row {result.row.id} through result processor')
             stats = result_processor(result, updater)
             counts.update(stats)
         logger.info('here we are')
