@@ -472,25 +472,34 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             rows = q.filter(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
         if not rows:
             return 0
+        
         updater = LmdbUpdater(lmdb_path, n_procs=1)
         logger.info(f'Updating embeddings for upto {len(rows)} image rows: {rows[:5]}...')
-        # kick off downloads
-        async def dl_image(row):
+        n_images = 0
+        n_success = 0
+
+        # Stage 1: Download images
+        async def download_stage(row):
             with db_session:
                 path = row.image_path()
                 try:
                     await maybe_dl(row.url, path, fetch_delay=fetch_delay, timeout=30)
+                    return (row, path)
                 except Exception as e:
                     logger.warning(f'Error downloading image for row id={row.id}, url={row.url}, path={path}: {e}')
-                    path = ''
-            return row, path
+                    return (row, '')
 
-        download_tasks = [dl_image(row) for row in rows]
-        # kick off embeddings as downloads complete
-        pending = set()
-        n_images = 0
-        n_success = 0
-        async def embed_image_task(row, key, path):
+        # Stage 2: Generate embeddings and update database
+        async def embed_and_update_stage(row_path_tuple):
+            nonlocal n_images, n_success
+            row, path = row_path_tuple
+            key = f'{row.id}:{IMAGE_SUFFIX}'
+            
+            # Skip if already in lmdb
+            if key in updater:
+                logger.info(f' skipping image {row}, key={key} already in lmdb')
+                return row
+
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
@@ -498,44 +507,34 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
             except Exception as e:
                 logger.warning(f'Error embedding image for row {row}, {path}: {type(e)}: {e}')
-                #print(traceback.format_exc())
                 emb = None
-            return (row, key, emb)
 
-        async def process_done(done_tasks):
-            nonlocal n_images, n_success
-            for task in done_tasks:
-                row, key, emb = await task
-                ts = int(time.time())
-                with db_session:
-                    # update the lmdb and sqlite
-                    logger.debug(f' emb for image {row}, key={key}, {emb[:10] if emb is not None else "failed"}')
-                    if emb is None: # error
-                        updater.add(key, metadata=dict(embed_ts=ts, error='image embedding failed'))
-                        row.embed_ts = -1 #TODO in the future decrement this
-                    else:
-                        updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
-                        row.embed_ts = ts
-                        n_success += 1
-                n_images += 1
+            ts = int(time.time())
+            with db_session:
+                # update the lmdb and sqlite
+                logger.debug(f' emb for image {row}, key={key}, {emb[:10] if emb is not None else "failed"}')
+                if emb is None:  # error
+                    updater.add(key, metadata=dict(embed_ts=ts, error='image embedding failed'))
+                    row.embed_ts = -1  # TODO in the future decrement this
+                else:
+                    updater.add(key, embedding=emb, metadata=dict(embed_ts=ts))
+                    row.embed_ts = ts
+                    n_success += 1
+            n_images += 1
+            return row
 
-        done = set()
-        for task in asyncio.as_completed(download_tasks):
-            row, path = await task
-            key = f'{row.id}:{IMAGE_SUFFIX}'
-            if key in updater or key in done:
-                logger.info(f' skipping image {row}, key={key} already in lmdb')
-                continue
-            done.add(key)
-            t = asyncio.create_task(embed_image_task(row, key, path))
-            pending.add(t)
-            if pending:
-                done_tasks, pending = await asyncio.wait(pending, timeout=0, return_when=asyncio.FIRST_COMPLETED)
-                await process_done(done_tasks)
-        # kick off postprocessing of remaining embeddings
-        while pending:
-            done_tasks, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-            await process_done(done_tasks)
+        # Create and run pipeline
+        pipeline = ProducerConsumerPipeline(
+            funcs=[download_stage, embed_and_update_stage],
+            q_size=[20, 10],  # Moderate queues for both stages
+            concurrency=[5, 3],  # More download workers, fewer embedding workers
+            exc_policy='stop'  # Skip failed items but continue processing
+        )
+
+        # Process all rows through the pipeline
+        async for result in pipeline.run_async(rows):
+            pass  # Results are handled in the embed_and_update_stage
+
         updater.commit()
         if n_images > 0:
             logger.info(f'  Updated embeddings for {n_images} images, {n_success} success')
