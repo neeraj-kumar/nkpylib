@@ -642,6 +642,8 @@ class AsyncPipelineBackend(PipelineBackend):
     async def run(self, inputs) -> AsyncIterator[Any]:
         """Run the pipeline and yield results."""
         queues = [asyncio.Queue(maxsize=q_size) for q_size in self.q_sizes]
+        # add one extra queue for the output of the last stage
+        queues.append(asyncio.Queue())
         await self._start_workers(queues)
         async def _feed():
             """Feed input items into the first queue, then send sentinels when done."""
@@ -756,6 +758,8 @@ class ThreadedPipelineBackend(PipelineBackend):
     def run(self, inputs) -> Iterable[Any]:
         """Run the pipeline and yield results."""
         queues = [Queue(maxsize=q_size) for q_size in self.q_sizes]
+        # add one extra queue for the output of the last stage
+        queues.append(Queue())
         self._start_workers(queues)
         def _feed():
             """Feed inputs in a separate thread"""
