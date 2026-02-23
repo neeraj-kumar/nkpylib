@@ -415,87 +415,78 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 R[rtype] = rel_dicts
 
     @classmethod
-    async def _run_embedding_pipeline(cls,
-                                     rows: list[Item],
-                                     stages: list[Callable],
-                                     pipeline_config: dict,
-                                     updater: LmdbUpdater,
-                                     result_processor: Callable[[Any, LmdbUpdater], tuple[int, dict]]) -> tuple[int, dict]:
+    async def _run_embedding_pipeline(
+            cls,
+            rows: list[Item],
+            stages: list[Callable],
+            pipeline_config: dict,
+            updater: LmdbUpdater,
+            result_processor: Callable[[Any, LmdbUpdater], tuple[int, dict]]) -> tuple[int, dict]:
         """Generic pipeline runner for embedding tasks."""
         pipeline = ProducerConsumerPipeline(
             funcs=stages,
             **pipeline_config
         )
-        
         counts = Counter()
         n_updated = 0
-        
         async for result in pipeline.run_async(rows):
             updated, stats = result_processor(result, updater)
             n_updated += updated
             counts.update(stats)
-        
         updater.commit()
         return n_updated, dict(counts)
 
     @classmethod
-    def _update_database_from_result(cls,
-                                   result: tuple,
-                                   updater: LmdbUpdater,
-                                   key_suffix: str,
-                                   ts_field: str,
-                                   success_callback: Callable[[Item, Any, int], None] = None) -> tuple[int, dict]:
+    def _update_database_from_result(
+            cls,
+            result: tuple,
+            updater: LmdbUpdater,
+            key_suffix: str,
+            ts_field: str,
+            success_callback: Callable[[Item, Any, int], None] = None) -> tuple[int, dict]:
         """Generic database updater for embedding results."""
         row, data, error = result
         key = f'{row.id}:{key_suffix}'
         ts = int(time.time())
         counts = Counter()
-        
-        if data is not None:
-            # Success case
+        if data is not None: # Success case
             if success_callback:
                 success_callback(row, data, ts)
             counts['success'] += 1
             counts['total'] += 1
             return 1, dict(counts)
-        elif error is not None:
-            # Error case  
+        elif error is not None: # Error case
             updater.add(key, metadata=dict(embed_ts=ts, error=str(error)))
             with db_session:
                 setattr(row, ts_field, -1)
-        
         counts['total'] += 1
         return 0, dict(counts)
 
     @classmethod
     def _create_embedding_stage(cls,
-                              embed_func: Callable,
-                              model: str,
-                              key_suffix: str,
-                              updater: LmdbUpdater,
-                              data_extractor: Callable[[Any], Any] = lambda x: x[1]):
+                                embed_func: Callable,
+                                model: str,
+                                key_suffix: str,
+                                updater: LmdbUpdater,
+                                data_extractor: Callable[[Any], Any] = lambda x: x[1]):
         """Factory for creating embedding stages."""
         async def embed_stage(input_data):
             row = input_data[0] if isinstance(input_data, tuple) else input_data
             key = f'{row.id}:{key_suffix}'
-            
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping {row}, key={key} already in lmdb')
                 return (row, None, None)
-            
             try:
                 data_to_embed = data_extractor(input_data)
                 if not data_to_embed:
                     logger.debug(f'Skipping {row} with no data to embed')
                     return (row, None, None)
-                
                 embedding = await embed_func.single_async(data_to_embed, model=model)
                 return (row, embedding, None)
             except Exception as e:
                 logger.warning(f'Error in embedding stage for {row}: {e}')
                 return (row, None, e)
-        
         return embed_stage
 
     @classmethod
