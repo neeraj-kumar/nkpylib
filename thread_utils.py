@@ -25,16 +25,9 @@ from functools import wraps
 from inspect import iscoroutinefunction
 from os.path import abspath, basename, dirname, exists, join, relpath
 from queue import Queue, Empty
-from typing import Any, Callable, Iterable, AsyncIterator, NamedTuple
+from typing import Any, Callable, Iterable, AsyncIterator
 
 logger = logging.getLogger(__name__)
-
-
-class PipelineResult(NamedTuple):
-    """Result structure for pipeline stages."""
-    row: Any
-    data: Any = None
-    error: Exception = None
 
 def ensure_singleton(max_delay):
     """Decorator to ensure a given function is run as a singleton.

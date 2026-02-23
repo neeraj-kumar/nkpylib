@@ -20,7 +20,7 @@ from os.path import abspath, exists, join, dirname
 from pprint import pprint
 from queue import Queue, Empty
 from threading import Thread
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 import joblib
 import termcolor
@@ -48,10 +48,18 @@ from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
-from nkpylib.thread_utils import run_async, background_task, classify_func_output, ProducerConsumerPipeline, PipelineResult
+from nkpylib.thread_utils import run_async, background_task, classify_func_output, ProducerConsumerPipeline
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
+
+
+class PipelineResult(NamedTuple):
+    """Result structure for pipeline stages."""
+    row: Any
+    data: Any = None
+    error: Exception = None
+
 
 sql_db = Database()
 
@@ -421,17 +429,15 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             stages: list[Callable],
             pipeline_config: dict,
             updater: LmdbUpdater,
-            result_processor: Callable[[Any, LmdbUpdater], tuple[int, dict]]) -> tuple[int, dict]:
+            result_processor: Callable[[Any, LmdbUpdater], dict]) -> dict:
         """Generic pipeline runner for embedding tasks."""
         pipeline = ProducerConsumerPipeline(funcs=stages, **pipeline_config)
         counts = Counter()
-        n_updated = 0
         async for result in pipeline.run_async(rows):
-            updated, stats = result_processor(result, updater)
-            n_updated += updated
+            stats = result_processor(result, updater)
             counts.update(stats)
         updater.commit()
-        return n_updated, dict(counts)
+        return dict(counts)
 
     @classmethod
     def _update_database_from_result(
@@ -440,7 +446,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             updater: LmdbUpdater,
             key_suffix: str,
             ts_field: str,
-            success_callback: Callable[[Item, Any, int], None] = None) -> tuple[int, dict]:
+            success_callback: Callable[[Item, Any, int], None] = None) -> dict:
         """Generic database updater for embedding results."""
         key = f'{result.row.id}:{key_suffix}'
         ts = int(time.time())
@@ -449,14 +455,14 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             if success_callback:
                 success_callback(result.row, result.data, ts)
             counts['success'] += 1
-            counts['total'] += 1
-            return 1, dict(counts)
+            counts['updated'] += 1
         elif result.error is not None: # Error case
             updater.add(key, metadata=dict(embed_ts=ts, error=str(result.error)))
             with db_session:
                 setattr(result.row, ts_field, -1)
+            counts['errors'] += 1
         counts['total'] += 1
-        return 0, dict(counts)
+        return dict(counts)
 
     @classmethod
     def _create_embedding_stage(cls,
@@ -533,7 +539,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 row.embed_ts = ts
         
         # Run pipeline
-        n_updated, stats = await cls._run_embedding_pipeline(
+        stats = await cls._run_embedding_pipeline(
             rows=rows,
             stages=[extract_text_stage, embed_stage],
             pipeline_config=dict(
@@ -547,9 +553,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             )
         )
         
-        if n_updated > 0:
-            logger.info(f'  Updated embeddings for {n_updated} text rows')
-        return n_updated
+        if stats.get('updated', 0) > 0:
+            logger.info(f'  Updated embeddings for {stats["updated"]} text rows')
+        return stats
 
     @classmethod
     async def update_image_embeddings(cls,
@@ -609,7 +615,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 logger.debug(f' emb for image {row}, key={key}, {embedding[:10] if embedding is not None else "failed"}')
         
         # Run pipeline
-        n_updated, stats = await cls._run_embedding_pipeline(
+        stats = await cls._run_embedding_pipeline(
             rows=rows,
             stages=[download_stage, embed_stage],
             pipeline_config=dict(
@@ -623,9 +629,9 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             )
         )
         
-        if n_updated > 0:
-            logger.info(f'  Updated embeddings for {n_updated} images, {stats.get("success", 0)} successful')
-        return n_updated
+        if stats.get('updated', 0) > 0:
+            logger.info(f'  Updated embeddings for {stats["updated"]} images, {stats.get("success", 0)} successful')
+        return stats
 
     @classmethod
     async def update_image_descriptions(cls,
@@ -690,7 +696,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             exc_policy='stop'
         )
         
-        n_descs = 0
+        counts = Counter()
         async for result in pipeline.run_async(rows):
             # Handle the complex case where we need both description and embedding
             # We lost the description, need to get it from row.md
@@ -702,17 +708,22 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     ts = int(time.time())
                     updater.add(key, embedding=result.data, metadata=dict(desc=desc, embed_ts=ts))
                     result.row.explored_ts = ts
-                    n_descs += 1
+                    counts['updated'] += 1
+                    counts['success'] += 1
                 elif result.error is not None and desc:
                     updater.add(key, metadata=dict(desc=desc, embed_ts=time.time(), error='text embedding failed'))
                     result.row.explored_ts = -1
+                    counts['errors'] += 1
                 else:  # failed to get description
                     result.row.explored_ts = -1
+                    counts['no_desc'] += 1
+            counts['total'] += 1
         
         updater.commit()
-        if n_descs > 0:
-            logger.info(f'Updated descriptions for {n_descs} images')
-        return n_descs
+        stats = dict(counts)
+        if stats.get('updated', 0) > 0:
+            logger.info(f'Updated descriptions for {stats["updated"]} images')
+        return stats
 
     @classmethod
     async def update_embeddings_async(cls,
@@ -778,12 +789,22 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                                           limit=limit//15,
                                           **common_kw)
         )
-        ret = {}
-        ret['n_text'], ret['n_images'], ret['n_descs'] = await asyncio.gather(text_task, image_task, desc_task)
-        logger.info(f'Finished updating embeddings async: {ret}')
+        text_stats, image_stats, desc_stats = await asyncio.gather(text_task, image_task, desc_task)
+        
+        # Merge all counters with prefixes to avoid key conflicts
+        ret = Counter()
+        for k, v in text_stats.items():
+            ret[f'text_{k}'] = v
+        for k, v in image_stats.items():
+            ret[f'image_{k}'] = v
+        for k, v in desc_stats.items():
+            ret[f'desc_{k}'] = v
+        
+        ret_dict = dict(ret)
+        logger.info(f'Finished updating embeddings async: {ret_dict}')
         #TODO we seem to hang here, but it's not clear why/what's going on
         #TODO maybe it's image downloads which are hanging?
-        return ret
+        return ret_dict
 
     @classmethod
     def update_embeddings(cls,
