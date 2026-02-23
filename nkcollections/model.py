@@ -602,40 +602,46 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 logger.warning(f'Error generating desc for image {row}, path={path}: {e}')
                 return (row, '')
 
-        # Stage 2: Generate text embeddings and update database
-        async def embed_and_update_stage(row_desc_tuple):
-            nonlocal n_descs
+        # Stage 2: Generate text embeddings
+        async def embed_stage(row_desc_tuple):
             row, desc = row_desc_tuple
-            key = f'{row.id}:text'
             
-            with db_session:
-                if desc:
-                    row.md['desc'] = desc
-                    try:
-                        text_embedding = await embed_text.single_async(desc, model='qwen_emb')
-                        ts = int(time.time())
-                        updater.add(key, embedding=text_embedding, metadata=dict(desc=desc, embed_ts=ts))
-                        row.explored_ts = ts
-                        n_descs += 1
-                    except Exception as e:
-                        logger.warning(f'Error embedding description {desc} for {row}: {e}')
-                        updater.add(key, metadata=dict(desc=desc, embed_ts=time.time(), error='text embedding failed'))
-                else:  # failed to get description
-                    row.explored_ts = -1  # TODO decrement on more errors
+            if not desc:
+                return (row, desc, None, None)
             
-            return row  # Pass through for potential further processing
+            try:
+                text_embedding = await embed_text.single_async(desc, model='qwen_emb')
+                return (row, desc, text_embedding, None)
+            except Exception as e:
+                logger.warning(f'Error embedding description {desc} for {row}: {e}')
+                return (row, desc, None, e)
 
         # Create and run pipeline
         pipeline = ProducerConsumerPipeline(
-            funcs=[vlm_stage, embed_and_update_stage],
+            funcs=[vlm_stage, embed_stage],
             q_size=[50, 20],  # Larger queue for VLM stage, smaller for embedding
             concurrency=[3, 2],  # More VLM workers, fewer embedding workers
             exc_policy='stop'  # Skip failed items but continue processing
         )
 
-        # Process all rows through the pipeline
+        # Process all rows through the pipeline and update database
         async for result in pipeline.run_async(rows):
-            pass  # Results are handled in the embed_and_update_stage
+            row, desc, text_embedding, error = result
+            key = f'{row.id}:text'
+            
+            with db_session:
+                if desc:
+                    row.md['desc'] = desc
+                    if text_embedding is not None:
+                        ts = int(time.time())
+                        updater.add(key, embedding=text_embedding, metadata=dict(desc=desc, embed_ts=ts))
+                        row.explored_ts = ts
+                        n_descs += 1
+                    elif error is not None:
+                        updater.add(key, metadata=dict(desc=desc, embed_ts=time.time(), error='text embedding failed'))
+                        row.explored_ts = -1  # TODO decrement on more errors
+                else:  # failed to get description
+                    row.explored_ts = -1  # TODO decrement on more errors
 
         updater.commit()
         if n_descs > 0:
