@@ -622,64 +622,6 @@ class Source(abc.ABC):
             assembled_posts.append(src.assemble_post(post, post.children.select()))
         return assembled_posts
 
-    @classmethod
-    def cleanup_embeddings(cls, lmdb_path: str):
-        """Cleans up discrepancies between our sqlite and lmdb.
-
-        Note that this doesn't modify the lmdb at all, only the sqlite.
-        """
-        db = NumpyLmdb.open(lmdb_path, flag='r')
-        keys_in_db = set(db.keys())
-        n_missing = 0
-        n_done = 0
-        
-        def fix(rows: list[Item], key_suffix: str, ts_field: str, fix_missing: bool, db) -> int:
-            """Fix synchronization between sqlite and lmdb.
-
-            - fix_missing: If True, fix items marked done in sqlite but missing in lmdb. If
-              False, fix items present in lmdb but not marked done in sqlite
-            """
-            n = 0
-            for row in rows:
-                key = f'{row.id}:{key_suffix}'
-                if fix_missing:
-                    # Fix wrongly marked as done in sqlite but missing in lmdb
-                    if key not in keys_in_db:
-                        logger.debug(f'Cleaning up {row} with missing key {key}')
-                        setattr(row, ts_field, None)
-                        n += 1
-                else:
-                    # Fix present in lmdb but not marked done in sqlite
-                    if key in keys_in_db:
-                        logger.debug(f'Marking done for {row} with existing key {key}')
-                        d = db.md_get(key)
-                        ts = d.get('embed_ts', d.get('embedding_ts', int(time.time())))
-                        setattr(row, ts_field, int(time.time()))
-                        n += 1
-            return n
-
-            # first deal with embeddings wrongly marked as done in sqlite but missing in lmdb
-        with db_session:
-            rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype in ('text', 'link'))
-            n_missing += fix(rows, 'text', 'embed_ts', fix_missing=True, db=db)
-        with db_session:
-            rows = Item.select(lambda c: c.embed_ts is not None and c.embed_ts > 0 and c.otype == 'image')
-            n_missing += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=True, db=db)
-        with db_session:
-            rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is not None and c.explored_ts > 0)
-            n_missing += fix(rows, 'text', 'explored_ts', fix_missing=True, db=db)
-            # now deal with embeddings present in lmdb but not marked done in sqlite
-        with db_session:
-            rows = Item.select(lambda c: c.otype in ('text', 'link') and c.embed_ts is None)
-            n_done += fix(rows, 'text', 'embed_ts', fix_missing=False, db=db)
-        with db_session:
-            rows = Item.select(lambda c: c.otype == 'image' and c.embed_ts is None)
-            n_done += fix(rows, IMAGE_SUFFIX, 'embed_ts', fix_missing=False, db=db)
-        with db_session:
-            rows = Item.select(lambda c: c.otype == 'image' and c.explored_ts is None)
-            n_done += fix(rows, 'text', 'explored_ts', fix_missing=False, db=db)
-        del db
-        logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
 
     @db_session
     def update_embeddings(self, **kw):
@@ -695,3 +637,8 @@ class Source(abc.ABC):
             kw['source'] = self.name
         #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
         return update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, **kw)
+
+    def cleanup_embeddings(self):
+        """Cleans up discrepancies between our sqlite and lmdb for this source."""
+        from .embeddings import cleanup_embeddings
+        return cleanup_embeddings(self.lmdb_path)
