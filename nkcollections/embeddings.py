@@ -58,7 +58,6 @@ async def maybe_dl(url: str, path: str, fetch_delay: float=0.1, timeout: float=-
         logger.debug(f'  Downloaded {url} to {path}')
     return True
 
-
 async def _run_embedding_pipeline(
         rows: list[Any],
         stages: list[Callable],
@@ -73,7 +72,6 @@ async def _run_embedding_pipeline(
         counts.update(stats)
     updater.commit()
     return dict(counts)
-
 
 def _update_database_from_result(
         result: PipelineResult,
