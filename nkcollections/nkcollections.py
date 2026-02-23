@@ -291,6 +291,25 @@ class GetHandler(MyBaseHandler):
                     sim = find_similar(pos, embs=self.embs, cur_ids=None)
                     logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
                     # accumulate scores by user id, adding up scores of their images
+                    user_scores = defaultdict(list)
+                    with db_session:
+                        for image_id, score in sim['scores'].items():
+                            # Get the user (parent) for this image
+                            image_item = Item.get(image_id)
+                            if image_item and image_item.parent:
+                                user_id = image_item.parent.id
+                                user_scores[user_id].append(score)
+                    
+                    # Calculate aggregate score for each user (mean of their image scores)
+                    user_final_scores = {}
+                    for user_id, scores_list in user_scores.items():
+                        if scores_list:
+                            user_final_scores[user_id] = sum(scores_list) / len(scores_list)
+                    
+                    # Filter ids_only to only include users that have scores, and sort by score
+                    min_score = min(user_final_scores.values()) if user_final_scores else 0.0
+                    out_ids = sorted(ids_only, key=lambda id: user_final_scores.get(id, min_score-10), reverse=True)
+                    logger.info(f'  Found {len(user_final_scores)} users with similarity scores')
 
                 do_ordering = False
             q = out_ids
