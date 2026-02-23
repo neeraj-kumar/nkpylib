@@ -18,7 +18,7 @@ import numpy as np
 from chromadb import Collection, HttpClient, PersistentClient, Client, EphemeralClient
 from tqdm import tqdm
 
-from nkpylib.thread_utils import chained_producer_consumers, CollectionUpdater
+from nkpylib.thread_utils import CollectionUpdater
 
 logger = logging.getLogger(__name__)
 

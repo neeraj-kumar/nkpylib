@@ -29,116 +29,6 @@ from typing import Any, Callable, Iterable, AsyncIterator
 
 logger = logging.getLogger(__name__)
 
-def chained_producer_consumers(functions: list[Callable],
-                               sleep_interval: float=0.1,
-                               get_timeout: float=0.5) -> Iterable[Any]:
-    """
-    Start a chain of producer-consumer operations.
-
-    Args:
-    - functions: A list of functions each with one output, where the first function takes no input,
-      and each subsequent function takes an item from the previous function.
-    - sleep_interval: The interval between producing items in the producer threads.
-    - get_timeout: The timeout for getting items from the input queues.
-
-    Yields:
-    - Items produced by the last function in the chain.
-
-    The producer-consumer chain is implemented using a series of threads and queues, where each
-    thread consumes items from the previous thread's output queue, processes them with the function,
-    and puts the results into the next thread's input queue. The final output queue's items are
-    yielded by the main processing thread of this function.
-
-    Once the first function exhausts its input, it puts a Sentinel into the output queue to signal
-    the end. Each subsequent function stops when it receives a Sentinel from the input queue, and
-    also puts a Sentinel into the output queue to keep signalling forward.
-
-    If a function raises a StopIteration, we need to stop all upstream functions as well. We do this
-    by setting a stop_idx to the index of the function that raised the StopIteration, and each
-    function checks its own index against this stop_idx before processing an item.
-    """
-    lock = threading.Lock()
-    stop_idx = -1
-    sentinel = object()
-
-    def producer_consumer_wrapper(func, in_q, out_q, idx):
-        """Wrapper for each function in the chain.
-
-        This consumes items from the input queue, processes them with the function,
-        and puts the results into the output queue.
-
-        If `in_q` is None, then the function is assumed to be the initial producer.
-
-        If the function raises a StopIteration, we set the stop_idx to our index.
-        If the stop_idx is set to a value at our index or higher, we finish.
-        """
-        nonlocal stop_idx
-        logger.debug(f'producer_consumer_wrapper: {func} {in_q} {out_q} {idx} {stop_idx}')
-        try:
-            if in_q is None:
-                for item in func():
-                    out_q.put(item)
-                    with lock:
-                        if stop_idx >= idx:
-                            break
-                # put the sentinel to signal the end
-                out_q.put(sentinel)
-            else:
-                while True:
-                    try:
-                        item = in_q.get(timeout=get_timeout)
-                        in_q.task_done()
-                        if item is sentinel:
-                            out_q.put(sentinel)
-                            break
-                        result = func(item)
-                        out_q.put(result)
-                    except Empty:
-                        continue
-                    with lock:
-                        if stop_idx >= idx:
-                            break
-        except StopIteration:
-            with lock:
-                stop_idx = max(stop_idx, idx)
-            out_q.put(sentinel)
-            logger.debug(f'stopping thread for {func} {in_q} {out_q} {idx} {stop_idx}')
-        logger.debug(f'exiting producer_consumer_wrapper for {func} {in_q} {out_q} {idx} {stop_idx}')
-
-    queues: list[Queue] = [Queue() for _ in range(len(functions))]
-
-    # Start all but the last function in separate threads
-    threads = []
-    for i in range(len(functions)):
-        kwargs = dict(func=functions[i], in_q=None, out_q=queues[i], idx=i)
-        if i > 0:
-            kwargs['in_q'] = queues[i-1]
-        logger.debug(f'starting thread {i} with kwargs {kwargs}')
-        thread = threading.Thread(target=producer_consumer_wrapper, kwargs=kwargs)
-        thread.start()
-        threads.append(thread)
-
-    # Yield results from the last queue
-    while threads or queues[-1].qsize() > 0:
-        try:
-            result = queues[-1].get(timeout=get_timeout)
-            queues[-1].task_done()
-            if result is sentinel:
-                break
-            yield result
-            # check threads for completion
-            threads = [t for t in threads if t.is_alive()]
-            logger.debug(f'yielded result, threads left: {len(threads)}')
-        except Empty:
-            continue
-        # stop on control-c and set stop_idx to the last index
-        except KeyboardInterrupt:
-            with lock:
-                stop_idx = len(functions) - 1
-            break
-    for thread in threads:
-        thread.join()
-
 def ensure_singleton(max_delay):
     """Decorator to ensure a given function is run as a singleton.
 
@@ -589,10 +479,10 @@ class ProducerConsumerPipeline:
 
     async def run_async(self, inputs) -> AsyncIterator[Any]:
         """Run the pipeline asynchronously.
-        
+
         Args:
         - inputs: An iterable or async iterable of input items
-        
+
         Yields:
         - Items produced by the final stage of the pipeline
         """
@@ -607,10 +497,10 @@ class ProducerConsumerPipeline:
 
     def run_sync(self, inputs) -> Iterable[Any]:
         """Run the pipeline synchronously using threads.
-        
+
         Args:
         - inputs: An iterable of input items
-        
+
         Yields:
         - Items produced by the final stage of the pipeline
         """
@@ -624,8 +514,7 @@ class ProducerConsumerPipeline:
             yield item
 
 
-class AsyncPipelineBackend:
-    """Async implementation of a multi-stage producer-consumer pipeline."""
+class PipelineBackend:
     def __init__(self,
                  funcs: list[Callable[[Any], Any]],
                  q_sizes: list[int],
@@ -635,8 +524,41 @@ class AsyncPipelineBackend:
         self.q_sizes = q_sizes
         self.concurrencies = concurrencies
         self.exc_policies = exc_policies
-        self.cancel_event = asyncio.Event()
         self._sentinel = object()
+
+    def _handle_exception(self, e: Exception, *, policy: str, cancel_event, **kw) -> dict[str, Any]|None:
+        """Handle an exception `e` that comes up during processing.
+
+        This uses `policy` to determine what to do. If an exception is to be returned, then it is
+        initialized with `kw`.
+        """
+        error_obj = dict(type='error', error=e, tb=traceback.format_exc(), **kw)
+        match policy:
+            case 'stop': # Skip this item, continue with next
+                return None
+            case 'return': # Forward error object to next stage
+                return error_obj
+            case 'raise': # Stop entire pipeline and forward error object to next stage
+                cancel_event.set()
+                return error_obj
+            case _:
+                raise ValueError(f'Invalid exception policy: {policy}')
+
+
+class AsyncPipelineBackend(PipelineBackend):
+    """Async implementation of a multi-stage producer-consumer pipeline."""
+    def __init__(self,
+                 funcs: list[Callable[[Any], Any]],
+                 q_sizes: list[int],
+                 concurrencies: list[int],
+                 exc_policies: list[str]):
+        super().__init__(
+            funcs=funcs,
+            q_sizes=q_sizes,
+            concurrencies=concurrencies,
+            exc_policies=exc_policies
+        )
+        self.cancel_event = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
 
     async def _maybe_await(self, fn: Callable, arg: Any) -> Any:
@@ -668,34 +590,15 @@ class AsyncPipelineBackend:
                     if out_q:
                         await out_q.put(result)
                 except Exception as e:
-                    match policy:
-                        case 'stop':
-                            # Skip this item, continue with next
-                            continue
-                        case 'return':
-                            # Forward error object to next stage
-                            if out_q:
-                                error_obj = dict(
-                                    type='error',
-                                    error=e,
-                                    stage=stage_idx,
-                                    item=item,
-                                    tb=traceback.format_exc()
-                                )
-                                await out_q.put(error_obj)
-                        case 'raise':
-                            # Stop entire pipeline
-                            self.cancel_event.set()
-                            if out_q:
-                                error_obj = dict(
-                                    type='error',
-                                    error=e,
-                                    stage=stage_idx,
-                                    item=item,
-                                    tb=traceback.format_exc()
-                                )
-                                await out_q.put(error_obj)
-                            raise
+                    error_obj = self._handle_exception(
+                        e, policy=policy, cancel_event=self.cancel_event, stage=stage_idx, item=item,
+                    )
+                    if error_obj is None:
+                        continue
+                    if out_q:
+                        await out_q.put(error_obj)
+                    if policy == 'raise':
+                        raise
             except asyncio.CancelledError:
                 break
 
@@ -763,72 +666,53 @@ class AsyncPipelineBackend:
                 await asyncio.gather(*self._tasks, return_exceptions=True)
 
 
-class ThreadedPipelineBackend:
+class ThreadedPipelineBackend(PipelineBackend):
     """Threaded implementation of a multi-stage producer-consumer pipeline."""
-    
     def __init__(self,
                  funcs: list[Callable[[Any], Any]],
                  q_sizes: list[int],
                  concurrencies: list[int],
-                 exc_policies: list[str]):
-        self.funcs = funcs
-        self.q_sizes = q_sizes
-        self.concurrencies = concurrencies
-        self.exc_policies = exc_policies
+                 exc_policies: list[str],
+                 q_timeout: float=0.5):
+        super().__init__(
+            funcs=funcs,
+            q_sizes=q_sizes,
+            concurrencies=concurrencies,
+            exc_policies=exc_policies,
+        )
+        self.q_timeout = q_timeout
         self.cancel_event = threading.Event()
-        self._sentinel = object()
         self._threads: list[threading.Thread] = []
 
     def _stage_worker(self,
-                     stage_idx: int,
-                     func: Callable[[Any], Any],
-                     in_q: Queue,
-                     out_q: Queue|None,
-                     policy: str):
+                      stage_idx: int,
+                      func: Callable[[Any], Any],
+                      in_q: Queue,
+                      out_q: Queue|None,
+                      policy: str):
         """Worker for a single stage."""
         while not self.cancel_event.is_set():
             try:
-                item = in_q.get(timeout=0.5)
+                item = in_q.get(timeout=self.q_timeout)
                 in_q.task_done()
-                
                 if item is self._sentinel:
                     if out_q:
                         out_q.put(self._sentinel)
                     break
-
                 try:
                     result = func(item)
                     if out_q:
                         out_q.put(result)
                 except Exception as e:
-                    match policy:
-                        case 'stop':
-                            # Skip this item, continue with next
-                            continue
-                        case 'return':
-                            # Forward error object to next stage
-                            if out_q:
-                                error_obj = dict(
-                                    type='error',
-                                    error=e,
-                                    stage=stage_idx,
-                                    item=item,
-                                    tb=traceback.format_exc()
-                                )
-                                out_q.put(error_obj)
-                        case 'raise':
-                            # Stop entire pipeline
-                            self.cancel_event.set()
-                            if out_q:
-                                error_obj = dict(
-                                    type='error',
-                                    error=e,
-                                    stage=stage_idx,
-                                    item=item,
-                                    tb=traceback.format_exc()
-                                )
-                                out_q.put(error_obj)
-                            raise
+                    error_obj = self._handle_exception(
+                        e, policy=policy, cancel_event=self.cancel_event, stage=stage_idx, item=item,
+                    )
+                    if error_obj is None:
+                        continue
+                    if out_q:
+                        out_q.put(error_obj)
+                    if policy == 'raise':
+                        raise
             except Empty:
                 continue
             except Exception:
@@ -840,7 +724,6 @@ class ThreadedPipelineBackend:
         for i, func in enumerate(self.funcs):
             in_q = queues[i]
             out_q = queues[i + 1] if i + 1 < len(queues) else None
-            
             for _ in range(self.concurrencies[i]):
                 thread = threading.Thread(
                     target=self._stage_worker,
@@ -852,16 +735,10 @@ class ThreadedPipelineBackend:
 
     def run(self, inputs) -> Iterable[Any]:
         """Run the pipeline and yield results."""
-        # Create queues
-        queues: list[Queue] = []
-        for q_size in self.q_sizes:
-            queues.append(Queue(maxsize=q_size))
-        
-        # Start workers
+        queues [Queue(maxsize=q_size) for q_size in self.q_sizes]
         self._start_workers(queues)
-        
-        # Feed inputs in a separate thread
         def _feed():
+            """Feed inputs in a separate thread"""
             try:
                 for item in inputs:
                     if self.cancel_event.is_set():
@@ -874,24 +751,20 @@ class ThreadedPipelineBackend:
 
         feeder_thread = threading.Thread(target=_feed, daemon=True)
         feeder_thread.start()
-        
         # Yield results from final queue
         last_q = queues[-1]
         sentinels_received = 0
         expected_sentinels = self.concurrencies[-1] if len(self.concurrencies) > 0 else 1
-        
         try:
             while not self.cancel_event.is_set():
                 try:
-                    item = last_q.get(timeout=0.5)
+                    item = last_q.get(self.q_timeout)
                     last_q.task_done()
-                    
                     if item is self._sentinel:
                         sentinels_received += 1
                         if sentinels_received >= expected_sentinels:
                             break
                         continue
-                    
                     yield item
                 except Empty:
                     # Check if feeder thread is still alive
@@ -905,7 +778,6 @@ class ThreadedPipelineBackend:
             # Clean up
             self.cancel_event.set()
             feeder_thread.join(timeout=1.0)
-            
             # Wait for worker threads to complete
             for thread in self._threads:
                 thread.join(timeout=1.0)
