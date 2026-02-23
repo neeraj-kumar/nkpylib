@@ -402,7 +402,6 @@ class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                         logger.info(f'Unknown me action {action}')
         return
 
-
 def init_sql_db(path: str) -> Database:
     """Initializes the sqlite database at the given `path`"""
     init_sqlite_db(path, db=sql_db)
@@ -416,13 +415,13 @@ def init_sql_db(path: str) -> Database:
     return sql_db
 
 
-
 class Source(abc.ABC):
     """Base class for all sources. Subclass this.
 
     Implement can_parse() and parse() methods if you want to handle custom inputs.
     """
     _registry: dict[str, Source] = {}  # Class variable to maintain map from names to Source classes
+    NAME = 'Source' # override this
 
     def __init__(self,
                  name: str,
@@ -502,8 +501,6 @@ class Source(abc.ABC):
                 return result
         raise NotImplementedError(f'No source found to parse url {url}')
 
-
-
     @classmethod
     def assemble_post(cls, post, children) -> dict:
         """Assembles a post, generically.
@@ -545,13 +542,12 @@ class Source(abc.ABC):
             assembled_posts.append(src.assemble_post(post, post.children.select()))
         return assembled_posts
 
-
     @db_session
     def update_embeddings(self, **kw):
         """Updates the embeddings for this Source.
 
-        By default, this just calls the embeddings module functions, with the `source` explicitly set to our
-        source.
+        By default, this just calls the embeddings module functions, with the `source` explicitly
+        set to our source.
 
         We pass all `kw` to the embeddings functions.
         """
