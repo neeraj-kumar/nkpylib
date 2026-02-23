@@ -155,7 +155,7 @@ async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> 
     )
     # Success callback for text embeddings
     def text_success_callback(row, embedding, ts):
-        logger.info(f'adding embedding for {row}, key={row.id}:text, {embedding[:10] if embedding is not None else "failed"}')
+        logger.debug(f'adding text embedding for {row}, key={row.id}:text, emb={embedding[:10] if embedding is not None else "failed"}')
         updater.add(f'{row.id}:text', embedding=embedding, metadata=dict(embed_ts=ts))
         with db_session:
             row.embed_ts = ts
