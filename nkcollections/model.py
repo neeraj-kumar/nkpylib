@@ -557,7 +557,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
 
         Returns the number of descriptions updated.
         """
-        return 0 #FIXME
         if not vlm_prompt or not vlm_model:
             return 0
         updater = LmdbUpdater(lmdb_path, n_procs=1)
