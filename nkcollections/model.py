@@ -439,13 +439,15 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     @classmethod
     def _update_database_from_result(
             cls,
-            result: tuple,
+            result: dict,
             updater: LmdbUpdater,
             key_suffix: str,
             ts_field: str,
             success_callback: Callable[[Item, Any, int], None] = None) -> tuple[int, dict]:
         """Generic database updater for embedding results."""
-        row, data, error = result
+        row = result['row']
+        data = result.get('data')
+        error = result.get('error')
         key = f'{row.id}:{key_suffix}'
         ts = int(time.time())
         counts = Counter()
@@ -468,25 +470,25 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                                 model: str,
                                 key_suffix: str,
                                 updater: LmdbUpdater,
-                                data_extractor: Callable[[Any], Any] = lambda x: x[1]):
+                                data_extractor: Callable[[Any], Any] = lambda x: x.get('data')):
         """Factory for creating embedding stages."""
         async def embed_stage(input_data):
-            row = input_data[0] if isinstance(input_data, tuple) else input_data
+            row = input_data['row'] if isinstance(input_data, dict) else input_data
             key = f'{row.id}:{key_suffix}'
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping {row}, key={key} already in lmdb')
-                return (row, None, None)
+                return dict(row=row, data=None, error=None)
             try:
                 data_to_embed = data_extractor(input_data)
                 if not data_to_embed:
                     logger.debug(f'Skipping {row} with no data to embed')
-                    return (row, None, None)
+                    return dict(row=row, data=None, error=None)
                 embedding = await embed_func.single_async(data_to_embed, model=model)
-                return (row, embedding, None)
+                return dict(row=row, data=embedding, error=None)
             except Exception as e:
                 logger.warning(f'Error in embedding stage for {row}: {e}')
-                return (row, None, e)
+                return dict(row=row, data=None, error=e)
         return embed_stage
 
     @classmethod
@@ -507,13 +509,13 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         # Stage 1: Extract text content from rows
         async def extract_text_stage(row):
             if not row.md:
-                return (row, '')
+                return dict(row=row, data='')
             text = ''
             if row.otype == 'text' and 'text' in row.md:
                 text = row.md['text']
             elif row.otype == 'link' and 'title' in row.md:
                 text = f"{row.md['title']}: {row.url}"
-            return (row, text)
+            return dict(row=row, data=text)
 
         # Stage 2: Generate text embeddings using factory
         embed_stage = cls._create_embedding_stage(
@@ -521,7 +523,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             model='qwen_emb',
             key_suffix='text',
             updater=updater,
-            data_extractor=lambda row_text: row_text[1]  # Extract text from (row, text)
+            data_extractor=lambda x: x.get('data')  # Extract text from dict
         )
         
         # Success callback for text embeddings
@@ -575,14 +577,14 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 path = row.image_path()
                 try:
                     await maybe_dl(row.url, path, fetch_delay=fetch_delay, timeout=30)
-                    return (row, path)
+                    return dict(row=row, data=path)
                 except Exception as e:
                     logger.warning(f'Error downloading image for row id={row.id}, url={row.url}, path={path}: {e}')
-                    return (row, '')
+                    return dict(row=row, data='')
 
         # Stage 2: Generate embeddings using factory
-        def validate_image_path(row_path_tuple):
-            row, path = row_path_tuple
+        def validate_image_path(input_data):
+            path = input_data.get('data')
             if not path or not exists(path) or os.path.getsize(path) == 0:
                 raise FileNotFoundError(f'File not found or empty: {path}')
             return path
@@ -662,10 +664,10 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             path = row.image_path()
             try:
                 desc = await call_vlm.single_async((path, messages), model=vlm_model)
-                return (row, desc)
+                return dict(row=row, data=desc)
             except Exception as e:
                 logger.warning(f'Error generating desc for image {row}, path={path}: {e}')
-                return (row, '')
+                return dict(row=row, data='')
 
         # Stage 2: Generate text embeddings using factory
         embed_stage = cls._create_embedding_stage(
@@ -673,30 +675,8 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             model='qwen_emb',
             key_suffix='text',
             updater=updater,
-            data_extractor=lambda row_desc: row_desc[1]  # Extract desc from (row, desc)
+            data_extractor=lambda x: x.get('data')  # Extract desc from dict
         )
-        
-        # Custom result processor for descriptions (handles both desc and embedding)
-        def description_result_processor(result, updater):
-            if len(result) == 3:  # Standard (row, data, error) format from embed_stage
-                row, embedding, error = result
-                key = f'{row.id}:text'
-                ts = int(time.time())
-                
-                with db_session:
-                    # We need to get the description from the previous stage
-                    # This is a limitation of our current approach - we lose the desc
-                    # For now, we'll handle this in a custom way
-                    if embedding is not None:
-                        # Success - but we need the description
-                        # This is handled in the success callback
-                        return 1, {'success': 1, 'total': 1}
-                    elif error is not None:
-                        # Error case
-                        updater.add(key, metadata=dict(embed_ts=ts, error='text embedding failed'))
-                        row.explored_ts = -1
-                        return 0, {'total': 1}
-            return 0, {'total': 1}
         
         # We need a custom approach for descriptions since we need both desc and embedding
         # Let's use the original approach but with some refactored components
@@ -710,12 +690,11 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         n_descs = 0
         async for result in pipeline.run_async(rows):
             # Handle the complex case where we need both description and embedding
-            if len(result) == 3:  # (row, embedding, error) from embed_stage
-                row, embedding, error = result
-                # We lost the description, need to get it from row.md
-                desc = row.md.get('desc', '') if row.md else ''
-            else:  # This shouldn't happen with current pipeline
-                continue
+            row = result['row']
+            embedding = result.get('data')
+            error = result.get('error')
+            # We lost the description, need to get it from row.md
+            desc = row.md.get('desc', '') if row.md else ''
                 
             key = f'{row.id}:text'
             with db_session:
