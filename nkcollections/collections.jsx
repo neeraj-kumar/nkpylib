@@ -2427,7 +2427,7 @@ const AppProvider = ({ children }) => {
     sourceObj.otype = otype;
     // Set default limit if not present
     if (!sourceObj.limit) {
-      sourceObj.limit = 200;
+      sourceObj.limit = otype === 'user' ? 50 : 200;
     }
     sourceObj.pos = [id];
     // Open in new window instead of current window
