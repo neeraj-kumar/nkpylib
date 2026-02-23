@@ -155,6 +155,7 @@ async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> 
     )
     # Success callback for text embeddings
     def text_success_callback(row, embedding, ts):
+        logger.info(f'adding embedding for {row}, key={row.id}:text, {embedding[:10] if embedding is not None else "failed"}')
         updater.add(f'{row.id}:text', embedding=embedding, metadata=dict(embed_ts=ts))
         with db_session:
             row.embed_ts = ts
@@ -311,6 +312,7 @@ async def update_image_descriptions(
         with db_session:
             if result.data is not None and desc:
                 ts = int(time.time())
+                logger.info(f'adding desc embedding for {result.row}, key={key}, desc={desc[:30] if desc else "empty"}, emb={result.data[:10] if result.data is not None else "failed"}')
                 updater.add(key, embedding=result.data, metadata=dict(desc=desc, embed_ts=ts))
                 result.row.explored_ts = ts
                 counts['updated'] += 1
@@ -384,7 +386,7 @@ async def update_embeddings_async(lmdb_path: str,
         update_image_descriptions(vlm_prompt=vlm_prompt,
                                   sys_prompt=sys_prompt,
                                   vlm_model=vlm_model,
-                                  limit=limit//15,
+                                  limit=limit//50,
                                   **common_kw)
     )
     text_stats, image_stats, desc_stats = await asyncio.gather(text_task, image_task, desc_task)
