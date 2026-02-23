@@ -2089,7 +2089,7 @@ const AppProvider = ({ children }) => {
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 12); //FIXME
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 7); //FIXME
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
