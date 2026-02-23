@@ -439,43 +439,50 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                 text = f"{row.md['title']}: {row.url}"
             return (row, text)
 
-        # Stage 2: Generate text embeddings and update database
-        async def embed_and_update_stage(row_text_tuple):
-            nonlocal n_text
+        # Stage 2: Generate text embeddings
+        async def embed_stage(row_text_tuple):
             row, text = row_text_tuple
             key = f'{row.id}:text'
+            
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping text {row}, key={key} already in lmdb')
-                return row
+                return (row, None, None)
+
             if not text:
                 logger.debug(f'Skipping {row} with no text content')
-                return row
+                return (row, None, None)
+
             try:
                 text_embedding = await embed_text.single_async(text, model='qwen_emb')
-                ts = int(time.time())
-                updater.add(key, embedding=text_embedding, metadata=dict(embed_ts=ts))
-                with db_session:
-                    row.embed_ts = ts
-                n_text += 1
+                return (row, text_embedding, None)
             except Exception as e:
                 logger.warning(f'Error embedding text for {row}: {e}')
-                ts = int(time.time())
-                updater.add(key, metadata=dict(embed_ts=ts, error='text embedding failed'))
-                with db_session:
-                    row.embed_ts = -1
-            return row
+                return (row, None, e)
 
         # Create and run pipeline
         pipeline = ProducerConsumerPipeline(
-            funcs=[extract_text_stage, embed_and_update_stage],
+            funcs=[extract_text_stage, embed_stage],
             q_size=[20, 10],  # Moderate queues for both stages
             concurrency=[2, 3],  # Fewer text extraction workers, more embedding workers
             exc_policy='stop'  # Skip failed items but continue processing
         )
-        # Process all rows through the pipeline
+
+        # Process all rows through the pipeline and update database
         async for result in pipeline.run_async(rows):
-            pass  # Results are handled in the embed_and_update_stage
+            row, text_embedding, error = result
+            key = f'{row.id}:text'
+            ts = int(time.time())
+            
+            if text_embedding is not None:
+                updater.add(key, embedding=text_embedding, metadata=dict(embed_ts=ts))
+                with db_session:
+                    row.embed_ts = ts
+                n_text += 1
+            elif error is not None:
+                updater.add(key, metadata=dict(embed_ts=ts, error='text embedding failed'))
+                with db_session:
+                    row.embed_ts = -1
         updater.commit()
         if n_text > 0:
             logger.info(f'  Updated embeddings for {n_text} text rows')
@@ -511,23 +518,40 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     logger.warning(f'Error downloading image for row id={row.id}, url={row.url}, path={path}: {e}')
                     return (row, '')
 
-        # Stage 2: Generate embeddings and update database
-        async def embed_and_update_stage(row_path_tuple):
+        # Stage 2: Generate embeddings
+        async def embed_stage(row_path_tuple):
             row, path = row_path_tuple
             key = f'{row.id}:{IMAGE_SUFFIX}'
+            
             # Skip if already in lmdb
             if key in updater:
                 logger.info(f' skipping image {row}, key={key} already in lmdb')
-                return row
+                return (row, None, None)
+
             try:
                 if not path or not exists(path) or os.path.getsize(path) == 0:
                     raise FileNotFoundError(f'File not found or empty')
                 emb = await embed_image.single_async(path, model='mobilenet', use_cache=kw.get('use_cache', True))
                 #FIXME emb = await embed_image.single_async(path, model='clip', use_cache=kw.get('use_cache', True))
+                return (row, emb, None)
             except Exception as e:
                 logger.warning(f'Error embedding image for row {row}, {path}: {type(e)}: {e}')
-                emb = None
+                return (row, None, e)
+
+        # Create and run pipeline
+        pipeline = ProducerConsumerPipeline(
+            funcs=[download_stage, embed_stage],
+            q_size=[20, 10],  # Moderate queues for both stages
+            concurrency=[5, 3],  # More download workers, fewer embedding workers
+            exc_policy='stop'  # Skip failed items but continue processing
+        )
+
+        # Process all rows through the pipeline and update database
+        async for result in pipeline.run_async(rows):
+            row, emb, error = result
+            key = f'{row.id}:{IMAGE_SUFFIX}'
             ts = int(time.time())
+            
             with db_session:
                 # update the lmdb and sqlite
                 logger.debug(f' emb for image {row}, key={key}, {emb[:10] if emb is not None else "failed"}')
@@ -539,18 +563,6 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     row.embed_ts = ts
                     counts['success'] += 1
             counts['images'] += 1
-            return row
-
-        # Create and run pipeline
-        pipeline = ProducerConsumerPipeline(
-            funcs=[download_stage, embed_and_update_stage],
-            q_size=[20, 10],  # Moderate queues for both stages
-            concurrency=[5, 3],  # More download workers, fewer embedding workers
-            exc_policy='stop'  # Skip failed items but continue processing
-        )
-        # Process all rows through the pipeline
-        async for result in pipeline.run_async(rows):
-            pass  # Results are handled in the embed_and_update_stage
         updater.commit()
         if counts['images'] > 0:
             logger.info(f'  Updated embeddings for: {counts.most_common()}')
