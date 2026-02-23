@@ -47,6 +47,7 @@ from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
+from nkpylib.nkcollections.embeddings import IMAGE_SUFFIX
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async, background_task, classify_func_output
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
@@ -632,7 +633,6 @@ class Source(abc.ABC):
         keys_in_db = set(db.keys())
         n_missing = 0
         n_done = 0
-        from .embeddings import IMAGE_SUFFIX
         
         def fix(rows: list[Item], key_suffix: str, ts_field: str, fix_missing: bool, db) -> int:
             """Fix synchronization between sqlite and lmdb.
@@ -692,7 +692,6 @@ class Source(abc.ABC):
         We pass all `kw` to the embeddings functions.
         """
         from .embeddings import update_embeddings
-        
         if 'source' not in kw:
             kw['source'] = self.name
         #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
