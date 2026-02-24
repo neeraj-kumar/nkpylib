@@ -1275,20 +1275,38 @@ def get_matching_parens(s, ptype='(') -> list[tuple[int, int]]:
         raise ValueError(f"Unmatched opening parenthesis at indices {stack} in string: {s}")
     return matches
 
-def extract_tags_from_desc(desc: str) -> list[str]:
+def extract_tags_from_desc(desc: str) -> set[str]:
     """Given a vlm-generated description with tags at the end, extracts the tags as a list of strings."""
     # remove markdown-style markup like ** and __ and ###
     desc = re.sub(r'\*\*([^*]+)\*\*', r'\1', desc)  # **bold** -> bold
     desc = re.sub(r'__([^_]+)__', r'\1', desc)      # __underline__ -> underline
     desc = re.sub(r'#{1,6}\s*', '', desc)           # ### headers -> remove
+    desc = desc.replace('\\n', ' ')  # replace literal \n with space
     # look for the last occurrence of 'Tags:'
     tag_start = desc.lower().rfind('tags:')
     if tag_start == -1:
         return []
     # extract the substring after 'Tags:'
     tags_str = desc[tag_start + len('tags:'):].strip()
-    # split on commas and strip whitespace
-    tags = [tag.replace('\\n', '').strip() for tag in tags_str.split(',') if tag.strip()]
+    # split on commas, lower-case, and strip whitespace and trailing .
+    tags = [tag.lower().strip() for tag in tags_str.split(',')]
+    tags = [tag.strip('.') for tag in tags]
+    # replace _ with - and convert ' - ' to '-'
+    to_replace = [
+        ('_', '-'),
+        (' - ', '-'),
+        ('[', ''),
+        (']', ''),
+        ('(', ''),
+        (')', ''),
+        ('{', ''),
+        ('}', ''),
+        ('<', ''),
+        ('>', ''),
+    ]
+    for old, new in to_replace:
+        tags = [tag.replace(old, new) for tag in tags]
+    tags = {tag.strip() for tag in tags if tag.strip()}
     return tags
 
 def test_parser():
