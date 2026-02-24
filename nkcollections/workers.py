@@ -205,7 +205,7 @@ class BackgroundWorker(abc.ABC):
             counts = Counter(ts=time.time())
             timing['init_counters'] = time.time() - t3
             t4 = time.time()
-            like_scores = [score for id, score in self.scores.items() if int(id) in item_ids]
+            like_scores = [score for id, score in self.like_scores.items() if int(id) in item_ids]
             timing['extract_like_scores'] = time.time() - t4
             t5 = time.time()
             for item in user_items:
@@ -371,10 +371,10 @@ class CollectionsWorker(BackgroundWorker):
         self.sleep_interval = sleep_interval
         self.exclude_top_n = exclude_top_n
         # Set classifier path -- no need to create dir since save_classifier does that
-        self.classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
+        self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
 
         # State tracking
-        self.scores: dict[str, float] = {}
+        self.like_scores: dict[str, float] = {}
         self.last: dict[str, Any] = {
             'pos_ids': frozenset(),
             'saved_classifier': None,
@@ -494,17 +494,14 @@ class CollectionsWorker(BackgroundWorker):
         if not current_pos_ids:
             logger.info("No liked images found, skipping classifier update")
             return
-        
         current_pos_count = len(current_pos_ids)
         last_pos_count = self.last.get('pos_count', 0)
-        
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
             # Run inference
             r = self.run_inference()
             logging.debug(f'Running inference result: {r}')
             return
-        
         # Only retrain if we have enough new likes since last training
         new_likes_count = current_pos_count - last_pos_count
         if new_likes_count <= self.min_new_liked:
@@ -513,7 +510,6 @@ class CollectionsWorker(BackgroundWorker):
             r = self.run_inference()
             logging.debug(f'Running inference result: {r}')
             return
-        
         logger.info(f"Found {new_likes_count} new likes, retraining classifier")
         try:
             pos, neg = self._get_training_set(current_pos_ids=current_pos_ids)
@@ -534,9 +530,9 @@ class CollectionsWorker(BackgroundWorker):
                 classifier, scores, other_stuff = l['classifier'], l['scores'], l['other_stuff']
             t1 = time.time()
             new_scores = self.rescore(scores=scores, pos=pos)
-            self.scores = {k.split(':')[0]: v for k, v in new_scores.items()}
+            self.like_scores = {k.split(':')[0]: v for k, v in new_scores.items()}
             saved_classifier = self.embs.save_classifier(
-                self.classifier_path,
+                self.likes_classifier_path,
                 classifier,
                 method=self.method,
                 neg_factor=self.neg_factor,
@@ -544,7 +540,7 @@ class CollectionsWorker(BackgroundWorker):
                 pos_count=len(pos),
                 neg_count=len(neg),
                 total_classified=len(to_cls),
-                scores=self.scores,
+                scores=self.like_scores,
                 **other_stuff,
             )
             # Update state
@@ -560,9 +556,9 @@ class CollectionsWorker(BackgroundWorker):
             logger.error(f"Error updating likes classifier: {e}")
             print(traceback.format_exc())
 
-    def get_scores(self) -> dict[str, float]:
+    def get_like_scores(self) -> dict[str, float]:
         """Get current classifier scores."""
-        return self.scores.copy()
+        return self.like_scores.copy()
 
     def rescore(self, scores: dict[str, float], pos: list[int]) -> dict[str, float]:
         """Rescores `scores` using nearest neighbors from positive IDs."""
@@ -587,9 +583,12 @@ class CollectionsWorker(BackgroundWorker):
         return ret
 
     def _load_and_run_initial_inference(self) -> None:
-        """Load existing classifier on initialization and populate scores from saved data."""
+        """Load existing classifiers on initialization and populate scores from saved data.
+
+        This first loads the likes classifier
+        """
         try:
-            saved_data = self.embs.load_and_setup_classifier(self.classifier_path)
+            saved_data = self.embs.load_and_setup_classifier(self.likes_classifier_path)
             pos_ids = [int(id) for id in saved_data.get('pos_ids', [])]
             self.last.update({
                 'saved_classifier': saved_data,
@@ -597,21 +596,21 @@ class CollectionsWorker(BackgroundWorker):
                 'pos_ids': frozenset(pos_ids),
             })
             # Load scores from saved classifier data
-            self.scores = {}
+            self.like_scores = {}
             for k, v in saved_data.get('scores', {}).items():
-                self.scores[int(k)] = float(v)
+                self.like_scores[int(k)] = float(v)
             # note that these have already been rescored, so we don't redo it.
             # Also update pos_count from saved data
             self.last['pos_count'] = saved_data.get('pos_count', len(pos_ids))
-            logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.scores)} scores, {self.last['pos_count']} pos examples")
+            logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.like_scores)} scores, {self.last['pos_count']} pos examples")
         except Exception as e:
             logger.warning(f"Failed to load existing classifier: {e}\n{traceback.format_exc()}")
 
     def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
 
-        Assumes all items in self.scores have been classified with the current classifier version.
-        Only runs inference on items not already in self.scores.
+        Assumes all items in self.like_scores have been classified with the current classifier version.
+        Only runs inference on items not already in self.like_scores.
 
         Returns dict with status and inference results.
         """
@@ -622,30 +621,32 @@ class CollectionsWorker(BackgroundWorker):
         try:
             # Get all image IDs that have embeddings
             all_ids = self._get_all_image_ids()
-            classified_ids = set(int(id) for id in self.scores.keys())
+            classified_ids = set(int(id) for id in self.like_scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
+            # note that when we retrain the classifier, we classify all ids, so we never have
+            # classifications with different versions of the classifier.
             #unclassified_ids = [id for id in all_ids]
             if not unclassified_ids:
                 return dict(status='all_classified', classifier_version=self.last['classifier_version'])
             result = self._run_inference_blocking(unclassified_ids)
             # Update scores if successful
             if result['status'] == 'inference_completed':
-                self.scores.update(result['new_scores'])
-                logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.scores)} total scores")
+                self.like_scores.update(result['new_scores'])
+                logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.like_scores)} total scores")
                 # Save the classifier with updated scores
                 try:
                     if self.last['saved_classifier'] and result['new_scores']:
                         # Load the existing classifier data and update scores
                         saved_data = self.last['saved_classifier'].copy()
-                        saved_data['scores'] = self.scores
+                        saved_data['scores'] = self.like_scores
 
                         # Save the updated classifier data
                         self.embs.save_classifier(
-                            self.classifier_path,
+                            self.likes_classifier_path,
                             saved_data.pop('classifier'),
                             **saved_data
                         )
-                        logger.info(f"  Updated classifier saved with {len(self.scores)} scores")
+                        logger.info(f"  Updated classifier saved with {len(self.like_scores)} scores")
                 except Exception as e:
                     logger.warning(f"Failed to save updated classifier: {e}, {traceback.format_exc()}")
             return result
@@ -659,7 +660,7 @@ class CollectionsWorker(BackgroundWorker):
         """The blocking part of inference that runs in a thread pool."""
         try:
             # Load the classifier
-            saved_data = self.embs.load_and_setup_classifier(self.classifier_path)
+            saved_data = self.embs.load_and_setup_classifier(self.likes_classifier_path)
             classifier = saved_data['classifier']
             to_cls = [f'{id}:{self.image_suffix}' for id in unclassified_ids]
             # Get embeddings and run inference+rescoring
@@ -948,9 +949,9 @@ class CollectionsWorker(BackgroundWorker):
                     **cls_kw
                 )
                 # Save classifier
-                classifier_path = join(self.classifiers_dir, f'tags-{id_suffix}/{tag}.joblib')
+                likes_classifier_path = join(self.classifiers_dir, f'tags-{id_suffix}/{tag}.joblib')
                 saved_classifier = self.embs.save_classifier(
-                    classifier_path,
+                    likes_classifier_path,
                     classifier,
                     tag=tag,
                     pos_count=len(pos_keys),
@@ -961,7 +962,7 @@ class CollectionsWorker(BackgroundWorker):
                     **other_stuff,
                     **cls_kw
                 )
-                logger.info(f'Saved classifier for tag {tag} to {classifier_path}')
+                logger.info(f'Saved likes classifier for tag {tag} to {likes_classifier_path}')
             except Exception as e:
                 logger.error(f'Error training classifier for tag {tag}: {e}')
                 print(traceback.format_exc())

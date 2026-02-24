@@ -295,7 +295,7 @@ class GetHandler(MyBaseHandler):
             if 'min_like' in kw:
                 min_like = float(kw['min_like'])
                 logger.info(f'Checking for min like')
-                scores = self.application.get_scores() # type: ignore[attr-defined]
+                scores = self.application.get_like_scores() # type: ignore[attr-defined]
                 out_ids = [id for id in ids_only if scores.get(id, 0.0) >= min_like]
                 logger.info(f'  Filtered from {len(ids_only)} -> {len(out_ids)} items with min_like {min_like}')
             # check for sorting by pos
@@ -636,7 +636,7 @@ class ClassifyHandler(MyBaseHandler):
                             otypes=['image'],
                             **kw):
         """Gets the latest likes scores from cached loader"""
-        scores = self.application.get_scores() # type: ignore[attr-defined]
+        scores = self.application.get_like_scores() # type: ignore[attr-defined]
         if cur_ids is not None:
             cur_ids = [int(id) for id in cur_ids]
             scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
@@ -749,19 +749,17 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
             logger.info("CollectionsWorker started successfully")
         else: # without likes worker
             app.likes_worker = None
-            classifier_path = join(classifiers_dir, 'likes-mn_image.joblib')
-            app.cached_score_loader = CachedScoresLoader(classifier_path, {})
-            logger.info(f"Will read scores from: {classifier_path}")
-        def app_get_scores(app):
+            likes_classifier_path = join(classifiers_dir, 'likes-mn_image.joblib')
+            app.cached_score_loader = CachedScoresLoader(likes_classifier_path, {})
+            logger.info(f"Will read scores from: {likes_classifier_path}")
+        def app_get_like_scores(app):
             """Returns the latest scores from the `app`"""
             if hasattr(app, 'cached_score_loader'):
                 return app.cached_score_loader.get()
             else:
-                return app.likes_worker.get_scores()
+                return app.likes_worker.get_like_scores()
 
-        app.get_scores = lambda: app_get_scores(app)
-
-
+        app.get_like_scores = lambda: app_get_like_scores(app)
 
     more_handlers = [
         (r'/get', GetHandler),
