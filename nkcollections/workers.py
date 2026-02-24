@@ -357,7 +357,7 @@ class CollectionsWorker(BackgroundWorker):
                  max_pos: int = 10000,
                  neg_factor: float = 10,
                  min_new_liked: int = 50,
-                 image_suffix: str = 'image',
+                 image_suffix: str = 'mn_image',
                  sleep_interval: float = 10.0,
                  exclude_top_n: int = 2000):
         super().__init__(name)
