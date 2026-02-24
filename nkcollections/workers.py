@@ -659,8 +659,12 @@ class CollectionsWorker(BackgroundWorker):
         run_likes_inference(all_ids=all_ids)
         #run_tags_inference(all_ids=all_ids) #FIXME
 
-    def run_tags_inference(self, all_ids: list[int]|None=None, max_tags: int=10) -> None:
+    def run_tags_inference(self, all_ids: list[int]|None=None,
+                           score_threshold: float=0.5,
+                           max_tags: int=10) -> None:
         """Runs inference for the tags classifiers on items that don't have scores yet.
+
+        We only add a tag to the sql database if the score is above `score_threshold`.
 
         If `max_tags` > 0, then only runs inference for upto that many tags (skipping those that
         have no updates). This is not so much for memory usage (although that also if you're running
@@ -698,23 +702,24 @@ class CollectionsWorker(BackgroundWorker):
             done_by_tag[tag] = done
             for id, v in scores.items():
                 done_by_tag[tag].add(id)
-                if v > 0:
+                if v > score_threshold:
                     scores_by_id_tag[id][tag] = v
             if max_tags > 0 and len(done_by_tag) >= max_tags:
                 break
         # update scores in sql
         tag_key = f'{self.image_suffix}_tags'
-        logger.info(f'  Updating scores for {len(scores_by_id_tag)} items in sql with tag key "{tag_key}"')
         with db_session:
-            for id, tag_scores in scores_by_id_tag.items():
+            for id, tag_scores in tqdm(scores_by_id_tag.items(), desc='Updating items with tag scores'):
                 item = Item[id]
                 #logger.info(f'  Updating item {id} {tag_key} with tags {tag_scores}')
                 md_tag_scores = item.md.get(tag_key, {})
+                # filter by score threshold
+                md_tag_scores = {tag: score for tag, score in md_tag_scores.items() if score >= score_threshold}
                 md_tag_scores.update(tag_scores)
                 item.md[tag_key] = md_tag_scores
         # update done ids in lmdb
         logger.info(f'  Updating lmdb with done ids for {len(done_by_tag)} tags')
-        for tag, done in done_by_tag.items():
+        for tag, done in tqdm(done_by_tag.items()):
             #logger.info(f'  Updating lmdb for tag {tag} with {len(done)} done ids')
             db.md_update(self.tag_keys[tag], done_ids=sorted(done))
         db.sync()

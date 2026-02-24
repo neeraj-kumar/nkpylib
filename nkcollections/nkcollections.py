@@ -9,11 +9,10 @@
 #TODO diversity on likes classifier?
 #TODO handle reblog keys
 #TODO text search of images, users
-#TODO put tags in sql
-#TODO   get tag list from descs
-#TODO   aggregate to user
+#TODO aggregate tags to user
 #TODO search texts queue
 #TODO transfer likes between related items
+#TODO enrich queued posts separately to not delay get()
 #TODO multiple searches
 #TODO   more like this on objects
 #TODO   clickable tags
@@ -23,8 +22,10 @@
 #TODO import tumblr likes
 #TODO import google history
 #TODO similar users
-#TODO adding custom clip embeddings
-#TODO faster/cached embeddings scaling for get_keys_embeddings()
+#TODO   by similarity of their images/embeddings
+#TODO   by similarity of tags
+#TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
+#TODO better feature extraction pipeline
 #TODO backups
 #TODO make cacheking allow checking for mtime when loading from file
 
