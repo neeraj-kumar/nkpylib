@@ -1278,6 +1278,9 @@ def get_matching_parens(s, ptype='(') -> list[tuple[int, int]]:
 def extract_tags_from_desc(desc: str) -> list[str]:
     """Given a vlm-generated description with tags at the end, extracts the tags as a list of strings."""
     # remove markdown-style markup like ** and __ and ###
+    desc = re.sub(r'\*\*([^*]+)\*\*', r'\1', desc)  # **bold** -> bold
+    desc = re.sub(r'__([^_]+)__', r'\1', desc)      # __underline__ -> underline
+    desc = re.sub(r'#{1,6}\s*', '', desc)           # ### headers -> remove
 
     # look for the last occurrence of 'Tags:'
     tag_start = desc.lower().rfind('tags:')
