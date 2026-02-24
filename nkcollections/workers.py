@@ -419,11 +419,12 @@ class CollectionsWorker(BackgroundWorker):
                                if img.embed_ts and img.embed_ts > 0)
         return pos_ids
 
+    @db_session
     def _get_all_image_ids(self) -> list[int]:
         """Get all image IDs that have embeddings."""
-        with db_session:
-            all_images = Item.select(lambda c: c.otype in ('image', 'post') and c.embed_ts > 0)
-            all_ids = [img.id for img in all_images]
+        all_ids = select(c.id for c in Item
+                         if c.otype in ('image', 'post')
+                         and c.embed_ts and c.embed_ts > 0)[:]
         return all_ids
 
     def _get_negative_candidate_ids(self, pos_ids: frozenset[int]) -> list[int]:
@@ -499,18 +500,12 @@ class CollectionsWorker(BackgroundWorker):
         last_pos_count = self.last.get('pos_count', 0)
         # Check if we need to update
         if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
-            # Run inference
-            r = self.run_inference()
-            logging.debug(f'Running inference result: {r}')
-            return
+            return self.run_inference()
         # Only retrain if we have enough new likes since last training
         new_likes_count = current_pos_count - last_pos_count
         if new_likes_count <= self.min_new_liked:
             logger.info(f"Only {new_likes_count} new likes (need >{self.min_new_liked}), running inference only")
-            # Run inference
-            r = self.run_inference()
-            logging.debug(f'Running inference result: {r}')
-            return
+            return self.run_inference()
         logger.info(f"Found {new_likes_count} new likes, retraining classifier")
         try:
             pos, neg = self._get_training_set(current_pos_ids=current_pos_ids)
@@ -611,8 +606,10 @@ class CollectionsWorker(BackgroundWorker):
             logger.warning(f"Failed to load existing likes classifier: {e}\n{traceback.format_exc()}")
         # deal with tags classifiers
         cls_paths = glob.glob(join(self.classifiers_dir, f'tags-{self.image_suffix}/*.joblib'))
-        logger.info(f'Got {len(cls_paths)} tag clses: {cls_paths[:5]}')
+        logger.debug(f'Got {len(cls_paths)} tag clses: {cls_paths[:5]}')
         todo = []
+        db = self.load_lmdb()
+        self.tag_keys = {}
         # build up list of tags to add to lmdb
         for path in cls_paths:
             data = self.embs.load_classifier(path)
@@ -625,8 +622,7 @@ class CollectionsWorker(BackgroundWorker):
             logger.debug(f'For tag {tag} read {data}')
             # now fetch lmdb data and compare versions
             key = f'tags:{tag}'
-            assert len(self.embs.inputs) == 1 and isinstance(self.embs.inputs[0], NumpyLmdb), "Expecting exactly one NumpyLmdb input for tag embeddings"
-            db = NumpyLmdb.open(self.embs.inputs[0].path, flag='c')
+            self.tag_keys[tag] = key
             cur = db.get(key, None)
             md = db.md_get(key)
             logger.debug(f'  Read emb {cur}, md {md}')
@@ -647,29 +643,64 @@ class CollectionsWorker(BackgroundWorker):
             db.md_set(key, **data)
         db.sync()
 
+    def load_lmdb(self, flag='c', **kw) -> NumpyLmdb:
+        """Loads the lmdb for our embeddings for direct manipulation.
 
-    def run_inference(self) -> dict[str, Any]:
-        """Run inference using the last classifier on items that haven't been classified by it.
-
-        Assumes all items in self.like_scores have been classified with the current classifier version.
-        Only runs inference on items not already in self.like_scores.
-
-        Returns dict with status and inference results.
+        Pass `flag` and `kw` to `NumpyLmdb.open()`
         """
-        logger.debug(f'Running inference with classifier v{self.last["classifier_version"]}')
+        assert len(self.embs.inputs) == 1 and isinstance(self.embs.inputs[0], NumpyLmdb), "Expecting exactly one NumpyLmdb input for tag embeddings"
+        db = NumpyLmdb.open(self.embs.inputs[0].path, flag=flag, **kw)
+        return db
+
+    def run_inference(self) -> None:
+        """Run inference on unclassified items.
+        """
+        all_ids = self._get_all_image_ids()
+        run_likes_inference(all_ids=all_ids)
+        run_tags_inference(all_ids=all_ids)
+
+    def run_tags_inference(self, all_ids: list[int]|None=None) -> None:
+        """Runs inference for the tags classifiers on items that don't have scores yet.
+
+        - Check the list of done classifications per tag (read from the lmdb)
+        """
+        db = self.load_lmdb()
+        tag_keys = self.tag_keys
+        logger.info(f'Got {len(tag_keys)} tag classifiers in lmdb: {list(tag_keys.items())[:5]}')
+        if all_ids is None:
+            all_ids = self._get_all_image_ids()
+        logger.info(f'Got {len(all_ids)} ids with embeddings for inference: {all_ids[:5]}')
+        all_ids = set(all_ids)
+        for tag, key in tag_keys.items():
+            md = db.md_get(key)
+            done = set(md.get('done_ids', []))
+            logger.info(f'  For {tag}: {len(done)} done')
+            if done >= all_ids: # all classified
+                continue
+            break
+
+
+
+    def run_likes_inference(self, all_ids: list[int]|None=None) -> None:
+        """Runs inference for the likes classifier
+
+        - Find items that are currently unclassified (not in `self.like_scores`) but have embeddings.
+        - Load the likes classifier from disk and run on those items
+        - Since we run classification on all items when we train the likes classifier, we never have
+          inconsistent classifications from different versions of the classifier.
+        """
+        logger.debug(f'Running inference with likes classifier v{self.last["classifier_version"]}')
         if not self.last['saved_classifier'] or self.last['classifier_version'] == 0:
             logger.info("No classifier available for inference")
-            return dict(status='no_classifier')
+            return
         try:
             # Get all image IDs that have embeddings
-            all_ids = self._get_all_image_ids()
+            if all_ids is None:
+                all_ids = self._get_all_image_ids()
             classified_ids = set(int(id) for id in self.like_scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
-            # note that when we retrain the classifier, we classify all ids, so we never have
-            # classifications with different versions of the classifier.
-            #unclassified_ids = [id for id in all_ids]
             if not unclassified_ids:
-                return dict(status='all_classified', classifier_version=self.last['classifier_version'])
+                return
             result = self._run_inference_blocking(unclassified_ids)
             # Update scores if successful
             if result['status'] == 'inference_completed':
@@ -691,12 +722,9 @@ class CollectionsWorker(BackgroundWorker):
                         logger.info(f"  Updated classifier saved with {len(self.like_scores)} scores")
                 except Exception as e:
                     logger.warning(f"Failed to save updated classifier: {e}, {traceback.format_exc()}")
-            return result
-
         except Exception as e:
             logger.error(f"Error running inference: {e}")
             traceback.print_exc()
-            return dict(status='error', error=str(e))
 
     def _run_inference_blocking(self, unclassified_ids: list[int]) -> dict[str, Any]:
         """The blocking part of inference that runs in a thread pool."""
