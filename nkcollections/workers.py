@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import csv
 import json
 import logging
 import os
@@ -855,3 +856,28 @@ class CollectionsWorker(BackgroundWorker):
                 raise
         updater.commit()
         logger.info(f'Completed embedding generation for benchmark {benchmark_name}: {n_processed} items processed')
+
+    def train_tag_classifier(self,
+                             tags_path: str,
+                             id_suffix: str=':mn_image',
+                             tag_dlm: str=';',
+                             min_pos: int=5,
+                             neg_factor: float=10,
+                             classifier_prefix: str='tags',
+                             **cls_kw) -> None:
+        """Trains a classifier to predict tags based on embeddings.
+
+        The input `tags_path` should be a tsv file with Item id in the first column and tags in the
+        last column tags, delimited by `tag_dlm` [default ;]
+
+        We generate training data by looking up the embeddings for these items. For each tag with at
+        least `min_pos` valid embeddings, we sample upto num_pos*neg_factor negatives by looking at
+        items that share none of the tags that co-occur with any positive. E.g. if we're looking at
+        tag A and its positives include {A, B, C} and {A, D}, then we look for items that have none
+        of {A,B,C,D} for the negatives.
+
+        We train the classifier using `train_and_run_classifier` (with `cls_kw` passed through) and
+        save the resulting classifier and scores to a joblib file with path
+        `{self.classifiers_dir}/{classifier_prefix}-{id_suffix}.joblib`.
+        """
+
