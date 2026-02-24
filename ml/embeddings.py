@@ -496,14 +496,15 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
         test_X = np.vstack(test_X)
-        test_X = sampler.transform(test_X)
+        if method in ('linear', 'sgd'):
+            test_X = sampler.transform(test_X)
         scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(test_X))}
         times.append(time.time())
         other_stuff['times'] = dict(
             training=times[3] - times[2],
             inference=times[4] - times[3]
         )
-        logger.info(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
+        logger.debug(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         return cls, scores, other_stuff
 
     def run_classifier(self,
