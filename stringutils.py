@@ -443,7 +443,7 @@ def getKWArgsFromArgs(args=None):
 def numformat(num, fmt='%d'):
     """Formats a number nicely, with commas.
     You can optionally give a custom format, e.g. for floats"""
-    if isinstance(num, basestring):
+    if isinstance(num, str):
         if '%d' in num:
             try:
                 num = int(num)
@@ -854,7 +854,7 @@ def cleanDirTree(p, ntimes=-1):
 
 def specialize(v):
     """Specializes a string value into an int or float or bool"""
-    if not isinstance(v, basestring):
+    if not isinstance(v, str):
         return v
     if v.strip() == 'True':
         return True
@@ -1161,8 +1161,8 @@ def filechecksum(f, blocksize=2**20, hashfunc='md5'):
     constructor that initializes with no parameters, and returns an object
     with update() and hexdigest() functions in it.
     """
-    h = hashlib.new(hashfunc) if isinstance(hashfunc, basestring) else hashfunc()
-    if isinstance(f, basestring):
+    h = hashlib.new(hashfunc) if isinstance(hashfunc, str) else hashfunc()
+    if isinstance(f, str):
         f = open(f)
     while 1:
         data = f.read(blocksize)
@@ -1181,7 +1181,7 @@ class FileLock(object):
         If shared is 0 [default], it's an exclusive lock (LOCK_EX).
         Else it's a shared lock (LOCK_SH).
         """
-        if isinstance(f, basestring):
+        if isinstance(f, str):
             f = open(f)
         self.f = f
         self.shared = shared
@@ -1281,7 +1281,6 @@ def extract_tags_from_desc(desc: str) -> list[str]:
     desc = re.sub(r'\*\*([^*]+)\*\*', r'\1', desc)  # **bold** -> bold
     desc = re.sub(r'__([^_]+)__', r'\1', desc)      # __underline__ -> underline
     desc = re.sub(r'#{1,6}\s*', '', desc)           # ### headers -> remove
-
     # look for the last occurrence of 'Tags:'
     tag_start = desc.lower().rfind('tags:')
     if tag_start == -1:
