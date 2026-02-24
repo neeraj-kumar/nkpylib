@@ -512,7 +512,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                        classifier: BaseEstimator,
                        scaler: StandardScaler|None=None,
                        sampler: RBFSampler|None=None) -> dict[KeyT, Any]:
-        """Runs `classifier` on `to_cls`, returning dict of key to score."""
+        """Runs binary `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
         keys, embs, scaler = self.get_keys_embeddings(
             keys=to_cls,
