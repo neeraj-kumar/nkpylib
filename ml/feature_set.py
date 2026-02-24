@@ -129,6 +129,31 @@ class FeatureSet(Mapping, Generic[KeyT]):
         key_set = set(keys)
         return {k: v for k, v in inp.items() if k in key_set}
 
+    def keys_vecs(self, keys: list[KeyT]|None=None) -> tuple[list[KeyT], np.ndarray]:
+        """Returns a list of keys and a numpy array of vectors.
+
+        By default we return embeddings for all our keys, but you can optionally pass in a list of
+        keys to get embeddings for. Note that these are futher filtered to those we have in our set.
+        """
+        if keys is None:
+            _keys, _vecs = zip(*list(self.items()))
+            keys = list(_keys)
+            vecs = np.vstack(_vecs)
+        else:
+            self_keys = set(self._keys)
+            done = set()
+            new_keys = []
+            for k in keys:
+                if k in self_keys and k not in done:
+                    new_keys.append(k)
+                    done.add(k)
+            keys = new_keys
+            if keys:
+                vecs = np.vstack([self[k] for k in keys])
+            else:
+                vecs = np.zeros((0, self.n_dims), dtype=self.dtype)
+        return keys, vecs
+
     def get_keys_embeddings(self,
                             keys: list[KeyT]|None=None,
                             normed: bool=False,
@@ -157,30 +182,10 @@ class FeatureSet(Mapping, Generic[KeyT]):
         last item in the return tuple.
         """
         times = [time.time()]
-        if keys is None:
-            _keys, _embs = zip(*list(self.items()))
-            keys = list(_keys)
-            embs = np.vstack(_embs)
-            times.append(time.time())
-        else:
-            self_keys = set(self._keys)
-            times.append(time.time())
-            done = set()
-            new_keys = []
-            for k in keys:
-                if k in self_keys and k not in done:
-                    new_keys.append(k)
-                    done.add(k)
-            keys = new_keys
-            times.append(time.time())
-            if not keys:
-                embs = np.zeros((0, self.n_dims), dtype=self.dtype)
-                if return_scaler:
-                    return (keys, embs, scaler)
-                else:
-                    return (keys, embs)
-            embs = np.vstack([self[k] for k in keys])
-            times.append(time.time())
+        keys, embs = self.keys_vecs(keys)
+        times.append(time.time())
+        if not keys: # early exit
+            return (keys, embs, scaler) if return_scaler else (keys, embs)
         if normed:
             embs = embs / np.linalg.norm(embs, axis=1)[:, None]
         times.append(time.time())
@@ -191,7 +196,7 @@ class FeatureSet(Mapping, Generic[KeyT]):
         else:
             embs = scaler.transform(embs)
         times.append(time.time())
-        time_names = ['get_keys_embeddings', 'filter_keys', 'fetch_embeddings', 'norming', 'scaling']
+        time_names = ['get_keys_embeddings', 'norming', 'scaling']
         timings = {n: times[i+1]-times[i] for i, n in enumerate(time_names)}
         logger.debug(f'timings: {timings}')
         if return_scaler:
