@@ -880,4 +880,118 @@ class CollectionsWorker(BackgroundWorker):
         save the resulting classifier and scores to a joblib file with path
         `{self.classifiers_dir}/{classifier_prefix}-{id_suffix}.joblib`.
         """
+        logger.info(f'Training tag classifiers from {tags_path} with suffix {id_suffix}')
+        
+        # Read TSV file to get item IDs and tags
+        item_tags: dict[int, set[str]] = {}
+        tag_counts: dict[str, int] = Counter()
+        
+        with open(tags_path, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f, delimiter='\t')
+            for row in reader:
+                if len(row) < 2:
+                    continue
+                try:
+                    item_id = int(row[0])
+                    tags_str = row[-1].strip()
+                    if not tags_str:
+                        continue
+                    tags = {tag.strip() for tag in tags_str.split(tag_dlm) if tag.strip()}
+                    if tags:
+                        item_tags[item_id] = tags
+                        for tag in tags:
+                            tag_counts[tag] += 1
+                except (ValueError, IndexError) as e:
+                    logger.warning(f'Skipping invalid row: {row}, error: {e}')
+                    continue
+        
+        logger.info(f'Loaded {len(item_tags)} items with tags, {len(tag_counts)} unique tags')
+        
+        # Filter tags that have enough positive examples
+        valid_tags = [tag for tag, count in tag_counts.items() if count >= min_pos]
+        logger.info(f'Found {len(valid_tags)} tags with at least {min_pos} examples')
+        
+        if not valid_tags:
+            logger.warning('No tags meet minimum positive example threshold')
+            return
+        
+        # Reload embeddings keys
+        self.embs.reload_keys()
+        available_keys = set(self.embs.get_keys())
+        
+        # For each valid tag, train a classifier
+        for tag in valid_tags:
+            logger.info(f'Training classifier for tag: {tag}')
+            
+            # Get positive examples (items with this tag that have embeddings)
+            pos_item_ids = [item_id for item_id, tags in item_tags.items() if tag in tags]
+            pos_keys = [f'{item_id}{id_suffix}' for item_id in pos_item_ids]
+            pos_keys = [key for key in pos_keys if key in available_keys]
+            
+            if len(pos_keys) < min_pos:
+                logger.warning(f'Tag {tag}: only {len(pos_keys)} items have embeddings, skipping')
+                continue
+            
+            # Find co-occurring tags for this tag
+            cooccurring_tags = set()
+            for item_id in pos_item_ids:
+                if item_id in item_tags:
+                    cooccurring_tags.update(item_tags[item_id])
+            
+            logger.debug(f'Tag {tag}: {len(pos_keys)} positives, co-occurring with {len(cooccurring_tags)} tags')
+            
+            # Get negative candidates (items that don't have any co-occurring tags)
+            neg_candidates = []
+            for item_id, tags in item_tags.items():
+                if not tags.intersection(cooccurring_tags):  # No overlap with co-occurring tags
+                    neg_key = f'{item_id}{id_suffix}'
+                    if neg_key in available_keys:
+                        neg_candidates.append(neg_key)
+            
+            # Sample negatives
+            max_neg = int(len(pos_keys) * neg_factor)
+            if len(neg_candidates) > max_neg:
+                neg_keys = random.sample(neg_candidates, max_neg)
+            else:
+                neg_keys = neg_candidates
+            
+            logger.info(f'Tag {tag}: {len(pos_keys)} pos, {len(neg_keys)} neg (from {len(neg_candidates)} candidates)')
+            
+            if not neg_keys:
+                logger.warning(f'Tag {tag}: no negative examples found, skipping')
+                continue
+            
+            # Train classifier
+            try:
+                to_cls = pos_keys + neg_keys
+                classifier, scores, other_stuff = self.embs.train_and_run_classifier(
+                    pos=pos_keys,
+                    neg=neg_keys,
+                    to_cls=to_cls,
+                    **cls_kw
+                )
+                
+                # Save classifier
+                classifier_path = join(self.classifiers_dir, f'{classifier_prefix}-{tag}-{id_suffix.lstrip(":")}.joblib')
+                saved_classifier = self.embs.save_classifier(
+                    classifier_path,
+                    classifier,
+                    tag=tag,
+                    pos_count=len(pos_keys),
+                    neg_count=len(neg_keys),
+                    total_classified=len(to_cls),
+                    scores=scores,
+                    cooccurring_tags=list(cooccurring_tags),
+                    **other_stuff,
+                    **cls_kw
+                )
+                
+                logger.info(f'Saved classifier for tag {tag} to {classifier_path}')
+                
+            except Exception as e:
+                logger.error(f'Error training classifier for tag {tag}: {e}')
+                print(traceback.format_exc())
+                continue
+        
+        logger.info(f'Completed training tag classifiers for {len(valid_tags)} tags')
 
