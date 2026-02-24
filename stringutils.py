@@ -1277,6 +1277,8 @@ def get_matching_parens(s, ptype='(') -> list[tuple[int, int]]:
 
 def extract_tags_from_desc(desc: str) -> list[str]:
     """Given a vlm-generated description with tags at the end, extracts the tags as a list of strings."""
+    # remove markdown-style markup like ** and __ and ###
+
     # look for the last occurrence of 'Tags:'
     tag_start = desc.lower().rfind('tags:')
     if tag_start == -1:
@@ -1284,7 +1286,7 @@ def extract_tags_from_desc(desc: str) -> list[str]:
     # extract the substring after 'Tags:'
     tags_str = desc[tag_start + len('tags:'):].strip()
     # split on commas and strip whitespace
-    tags = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+    tags = [tag.replace('\\n', '').strip() for tag in tags_str.split(',') if tag.strip()]
     return tags
 
 def test_parser():
