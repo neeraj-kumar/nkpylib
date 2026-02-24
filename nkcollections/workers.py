@@ -657,28 +657,67 @@ class CollectionsWorker(BackgroundWorker):
         """
         all_ids = self._get_all_image_ids()
         run_likes_inference(all_ids=all_ids)
-        run_tags_inference(all_ids=all_ids)
+        #run_tags_inference(all_ids=all_ids) #FIXME
 
-    def run_tags_inference(self, all_ids: list[int]|None=None) -> None:
+    def run_tags_inference(self, all_ids: list[int]|None=None, max_tags: int=10) -> None:
         """Runs inference for the tags classifiers on items that don't have scores yet.
 
-        - Check the list of done classifications per tag (read from the lmdb)
+        If `max_tags` > 0, then only runs inference for upto that many tags (skipping those that
+        have no updates). This is not so much for memory usage (although that also if you're running
+        for the first time on lots of items * lots of tags), but because we don't actually update
+        the databases until we run inference on all tags (upto the max).
         """
         db = self.load_lmdb()
         tag_keys = self.tag_keys
-        logger.info(f'Got {len(tag_keys)} tag classifiers in lmdb: {list(tag_keys.items())[:5]}')
+        logger.debug(f'Got {len(tag_keys)} tag classifiers in lmdb: {list(tag_keys.items())[:5]}')
         if all_ids is None:
             all_ids = self._get_all_image_ids()
-        logger.info(f'Got {len(all_ids)} ids with embeddings for inference: {all_ids[:5]}')
+        logger.debug(f'Got {len(all_ids)} ids with embeddings for inference: {all_ids[:5]}')
         all_ids = set(all_ids)
+        scores_by_id_tag = defaultdict(dict)
+        done_by_tag = {}
+        # create tqdm progress bar that we can update
+        bar = tqdm(total=len(tag_keys), desc='Running tags inference', unit='items')
         for tag, key in tag_keys.items():
             md = db.md_get(key)
             done = set(md.get('done_ids', []))
-            logger.info(f'  For {tag}: {len(done)} done')
-            if done >= all_ids: # all classified
+            bar.set_postfix_str(f'Tag "{tag}": {len(done)} done')
+            bar.update(1)
+            #logger.info(f'  For tag "{tag}": {len(done)} done')
+            to_cls = all_ids - done
+            if not to_cls:
                 continue
-            break
-
+            # run classifier
+            cls_path = join(self.classifiers_dir, f'tags-{self.image_suffix}/{tag}.joblib')
+            result = self.load_and_run_classifier(ids=to_cls, path=cls_path)
+            if result['items_classified'] == 0:
+                continue
+            scores = result.pop('new_scores')
+            #bar.set_postfix_str(f'  Got tag result {result}')
+            # update scores and done by item id
+            done_by_tag[tag] = done
+            for id, v in scores.items():
+                done_by_tag[tag].add(id)
+                if v > 0:
+                    scores_by_id_tag[id][tag] = v
+            if max_tags > 0 and len(done_by_tag) >= max_tags:
+                break
+        # update scores in sql
+        tag_key = f'{self.image_suffix}_tags'
+        logger.info(f'  Updating scores for {len(scores_by_id_tag)} items in sql with tag key "{tag_key}"')
+        with db_session:
+            for id, tag_scores in scores_by_id_tag.items():
+                item = Item[id]
+                #logger.info(f'  Updating item {id} {tag_key} with tags {tag_scores}')
+                md_tag_scores = item.md.get(tag_key, {})
+                md_tag_scores.update(tag_scores)
+                item.md[tag_key] = md_tag_scores
+        # update done ids in lmdb
+        logger.info(f'  Updating lmdb with done ids for {len(done_by_tag)} tags')
+        for tag, done in done_by_tag.items():
+            #logger.info(f'  Updating lmdb for tag {tag} with {len(done)} done ids')
+            db.md_update(self.tag_keys[tag], done_ids=sorted(done))
+        db.sync()
 
 
     def run_likes_inference(self, all_ids: list[int]|None=None) -> None:
@@ -701,7 +740,9 @@ class CollectionsWorker(BackgroundWorker):
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
             if not unclassified_ids:
                 return
-            result = self._run_inference_blocking(unclassified_ids)
+            # run classification and rescoring
+            result = self.load_and_run_classifier(ids=unclassified_ids, path=self.likes_classifier_path)
+            result['new_scores'] = self.rescore(result['new_scores'], list(self.last['pos_ids']))
             # Update scores if successful
             if result['status'] == 'inference_completed':
                 self.like_scores.update(result['new_scores'])
@@ -726,35 +767,25 @@ class CollectionsWorker(BackgroundWorker):
             logger.error(f"Error running inference: {e}")
             traceback.print_exc()
 
-    def _run_inference_blocking(self, unclassified_ids: list[int]) -> dict[str, Any]:
-        """The blocking part of inference that runs in a thread pool."""
-        try:
-            # Load the classifier
-            saved_data = self.embs.load_classifier(self.likes_classifier_path)
-            classifier = saved_data['classifier']
-            to_cls = [f'{id}:{self.image_suffix}' for id in unclassified_ids]
-            # Get embeddings and run inference+rescoring
-            self.embs.reload_keys()
-            t0 = time.time()
-            new_scores = self.embs.run_classifier(to_cls=to_cls,
-                                                  classifier=classifier,
-                                                  scaler=saved_data.get('scaler', None),
-                                                  sampler=saved_data.get('sampler', None))
-            new_scores = {key.split(':')[0]: score for key, score in new_scores.items()}
-            t1 = time.time()
-            new_scores = self.rescore(new_scores, list(self.last['pos_ids']))
-            return dict(
-                status='inference_completed',
-                classifier_version=self.last['classifier_version'],
-                items_classified=len(new_scores),
-                inference_time=t1-t0,
-                new_scores=new_scores
-            )
-
-        except Exception as e:
-            logger.error(f"Error in blocking inference: {e}")
-            traceback.print_exc()
-            return dict(status='error', error=str(e))
+    def load_and_run_classifier(self, ids: list[int], path: str) -> dict[str, Any]:
+        """Loads and run classifier at `path`"""
+        saved_data = self.embs.load_classifier(path)
+        to_cls = [f'{id}:{self.image_suffix}' for id in ids]
+        self.embs.reload_keys()
+        t0 = time.time()
+        new_scores = self.embs.run_classifier(to_cls=to_cls,
+                                              classifier=saved_data['classifier'],
+                                              scaler=saved_data.get('scaler', None),
+                                              sampler=saved_data.get('sampler', None))
+        new_scores = {int(key.split(':')[0]): score for key, score in new_scores.items()}
+        t1 = time.time()
+        return dict(
+            status='inference_completed',
+            classifier_version=saved_data.get('classifier_version', saved_data['created_at']),
+            items_classified=len(new_scores),
+            inference_time=t1-t0,
+            new_scores=new_scores
+        )
 
     def gen_benchmark_set(self, name: str='', **kw):
         """Generate a benchmark set based on likes.
@@ -1019,9 +1050,9 @@ class CollectionsWorker(BackgroundWorker):
                     **cls_kw
                 )
                 # Save classifier
-                likes_classifier_path = join(self.classifiers_dir, f'tags-{id_suffix}/{tag}.joblib')
+                classifier_path = join(self.classifiers_dir, f'tags-{id_suffix}/{tag}.joblib')
                 saved_classifier = self.embs.save_classifier(
-                    likes_classifier_path,
+                    classifier_path,
                     classifier,
                     tag=tag,
                     pos_count=len(pos_keys),
@@ -1032,7 +1063,7 @@ class CollectionsWorker(BackgroundWorker):
                     **other_stuff,
                     **cls_kw
                 )
-                logger.info(f'Saved likes classifier for tag {tag} to {likes_classifier_path}')
+                logger.info(f'Saved likes classifier for tag {tag} to {classifier_path}')
             except Exception as e:
                 logger.error(f'Error training classifier for tag {tag}: {e}')
                 print(traceback.format_exc())
