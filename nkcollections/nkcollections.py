@@ -8,6 +8,7 @@
 #TODO remove bad images
 #TODO diversity on likes classifier?
 #TODO handle reblog keys
+#TODO text search of images, users
 #TODO put tags in sql
 #TODO   get tag list from descs
 #TODO   aggregate to user

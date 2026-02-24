@@ -908,8 +908,8 @@ class CollectionsWorker(BackgroundWorker):
         self.embs.reload_keys()
         available_keys = set(self.embs.get_keys())
         # For each valid tag, train a classifier
-        for tag in valid_tags:
-            logger.info(f'Training classifier for tag: {tag}')
+        for i, tag in enumerate(valid_tags):
+            logger.info(f'Training classifier {i+1}/{len(valid_tags)} for tag: {tag}')
             # Get positive examples (items with this tag that have embeddings)
             pos_item_ids = [item_id for item_id, tags in item_tags.items() if tag in tags]
             pos_keys = [f'{item_id}:{id_suffix}' for item_id in pos_item_ids]
