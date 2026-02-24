@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import csv
+import glob
 import json
 import logging
 import os
@@ -44,11 +45,11 @@ from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ign
 from tornado.web import RequestHandler
 from tqdm import tqdm
 
-from nkpylib.ml.client import embed_image
+from nkpylib.ml.client import embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import Item, Rel, Source, ret_immediate, ACTIONS
+from nkpylib.nkcollections.model import Item, Rel, Source, ret_immediate, ACTIONS, J
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async, background_task
@@ -585,10 +586,13 @@ class CollectionsWorker(BackgroundWorker):
     def _load_and_run_initial_inference(self) -> None:
         """Load existing classifiers on initialization and populate scores from saved data.
 
-        This first loads the likes classifier
+        This first loads the likes classifier and loads scores from it if available.
+        Then loads all tags classifiers and checks if they're in lmdb already or not, and if not,
+        adds them.
         """
+        # load the likes classifier
         try:
-            saved_data = self.embs.load_and_setup_classifier(self.likes_classifier_path)
+            saved_data = self.embs.load_classifier(self.likes_classifier_path)
             pos_ids = [int(id) for id in saved_data.get('pos_ids', [])]
             self.last.update({
                 'saved_classifier': saved_data,
@@ -602,9 +606,47 @@ class CollectionsWorker(BackgroundWorker):
             # note that these have already been rescored, so we don't redo it.
             # Also update pos_count from saved data
             self.last['pos_count'] = saved_data.get('pos_count', len(pos_ids))
-            logger.info(f"Loaded existing classifier v{self.last['classifier_version']} with {len(self.like_scores)} scores, {self.last['pos_count']} pos examples")
+            logger.info(f"Loaded existing likes classifier v{self.last['classifier_version']} with {len(self.like_scores)} scores, {self.last['pos_count']} pos examples")
         except Exception as e:
-            logger.warning(f"Failed to load existing classifier: {e}\n{traceback.format_exc()}")
+            logger.warning(f"Failed to load existing likes classifier: {e}\n{traceback.format_exc()}")
+        # deal with tags classifiers
+        cls_paths = glob.glob(join(self.classifiers_dir, f'tags-{self.image_suffix}/*.joblib'))
+        logger.info(f'Got {len(cls_paths)} tag clses: {cls_paths[:5]}')
+        todo = []
+        # build up list of tags to add to lmdb
+        for path in cls_paths:
+            data = self.embs.load_classifier(path)
+            tag = data['tag']
+            # delete some fields we don't want to save in lmdb
+            for field in 'classifier scaler scores total_classified'.split():
+                if field in data:
+                    del data[field]
+            version = data['version'] = str(data.get('created_at', os.path.getmtime(path)))
+            logger.debug(f'For tag {tag} read {data}')
+            # now fetch lmdb data and compare versions
+            key = f'tags:{tag}'
+            assert len(self.embs.inputs) == 1 and isinstance(self.embs.inputs[0], NumpyLmdb), "Expecting exactly one NumpyLmdb input for tag embeddings"
+            db = NumpyLmdb.open(self.embs.inputs[0].path, flag='c')
+            cur = db.get(key, None)
+            md = db.md_get(key)
+            logger.debug(f'  Read emb {cur}, md {md}')
+            if cur is None or not md or md['version'] != version:
+                todo.append((tag, data, key, version))
+        if not todo:
+            return
+        # actually add tags to lmdb
+        model = 'qwen_emb'
+        emb_futures = {row[0]: embed_text.single_future(row[0], model=model) for row in todo}
+        for tag, data, key, version in todo:
+            try:
+                emb = emb_futures[tag].result()
+            except Exception:
+                emb = []
+            logger.info(f'  Updating lmdb for tag {tag} with version {version}: {emb[:5]}')
+            db[key] = emb
+            db.md_set(key, **data)
+        db.sync()
+
 
     def run_inference(self) -> dict[str, Any]:
         """Run inference using the last classifier on items that haven't been classified by it.
@@ -660,7 +702,7 @@ class CollectionsWorker(BackgroundWorker):
         """The blocking part of inference that runs in a thread pool."""
         try:
             # Load the classifier
-            saved_data = self.embs.load_and_setup_classifier(self.likes_classifier_path)
+            saved_data = self.embs.load_classifier(self.likes_classifier_path)
             classifier = saved_data['classifier']
             to_cls = [f'{id}:{self.image_suffix}' for id in unclassified_ids]
             # Get embeddings and run inference+rescoring

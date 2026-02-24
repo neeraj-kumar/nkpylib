@@ -1306,6 +1306,7 @@ def extract_tags_from_desc(desc: str) -> set[str]:
     ]
     for old, new in to_replace:
         tags = [tag.replace(old, new) for tag in tags]
+    #TODO do we want to collapse singular and plurals?
     tags = {tag.strip() for tag in tags if tag.strip()}
     return tags
 
