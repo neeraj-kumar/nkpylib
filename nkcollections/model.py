@@ -132,6 +132,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     children = Set('Item', reverse='parent') # type: ignore[var-annotated]
     rel_srcs = Set('Rel', reverse='src') # type: ignore[var-annotated]
     rel_tgts = Set('Rel', reverse='tgt') # type: ignore[var-annotated]
+    scores = Set('Score', reverse='id') # type: ignore[var-annotated]
 
     @classmethod
     def get_me(cls):
@@ -307,6 +308,18 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                         md.update(rel.md)
                     rel_dicts.append(md)
                 R[rtype] = rel_dicts
+
+
+class Score(sql_db.Entity, GetMixin): # type: ignore[name-defined]
+    """Scores for items of various types"""
+    id = Required(Item) # type: ignore[var-annotated]
+    tag = Required(str)
+    score = Required(float, index=True)
+    ts = Required(float, default=lambda: time.time())
+    version = Required(str, default=lambda: '', index=True)
+    md = Optional(Json)
+    PrimaryKey(id, tag)
+    #composite_index(id, tag, score) # can't do this in pony, but sqlite does it
 
 
 class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
