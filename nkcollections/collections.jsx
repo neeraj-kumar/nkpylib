@@ -1,10 +1,8 @@
 /* NK Collections React App
  *
- * TODO searching by text should use the current source params and just modify that?
  * TODO use recent likes to determine how to prioritize feed
  * TODO add an overall diversity slider that modifies recency priorities?
  * TODO filter users by seen/recent/scored posts
- * TODO performance tuning sqlite
  * TODO send stream of important messages from server?
  * TODO likes toggle on page
  * TODO grouping by sim
@@ -2550,7 +2548,7 @@ const AppProvider = ({ children }) => {
     const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
     const sourceObj = JSON.parse(sourceStr);
     console.log('in search pos for', id, sourceObj, otype);
-    const toDel = ['offset', 'parent', 'ancestor'];
+    const toDel = ['offset', 'parent', 'ancestor', 'search', 'min_like'];
     switch(otype) {
       case 'image':
         toDel.push('source');

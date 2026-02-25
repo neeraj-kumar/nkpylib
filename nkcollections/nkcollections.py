@@ -1,17 +1,22 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO migrate like scores and tag scores to Score table
-#TODO faster search-by-example using intersection of sql + scores?
+#TODO async query builder
+#TODO decorator on query builder funcs to selectively turn on sql debug/exception handling/etc
+#TODO aggregate tags to user
+#TODO text search of users
+#TODO similar users
+#TODO   by similarity of their images/embeddings
+#TODO   by similarity of tags
+#TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
+#TODO better feature extraction pipeline
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers
 #TODO remove bad images
 #TODO diversity on likes classifier?
 #TODO handle reblog keys
-#TODO text search of images, users
-#TODO aggregate tags to user
 #TODO search texts queue
-#TODO transfer likes between related items
+#TODO transfer likes between related items?
 #TODO enrich queued posts separately to not delay get()
 #TODO global clustering?
 #TODO multiple searches
@@ -22,11 +27,6 @@
 #TODO propagate likes to source sites if possible
 #TODO import tumblr likes
 #TODO import google history
-#TODO similar users
-#TODO   by similarity of their images/embeddings
-#TODO   by similarity of tags
-#TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
-#TODO better feature extraction pipeline
 #TODO backups
 #TODO make cacheking allow checking for mtime when loading from file
 
@@ -250,7 +250,7 @@ Return only the JSON list, no other text."""
             return self
         logger.info(f'LLM parsed search into tags: {parsed_tags}')
         # Apply tag filters using SQL joins (OR logic - item must have ANY of the tags with score > min_score)
-        min_score = 0.8
+        min_score = 0.7
         ttype = f'tag:{IMAGE_SUFFIX}'
         if not self.converted_to_list:
             # Create OR condition for any of the tags with score > min_score

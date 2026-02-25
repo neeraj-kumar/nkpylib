@@ -71,7 +71,7 @@ def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:
     If `ids` is provided, limit to just those ids.
     """
     if ids is not None:
-        scores = (Score[int(id), LIKES_TTYPE, 'like'] for id in ids)
+        scores = (Score.get(id=int(id), ttype=LIKES_TTYPE, tag='like') for id in ids)
         scores = {s.id.id: s.score for s in scores if s}
     else:
         scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
@@ -206,8 +206,8 @@ class BackgroundWorker(abc.ABC):
             results.append(result)
         return results
 
-    @db_session(sql_debug=True)
-    def _compute_user_stats(self, user_id: int, item_ids: list[int]) -> dict[str, Any]:
+    @db_session(sql_debug=False)
+    def _compute_user_stats(self, user_id: int, item_ids: list[int], like_scores: dict[int, float]) -> dict[str, Any]:
         """Compute statistics for a specific `user_id`.
 
         This expects a list of item IDs that belong to the user to be passed in.
@@ -219,20 +219,15 @@ class BackgroundWorker(abc.ABC):
         timing['db_session_start'] = time.time() - t0
         t1 = time.time()
         # Get all items from this user
-        logger.info('getting user items')
         user_items = Item.select(lambda i: i.id in item_ids)[:]
         timing['user_items_query'] = time.time() - t1
         t2 = time.time()
         t3 = time.time()
         # Initialize counters
-        counts = Counter(ts=time.time())
+        counts = Counter()
         timing['init_counters'] = time.time() - t3
         t4 = time.time()
-        logger.info('getting like scores')
-        like_scores = [score for id, score in get_like_scores().items() if int(id) in item_ids]
-        timing['extract_like_scores'] = time.time() - t4
         t5 = time.time()
-        logger.info(f'processing {len(user_items)} user items')
         for item in user_items:
             t_item_start = time.time()
             # otype counts
@@ -256,21 +251,21 @@ class BackgroundWorker(abc.ABC):
         timing['item_loop_total'] = time.time() - t5
         t6 = time.time()
         # average like score
-        logger.info(f'like score stats')
-        counts['n_scored'] = len(like_scores)
-        counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
-        counts['n_pos_like_score'] = sum(1 for s in like_scores if s > 0)
+        likes = [score for id, score in like_scores.items() if int(id) in item_ids]
+        counts['n_scored'] = len(likes)
+        counts['avg_like_score'] = sum(likes) / len(likes) if likes else 0.0
+        counts['n_pos_like_score'] = sum(1 for s in likes if s > 0)
         timing['avg_score_calc'] = time.time() - t6
         # Count Score rows by tag for this user's items
-        logger.info(f'getting tags')
         t_tags = time.time()
         tag_counts = Counter()
-        score_rows = Score.select(lambda s: s.id.id in item_ids)
+        #score_rows = Score.select(lambda s: s.id.id in item_ids)
+        score_rows = Score.select(lambda s: s.id in user_items)
         for score_row in score_rows:
-            tag_counts[score_row.tag] += 1
+            if score_row.tag != 'like':
+                tag_counts[score_row.tag] += 1
         # Get top 5 tags
-        logger.info(f'tag stats')
-        top_tags = dict(tag_counts.most_common(5))
+        top_tags = dict(tag_counts.most_common(7))
         counts['top_tags'] = top_tags
         counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
         timing['tag_counting'] = time.time() - t_tags
@@ -310,7 +305,7 @@ class BackgroundWorker(abc.ABC):
         await Rel.handle_me_action(to_explore, 'explore')
         logger.info(f'Done exploring users')
 
-    def _update_user_stats(self, max_users:int=200) -> None:
+    def _update_user_stats(self, max_users:int=300) -> None:
         """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
 
         I'm tuning `max_users` to be under 30 secs.
@@ -330,6 +325,7 @@ class BackgroundWorker(abc.ABC):
         # first build a dict from user id to list of their item ids
         items_by_user = defaultdict(list)
         n_items = 0
+        all_item_ids = set()
         with db_session:
             items = Item.select(lambda i: i.otype in ('post', 'image', 'video'))
             items = items.filter(lambda i: i.parent and (i.parent.id in user_ids or (i.parent.parent and i.parent.parent.id in user_ids)))
@@ -338,16 +334,29 @@ class BackgroundWorker(abc.ABC):
                 if not user or user.id not in user_ids:
                     continue
                 items_by_user[user.id].append(item.id)
+                all_item_ids.add(item.id)
                 n_items += 1
-        logger.info(f'Starting to get stats for {len(user_ids)} users with {n_items} items')
+        user_ids = sorted(user_ids)
+        logger.info(f'Starting to get stats for {len(user_ids)} users with {n_items} items: {user_ids[:5]}')
+        # get like scores
+        like_scores = get_like_scores(ids=list(all_item_ids))
         for user_id in user_ids:
+            # first get current stats
+            with db_session:
+                user = Item[user_id]
+                if user.md is None:
+                    user.md = {}
+                cur_stats = dict(user.md.get('stats', {}))
             try:
-                stats = self._compute_user_stats(user_id, items_by_user[user_id])
+                if items_by_user[user_id]: # only compute stats if they have items
+                    stats = self._compute_user_stats(user_id, items_by_user[user_id], like_scores=like_scores)
+                else:
+                    stats = cur_stats
+                # now update user with computed stats
                 with db_session:
                     user = Item[user_id]
-                    # Update user's metadata with computed stats
-                    if user.md is None:
-                        user.md = {}
+                    # set current timestamp
+                    stats['ts'] = time.time()
                     # add the queued reblogs
                     stats['n_queued_reblogs'] = user.md.get('n_queued_reblogs', 0)
                     user.md['stats'] = stats
@@ -438,10 +447,10 @@ class CollectionsWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
-                    #run_async(self._explore_users())
-                    #run_async(self._handle_user_actions())
+                    run_async(self._explore_users())
+                    run_async(self._handle_user_actions())
                     self._update_user_stats()
-                    #self._update_classifier()
+                    self._update_classifier()
                 except Exception as e:
                     logger.error(f"Error in process_task: {e}")
                     print(traceback.format_exc())
