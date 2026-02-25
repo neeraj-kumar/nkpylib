@@ -250,6 +250,19 @@ class BackgroundWorker(abc.ABC):
             counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
             counts['n_pos_like_score'] = sum(1 for s in like_scores if s > 0)
             timing['avg_score_calc'] = time.time() - t6
+            
+            # Count Score rows by tag for this user's items
+            t_tags = time.time()
+            tag_counts = Counter()
+            score_rows = Score.select(lambda s: s.id.id in item_ids)
+            for score_row in score_rows:
+                tag_counts[score_row.tag] += 1
+            
+            # Get top 5 tags
+            top_tags = dict(tag_counts.most_common(5))
+            counts['top_tags'] = top_tags
+            counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
+            timing['tag_counting'] = time.time() - t_tags
             timing['total_function'] = time.time() - t0
             # Print top timing items
             formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
