@@ -66,6 +66,7 @@ from pony.orm import (
     Database,
     db_session,
     desc,
+    distinct,
     Json,
     Optional,
     PrimaryKey,
