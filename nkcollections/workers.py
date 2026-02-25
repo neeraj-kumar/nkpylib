@@ -686,7 +686,6 @@ class CollectionsWorker(BackgroundWorker):
         done_by_tag = {}
         ttype = f'tag:{self.image_suffix}'
         current_ts = time.time()
-        
         # Get existing scores from Score table to determine what's already been processed
         with db_session:
             existing_scores = {}
@@ -1104,55 +1103,3 @@ class CollectionsWorker(BackgroundWorker):
                 print(traceback.format_exc())
                 continue
         logger.info(f'Completed training tag classifiers for {len(valid_tags)} tags')
-
-    def convert_scores(self):
-        """One-off function to convert scores.
-
-        Currently they are stored in each Item.md under the key 'mn_image_tags' as dicts of
-        tag->score. We want to convert these to use the new Score table, which has this schema:
-
-        id = Required(Item)
-        ttype = Required(str)
-        tag = Required(str)
-        score = Required(float, index=True)
-        ts = Required(float, default=lambda: time.time())
-        md = Optional(Json)
-
-        So in this case, the ttype would be 'tag:mn_image', the tag and score are the keys and
-        values of the dict, the ts can be right now, and no md for now.
-        """
-        return #FIXME
-        logger.info('Converting tag scores from Item metadata to Score table')
-        ttype = f'tag:{self.image_suffix}'
-        tag_key = f'{self.image_suffix}_tags'
-        current_ts = time.time()
-        n_items_processed = 0
-        n_scores_created = 0
-        with db_session:
-            # Get all items that have tag scores in metadata
-            items_with_tags = Item.select(lambda i: i.md and tag_key in i.md)
-            for item in tqdm(items_with_tags, desc='Converting tag scores'):
-                del item.md[tag_key]
-                continue
-                tag_scores = item.md.get(tag_key, {})
-                if not tag_scores or not isinstance(tag_scores, dict):
-                    continue
-                n_items_processed += 1
-                for tag, score in tag_scores.items():
-                    if not isinstance(score, (int, float)):
-                        logger.warning(f'Skipping non-numeric score for item {item.id}, tag {tag}: {score}')
-                        continue
-                    # Create new Score entry
-                    Score(
-                        id=item,
-                        ttype=ttype,
-                        tag=tag,
-                        score=float(score),
-                        ts=current_ts
-                    )
-                    n_scores_created += 1
-                # Optionally remove the tag scores from metadata after conversion
-                # Uncomment the next line if you want to clean up the old format
-        logger.info(f'Score conversion completed:')
-        logger.info(f'  Items processed: {n_items_processed}')
-        logger.info(f'  New scores created: {n_scores_created}')
