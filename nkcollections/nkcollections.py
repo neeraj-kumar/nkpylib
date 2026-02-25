@@ -90,6 +90,319 @@ from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_req
 
 logger = logging.getLogger(__name__)
 
+
+class QueryBuilder:
+    """Builds database queries from filter parameters with a fluent interface."""
+    
+    def __init__(self, embs: Embeddings):
+        self.embs = embs
+        self.query: Query = Item.select()
+        self.converted_to_list = False
+        self.needs_ordering = True
+        self.manual_reverse = False
+        self.filters_applied: list[str] = []
+    
+    @classmethod
+    def create(cls, embs: Embeddings) -> 'QueryBuilder':
+        """Factory method to create a new QueryBuilder."""
+        return cls(embs)
+    
+    def build(self, kw: dict[str, Any]) -> Query|list:
+        """Main build method with fluent chaining."""
+        logger.info(f'Building query with filters: {kw}')
+        
+        return (self
+                .apply_basic_filters(kw)
+                .apply_relationship_filters(kw)
+                .apply_numeric_filters(kw)
+                .apply_rel_filters(kw)
+                .apply_score_filters(kw)
+                .apply_ordering(kw)
+                .apply_pagination(kw)
+                .finalize())
+    
+    def apply_basic_filters(self, kw: dict) -> 'QueryBuilder':
+        """Apply string and simple field filters."""
+        if self.converted_to_list:
+            return self
+            
+        # Handle IDs
+        if 'ids' in kw:
+            ids = self._parse_ids_parameter(kw['ids'])
+            self.query = self.query.filter(lambda c: c.id in ids)
+            self.filters_applied.append('ids')
+        
+        # Handle string fields
+        string_fields = ['source', 'stype', 'otype', 'url', 'name']
+        for field in string_fields:
+            if field in kw:
+                value = kw[field]
+                if isinstance(value, list):
+                    self.query = self.query.filter(lambda c: getattr(c, field) in value)
+                else:
+                    self.query = self.query.filter(lambda c: getattr(c, field) == value)
+                self.filters_applied.append(field)
+        
+        return self
+    
+    def apply_relationship_filters(self, kw: dict) -> 'QueryBuilder':
+        """Apply parent/ancestor/same_user filters."""
+        if self.converted_to_list:
+            return self
+            
+        if 'parent' in kw:
+            parent_id = int(kw['parent'])
+            self.query = self.query.filter(lambda c: c.parent and c.parent.id == parent_id)
+            self.filters_applied.append('parent')
+        
+        if 'ancestor' in kw:
+            ancestor_id = int(kw['ancestor'])
+            self.query = self.query.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
+            self.filters_applied.append('ancestor')
+        
+        if 'same_user' in kw:
+            ancestor_id = self._resolve_same_user_ancestor(kw['same_user'])
+            if ancestor_id:
+                self.query = self.query.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
+                self.filters_applied.append('same_user')
+        
+        if 'mn' in kw:
+            self.query = self.query.filter(lambda c: c.md['like-benchmark-20260207'])
+            self.filters_applied.append('mn')
+        
+        return self
+    
+    def apply_numeric_filters(self, kw: dict) -> 'QueryBuilder':
+        """Apply numeric field filters with operators."""
+        if self.converted_to_list:
+            return self
+            
+        numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
+        for field in numeric_fields:
+            if field not in kw:
+                continue
+                
+            value = kw[field]
+            if isinstance(value, str):
+                operator, threshold = self._parse_numeric_operator(value)
+                self.query = self._apply_numeric_operator(self.query, field, operator, threshold)
+            else:
+                self.query = self.query.filter(lambda c: getattr(c, field) == value)
+            self.filters_applied.append(field)
+        
+        return self
+    
+    def apply_rel_filters(self, kw: dict) -> 'QueryBuilder':
+        """Apply relationship-based filters."""
+        if self.converted_to_list:
+            return self
+            
+        rel_filters = {k: v for k, v in kw.items() if k.startswith('rels.')}
+        if rel_filters:
+            me = Item.get_me()
+            for filter_key, filter_value in rel_filters.items():
+                parts = filter_key.split('.')
+                if len(parts) < 2:
+                    continue
+                rtype = parts[1]
+                
+                if len(parts) == 2:
+                    # Simple existence check
+                    if isinstance(filter_value, bool):
+                        if filter_value:
+                            self.query = self.query.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
+                        else:
+                            self.query = self.query.filter(lambda c: not pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
+                elif len(parts) == 3:
+                    # Property-based filter - need post-processing
+                    property_name = parts[2]
+                    if property_name in ['count', 'ts']:
+                        self.query = self.query.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
+                        if not hasattr(self.query, '_rel_property_filters'):
+                            self.query._rel_property_filters = []
+                        self.query._rel_property_filters.append((rtype, property_name, filter_value))
+                
+                self.filters_applied.append(filter_key)
+        
+        return self
+    
+    def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
+        """Apply ML-based filters (min_like, pos)."""
+        if not any(k in kw for k in ['min_like', 'pos']):
+            return self
+        
+        # Convert query to ID list for score-based filtering
+        if not self.converted_to_list:
+            if isinstance(self.query, Query):
+                self.query = self.query.without_distinct()
+            ids_only = [item.id for item in self.query]
+            self.query = ids_only
+            self.converted_to_list = True
+            logger.info(f'  Got {len(ids_only)} candidate ids for score filtering')
+        
+        if 'min_like' in kw:
+            min_like = float(kw['min_like'])
+            logger.info(f'Applying min_like filter: {min_like}')
+            scores = get_like_scores()
+            self.query = [id for id in self.query if scores.get(id, 0.0) >= min_like]
+            logger.info(f'  Filtered to {len(self.query)} items with min_like {min_like}')
+            self.filters_applied.append('min_like')
+        
+        if 'pos' in kw:
+            pos = kw['pos']
+            logger.info(f'Applying pos filter: {pos}')
+            self.embs.reload_keys()
+            
+            if kw.get('otype') == 'image':
+                sim = find_similar(pos, embs=self.embs, cur_ids=self.query)
+                scores = sim['scores']
+                min_score = min(scores.values()) if scores else 0.0
+                self.query = sorted(self.query, key=lambda id: scores.get(id, min_score-10), reverse=True)
+            elif kw.get('otype') == 'user':
+                sim = find_similar(pos, embs=self.embs, cur_ids=None)
+                logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
+                user_scores = self._aggregate_user_scores(sim['scores'], kw)
+                self.query = sorted(self.query, key=lambda id: user_scores.get(id, -10000), reverse=True)
+                logger.info(f'  Found {len(user_scores)} users with similarity scores: {Counter(user_scores).most_common(5)}')
+            
+            self.needs_ordering = False
+            self.filters_applied.append('pos')
+        
+        return self
+    
+    def apply_ordering(self, kw: dict) -> 'QueryBuilder':
+        """Apply ordering to the query."""
+        if not self.needs_ordering:
+            return self
+            
+        order_field = kw.get('order', '-id')
+        
+        if not self.converted_to_list:
+            # Query object ordering
+            if '[' in order_field:
+                if order_field.startswith('-'):
+                    self.manual_reverse = True
+                    order_field = order_field[1:]
+                self.query = eval(f'self.query.order_by({order_field})')
+            else:
+                if order_field.startswith('-'):
+                    self.query = self.query.order_by(lambda c: desc(getattr(c, order_field[1:])))
+                else:
+                    self.query = self.query.order_by(lambda c: getattr(c, order_field))
+        else:
+            # List ordering
+            if self.query and isinstance(self.query[0], int):
+                items = [Item[id] for id in self.query]
+            else:
+                items = self.query
+                
+            def key_func(item):
+                if '[' in order_field:
+                    return eval(f'item.{order_field}')
+                else:
+                    return getattr(item, order_field.lstrip('-'))
+            
+            items.sort(key=key_func, reverse=order_field.startswith('-'))
+            self.query = items
+        
+        return self
+    
+    def apply_pagination(self, kw: dict) -> 'QueryBuilder':
+        """Apply limit and offset."""
+        limit = int(kw.get('limit', 10000000))
+        offset = int(kw.get('offset', 0))
+        
+        if 'limit' in kw:
+            if self.manual_reverse:
+                # Fetch all items and reverse
+                if isinstance(self.query, Query):
+                    self.query = self.query[:]
+                    self.query = self.query[::-1]
+                self.query = self.query[offset:limit+offset]
+            else:
+                if isinstance(self.query, Query):
+                    self.query = self.query.limit(limit, offset=offset)
+                else:
+                    self.query = self.query[offset:limit+offset]
+        
+        return self
+    
+    def finalize(self) -> Query|list:
+        """Convert to final result format."""
+        if not isinstance(self.query, Query) and self.query and isinstance(self.query[0], int):
+            self.query = [Item[id] for id in self.query]
+        return self.query
+    
+    def _parse_ids_parameter(self, ids_value: Any) -> list[int]:
+        """Parse various formats of ids parameter into list of ints."""
+        if isinstance(ids_value, (int, str)):
+            if isinstance(ids_value, str):
+                return parse_num_spec(ids_value)
+            else:
+                return [ids_value]
+        elif isinstance(ids_value, list):
+            return [int(id) for id in ids_value]
+        else:
+            raise ValueError(f"Invalid ids parameter type: {type(ids_value)}")
+    
+    def _resolve_same_user_ancestor(self, item_id: int) -> int|None:
+        """Resolve same_user filter to actual ancestor ID."""
+        with db_session:
+            item = Item[int(item_id)]
+            user = item.get_closest(otype='user')
+            return user.id if user else None
+    
+    def _parse_numeric_operator(self, value: str) -> tuple[str, float]:
+        """Parse operator strings like '>=123', '<=456'."""
+        value = value.replace(' ', '')
+        for op in ['>=', '<=', '!=', '>', '<', '<>']:
+            if value.startswith(op):
+                return op, float(value[len(op):])
+        return '==', float(value)
+    
+    def _apply_numeric_operator(self, query: Query, field: str, operator: str, threshold: float) -> Query:
+        """Apply numeric operator to query."""
+        if operator == '>=':
+            return query.filter(lambda c: getattr(c, field) >= threshold)
+        elif operator == '<=':
+            return query.filter(lambda c: getattr(c, field) <= threshold)
+        elif operator == '!=':
+            return query.filter(lambda c: getattr(c, field) != threshold)
+        elif operator == '>':
+            return query.filter(lambda c: getattr(c, field) > threshold)
+        elif operator == '<':
+            return query.filter(lambda c: getattr(c, field) < threshold)
+        elif operator == '<>':
+            return query.filter(lambda c: getattr(c, field) is None)
+        else:  # '=='
+            return query.filter(lambda c: getattr(c, field) == threshold)
+    
+    def _aggregate_user_scores(self, image_scores: dict[int, float], kw: dict) -> dict[int, float]:
+        """Aggregate image scores by user for user similarity search."""
+        user_scores = Counter()
+        with db_session:
+            for image_id, score in image_scores.items():
+                image_item = Item[image_id]
+                user = image_item.get_closest(otype='user')
+                if user:
+                    if 'min_images' in kw:
+                        if 'stats' not in user.md:
+                            continue
+                        n_images = user.md['stats'].get('n_images', 0)
+                        if n_images < int(kw['min_images']):
+                            continue
+                    user_scores[user.id] += score
+        return dict(user_scores)
+    
+    def get_debug_info(self) -> dict:
+        """Get information about what filters were applied."""
+        return {
+            'filters_applied': self.filters_applied,
+            'converted_to_list': self.converted_to_list,
+            'needs_ordering': self.needs_ordering,
+            'query_type': type(self.query).__name__
+        }
+
 class CachedFileLoader(abc.ABC):
     """Base class for loading files with mtime-based caching.
 
@@ -192,236 +505,8 @@ class GetHandler(MyBaseHandler):
         - Use 'pos' to filter by similarity to a positive example (id or id list) using the embeddings.
           - We check otype to determine whether we want to return users or images
         """
-        logger.info(f'Building query with filters: {kw}')
-        t0 = time.time()
-        q: Any = Item.select()
+        return QueryBuilder.create(self.embs).build(kw)
 
-        # Handle rel-based filters first (they may need to modify the query significantly)
-        rel_filters = {k: v for k, v in kw.items() if k.startswith('rels.')}
-        if rel_filters:
-            q = self._apply_rel_filters(q, rel_filters)
-
-        # Handle ids parameter (number or list of numbers)
-        if 'ids' in kw:
-            ids_value = kw['ids']
-            if isinstance(ids_value, (int, str)):
-                # Single ID or num spec string
-                if isinstance(ids_value, str):
-                    ids = parse_num_spec(ids_value)
-                else:
-                    ids = [ids_value]
-            elif isinstance(ids_value, list):
-                # List of IDs
-                ids = [int(id) for id in ids_value]
-            else:
-                raise ValueError(f"Invalid ids parameter type: {type(ids_value)}")
-            q = q.filter(lambda c: c.id in ids)
-        # Handle string fields
-        string_fields = ['source', 'stype', 'otype', 'url', 'name']
-        for field in string_fields:
-            if field in kw:
-                value = kw[field]
-                if isinstance(value, list):
-                    q = q.filter(lambda c: getattr(c, field) in value)
-                else:
-                    q = q.filter(lambda c: getattr(c, field) == value)
-        # Handle parent field
-        if 'parent' in kw:
-            parent_id = int(kw['parent'])
-            q = q.filter(lambda c: c.parent and c.parent.id == parent_id)
-        if 'ancestor' in kw:
-            ancestor_id = int(kw['ancestor'])
-            def has_ancestor(c):
-                p = c.parent
-                while p:
-                    if p.id == ancestor_id:
-                        return True
-                    p = p.parent
-                return False
-
-            #q = q.filter(has_ancestor) #TODO doesn't work
-            # partial workaround (one-level up only)
-            q = q.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
-        if 'same_user' in kw:
-            item_id = int(kw['same_user'])
-            # Find the closest user for this item and use as ancestor
-            with db_session:
-                item = Item[item_id]
-                user = item.get_closest(otype='user')
-                if user:
-                    ancestor_id = user.id
-                    q = q.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
-        if 'mn' in kw:
-            q = q.filter(lambda c: c.md['like-benchmark-20260207'])
-        # Handle numeric fields
-        # TODO how to handle JSON fields (particularly md)?
-        numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
-        for field in numeric_fields:
-            if field in kw:
-                value = kw[field]
-                if isinstance(value, str): # Parse operator
-                    value = value.replace(' ', '')
-                    if value.startswith('>='):
-                        threshold = float(value[2:])
-                        q = q.filter(lambda c: getattr(c, field) >= threshold)
-                    elif value.startswith('<>'): # doesn't exist
-                        q = q.filter(lambda c: getattr(c, field) is None)
-                    elif value.startswith('<='):
-                        threshold = float(value[2:])
-                        q = q.filter(lambda c: getattr(c, field) <= threshold)
-                    elif value.startswith('!='):
-                        threshold = float(value[2:])
-                        q = q.filter(lambda c: getattr(c, field) != threshold)
-                    elif value.startswith('>'):
-                        threshold = float(value[1:])
-                        q = q.filter(lambda c: getattr(c, field) > threshold)
-                    elif value.startswith('<'):
-                        threshold = float(value[1:])
-                        q = q.filter(lambda c: getattr(c, field) < threshold)
-                    else: # No operator, treat as exact match
-                        q = q.filter(lambda c: getattr(c, field) == float(value))
-                else: # Exact match
-                    q = q.filter(lambda c: getattr(c, field) == value)
-        limit = int(kw.get('limit', 10000000))
-        offset = int(kw.get('offset', 0))
-        do_ordering = True
-        # score/ml-based filters
-        if 'min_like' in kw or 'pos' in kw:
-            logger.info(f'Applying score/ml-based filters to q: {q.get_sql()}')
-            # get only ids
-            if isinstance(q, Query):
-                q = q.without_distinct()
-            ids_only = [item.id for item in q]
-            logger.info(f'  Got {len(ids_only)} candidate ids')
-            # check for min_like score
-            if 'min_like' in kw:
-                min_like = float(kw['min_like'])
-                logger.info(f'Checking for min like')
-                scores = get_like_scores()
-                out_ids = [id for id in ids_only if scores.get(id, 0.0) >= min_like]
-                logger.info(f'  Filtered from {len(ids_only)} -> {len(out_ids)} items with min_like {min_like}')
-            # check for sorting by pos
-            if 'pos' in kw:
-                pos = kw['pos']
-                logger.info(f'Finding similar from {pos} to {len(ids_only)}')
-                self.embs.reload_keys()
-                if kw['otype'] == 'image':
-                    sim = find_similar(pos, embs=self.embs, cur_ids=ids_only)
-                    scores = sim['scores']
-                    min_score = min(scores.values()) if scores else 0.0
-                    out_ids = sorted(ids_only, key=lambda id: scores.get(id, min_score-10), reverse=True)
-                elif kw['otype'] == 'user':
-                    # check similarity from pos to all images
-                    sim = find_similar(pos, embs=self.embs, cur_ids=None)
-                    logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
-                    # accumulate scores by user id, adding up scores of their images
-                    user_scores = Counter()
-                    with db_session:
-                        for image_id, score in sim['scores'].items():
-                            #if score < 0: continue
-                            image_item = Item[image_id]
-                            user = image_item.get_closest(otype='user')
-                            if user:
-                                if 'min_images' in kw:
-                                    if 'stats' not in user.md:
-                                        continue
-                                    n_images = user.md['stats'].get('n_images', 0)
-                                    #logger.info(f'User {user.id} has {n_images} images vs min_images {kw["min_images"]}')
-                                    if n_images < int(kw['min_images']):
-                                        continue
-                                user_scores[user.id] += score
-                    out_ids = sorted(ids_only, key=lambda id: user_scores.get(id, -10000), reverse=True)
-                    logger.info(f'  Found {len(user_scores)} users with similarity scores: {user_scores.most_common(5)}, {out_ids[:5]}')
-                do_ordering = False
-            q = out_ids
-        manual_reverse = False
-        if do_ordering: # if we haven't already ordered by a score-based method
-            # order value will be a field name, optionally prefixed by - for descending
-            order_field = kw.get('order', '-id')
-            if isinstance(q, Query): # for query objects
-                if '[' in order_field: # JSON access, so do it via an eval() call
-                    if order_field.startswith('-'):
-                        # using desc() does not work for JSON field ordering
-                        manual_reverse = True
-                        order_field = order_field[1:]
-                    q = eval(f'q.order_by({order_field})')
-                else:
-                    if order_field.startswith('-'):
-                        q = q.order_by(lambda c: desc(getattr(c, order_field[1:])))
-                    else:
-                        q = q.order_by(lambda c: getattr(c, order_field))
-            else: # the query is a list of items/objects
-                if q and isinstance(q[0], int):
-                    q = [Item[id] for id in q]
-                def key_func(item):
-                    if '[' in order_field:
-                        return eval(f'item.{order_field}')
-                    else:
-                        return getattr(item, order_field.lstrip('-'))
-
-                q.sort(key=key_func, reverse=order_field.startswith('-'))
-            t1 = time.time()
-            if manual_reverse: # fetch all items, reverse
-                q = q[:]
-                q = q[::-1]
-        # if there was a limit parameter, set it
-        if 'limit' in kw:
-            if manual_reverse: # we've already fetched items and reversed them, so just limit
-                q = q[offset:limit+offset]
-            else:
-                if isinstance(q, Query):
-                    q = q.limit(limit, offset=offset)
-                else:
-                    q = q[offset:limit+offset]
-        t2 = time.time()
-        # now convert ids to full items, if needed
-        if not isinstance(q, Query) and q and isinstance(q[0], int):
-            q = [Item[id] for id in q]
-        #logger.info(f'Built query in {t1 - t0:.3f}s, applied limit in {t2 - t1:.3f}s, output type: {type(q)}')
-        #print(f'q2: {q}')
-        return q
-
-    @db_session
-    def _apply_rel_filters(self, q: Query, rel_filters: dict[str, Any]) -> Query:
-        """Apply rel-based filters to the query.
-
-        Handles filters like:
-        - rels.like=True/False (existence)
-        - rels.queue.count>=2 (rel metadata)
-        - rels.queue.ts>1234567890 (rel timestamp)
-        """
-        me = Item.get_me()
-        for filter_key, filter_value in rel_filters.items():
-            # Parse the filter key: rels.{rtype}[.{property}]
-            parts = filter_key.split('.')
-            if len(parts) < 2:
-                continue
-            rtype = parts[1]  # e.g., 'like', 'queue'
-            if len(parts) == 2:
-                # Simple existence check: rels.like=True/False
-                if isinstance(filter_value, bool):
-                    if filter_value:
-                        # Must have this rel type
-                        q = q.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
-                    else:
-                        # Must NOT have this rel type
-                        q = q.filter(lambda c: not pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
-            elif len(parts) == 3:
-                # Property-based filter: rels.queue.count>=2
-                property_name = parts[2]  # e.g., 'count', 'ts'
-
-                # For complex rel filters, we need to post-process since we can't easily
-                # filter on processed rel data in the SQL query. We'll get candidate items
-                # that have the rel type, then filter in Python.
-                if property_name in ['count', 'ts']:
-                    # First filter to items that have this rel type
-                    q = q.filter(lambda c: pony_exists(Rel.select(lambda r: r.src == me and r.tgt == c and r.rtype == rtype)))
-
-                    # Store the property filter for post-processing
-                    if not hasattr(q, '_rel_property_filters'):
-                        q._rel_property_filters = []
-                    q._rel_property_filters.append((rtype, property_name, filter_value))
-        return q
 
     @classmethod
     @timed
