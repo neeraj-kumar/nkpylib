@@ -49,7 +49,7 @@ from nkpylib.ml.client import embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import Item, Rel, Source, ret_immediate, ACTIONS, J
+from nkpylib.nkcollections.model import Item, Rel, Score, Source, ret_immediate, ACTIONS, J
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async, background_task
@@ -1083,3 +1083,20 @@ class CollectionsWorker(BackgroundWorker):
                 print(traceback.format_exc())
                 continue
         logger.info(f'Completed training tag classifiers for {len(valid_tags)} tags')
+
+    def convert_scores(self):
+        """One-off function to convert scores.
+
+        Currently they are stored in each Item.md under the key 'mn_image_tags' as dicts of
+        tag->score. We want to convert these to use the new Score table, which has this schema:
+
+        id = Required(Item)
+        ttype = Required(str)
+        tag = Required(str)
+        score = Required(float, index=True)
+        ts = Required(float, default=lambda: time.time())
+        md = Optional(Json)
+
+        So in this case, the ttype would be 'tag:mn_image', the tag and score are the keys and
+        values of the dict, the ts can be right now, and no md for now.
+        """
