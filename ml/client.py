@@ -311,7 +311,7 @@ def llm_final_func(resp):
     if 'choices' not in resp:
         resp.pop('prompts', None)
         resp.pop('messages', None)
-        resp.pop('timing')
+        resp.pop('timing', None)
         raise ValueError(f"Invalid response from LLM server: {resp}")
     if not resp['choices']:
         raise ValueError(f"No choices in response from LLM server: {resp}")
