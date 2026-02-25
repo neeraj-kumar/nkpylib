@@ -927,7 +927,6 @@ const VideoOverlay = ({videoUrl, onClick}) => {
 
 const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
   const [showVideo, setShowVideo] = React.useState(false);
-  
   if (showVideo && videoUrl) {
     return (
       <div style={{position: 'relative'}}>
@@ -1217,7 +1216,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
 
 const Obj = (props) => {
   const ctx = React.useContext(AppContext);
-  let {id, otype, url, md, score, rels, source, media_blocks, detailed} = props;
+  let {id, otype, url, md, score, rels, scores, source, media_blocks, detailed} = props;
   media_blocks = media_blocks || [];
   //console.log('Obj', id, otype, score, props);
   const liked = Boolean(rels.like);
@@ -1229,7 +1228,6 @@ const Obj = (props) => {
   }
   const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
   const PostContentRenderer = window[rendererName]
-
 
   // Media carousel state
   const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
