@@ -171,7 +171,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
         - if this item is a user, then we add fields 'compact' and 'detailed" with
           strings of what to display
 
-        We also deal with rels by calling `rels_for_web`
+        We also deal with rels by calling `rels_for_web` and scores with `scores_for_web`.
         """
         # add local image path if we have it
         if self.otype == 'image' and self.embed_ts and self.embed_ts > 0:
@@ -227,6 +227,7 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             r['compact'] = compact
             #r['detailed'] = detailed
         self.rels_for_web(r)
+        self.scores_for_web(r)
         # call the source-specific version of this function
         source = Source._registry.get(self.source)
         if source:
@@ -287,17 +288,28 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
                     rel_dicts.append(md)
                 R[rtype] = rel_dicts
 
+    def scores_for_web(self, r: dict[str, Any]) -> None:
+        """Deal with scores for web representation.
+
+        This fetches scores for this item and adds a 'scores' sub-dict to `r` with keys being the
+        ttype:tag and values being dicts with 'score', 'ts', and any metadata.
+        """
+        S = r['scores'] = {}
+        for score in self.scores.select():
+            cur = S.setdefault(score.ttype, {})
+            cur[score.tag] = score.score
+
 
 class Score(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     """Scores for items of various types"""
     id = Required(Item) # type: ignore[var-annotated]
+    ttype = Required(str)
     tag = Required(str)
     score = Required(float, index=True)
     ts = Required(float, default=lambda: time.time())
-    version = Required(str, default=lambda: '', index=True)
     md = Optional(Json)
-    PrimaryKey(id, tag)
-    #composite_index(id, tag, score) # can't do this in pony, but sqlite does it
+    PrimaryKey(id, ttype, tag)
+    #composite_index(id, ttype, tag, score) # can't do this in pony, but sqlite does it
 
 
 class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]
