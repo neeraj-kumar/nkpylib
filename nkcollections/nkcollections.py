@@ -92,6 +92,14 @@ from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_req
 
 logger = logging.getLogger(__name__)
 
+@cache
+def get_all_tags() -> list[str]:
+    """Get all available tags from Score table."""
+    logger.info(f'Getting all tags')
+    with db_session:
+        all_tags = sorted(set(select(s.tag for s in Score if s.ttype.startswith('tag:'))))
+    return all_tags
+
 
 class QueryBuilder:
     """Builds database queries from filter parameters with a fluent interface."""
@@ -212,27 +220,20 @@ class QueryBuilder:
                 self.filters_applied.append(filter_key)
         return self
 
-    @cache
-    def get_all_tags(self) -> list[str]:
-        """Get all available tags from Score table."""
-        with db_session:
-            all_tags = sorted(set(select(s.tag for s in Score if s.ttype.startswith('tag:'))))
-        return all_tags
-
     def apply_search_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply search-based filters using LLM tag parsing."""
         search_query = kw.get('search', '').strip()
         if not search_query:
             return self
         logger.info(f'Applying search filter: {search_query}')
-        all_tags = self.get_all_tags()
+        all_tags = get_all_tags()
         if not all_tags:
             logger.warning('No tags found in Score table for search')
             return self
         # Use LLM to parse search query into relevant tags
         prompt = f"""Given this search query: "{search_query}"
 
-Return a JSON list of tags from the following available tags that best match what the user is searching for. Only return tags that are directly relevant to the search query. If no tags match, return an empty list.
+Return a JSON list of tags from the following available tags that best match what the user is searching for. Only return tags that are directly relevant to the search query, and a minimal set. If no tags match, return an empty list.
 
 Available tags: {', '.join(all_tags)}
 
@@ -250,12 +251,13 @@ Return only the JSON list, no other text."""
         logger.info(f'LLM parsed search into tags: {parsed_tags}')
         # Apply tag filters using SQL joins (OR logic - item must have ANY of the tags with score > min_score)
         min_score = 0.8
+        ttype = f'tag:{IMAGE_SUFFIX}'
         if not self.converted_to_list:
             # Create OR condition for any of the tags with score > min_score
             self.query = self.query.filter(lambda item:
                 pony_exists(select(s for s in Score
                                  if s.id == item and
-                                   s.ttype == f'tag:{IMAGE_SUFFIX}' and
+                                   s.ttype == ttype and
                                    s.tag in parsed_tags and
                                    s.score > min_score)))
             self.filters_applied.append('search')
@@ -265,7 +267,7 @@ Return only the JSON list, no other text."""
             filtered_ids = set()
             for tag in parsed_tags:
                 with db_session:
-                    tag_item_ids = {s.id.id for s in Score.select(lambda s: s.ttype.startswith('tag:') and s.tag == tag and s.score > min_score)}
+                    tag_item_ids = {s.id.id for s in Score.select(lambda s: s.ttype == ttype and s.tag == tag and s.score > min_score)}
                 filtered_ids |= tag_item_ids
 
             self.query = [id for id in self.query if id in filtered_ids]
@@ -551,24 +553,6 @@ class MyBaseHandler(BaseHandler):
 class GetHandler(MyBaseHandler):
     @db_session(sql_debug=True, show_values=True)
     def build_query(self, kw: dict[str, Any]) -> Query:
-        """Builds up the database query to get items matching the given kw filters.
-
-        - For string fields, the value can be a string (exact match) or a list of strings (any of).
-        - For numeric fields, the value can be a number (exact match) or a string with an operator
-          such as '>=123', '<=456', '>789', '<1011', '!=1213'.
-        - Use 'parent' or 'ancestor' filters to filter by parent or any ancestor item.
-          - For now, ancestor only searches parent + grandparent
-        - Use 'ids' with a num spec string like '1,2,5-10' to filter by specific item ids.
-        - Use 'order' with a field name, optionally prefixed by '-' for descending
-          - For JSON fields, use the format field[key], e.g. md[like-benchmark-20260207].
-        - For rel-based filters, use rels.{rtype}.{property} format:
-          - rels.like=True/False (existence)
-          - rels.queue.count>=2 (rel metadata)
-          - rels.queue.ts>1234567890 (rel timestamp)
-        - Use 'min_like' to filter by a minimum like score from the likes classifier.
-        - Use 'pos' to filter by similarity to a positive example (id or id list) using the embeddings.
-          - We check otype to determine whether we want to return users or images
-        """
         return QueryBuilder.create(self.embs).build(kw)
 
 
@@ -667,7 +651,6 @@ class GetHandler(MyBaseHandler):
 
     async def post(self):
         data = json.loads(self.request.body)
-        logger.info(f'GetHandler got data={data}')
         # Build query conditions
         with db_session:
             times = [time.time()]
