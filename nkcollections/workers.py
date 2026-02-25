@@ -545,6 +545,18 @@ class CollectionsWorker(BackgroundWorker):
                 scores=self.like_scores,
                 **other_stuff,
             )
+            # Store all scores in Score table
+            ttype = f'like:{self.image_suffix}'
+            current_ts = time.time()
+            with db_session:
+                for item_id, score in self.like_scores.items():
+                    Score.upsert(
+                        get_kw=dict(id=Item[int(item_id)], ttype=ttype, tag='like'),
+                        score=float(score),
+                        ts=current_ts
+                    )
+            logger.info(f"  Stored {len(self.like_scores)} like scores in Score table")
+            
             # Update state
             self.last.update({
                 'pos_ids': current_pos_ids,
@@ -753,6 +765,19 @@ class CollectionsWorker(BackgroundWorker):
             if result['status'] == 'inference_completed':
                 self.like_scores.update(result['new_scores'])
                 logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.like_scores)} total scores")
+                
+                # Store scores in Score table
+                ttype = f'like:{self.image_suffix}'
+                current_ts = time.time()
+                with db_session:
+                    for item_id, score in result['new_scores'].items():
+                        Score.upsert(
+                            get_kw=dict(id=Item[int(item_id)], ttype=ttype, tag='like'),
+                            score=float(score),
+                            ts=current_ts
+                        )
+                logger.info(f"  Stored {len(result['new_scores'])} like scores in Score table")
+                
                 # Save the classifier with updated scores
                 try:
                     if self.last['saved_classifier'] and result['new_scores']:
