@@ -276,7 +276,7 @@ const STYLES = `
 }
 
 .search-input {
-  display: none;
+  display: block;
 }
 
 .object.post {
@@ -2027,6 +2027,18 @@ const DebouncedInput = ({
     }, delay);
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Clear existing timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      // Immediately trigger the debounced action
+      onDebouncedChange(localValue);
+    }
+  };
+
   return (
     <input
       type="text"
@@ -2034,6 +2046,7 @@ const DebouncedInput = ({
       placeholder={placeholder}
       value={localValue}
       onChange={handleChange}
+      onKeyDown={handleKeyDown}
       title={title}
     />
   );
@@ -2177,10 +2190,13 @@ const Controls = () => {
       <DebouncedInput
         value={searchStr}
         onChange={setSearchStr}
-        onDebouncedChange={ctx.actions.doSearch}
+        onDebouncedChange={(value) => {
+          ctx.actions.doSearch(value);
+          setSearchStr(''); // Clear the search bar after search
+        }}
         placeholder="Search..."
         className="search-input"
-        title="Search items by text (not yet implemented)"
+        title="Search items by text"
         delay={DEBOUNCE_MS}
       />
       <div className="control otype-filters">
@@ -2303,9 +2319,29 @@ const AppProvider = ({ children }) => {
 
 
   const doSearch = React.useCallback((value) => {
+    if (!value || value.trim() === '') return;
     console.log('searching for', value);
-    //TODO implement
-  }, []);
+    
+    try {
+      const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
+      const sourceObj = sourceStr ? JSON.parse(sourceStr) : {};
+      
+      // Add search field to source object
+      const newSourceObj = { ...sourceObj, search: value.trim() };
+      const newSourceStr = JSON.stringify(newSourceObj);
+      
+      // Update the source string input
+      if (globalSetSourceStr) {
+        globalSetSourceStr(newSourceStr);
+      }
+      
+      // Execute the search
+      doSource(newSourceStr);
+    } catch (error) {
+      console.error('Failed to parse source string for search:', error);
+      setMessage(`Failed to parse source string for search: ${error.message}`);
+    }
+  }, [doSource, setMessage]);
 
   const doFilter = React.useCallback((value) => {
     if (!value || value.trim() === '') return;
