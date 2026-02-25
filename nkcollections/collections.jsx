@@ -1581,6 +1581,29 @@ const Obj = (props) => {
                   ))}
                 </div>
               )}
+              {/* Show scores if they exist */}
+              {scores && Object.keys(scores).length > 0 && (
+                <div>
+                  <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Scores:</h6>
+                  {Object.entries(scores)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([tagType, tagScores]) => (
+                    <div key={tagType}>
+                      <div className="detail-item">
+                        <span className="detail-key" style={{fontWeight: 'bold', color: '#343a40'}}>{tagType}:</span>
+                      </div>
+                      {Object.entries(tagScores)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([tag, score]) => (
+                        <div key={`${tagType}-${tag}`} className="detail-item" style={{marginLeft: '15px'}}>
+                          <span className="detail-key">{tag}:</span>
+                          <span className="detail-value">{score.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* Show timestamps if they exist */}
               {showTs('ts', props)}
               {showTs('added_ts', props)}
