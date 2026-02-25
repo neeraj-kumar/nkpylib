@@ -1214,30 +1214,17 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   );
 };
 
-const Obj = (props) => {
+// Button Bar Component
+const ButtonBar = ({
+  id, otype, liked, disliked, queued, url, parent_url, rels, compact,
+  hasMultipleMedia, currentMediaIndex, setCurrentMediaIndex, media_blocks,
+  showDetails, setShowDetails, currentCluster, clusterScore, isManualCluster
+}) => {
   const ctx = React.useContext(AppContext);
-  let {id, otype, url, md, score, rels, scores, source, media_blocks, detailed} = props;
-  media_blocks = media_blocks || [];
-  //console.log('Obj', id, otype, score, props);
-  const liked = Boolean(rels.like);
-  const disliked = Boolean(rels.dislike);
-  const queued = Boolean(rels.queue);
-  // if there are any rels, show them
-  if (Object.keys(rels).length > 0) {
-    //console.log('Rels:', id, rels);
-  }
-  const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
-  const PostContentRenderer = window[rendererName]
-
-  // Media carousel state
-  const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
-  const hasMultipleMedia = media_blocks && media_blocks.length > 1;
-  // Hover state for keyboard shortcuts
-  const [isHovered, setIsHovered] = React.useState(false);
-  // Details expansion state
-  const [showDetails, setShowDetails] = React.useState(false);
-
-  const mediaDivs = [
+  
+  const cClasses = ['icon-button', 'classify-icon', (ctx.data.pos.includes(id) ? 'selected' : '')];
+  
+  const mediaDivs = hasMultipleMedia ? [
     (<div key="a"
       className="icon-button media-nav-button"
       onClick={(e) => {
@@ -1261,8 +1248,331 @@ const Obj = (props) => {
     >
       →
     </div>),
-  ];
+  ] : [];
 
+  return (
+    <div className="button-bar">
+      <div
+        className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.actions.setLiked(id, !liked);
+        }}
+        title={liked ? "Unlike this item" : "Like this item"}
+      >
+        ♥
+      </div>
+      <div
+        className={`icon-button dislike-icon ${disliked ? 'disliked' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.actions.setDisliked(id, !disliked);
+        }}
+        title={disliked ? "Remove dislike from this item" : "Dislike this item"}
+      >{disliked ? '❌' : '✖️ '}
+      </div>
+      <div
+        className={cClasses.join(' ')}
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.actions.searchPos(id, 'image');
+        }}
+        title={ctx.data.pos.includes(id) ? "Remove from positive examples" : "Search for similar images"}
+      >
+        🎯
+      </div>
+      <div
+        className="icon-button search-pos-users-icon"
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.actions.searchPos(id, 'user');
+        }}
+        title="Search for similar users"
+      >
+        👥
+      </div>
+      <div
+        className="icon-button same-user-icon"
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.actions.searchSameUser(id);
+        }}
+        title="Search for images from the same user"
+      >
+        👤
+      </div>
+      <div
+        className="icon-button open-icon"
+        onClick={(e) => {
+          e.stopPropagation();
+          window.open(url, '_blank');
+        }}
+        title="Open original URL in new tab"
+      >
+        🔗
+      </div>
+      {parent_url && (
+        <div
+          className="icon-button parent-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(parent_url, '_blank');
+          }}
+          title="Open parent URL"
+        >
+          ⬆️
+        </div>
+      )}
+      <div
+        className={`icon-button queue-icon ${queued ? 'queued' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.actions.setQueued(id, !queued);
+        }}
+        title={queued ? "Remove from queue" : "Add to queue"}
+      >
+        {queued ? '➖' : '➕'}
+      </div>
+      <div
+        className="icon-button details-icon"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowDetails(!showDetails);
+          setTimeout(() => {
+            if (ctx.ui.refreshMasonry) {
+              ctx.ui.refreshMasonry();
+            }
+          }, 300);
+        }}
+        title={showDetails ? "Hide details" : "Show details"}
+      >
+        {showDetails ? '📄' : (rels.queued_post_reblogs ? '📊' : '📋')}
+      </div>
+      {otype === 'user' && !compact.includes('Error') && (
+        <div
+          className="icon-button explore-user-icon"
+          onClick={(e) => {
+            e.stopPropagation();
+            ctx.actions.doAction([id], 'explore');
+          }}
+          title="Explore this user (fetch their posts)"
+        >
+          🔍
+        </div>
+      )}
+      {otype === 'user' && (
+        <a
+          className="icon-button show-user-posts-icon"
+          href={`?source=${encodeURIComponent(`{"ancestor":${id}, "otype": "image", "limit": 200}`)}`}
+          target="_blank"
+          title="Show posts from this user"
+        >
+          📚
+        </a>
+      )}
+      {/* Media navigation controls */}
+      {mediaDivs}
+      {/* Cluster buttons - only show in cluster mode */}
+      {ctx.ui.mode === 'cluster' && (
+        <div className="cluster-buttons" title={`Cluster ${currentCluster}: ${clusterScore}`}>
+          {[1, 2, 3, 4, 5].map(clusterNum => (
+            <div
+              key={clusterNum}
+              className={`cluster-button ${currentCluster === clusterNum ? 'active' : ''} ${isManualCluster && currentCluster === clusterNum ? 'manual' : 'automatic'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.actions.setCluster(id, currentCluster === clusterNum ? null : clusterNum);
+              }}
+              title={currentCluster === clusterNum ? `Remove from cluster ${clusterNum}` : `Assign to cluster ${clusterNum}`}
+            >
+              {clusterNum}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Object Content Component
+const ObjectContent = ({otype, url, md, id, liked, local_path, compact, score, simpleMode, ...props}) => {
+  const ctx = React.useContext(AppContext);
+  const source = props.source;
+  const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
+  const PostContentRenderer = window[rendererName];
+
+  if (otype === 'post' && PostContentRenderer) {
+    return <PostContentRenderer {...props} />;
+  }
+
+  return (
+    <div>
+      {otype === 'text' && (
+        <div className="content">{md.text}</div>
+      )}
+      {otype === 'link' && (
+        <div className="content"><a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a></div>
+      )}
+      {otype === 'image' && (
+        <div className="content">
+          <ImageWithVideo
+            imageUrl={local_path || url}
+            videoUrl={md && md.video_url}
+            id={id}
+            liked={liked}
+            setLiked={ctx.actions.setLiked}
+          />
+        </div>
+      )}
+      {otype === 'video' && (
+        <div className="content">
+          <div className="video-link" style={{position: 'relative'}}>
+            <img src={md.poster_url} alt={`Video ${id} poster`} />
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              ▶
+            </a>
+          </div>
+        </div>
+      )}
+      {otype === 'user' && (
+        <div className="content">
+          <div className="user-compact" dangerouslySetInnerHTML={{__html: compact}}></div>
+        </div>
+      )}
+      {!simpleMode && <p className="score">ID: {id}</p>}
+      {!simpleMode && score !== undefined && (
+        <div className="score">Score: {score.toFixed(3)}</div>
+      )}
+    </div>
+  );
+};
+
+// Details Panel Component
+const DetailsPanel = ({showDetails, detailed, rels, scores, ...props}) => {
+  if (!showDetails) return null;
+
+  return (
+    <div className="details-content">
+      {detailed ? (
+        <div dangerouslySetInnerHTML={{__html: detailed}} />
+      ) : (
+        <div>
+          {/* Show rels first if they exist */}
+          {rels && Object.keys(rels).length > 0 && (
+            <div>
+              <h6 style={{margin: '0 0 8px 0', color: '#495057'}}>Relations:</h6>
+              {Object.entries(rels).map(([key, value]) => (
+                <div key={key} className="detail-item">
+                  <span className="detail-key">{key}:</span>
+                  <span className="detail-value">
+                    {key === 'queued_post_reblogs' && Array.isArray(value) ? (
+                      <div className="queued-reblogs-list">
+                        {value
+                          .filter(reblog => reblog.stats && reblog.stats.n_images && reblog.stats.n_images > 0)
+                          .map((reblog, index) => (
+                          <div key={index} className="reblog-item">
+                            <a
+                              href={`?source=${encodeURIComponent(JSON.stringify({ancestor: reblog.id, otype: "image", limit: 200}))}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {reblog.blog_name}
+                            </a>
+                            <span className="reblog-stats">
+                              {reblog.stats && Object.keys(reblog.stats).length > 0 ? (
+                                Object.entries(reblog.stats)
+                                  .filter(([key, value]) => !key.endsWith('_ts') && key !== 'ts' && !key.endsWith('_url') && value !== null && value !== 0)
+                                  .slice(0, 3)
+                                  .map(([key, value]) => `${key}: ${typeof value === 'number' ? value.toFixed(0) : value}`)
+                                  .join(', ')
+                              ) : (
+                                `${reblog.n_total} total, ${reblog.n_as_reblogger} as reblogger`
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Show scores if they exist */}
+          {scores && Object.keys(scores).length > 0 && (
+            <div>
+              <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Scores:</h6>
+              {Object.entries(scores)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([tagType, tagScores]) => (
+                <div key={tagType}>
+                  <div className="detail-item">
+                    <span className="detail-key" style={{fontWeight: 'bold', color: '#343a40'}}>{tagType}:</span>
+                  </div>
+                  {Object.entries(tagScores)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([tag, score]) => (
+                    <div key={`${tagType}-${tag}`} className="detail-item" style={{marginLeft: '15px'}}>
+                      <span className="detail-key">{tag}:</span>
+                      <span className="detail-value">{score.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Show timestamps if they exist */}
+          {showTs('ts', props)}
+          {showTs('added_ts', props)}
+          {showTs('seen_ts', props)}
+          {showTs('embed_ts', props)}
+          {showTs('explored_ts', props)}
+          {/* Show md below rels */}
+          {props.md && Object.keys(props.md).length > 0 && (
+            <div>
+              <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Metadata:</h6>
+              {Object.entries(props.md).map(([key, value]) => (
+                <div key={key} className="detail-item">
+                  <span className="detail-key">{key}:</span>
+                  <span className="detail-value">
+                    {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Main Obj Component (now much simpler)
+const Obj = (props) => {
+  const ctx = React.useContext(AppContext);
+  let {id, otype, url, md, score, rels, scores, source, media_blocks, detailed} = props;
+  media_blocks = media_blocks || [];
+  
+  const liked = Boolean(rels.like);
+  const disliked = Boolean(rels.dislike);
+  const queued = Boolean(rels.queue);
+
+  // Media carousel state
+  const [currentMediaIndex, setCurrentMediaIndex] = React.useState(0);
+  const hasMultipleMedia = media_blocks && media_blocks.length > 1;
+  // Hover state for keyboard shortcuts
+  const [isHovered, setIsHovered] = React.useState(false);
+  // Details expansion state
+  const [showDetails, setShowDetails] = React.useState(false);
+
+  // CSS classes logic
   let classes = ['object', otype, `source-${source}`, `otype-${otype}`];
   if (score !== undefined && score > 0) {
     classes.push('positive');
@@ -1279,11 +1589,8 @@ const Obj = (props) => {
   if (showDetails) {
     classes.push('details-expanded');
   }
-  let cClasses = ['icon-button', 'classify-icon', (ctx.data.pos.includes(id) ? 'selected' : '')];
   if (ctx.ui.mode !== 'multicol') {
     classes.push('single-col');
-  } else {
-    //cClasses.push('hidden');
   }
   if (isHovered && ctx.ui.mode === 'cluster') {
     classes.push('keyboard-active');
@@ -1294,7 +1601,8 @@ const Obj = (props) => {
   const clusterScore = (ctx.data.clusters[id]) ? ctx.data.clusters[id].score : 0;
   const isManualCluster = (ctx.data.clusters[id]) ? ctx.data.clusters[id].score === 1000 : false;
   const isUnlabeled = (ctx.data.clusters[id]) ? ctx.data.clusters[id].score === 0 : false;
-  const normalizedScore = isManualCluster ? 1.0 : clusterScore; // Manual clusters get full opacity
+  const normalizedScore = isManualCluster ? 1.0 : clusterScore;
+
   // Keyboard event handler for cluster assignment
   React.useEffect(() => {
     if (!isHovered || ctx.ui.mode !== 'cluster') return;
@@ -1332,195 +1640,29 @@ const Obj = (props) => {
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div className="button-bar">
-        <div
-          className={`icon-button heart-icon ${liked ? 'liked' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            ctx.actions.setLiked(id, !liked);
-          }}
-          title={liked ? "Unlike this item" : "Like this item"}
-        >
-          ♥
-        </div>
-        <div
-          className={`icon-button dislike-icon ${disliked ? 'disliked' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            ctx.actions.setDisliked(id, !disliked);
-          }}
-          title={disliked ? "Remove dislike from this item" : "Dislike this item"}
-        >{disliked ? '❌' : '✖️ '}
-        </div>
-        <div
-          className={cClasses.join(' ')}
-          onClick={(e) => {
-            e.stopPropagation();
-            //ctx.actions.togglePos(id);
-            ctx.actions.searchPos(id, 'image');
-          }}
-          title={ctx.data.pos.includes(id) ? "Remove from positive examples" : "Search for similar images"}
-        >
-          🎯
-        </div>
-        <div
-          className="icon-button search-pos-users-icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            ctx.actions.searchPos(id, 'user');
-          }}
-          title="Search for similar users"
-        >
-          👥
-        </div>
-        <div
-          className="icon-button same-user-icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            ctx.actions.searchSameUser(id);
-          }}
-          title="Search for images from the same user"
-        >
-          👤
-        </div>
-        <div
-          className="icon-button open-icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            window.open(url, '_blank');
-          }}
-          title="Open original URL in new tab"
-        >
-          🔗
-        </div>
-        {props.parent_url && (
-          <div
-            className="icon-button parent-icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              window.open(props.parent_url, '_blank');
-            }}
-            title="Open parent URL"
-          >
-            ⬆️
-          </div>
-        )}
-        <div
-          className={`icon-button queue-icon ${queued ? 'queued' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            ctx.actions.setQueued(id, !queued);
-          }}
-          title={queued ? "Remove from queue" : "Add to queue"}
-        >
-          {queued ? '➖' : '➕'}
-        </div>
-        <div
-          className="icon-button details-icon"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowDetails(!showDetails);
-            setTimeout(() => {
-              if (ctx.ui.refreshMasonry) {
-                ctx.ui.refreshMasonry();
-              }
-            }, 300);
-          }}
-          title={showDetails ? "Hide details" : "Show details"}
-        >
-          {showDetails ? '📄' : (rels.queued_post_reblogs ? '📊' : '📋')}
-        </div>
-        {otype === 'user' && !props.compact.includes('Error') && (
-          <div
-            className="icon-button explore-user-icon"
-            onClick={(e) => {
-              e.stopPropagation();
-              ctx.actions.doAction([id], 'explore');
-            }}
-            title="Explore this user (fetch their posts)"
-          >
-            🔍
-          </div>
-        )}
-        {otype === 'user' && (
-          <a
-            className="icon-button show-user-posts-icon"
-            href={`?source=${encodeURIComponent(`{"ancestor":${id}, "otype": "image", "limit": 200}`)}`}
-            target="_blank"
-            title="Show posts from this user"
-          >
-            📚
-          </a>
-        )}
-        {/* Media navigation controls - only show if multiple media */}
-        {hasMultipleMedia && mediaDivs}
-        {/* Cluster buttons - only show in cluster mode */}
-        {ctx.ui.mode === 'cluster' && (
-          <div className="cluster-buttons" title={`Cluster ${currentCluster}: ${clusterScore}`}>
-            {[1, 2, 3, 4, 5].map(clusterNum => (
-              <div
-                key={clusterNum}
-                className={`cluster-button ${currentCluster === clusterNum ? 'active' : ''} ${isManualCluster && currentCluster === clusterNum ? 'manual' : 'automatic'}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  ctx.actions.setCluster(id, currentCluster === clusterNum ? null : clusterNum);
-                }}
-                title={currentCluster === clusterNum ? `Remove from cluster ${clusterNum}` : `Assign to cluster ${clusterNum}`}
-              >
-                {clusterNum}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <ButtonBar
+        id={id}
+        otype={otype}
+        liked={liked}
+        disliked={disliked}
+        queued={queued}
+        url={url}
+        parent_url={props.parent_url}
+        rels={rels}
+        compact={props.compact}
+        hasMultipleMedia={hasMultipleMedia}
+        currentMediaIndex={currentMediaIndex}
+        setCurrentMediaIndex={setCurrentMediaIndex}
+        media_blocks={media_blocks}
+        showDetails={showDetails}
+        setShowDetails={setShowDetails}
+        currentCluster={currentCluster}
+        clusterScore={clusterScore}
+        isManualCluster={isManualCluster}
+      />
 
-      {otype === 'post' && PostContentRenderer ? (
-        <PostContentRenderer {...props} />
-      ) : (
-        <div>
-          {otype === 'text' && (
-            <div className="content">{md.text}</div>
-          )}
-          {otype === 'link' && (
-            <div className="content"><a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a></div>
-          )}
-          {otype === 'image' && (
-            <div className="content">
-              <ImageWithVideo
-                imageUrl={props.local_path || url}
-                videoUrl={md && md.video_url}
-                id={id}
-                liked={liked}
-                setLiked={ctx.actions.setLiked}
-              />
-            </div>
-          )}
-          {otype === 'video' && (
-            <div className="content">
-              <div className="video-link" style={{position: 'relative'}}>
-                <img src={md.poster_url} alt={`Video ${id} poster`} />
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  ▶
-                </a>
-              </div>
-            </div>
-          )}
-          {otype === 'user' && (
-            <div className="content">
-              <div className="user-compact" dangerouslySetInnerHTML={{__html: props.compact}}></div>
-            </div>
-          )}
-          {!props.simpleMode && <p className="score">ID: {id}</p>}
-          {!props.simpleMode && score !== undefined && (
-            <div className="score">Score: {score.toFixed(3)}</div>
-          )}
-        </div>
-      )}
+      <ObjectContent {...props} liked={liked} />
+
       {/* Media carousel for posts with media */}
       {otype === 'post' && media_blocks && media_blocks.length > 0 && (
         <MediaCarousel
@@ -1531,104 +1673,13 @@ const Obj = (props) => {
         />
       )}
 
-      {/* Details section */}
-      {showDetails && (
-        <div className="details-content">
-          {detailed ? (
-            <div dangerouslySetInnerHTML={{__html: detailed}} />
-          ) : (
-            <div>
-              {/* Show rels first if they exist */}
-              {rels && Object.keys(rels).length > 0 && (
-                <div>
-                  <h6 style={{margin: '0 0 8px 0', color: '#495057'}}>Relations:</h6>
-                  {Object.entries(rels).map(([key, value]) => (
-                    <div key={key} className="detail-item">
-                      <span className="detail-key">{key}:</span>
-                      <span className="detail-value">
-                        {key === 'queued_post_reblogs' && Array.isArray(value) ? (
-                          <div className="queued-reblogs-list">
-                            {value
-                              .filter(reblog => reblog.stats && reblog.stats.n_images && reblog.stats.n_images > 0)
-                              .map((reblog, index) => (
-                              <div key={index} className="reblog-item">
-                                <a
-                                  href={`?source=${encodeURIComponent(JSON.stringify({ancestor: reblog.id, otype: "image", limit: 200}))}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {reblog.blog_name}
-                                </a>
-                                <span className="reblog-stats">
-                                  {reblog.stats && Object.keys(reblog.stats).length > 0 ? (
-                                    Object.entries(reblog.stats)
-                                      .filter(([key, value]) => !key.endsWith('_ts') && key !== 'ts' && !key.endsWith('_url') && value !== null && value !== 0)
-                                      .slice(0, 3)
-                                      .map(([key, value]) => `${key}: ${typeof value === 'number' ? value.toFixed(0) : value}`)
-                                      .join(', ')
-                                  ) : (
-                                    `${reblog.n_total} total, ${reblog.n_as_reblogger} as reblogger`
-                                  )}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Show scores if they exist */}
-              {scores && Object.keys(scores).length > 0 && (
-                <div>
-                  <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Scores:</h6>
-                  {Object.entries(scores)
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([tagType, tagScores]) => (
-                    <div key={tagType}>
-                      <div className="detail-item">
-                        <span className="detail-key" style={{fontWeight: 'bold', color: '#343a40'}}>{tagType}:</span>
-                      </div>
-                      {Object.entries(tagScores)
-                        .sort(([, a], [, b]) => b - a)
-                        .map(([tag, score]) => (
-                        <div key={`${tagType}-${tag}`} className="detail-item" style={{marginLeft: '15px'}}>
-                          <span className="detail-key">{tag}:</span>
-                          <span className="detail-value">{score.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Show timestamps if they exist */}
-              {showTs('ts', props)}
-              {showTs('added_ts', props)}
-              {showTs('seen_ts', props)}
-              {showTs('embed_ts', props)}
-              {showTs('explored_ts', props)}
-              {/* Show md below rels */}
-              {md && Object.keys(md).length > 0 && (
-                <div>
-                  <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Metadata:</h6>
-                  {Object.entries(md).map(([key, value]) => (
-                    <div key={key} className="detail-item">
-                      <span className="detail-key">{key}:</span>
-                      <span className="detail-value">
-                        {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
+      <DetailsPanel
+        showDetails={showDetails}
+        detailed={detailed}
+        rels={rels}
+        scores={scores}
+        {...props}
+      />
     </div>
   );
 }
