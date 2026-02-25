@@ -275,6 +275,208 @@ Return only the JSON list, no other text."""
             logger.info(f'Applied search filter for {len(parsed_tags)} tags on list (OR logic, score > {min_score}), {len(self.query)} items remain')
         return self
 
+    def apply_new_search_filters(self, kw: dict) -> 'QueryBuilder':
+        """Apply advanced semantic search with AND+OR logic and score aggregation.
+        
+        Parses search query into semantic groups where each group represents OR alternatives
+        for a concept, then uses AND logic across groups with score aggregation.
+        
+        Example: "cute cat" -> [["adorable", "sweet"], ["feline", "kitten"]]
+        Scoring: max(adorable_score, sweet_score) + max(feline_score, kitten_score)
+        """
+        search_query = kw.get('new_search', '').strip()
+        if not search_query:
+            return self
+            
+        logger.info(f'Applying new semantic search filter: {search_query}')
+        
+        # Parse query into semantic groups via LLM
+        semantic_groups = self._parse_semantic_groups(search_query)
+        if not semantic_groups:
+            logger.info('No semantic groups found for search query')
+            return self
+            
+        logger.info(f'Parsed into semantic groups: {semantic_groups}')
+        
+        # Get top-K scored items using complex scoring
+        search_limit = int(kw.get('search_limit', 1000))
+        min_score = float(kw.get('search_min_score', 0.8))
+        
+        if not self.converted_to_list:
+            # Use subquery approach for efficiency
+            scored_items = self._get_semantic_scored_items(semantic_groups, search_limit, min_score)
+            
+            if scored_items:
+                scored_ids = [item_id for item_id, score in scored_items]
+                self.query = self.query.filter(lambda item: item.id in scored_ids)
+                
+                # Store scores for potential ordering
+                self._semantic_scores = {item_id: score for item_id, score in scored_items}
+                
+                # Convert to list and apply semantic ordering
+                if isinstance(self.query, Query):
+                    self.query = self.query.without_distinct()
+                items_list = [item.id for item in self.query]
+                
+                # Sort by semantic scores
+                items_list.sort(key=lambda id: self._semantic_scores.get(id, 0), reverse=True)
+                self.query = items_list
+                self.converted_to_list = True
+                self.needs_ordering = False
+                
+                logger.info(f'Applied semantic search: {len(scored_items)} items found')
+            else:
+                # No matches found, return empty result
+                self.query = []
+                self.converted_to_list = True
+                self.needs_ordering = False
+                logger.info('No items matched semantic search criteria')
+        else:
+            # Already converted to list, filter existing items
+            if hasattr(self, '_semantic_scores'):
+                # Use existing scores if available
+                self.query = [id for id in self.query if id in self._semantic_scores]
+                self.query.sort(key=lambda id: self._semantic_scores.get(id, 0), reverse=True)
+            else:
+                # Compute scores for current list
+                scored_items = self._get_semantic_scored_items(semantic_groups, len(self.query), min_score, self.query)
+                if scored_items:
+                    score_dict = {item_id: score for item_id, score in scored_items}
+                    self.query = [id for id in self.query if id in score_dict]
+                    self.query.sort(key=lambda id: score_dict.get(id, 0), reverse=True)
+                else:
+                    self.query = []
+            
+            logger.info(f'Applied semantic search to list: {len(self.query)} items remain')
+        
+        self.filters_applied.append('new_search')
+        return self
+
+    def _parse_semantic_groups(self, query: str) -> list[list[str]]:
+        """Parse search query into semantic groups with OR alternatives."""
+        all_tags = get_all_tags()
+        if not all_tags:
+            return []
+            
+        prompt = f"""Parse this search query into semantic concept groups: "{query}"
+
+For each main concept in the query, provide alternative tags that mean the same thing.
+Return as JSON array of arrays: [["tag1a", "tag1b"], ["tag2a", "tag2b"]]
+
+Rules:
+- Each inner array represents ONE concept with alternative tags (OR logic)
+- Only use tags from the available list
+- Keep groups minimal and focused
+- If no relevant tags exist, return empty array
+
+Available tags: {', '.join(all_tags)}
+
+Return only the JSON array, no other text."""
+
+        try:
+            response = call_llm.single(prompt, model='fast')
+            semantic_groups = load_llm_json(response)
+            
+            # Validate structure
+            if not isinstance(semantic_groups, list):
+                logger.warning(f'Invalid semantic groups structure: {semantic_groups}')
+                return []
+                
+            # Filter out empty groups and validate tags
+            valid_groups = []
+            for group in semantic_groups:
+                if isinstance(group, list) and group:
+                    valid_tags = [tag for tag in group if tag in all_tags]
+                    if valid_tags:
+                        valid_groups.append(valid_tags)
+            
+            return valid_groups
+            
+        except Exception as e:
+            logger.warning(f'Failed to parse semantic groups: {e}')
+            return []
+
+    def _get_semantic_scored_items(self, 
+                                   semantic_groups: list[list[str]], 
+                                   limit: int, 
+                                   min_score: float,
+                                   filter_ids: list[int]|None = None) -> list[tuple[int, float]]:
+        """Get top-K items by semantic scoring using database queries.
+        
+        Returns list of (item_id, aggregated_score) tuples sorted by score descending.
+        """
+        if not semantic_groups:
+            return []
+            
+        ttype = f'tag:{IMAGE_SUFFIX}'
+        
+        with db_session:
+            # Get all relevant scores
+            all_tags = [tag for group in semantic_groups for tag in group]
+            
+            if filter_ids:
+                # Filter to specific items
+                score_query = select((s.id.id, s.tag, s.score) for s in Score 
+                                   if s.ttype == ttype and 
+                                      s.tag in all_tags and 
+                                      s.score > min_score and
+                                      s.id.id in filter_ids)
+            else:
+                score_query = select((s.id.id, s.tag, s.score) for s in Score 
+                                   if s.ttype == ttype and 
+                                      s.tag in all_tags and 
+                                      s.score > min_score)
+            
+            # Group scores by item and semantic group
+            item_group_scores = defaultdict(lambda: defaultdict(list))
+            
+            for item_id, tag, score in score_query:
+                # Find which semantic group this tag belongs to
+                for group_idx, group_tags in enumerate(semantic_groups):
+                    if tag in group_tags:
+                        item_group_scores[item_id][group_idx].append(score)
+                        break
+            
+            # Compute aggregated scores
+            item_scores = []
+            required_groups = len(semantic_groups)
+            
+            for item_id, group_scores in item_group_scores.items():
+                # Check if item has scores for ALL semantic groups (AND logic)
+                if len(group_scores) == required_groups:
+                    # For each group, take the maximum score (OR logic within group)
+                    group_maxes = [max(scores) for scores in group_scores.values()]
+                    
+                    # Aggregate across groups (AND logic)
+                    aggregated_score = self._aggregate_group_scores(group_maxes)
+                    item_scores.append((item_id, aggregated_score))
+            
+            # Sort by score and limit
+            item_scores.sort(key=lambda x: x[1], reverse=True)
+            return item_scores[:limit]
+
+    def _aggregate_group_scores(self, group_scores: list[float]) -> float:
+        """Aggregate scores across semantic groups.
+        
+        Different aggregation strategies for AND logic across groups.
+        """
+        if not group_scores:
+            return 0.0
+            
+        # Method 1: Sum of max scores (additive)
+        return sum(group_scores)
+        
+        # Alternative methods (can be made configurable):
+        # Method 2: Geometric mean (penalizes weak groups)
+        # return (reduce(lambda x, y: x * y, group_scores)) ** (1/len(group_scores))
+        
+        # Method 3: Minimum (all groups must be strong)  
+        # return min(group_scores)
+        
+        # Method 4: Weighted average (if we had group weights)
+        # weights = [1.0] * len(group_scores)  # Equal weights for now
+        # return sum(score * weight for score, weight in zip(group_scores, weights)) / sum(weights)
+
     def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply ML-based filters (min_like, pos)."""
         if not any(k in kw for k in ['min_like', 'pos']):
