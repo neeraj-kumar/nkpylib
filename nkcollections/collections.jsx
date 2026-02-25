@@ -2319,15 +2319,22 @@ const AppProvider = ({ children }) => {
 
 
   const doSearch = React.useCallback((value) => {
-    if (!value || value.trim() === '') return;
     console.log('searching for', value);
     
     try {
       const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
       const sourceObj = sourceStr ? JSON.parse(sourceStr) : {};
       
-      // Add search field to source object
-      const newSourceObj = { ...sourceObj, search: value.trim() };
+      let newSourceObj;
+      if (!value || value.trim() === '') {
+        // Remove search field from source object if search is empty
+        newSourceObj = { ...sourceObj };
+        delete newSourceObj.search;
+      } else {
+        // Add search field to source object
+        newSourceObj = { ...sourceObj, search: value.trim() };
+      }
+      
       const newSourceStr = JSON.stringify(newSourceObj);
       
       // Update the source string input
