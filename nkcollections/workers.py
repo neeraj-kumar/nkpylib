@@ -64,16 +64,15 @@ logger = logging.getLogger(__name__)
 LIKES_TTYPE = 'like:mn_image'
 
 
-@db_session(sql_debug=True)
+@db_session()
 def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:
     """Get current classifier scores from Score table.
 
     If `ids` is provided, limit to just those ids.
     """
     if ids is not None:
-        # Convert to int set for efficient lookup
-        id_set = {int(id) for id in ids}
-        scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like') if s.id.id in id_set}
+        scores = (Score[int(id), LIKES_TTYPE, 'like'] for id in ids)
+        scores = {s.id.id: s.score for s in scores if s}
     else:
         scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
     return scores
@@ -207,6 +206,7 @@ class BackgroundWorker(abc.ABC):
             results.append(result)
         return results
 
+    @db_session(sql_debug=True)
     def _compute_user_stats(self, user_id: int, item_ids: list[int]) -> dict[str, Any]:
         """Compute statistics for a specific `user_id`.
 
@@ -216,64 +216,69 @@ class BackgroundWorker(abc.ABC):
         """
         timing = Counter()
         t0 = time.time()
-        with db_session:
-            timing['db_session_start'] = time.time() - t0
-            t1 = time.time()
-            # Get all items from this user
-            user_items = Item.select(lambda i: i.id in item_ids)[:]
-            timing['user_items_query'] = time.time() - t1
-            t2 = time.time()
-            t3 = time.time()
-            # Initialize counters
-            counts = Counter(ts=time.time())
-            timing['init_counters'] = time.time() - t3
-            t4 = time.time()
-            like_scores = [score for id, score in get_like_scores().items() if int(id) in item_ids]
-            timing['extract_like_scores'] = time.time() - t4
-            t5 = time.time()
-            for item in user_items:
-                t_item_start = time.time()
-                # otype counts
-                counts[f'n_{item.otype}s'] += 1
-                timing['otype_counts'] += time.time() - t_item_start
-                if item.otype == 'image': # set as a url to use for the user
-                    counts['image_url'] = item.url
-                t_otype = time.time()
-                # liked counts
-                liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
-                timing['liked_rel_query'] += time.time() - t_otype
-                t_liked = time.time()
-                if liked_rel:
-                    counts['n_liked_items'] += 1
-                timing['liked_check'] += time.time() - t_liked
-                t_ts = time.time()
-                # track most recent item
-                if item.ts and item.ts > counts['last_item_ts']:
-                    counts['last_item_ts'] = item.ts
-                timing['timestamp_check'] += time.time() - t_ts
-            timing['item_loop_total'] = time.time() - t5
-            t6 = time.time()
-            # average like score
-            counts['n_scored'] = len(like_scores)
-            counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
-            counts['n_pos_like_score'] = sum(1 for s in like_scores if s > 0)
-            timing['avg_score_calc'] = time.time() - t6
-            # Count Score rows by tag for this user's items
-            t_tags = time.time()
-            tag_counts = Counter()
-            score_rows = Score.select(lambda s: s.id.id in item_ids)
-            for score_row in score_rows:
-                tag_counts[score_row.tag] += 1
-            # Get top 5 tags
-            top_tags = dict(tag_counts.most_common(5))
-            counts['top_tags'] = top_tags
-            counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
-            timing['tag_counting'] = time.time() - t_tags
-            timing['total_function'] = time.time() - t0
-            # Print top timing items
-            formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
-            logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
-            return dict(counts)
+        timing['db_session_start'] = time.time() - t0
+        t1 = time.time()
+        # Get all items from this user
+        logger.info('getting user items')
+        user_items = Item.select(lambda i: i.id in item_ids)[:]
+        timing['user_items_query'] = time.time() - t1
+        t2 = time.time()
+        t3 = time.time()
+        # Initialize counters
+        counts = Counter(ts=time.time())
+        timing['init_counters'] = time.time() - t3
+        t4 = time.time()
+        logger.info('getting like scores')
+        like_scores = [score for id, score in get_like_scores().items() if int(id) in item_ids]
+        timing['extract_like_scores'] = time.time() - t4
+        t5 = time.time()
+        logger.info(f'processing {len(user_items)} user items')
+        for item in user_items:
+            t_item_start = time.time()
+            # otype counts
+            counts[f'n_{item.otype}s'] += 1
+            timing['otype_counts'] += time.time() - t_item_start
+            if item.otype == 'image': # set as a url to use for the user
+                counts['image_url'] = item.url
+            t_otype = time.time()
+            # liked counts
+            liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
+            timing['liked_rel_query'] += time.time() - t_otype
+            t_liked = time.time()
+            if liked_rel:
+                counts['n_liked_items'] += 1
+            timing['liked_check'] += time.time() - t_liked
+            t_ts = time.time()
+            # track most recent item
+            if item.ts and item.ts > counts['last_item_ts']:
+                counts['last_item_ts'] = item.ts
+            timing['timestamp_check'] += time.time() - t_ts
+        timing['item_loop_total'] = time.time() - t5
+        t6 = time.time()
+        # average like score
+        logger.info(f'like score stats')
+        counts['n_scored'] = len(like_scores)
+        counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
+        counts['n_pos_like_score'] = sum(1 for s in like_scores if s > 0)
+        timing['avg_score_calc'] = time.time() - t6
+        # Count Score rows by tag for this user's items
+        logger.info(f'getting tags')
+        t_tags = time.time()
+        tag_counts = Counter()
+        score_rows = Score.select(lambda s: s.id.id in item_ids)
+        for score_row in score_rows:
+            tag_counts[score_row.tag] += 1
+        # Get top 5 tags
+        logger.info(f'tag stats')
+        top_tags = dict(tag_counts.most_common(5))
+        counts['top_tags'] = top_tags
+        counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
+        timing['tag_counting'] = time.time() - t_tags
+        timing['total_function'] = time.time() - t0
+        # Print top timing items
+        formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
+        logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
+        return dict(counts)
 
     async def _handle_user_actions(self, max_items:int= 10) -> None:
         """Handles user actions that are in the table but have not been done."""
@@ -410,6 +415,7 @@ class CollectionsWorker(BackgroundWorker):
         else: # limit to those in our database currently
             with db_session:
                 self.valid_tags = list(set(s.tag for s in Score.select(ttype=LIKES_TTYPE)))
+        logger.info(f'Got {len(self.valid_tags)} valid tags: {self.valid_tags[:5]}')
         # Set classifier path -- no need to create dir since save_classifier does that
         self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
         # State tracking
@@ -432,10 +438,10 @@ class CollectionsWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
-                    run_async(self._explore_users())
-                    run_async(self._handle_user_actions())
+                    #run_async(self._explore_users())
+                    #run_async(self._handle_user_actions())
                     self._update_user_stats()
-                    self._update_classifier()
+                    #self._update_classifier()
                 except Exception as e:
                     logger.error(f"Error in process_task: {e}")
                     print(traceback.format_exc())

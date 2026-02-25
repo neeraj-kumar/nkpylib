@@ -811,11 +811,7 @@ class ClassifyHandler(MyBaseHandler):
                             otypes=['image'],
                             **kw):
         """Gets the latest likes scores from Score table"""
-        if cur_ids is not None:
-            cur_ids = [int(id) for id in cur_ids]
-            scores = get_like_scores(ids=cur_ids)
-        else:
-            scores = get_like_scores()
+        scores = get_like_scores(ids=cur_ids)
         return dict(
             msg=f'Likes scores for {len(scores)} items',
             scores=scores
