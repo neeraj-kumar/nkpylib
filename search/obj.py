@@ -57,7 +57,6 @@ class ObjSearch(SearchImpl):
         """
         func = self._search_sequential if self.n_processes <= 1 else self._search_parallel
         ret = await func(cond, n_results)
-        #TODO rank the results
         return ret[:n_results]  # Limit to n_results
 
     async def _search_sequential(self, cond: SearchCond, n_results: int) -> list[SearchResult]:
@@ -186,6 +185,44 @@ class ObjSearch(SearchImpl):
         if not any(c.isupper() for c in pattern):
             flags = re.IGNORECASE
         return bool(re.search(f'{pattern}', val, flags=flags))
+
+    async def rerank(self,
+                     results: list[SearchResult],
+                     cond: SearchCond,
+                     query: str='',
+                     **kw) -> list[SearchResult]:
+        """Rerank results based on how many search conditions they satisfy.
+        
+        This gives higher scores to results that match more conditions in the search.
+        """
+        if not results:
+            return results
+            
+        for result in results:
+            if result.metadata:
+                # Count how many conditions this result satisfies
+                condition_matches = self._count_condition_matches(result.metadata, cond)
+                # Boost score based on number of matching conditions
+                result.score = 1.0 + (condition_matches * 0.1)
+        
+        # Sort by score descending
+        return sorted(results, key=lambda x: x.score, reverse=True)
+    
+    def _count_condition_matches(self, item: dict, cond: SearchCond) -> int:
+        """Count how many conditions in the search tree this item matches."""
+        if isinstance(cond, OpCond):
+            return 1 if self._matches_op_cond(item, cond) else 0
+        elif isinstance(cond, JoinCond):
+            if cond.join == JoinType.AND:
+                # For AND, count all matching subconditions
+                return sum(self._count_condition_matches(item, c) for c in cond.conds if c is not None)
+            elif cond.join == JoinType.OR:
+                # For OR, count the best matching subcondition
+                return max((self._count_condition_matches(item, c) for c in cond.conds if c is not None), default=0)
+            elif cond.join == JoinType.NOT:
+                # For NOT, count as 1 if the negated condition doesn't match
+                return 1 if not self._matches_condition(item, cond.conds[0]) else 0
+        return 0
 
     def _close_to(self, v1: Array1D, v2: Array1D) -> float:
         """Calculate Euclidean distance between two vectors"""
