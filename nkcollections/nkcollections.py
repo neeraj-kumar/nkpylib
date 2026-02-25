@@ -248,27 +248,29 @@ Return only the JSON list, no other text."""
             logger.info('No relevant tags found for search query')
             return self
         logger.info(f'LLM parsed search into tags: {parsed_tags}')
-        # Apply tag filters using SQL joins (OR logic - item must have ANY of the tags)
+        # Apply tag filters using SQL joins (OR logic - item must have ANY of the tags with score > min_score)
+        min_score = 0.8
         if not self.converted_to_list:
-            # Create OR condition for any of the tags
+            # Create OR condition for any of the tags with score > min_score
             self.query = self.query.filter(lambda item:
                 pony_exists(select(s for s in Score
                                  if s.id == item and
                                    s.ttype == f'tag:{IMAGE_SUFFIX}' and
-                                   s.tag in parsed_tags)))
+                                   s.tag in parsed_tags and
+                                   s.score > min_score)))
             self.filters_applied.append('search')
-            logger.info(f'Applied search filter for {len(parsed_tags)} tags via SQL joins (OR logic)')
+            logger.info(f'Applied search filter for {len(parsed_tags)} tags via SQL joins (OR logic, score > {min_score})')
         else:
-            # If already converted to list, filter the list using OR logic
+            # If already converted to list, filter the list using OR logic with score threshold
             filtered_ids = set()
             for tag in parsed_tags:
                 with db_session:
-                    tag_item_ids = {s.id.id for s in Score.select(lambda s: s.ttype.startswith('tag:') and s.tag == tag)}
+                    tag_item_ids = {s.id.id for s in Score.select(lambda s: s.ttype.startswith('tag:') and s.tag == tag and s.score > min_score)}
                 filtered_ids |= tag_item_ids
 
             self.query = [id for id in self.query if id in filtered_ids]
             self.filters_applied.append('search')
-            logger.info(f'Applied search filter for {len(parsed_tags)} tags on list (OR logic), {len(self.query)} items remain')
+            logger.info(f'Applied search filter for {len(parsed_tags)} tags on list (OR logic, score > {min_score}), {len(self.query)} items remain')
         return self
 
     def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
