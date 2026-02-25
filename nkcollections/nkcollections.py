@@ -93,7 +93,6 @@ logger = logging.getLogger(__name__)
 
 class QueryBuilder:
     """Builds database queries from filter parameters with a fluent interface."""
-    
     def __init__(self, embs: Embeddings):
         self.embs = embs
         self.query: Query = Item.select()
@@ -101,16 +100,15 @@ class QueryBuilder:
         self.needs_ordering = True
         self.manual_reverse = False
         self.filters_applied: list[str] = []
-    
+
     @classmethod
     def create(cls, embs: Embeddings) -> 'QueryBuilder':
         """Factory method to create a new QueryBuilder."""
         return cls(embs)
-    
+
     def build(self, kw: dict[str, Any]) -> Query|list:
         """Main build method with fluent chaining."""
         logger.info(f'Building query with filters: {kw}')
-        
         return (self
                 .apply_basic_filters(kw)
                 .apply_relationship_filters(kw)
@@ -120,18 +118,16 @@ class QueryBuilder:
                 .apply_ordering(kw)
                 .apply_pagination(kw)
                 .finalize())
-    
+
     def apply_basic_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply string and simple field filters."""
         if self.converted_to_list:
             return self
-            
         # Handle IDs
         if 'ids' in kw:
             ids = self._parse_ids_parameter(kw['ids'])
             self.query = self.query.filter(lambda c: c.id in ids)
             self.filters_applied.append('ids')
-        
         # Handle string fields
         string_fields = ['source', 'stype', 'otype', 'url', 'name']
         for field in string_fields:
@@ -142,46 +138,38 @@ class QueryBuilder:
                 else:
                     self.query = self.query.filter(lambda c: getattr(c, field) == value)
                 self.filters_applied.append(field)
-        
         return self
-    
+
     def apply_relationship_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply parent/ancestor/same_user filters."""
         if self.converted_to_list:
             return self
-            
         if 'parent' in kw:
             parent_id = int(kw['parent'])
             self.query = self.query.filter(lambda c: c.parent and c.parent.id == parent_id)
             self.filters_applied.append('parent')
-        
         if 'ancestor' in kw:
             ancestor_id = int(kw['ancestor'])
             self.query = self.query.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
             self.filters_applied.append('ancestor')
-        
         if 'same_user' in kw:
             ancestor_id = self._resolve_same_user_ancestor(kw['same_user'])
             if ancestor_id:
                 self.query = self.query.filter(lambda c: c.parent and (c.parent.id == ancestor_id or (c.parent.parent and c.parent.parent.id == ancestor_id)))
                 self.filters_applied.append('same_user')
-        
         if 'mn' in kw:
             self.query = self.query.filter(lambda c: c.md['like-benchmark-20260207'])
             self.filters_applied.append('mn')
-        
         return self
-    
+
     def apply_numeric_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply numeric field filters with operators."""
         if self.converted_to_list:
             return self
-            
         numeric_fields = ['ts', 'added_ts', 'explored_ts', 'seen_ts', 'embed_ts']
         for field in numeric_fields:
             if field not in kw:
                 continue
-                
             value = kw[field]
             if isinstance(value, str):
                 operator, threshold = self._parse_numeric_operator(value)
@@ -189,14 +177,12 @@ class QueryBuilder:
             else:
                 self.query = self.query.filter(lambda c: getattr(c, field) == value)
             self.filters_applied.append(field)
-        
         return self
-    
+
     def apply_rel_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply relationship-based filters."""
         if self.converted_to_list:
             return self
-            
         rel_filters = {k: v for k, v in kw.items() if k.startswith('rels.')}
         if rel_filters:
             me = Item.get_me()
@@ -205,7 +191,6 @@ class QueryBuilder:
                 if len(parts) < 2:
                     continue
                 rtype = parts[1]
-                
                 if len(parts) == 2:
                     # Simple existence check
                     if isinstance(filter_value, bool):
@@ -221,16 +206,13 @@ class QueryBuilder:
                         if not hasattr(self.query, '_rel_property_filters'):
                             self.query._rel_property_filters = []
                         self.query._rel_property_filters.append((rtype, property_name, filter_value))
-                
                 self.filters_applied.append(filter_key)
-        
         return self
-    
+
     def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply ML-based filters (min_like, pos)."""
         if not any(k in kw for k in ['min_like', 'pos']):
             return self
-        
         # Convert query to ID list for score-based filtering
         if not self.converted_to_list:
             if isinstance(self.query, Query):
@@ -239,7 +221,6 @@ class QueryBuilder:
             self.query = ids_only
             self.converted_to_list = True
             logger.info(f'  Got {len(ids_only)} candidate ids for score filtering')
-        
         if 'min_like' in kw:
             min_like = float(kw['min_like'])
             logger.info(f'Applying min_like filter: {min_like}')
@@ -247,12 +228,10 @@ class QueryBuilder:
             self.query = [id for id in self.query if scores.get(id, 0.0) >= min_like]
             logger.info(f'  Filtered to {len(self.query)} items with min_like {min_like}')
             self.filters_applied.append('min_like')
-        
         if 'pos' in kw:
             pos = kw['pos']
             logger.info(f'Applying pos filter: {pos}')
             self.embs.reload_keys()
-            
             if kw.get('otype') == 'image':
                 sim = find_similar(pos, embs=self.embs, cur_ids=self.query)
                 scores = sim['scores']
@@ -264,19 +243,19 @@ class QueryBuilder:
                 user_scores = self._aggregate_user_scores(sim['scores'], kw)
                 self.query = sorted(self.query, key=lambda id: user_scores.get(id, -10000), reverse=True)
                 logger.info(f'  Found {len(user_scores)} users with similarity scores: {Counter(user_scores).most_common(5)}')
-            
+
             self.needs_ordering = False
             self.filters_applied.append('pos')
-        
+
         return self
-    
+
     def apply_ordering(self, kw: dict) -> 'QueryBuilder':
         """Apply ordering to the query."""
         if not self.needs_ordering:
             return self
-            
+
         order_field = kw.get('order', '-id')
-        
+
         if not self.converted_to_list:
             # Query object ordering
             if '[' in order_field:
@@ -295,23 +274,23 @@ class QueryBuilder:
                 items = [Item[id] for id in self.query]
             else:
                 items = self.query
-                
+
             def key_func(item):
                 if '[' in order_field:
                     return eval(f'item.{order_field}')
                 else:
                     return getattr(item, order_field.lstrip('-'))
-            
+
             items.sort(key=key_func, reverse=order_field.startswith('-'))
             self.query = items
-        
+
         return self
-    
+
     def apply_pagination(self, kw: dict) -> 'QueryBuilder':
         """Apply limit and offset."""
         limit = int(kw.get('limit', 10000000))
         offset = int(kw.get('offset', 0))
-        
+
         if 'limit' in kw:
             if self.manual_reverse:
                 # Fetch all items and reverse
@@ -324,15 +303,15 @@ class QueryBuilder:
                     self.query = self.query.limit(limit, offset=offset)
                 else:
                     self.query = self.query[offset:limit+offset]
-        
+
         return self
-    
+
     def finalize(self) -> Query|list:
         """Convert to final result format."""
         if not isinstance(self.query, Query) and self.query and isinstance(self.query[0], int):
             self.query = [Item[id] for id in self.query]
         return self.query
-    
+
     def _parse_ids_parameter(self, ids_value: Any) -> list[int]:
         """Parse various formats of ids parameter into list of ints."""
         if isinstance(ids_value, (int, str)):
@@ -344,14 +323,14 @@ class QueryBuilder:
             return [int(id) for id in ids_value]
         else:
             raise ValueError(f"Invalid ids parameter type: {type(ids_value)}")
-    
+
     def _resolve_same_user_ancestor(self, item_id: int) -> int|None:
         """Resolve same_user filter to actual ancestor ID."""
         with db_session:
             item = Item[int(item_id)]
             user = item.get_closest(otype='user')
             return user.id if user else None
-    
+
     def _parse_numeric_operator(self, value: str) -> tuple[str, float]:
         """Parse operator strings like '>=123', '<=456'."""
         value = value.replace(' ', '')
@@ -359,7 +338,7 @@ class QueryBuilder:
             if value.startswith(op):
                 return op, float(value[len(op):])
         return '==', float(value)
-    
+
     def _apply_numeric_operator(self, query: Query, field: str, operator: str, threshold: float) -> Query:
         """Apply numeric operator to query."""
         if operator == '>=':
@@ -376,7 +355,7 @@ class QueryBuilder:
             return query.filter(lambda c: getattr(c, field) is None)
         else:  # '=='
             return query.filter(lambda c: getattr(c, field) == threshold)
-    
+
     def _aggregate_user_scores(self, image_scores: dict[int, float], kw: dict) -> dict[int, float]:
         """Aggregate image scores by user for user similarity search."""
         user_scores = Counter()
@@ -393,7 +372,7 @@ class QueryBuilder:
                             continue
                     user_scores[user.id] += score
         return dict(user_scores)
-    
+
     def get_debug_info(self) -> dict:
         """Get information about what filters were applied."""
         return {
