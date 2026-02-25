@@ -248,28 +248,27 @@ Return only the JSON list, no other text."""
             logger.info('No relevant tags found for search query')
             return self
         logger.info(f'LLM parsed search into tags: {parsed_tags}')
-        # Apply tag filters using SQL joins (AND logic - item must have ALL tags)
+        # Apply tag filters using SQL joins (OR logic - item must have ANY of the tags)
         if not self.converted_to_list:
-            for tag in parsed_tags:
-                # For each tag, filter to items that have a score for this tag
-                self.query = self.query.filter(lambda item:
-                    pony_exists(select(s for s in Score
-                                     if s.id == item and
-                                        s.ttype.startswith('tag:') and
-                                        s.tag == tag)))
+            # Create OR condition for any of the tags
+            self.query = self.query.filter(lambda item:
+                pony_exists(select(s for s in Score
+                                 if s.id == item and
+                                    s.ttype.startswith('tag:') and
+                                    s.tag in parsed_tags)))
             self.filters_applied.append('search')
-            logger.info(f'Applied search filter for {len(parsed_tags)} tags via SQL joins')
+            logger.info(f'Applied search filter for {len(parsed_tags)} tags via SQL joins (OR logic)')
         else:
-            # If already converted to list, filter the list
-            filtered_ids = set(self.query)
+            # If already converted to list, filter the list using OR logic
+            filtered_ids = set()
             for tag in parsed_tags:
                 with db_session:
                     tag_item_ids = {s.id.id for s in Score.select(lambda s: s.ttype.startswith('tag:') and s.tag == tag)}
-                filtered_ids &= tag_item_ids
+                filtered_ids |= tag_item_ids
 
             self.query = [id for id in self.query if id in filtered_ids]
             self.filters_applied.append('search')
-            logger.info(f'Applied search filter for {len(parsed_tags)} tags on list, {len(self.query)} items remain')
+            logger.info(f'Applied search filter for {len(parsed_tags)} tags on list (OR logic), {len(self.query)} items remain')
         return self
 
     def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
