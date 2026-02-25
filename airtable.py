@@ -105,7 +105,11 @@ def airtable_api_gen(**kw) -> Any:
 def airtable_all_rows(table_name: str, **kw) -> list[dict]:
     """Returns all rows from `table_name`"""
     logger.info(f'Getting all rows from {table_name}')
-    return [row for resp in airtable_api_gen(endpoint=table_name, **kw) for row in resp['records']]
+    t0 = time.time()
+    ret = [row for resp in airtable_api_gen(endpoint=table_name, **kw) for row in resp['records']]
+    t1 = time.time()
+    logger.info(f'Took {t1-t0:.2f} seconds to get {len(ret)} rows from {table_name}')
+    return ret
 
 
 class AirtableUpdater:
@@ -115,7 +119,11 @@ class AirtableUpdater:
     Then you can simply use it like a dict to read/write updates to the table, keyed by the given
     field name.
     """
-    def __init__(self, table_name: str, key_name: str, map_tables: Optional[list[str]]=None, needs_review:bool = True) -> None:
+    def __init__(self,
+                 table_name: str,
+                 key_name: str,
+                 map_tables: Optional[list[str]]=None,
+                 needs_review:bool = True) -> None:
         """This is an updater for given table and key name.
 
         You can optionally specify a list of tables that are referenced in this one, and we will
@@ -127,35 +135,48 @@ class AirtableUpdater:
         self.table_name = table_name
         self.key_name = key_name
         self.needs_review = needs_review
+        # kick off fetching the main table, using futures
+        pool = ThreadPoolExecutor()
+        main_futures = []
+        if table_name == 'Dishes': # special case since this is so big
+            #TODO generalize this somehow
+            # fetch the main dishes table using multiple subsets based on length of the name
+            fmt = 'and(len(%7BName%7D)%3EXXX%2Clen(%7BName%7D)%3CYYY)'
+            breakpoints = [0, 30, 40, 50, 60, 1000]
+            for b0, b1 in zip(breakpoints[:-1], breakpoints[1:]):
+                formula = fmt.replace('XXX', str(b0)).replace('YYY', str(b1))
+                f = pool.submit(lambda: list(airtable_all_rows(table_name, filterByFormula=formula)))
+                main_futures.append(f)
+        else:
+            main_futures.append(pool.submit(lambda: list(airtable_all_rows(table_name))))
         # load any mappers
         self.mappers: defaultdict[str, dict] = defaultdict(dict)
-        pool = ThreadPoolExecutor()
         futures = []
-        f = pool.submit(lambda: list(airtable_all_rows(table_name)))
-        futures.append(('all', f))
         if map_tables is not None:
             for mt_name in map_tables:
                 f = pool.submit(lambda mt_name: list(airtable_all_rows(mt_name)), mt_name)
                 futures.append((mt_name, f))
-            for mt_name, f in futures[1:]:
+            for mt_name, f in futures:
                 logger.info(f'Reading mapping rows for {mt_name}')
                 for row in f.result():
                     self.add_map_value(mt_name, row)
-            futures = futures[:1]
         # placeholder for the schema
         self._schema: dict = {}
         # load the entire table
         self.data = {}
         logger.info(f'Reading main data for {table_name}')
-        for row in futures[0][1].result():
-            self._setrow(row)
-            if key_name == 'id':
-                value = row['id']
-            else:
-                value = row['fields'].get(key_name, None)
-            if value:
-                self.data[value] = row['fields']
-                self.data[value]['id'] = row['id']
+        for f in main_futures:
+            rows = f.result()
+            logger.info(f'  Dish future got {len(rows)} rows')
+            for row in rows:
+                self._setrow(row)
+                if key_name == 'id':
+                    value = row['id']
+                else:
+                    value = row['fields'].get(key_name, None)
+                if value:
+                    self.data[value] = row['fields']
+                    self.data[value]['id'] = row['id']
         logger.info(f'Read {len(self.data)} rows from {table_name}, key={key_name}')
 
     @property
