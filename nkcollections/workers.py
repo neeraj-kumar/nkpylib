@@ -697,10 +697,6 @@ class CollectionsWorker(BackgroundWorker):
         for i, (tag, key) in enumerate(sorted(tag_keys.items())):
             bar.update(1)
             if self.valid_tags is not None and tag not in self.valid_tags:
-                logger.info(f'Deleting scores for {tag}')
-                # delete from scores table
-                with db_session:
-                    Score.select(lambda s: s.ttype == ttype and s.tag == tag).delete(bulk=True)
                 continue
             # get done ids for this tag from lmdb (Score table only has positives)
             done = set(db.md_get(key+':done').get('ids', []))
