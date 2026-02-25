@@ -6,6 +6,7 @@ import asyncio
 import datetime
 import functools
 import inspect
+import logging
 import time
 
 from contextlib import contextmanager
@@ -14,6 +15,8 @@ import numpy as np
 import psutil
 
 from scipy.optimize import curve_fit
+
+logger = logging.getLogger(__name__)
 
 DAY_SECS = 24*3600
 YEAR_SECS = 365*DAY_SECS
