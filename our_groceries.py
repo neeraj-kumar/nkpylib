@@ -6,6 +6,7 @@ page content, as no matter what I tried, I just couldn't see the initial list co
 
 However, fortunately, if you add an item or remove an item, the response is the full list.
 """
+#TODO re-enable embeddings
 
 from __future__ import annotations
 
@@ -18,10 +19,13 @@ import time
 
 from typing import Any
 
+import numpy as np
+
 from scipy.spatial.distance import cdist # type: ignore
 
-from nkpylib.web_utils import make_request
 from nkpylib.ml.client import embed_text
+from nkpylib.stringutils import strsim
+from nkpylib.web_utils import make_request
 
 EMB_MODEL = 'qwen_emb_small'
 
@@ -160,7 +164,7 @@ class OurGroceries:
     def item_id_by_name(self, item: str) -> str | None:
         """Returns the item ID of the item with the given name (possibly excluding quantity), or None if not found."""
         lst = self.get_list(include_deleted=True)
-        print(f'Got lst with {len(lst)} items: {lst[:5]}...{lst[-5:]}')
+        logger.debug(f'Got lst with {len(lst)} items: {lst[:5]}...{lst[-5:]}')
         for i in lst:
             if i['name'] == item or i['value'] == item:
                 return i['id']
@@ -180,9 +184,14 @@ class OurGroceries:
         """
         if name in self:
             return [(0.0, name)]
-        name_emb = embed_text.single(name, model=EMB_MODEL)
-        items, embs = zip(*self.embeddings.items())
-        dists = cdist([name_emb], embs, 'cosine')[0]
+        if self.embeddings:
+            name_emb = embed_text.single(name, model=EMB_MODEL)
+            items, embs = zip(*self.embeddings.items())
+            dists = cdist([name_emb], embs, 'cosine')[0]
+        else:
+            # simple string similarity
+            dists = np.array([1 - strsim(name, i['name']) for i in self.items])
+            items = [i['name'] for i in self.items]
         # sort by distance
         idxs = dists.argsort()[:k]
         ret = [(dists[i], items[i]) for i in idxs]
@@ -215,5 +224,5 @@ if __name__ == '__main__':
     for arg in sys.argv[1:]:
         close = og.get_closest(arg)
         print(f'Finding similar to "{arg}": {json.dumps(close, indent=2)}')
-    og.add_item('Flonase')
-    og.add_item('tofu')
+    #og.add_item('Flonase')
+    #og.add_item('tofu')
