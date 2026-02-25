@@ -244,7 +244,7 @@ class QueryBuilder:
             if 'min_like' in kw and 'min_like' not in self.filters_applied:
                 min_like = float(kw['min_like'])
                 logger.info(f'Applying min_like filter on list: {min_like}')
-                scores = get_like_scores()
+                scores = get_like_scores(ids=self.query)
                 self.query = [id for id in self.query if scores.get(id, 0.0) >= min_like]
                 logger.info(f'  Filtered to {len(self.query)} items with min_like {min_like}')
                 self.filters_applied.append('min_like')
@@ -723,10 +723,11 @@ class ClassifyHandler(MyBaseHandler):
                             otypes=['image'],
                             **kw):
         """Gets the latest likes scores from Score table"""
-        scores = get_like_scores()
         if cur_ids is not None:
             cur_ids = [int(id) for id in cur_ids]
-            scores = {id: score for id, score in scores.items() if int(id) in cur_ids}
+            scores = get_like_scores(ids=cur_ids)
+        else:
+            scores = get_like_scores()
         return dict(
             msg=f'Likes scores for {len(scores)} items',
             scores=scores

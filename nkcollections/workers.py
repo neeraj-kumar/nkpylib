@@ -70,7 +70,12 @@ def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:
 
     If `ids` is provided, limit to just those ids.
     """
-    scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
+    if ids is not None:
+        # Convert to int set for efficient lookup
+        id_set = {int(id) for id in ids}
+        scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like') if s.id.id in id_set}
+    else:
+        scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
     return scores
 
 
@@ -780,9 +785,9 @@ class CollectionsWorker(BackgroundWorker):
             # Get all image IDs that have embeddings
             if all_ids is None:
                 all_ids = self._get_all_image_ids()
-            # Get currently classified IDs from Score table
-            current_scores = get_like_scores()
-            classified_ids = set(int(id) for id in current_scores.keys())
+            # Get currently classified IDs from Score table (only for items we care about)
+            current_scores = get_like_scores(ids=all_ids)
+            classified_ids = set(current_scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
             if not unclassified_ids:
                 return
