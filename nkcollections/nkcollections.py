@@ -751,7 +751,6 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
             logger.info("CollectionsWorker started successfully")
         else: # without likes worker
             app.likes_worker = None
-            logger.info("Will read scores directly from Score table")
 
     more_handlers = [
         (r'/get', GetHandler),
