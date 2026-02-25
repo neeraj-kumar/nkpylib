@@ -61,6 +61,16 @@ from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_req
 
 logger = logging.getLogger(__name__)
 
+LIKES_TTYPE = 'like:mn_image'
+
+
+@db_session
+def get_like_scores(self) -> dict[int, float]:
+    """Get current classifier scores from Score table."""
+    scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
+    return scores
+
+
 class BackgroundWorker(abc.ABC):
     """Abstract base class for long-running background worker threads.
 
@@ -210,7 +220,7 @@ class BackgroundWorker(abc.ABC):
             counts = Counter(ts=time.time())
             timing['init_counters'] = time.time() - t3
             t4 = time.time()
-            like_scores = [score for id, score in self.like_scores.items() if int(id) in item_ids]
+            like_scores = [score for id, score in get_like_scores.items() if int(id) in item_ids]
             timing['extract_like_scores'] = time.time() - t4
             t5 = time.time()
             for item in user_items:
@@ -514,16 +524,10 @@ class CollectionsWorker(BackgroundWorker):
 
     def _update_classifier(self) -> None:
         """Update the classifier if needed."""
+        # Only retrain if we have enough new likes since last training
         current_pos_ids = self._get_current_pos_ids()
-        if not current_pos_ids:
-            logger.info("No liked images found, skipping classifier update")
-            return
         current_pos_count = len(current_pos_ids)
         last_pos_count = self.last.get('pos_count', 0)
-        # Check if we need to update
-        if current_pos_ids == self.last['pos_ids']: # no training data change, just run inference
-            return self.run_inference()
-        # Only retrain if we have enough new likes since last training
         new_likes_count = current_pos_count - last_pos_count
         if new_likes_count <= self.min_new_liked:
             logger.info(f"Only {new_likes_count} new likes (need >{self.min_new_liked}), running inference only")
@@ -564,7 +568,7 @@ class CollectionsWorker(BackgroundWorker):
             # Store all scores in Score table
             self._store_scores_in_db(
                 scores=like_scores,
-                ttype=f'like:{self.image_suffix}',
+                ttype=LIKES_TTYPE,
                 tag='like',
                 classifier_version=saved_classifier['created_at']
             )
@@ -580,15 +584,6 @@ class CollectionsWorker(BackgroundWorker):
         except Exception as e:
             logger.error(f"Error updating likes classifier: {e}")
             print(traceback.format_exc())
-
-    def get_like_scores(self) -> dict[str, float]:
-        """Get current classifier scores from Score table."""
-        ttype = f'like:{self.image_suffix}'
-        with db_session:
-            scores = {}
-            for score_entry in Score.select(lambda s: s.ttype == ttype and s.tag == 'like'):
-                scores[str(score_entry.id.id)] = score_entry.score
-            return scores
 
     def rescore(self, scores: dict[str, float], pos: list[int]) -> dict[str, float]:
         """Rescores `scores` using nearest neighbors from positive IDs."""
@@ -631,8 +626,7 @@ class CollectionsWorker(BackgroundWorker):
             # Also update pos_count from saved data
             self.last['pos_count'] = saved_data.get('pos_count', len(pos_ids))
             # Get current score count from Score table
-            current_scores = self.get_like_scores()
-            logger.info(f"Loaded existing likes classifier v{self.last['classifier_version']} with {len(current_scores)} scores, {self.last['pos_count']} pos examples")
+            logger.info(f"Loaded existing likes classifier v{self.last['classifier_version']}, {self.last['pos_count']} pos examples")
         except Exception as e:
             logger.warning(f"Failed to load existing likes classifier: {e}\n{traceback.format_exc()}")
         # deal with tags classifiers
@@ -685,8 +679,7 @@ class CollectionsWorker(BackgroundWorker):
         return db
 
     def run_inference(self) -> None:
-        """Run inference on unclassified items.
-        """
+        """Run inference on unclassified items."""
         all_ids = self._get_all_image_ids()
         self.run_likes_inference(all_ids=all_ids)
         self.run_tags_inference(all_ids=all_ids)
@@ -757,7 +750,7 @@ class CollectionsWorker(BackgroundWorker):
     def run_likes_inference(self, all_ids: list[int]|None=None) -> None:
         """Runs inference for the likes classifier
 
-        - Find items that are currently unclassified (not in `self.like_scores`) but have embeddings.
+        - Find items that are currently unclassified but have embeddings.
         - Load the likes classifier from disk and run on those items
         - Since we run classification on all items when we train the likes classifier, we never have
           inconsistent classifications from different versions of the classifier.
@@ -771,42 +764,23 @@ class CollectionsWorker(BackgroundWorker):
             if all_ids is None:
                 all_ids = self._get_all_image_ids()
             # Get currently classified IDs from Score table
-            current_scores = self.get_like_scores()
+            current_scores = get_like_scores()
             classified_ids = set(int(id) for id in current_scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
             if not unclassified_ids:
                 return
             # run classification and rescoring
-            result = self.load_and_run_classifier(ids=unclassified_ids, path=self.likes_classifier_path)
-            result['new_scores'] = self.rescore(result['new_scores'], list(self.last['pos_ids']))
-            # Update scores if successful
-            if result['status'] == 'inference_completed':
+            r = self.load_and_run_classifier(ids=unclassified_ids, path=self.likes_classifier_path)
+            if r['status'] == 'inference_completed':
+                r['new_scores'] = self.rescore(r['new_scores'], list(self.last['pos_ids']))
                 # Store scores in Score table
                 self._store_scores_in_db(
-                    scores=result['new_scores'],
-                    ttype=f'like:{self.image_suffix}',
+                    scores=r['new_scores'],
+                    ttype=LIKES_TTYPE,
                     tag='like',
-                    classifier_version=result['classifier_version']
+                    classifier_version=r['classifier_version']
                 )
-                # Get updated total count from Score table
-                current_scores = self.get_like_scores()
-                logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(current_scores)} total scores")
-                # Save the classifier with updated scores
-                try:
-                    if self.last['saved_classifier'] and result['new_scores']:
-                        # Load the existing classifier data and update scores
-                        saved_data = self.last['saved_classifier'].copy()
-                        saved_data['scores'] = current_scores
-
-                        # Save the updated classifier data
-                        self.embs.save_classifier(
-                            self.likes_classifier_path,
-                            saved_data.pop('classifier'),
-                            **saved_data
-                        )
-                        logger.info(f"  Updated classifier saved with {len(current_scores)} scores")
-                except Exception as e:
-                    logger.warning(f"Failed to save updated classifier: {e}, {traceback.format_exc()}")
+                logger.info(f"Inference completed in {r['inference_time']:.2f}s for {len(r['new_scores'])} items")
         except Exception as e:
             logger.error(f"Error running inference: {e}")
             traceback.print_exc()
