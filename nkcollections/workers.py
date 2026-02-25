@@ -668,7 +668,7 @@ class CollectionsWorker(BackgroundWorker):
 
         If `self.valid_tags` is not `None`, we only do tags that are in that list.
 
-        We only add a tag to the sql database if the score is above `score_threshold`.
+        We only add a tag to the Score table if the score is above `score_threshold`.
 
         If `max_tags` > 0, then only runs inference for upto that many tags (skipping those that
         have no updates). This is not so much for memory usage (although that also if you're running
@@ -684,13 +684,26 @@ class CollectionsWorker(BackgroundWorker):
         all_ids = set(all_ids)
         scores_by_id_tag = defaultdict(dict)
         done_by_tag = {}
+        ttype = f'tag:{self.image_suffix}'
+        current_ts = time.time()
+        
+        # Get existing scores from Score table to determine what's already been processed
+        with db_session:
+            existing_scores = {}
+            for tag in tag_keys.keys():
+                if self.valid_tags is not None and tag not in self.valid_tags:
+                    continue
+                # Get all items that already have scores for this tag
+                scored_items = Score.select(lambda s: s.ttype == ttype and s.tag == tag)
+                existing_scores[tag] = {s.id.id for s in scored_items}
+        
         # create tqdm progress bar that we can update
         bar = tqdm(total=min(len(tag_keys), max_tags), desc='Running tags inference', unit='items')
         for tag, key in sorted(tag_keys.items()):
             if self.valid_tags is not None and tag not in self.valid_tags:
                 continue
             md = db.md_get(key)
-            done = set(md.get('done_ids', []))
+            done = existing_scores.get(tag, set())
             bar.set_postfix_str(f'Tag "{tag}": {len(done)} done')
             #logger.info(f'  For tag "{tag}": {len(done)} done')
             to_cls = all_ids - done
@@ -712,21 +725,29 @@ class CollectionsWorker(BackgroundWorker):
                     scores_by_id_tag[id][tag] = v
             if max_tags > 0 and len(done_by_tag) >= max_tags:
                 break
-        # update scores in sql
-        tag_key = f'{self.image_suffix}_tags'
+        
+        # update scores in Score table
         with db_session:
-            for id, tag_scores in tqdm(scores_by_id_tag.items(), desc='Updating items with tag scores'):
+            for id, tag_scores in tqdm(scores_by_id_tag.items(), desc='Updating Score table with tag scores'):
                 item = Item[id]
-                #logger.info(f'  Updating item {id} {tag_key} with tags {tag_scores}')
-                cur = item.md.get(tag_key, {})
-                # filter by score threshold
-                cur = {tag: score for tag, score in cur.items() if score >= score_threshold}
-                # remove invalid tags
-                if self.valid_tags is not None:
-                    cur = {tag: score for tag, score in cur.items() if tag in self.valid_tags}
-                cur.update(tag_scores)
-                item.md[tag_key] = cur
-        # update done ids in lmdb
+                for tag, score in tag_scores.items():
+                    # Check if Score entry already exists
+                    existing_score = Score.get(id=item, ttype=ttype, tag=tag)
+                    if existing_score:
+                        # Update existing score
+                        existing_score.score = float(score)
+                        existing_score.ts = current_ts
+                    else:
+                        # Create new Score entry
+                        Score(
+                            id=item,
+                            ttype=ttype,
+                            tag=tag,
+                            score=float(score),
+                            ts=current_ts
+                        )
+        
+        # update done ids in lmdb (now using Score table data instead of metadata)
         logger.info(f'  Updating lmdb with done ids for {len(done_by_tag)} tags')
         for tag, done in tqdm(done_by_tag.items()):
             logger.debug(f'  Updating lmdb for tag {tag} with {len(done)} done ids')
