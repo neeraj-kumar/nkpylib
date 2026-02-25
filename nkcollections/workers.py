@@ -1101,57 +1101,36 @@ class CollectionsWorker(BackgroundWorker):
         values of the dict, the ts can be right now, and no md for now.
         """
         logger.info('Converting tag scores from Item metadata to Score table')
-        
         ttype = f'tag:{self.image_suffix}'
         tag_key = f'{self.image_suffix}_tags'
         current_ts = time.time()
-        
         n_items_processed = 0
         n_scores_created = 0
-        n_scores_updated = 0
-        
         with db_session:
             # Get all items that have tag scores in metadata
             items_with_tags = Item.select(lambda i: i.md and tag_key in i.md)
-            
             for item in tqdm(items_with_tags, desc='Converting tag scores'):
+                del item.md[tag_key]
+                continue
                 tag_scores = item.md.get(tag_key, {})
                 if not tag_scores or not isinstance(tag_scores, dict):
                     continue
-                
                 n_items_processed += 1
-                
                 for tag, score in tag_scores.items():
                     if not isinstance(score, (int, float)):
                         logger.warning(f'Skipping non-numeric score for item {item.id}, tag {tag}: {score}')
                         continue
-                    
-                    # Check if Score entry already exists
-                    existing_score = Score.get(id=item, ttype=ttype, tag=tag)
-                    
-                    if existing_score:
-                        # Update existing score if different
-                        if abs(existing_score.score - float(score)) > 1e-6:  # Small epsilon for float comparison
-                            existing_score.score = float(score)
-                            existing_score.ts = current_ts
-                            n_scores_updated += 1
-                    else:
-                        # Create new Score entry
-                        Score(
-                            id=item,
-                            ttype=ttype,
-                            tag=tag,
-                            score=float(score),
-                            ts=current_ts
-                        )
-                        n_scores_created += 1
-                
+                    # Create new Score entry
+                    Score(
+                        id=item,
+                        ttype=ttype,
+                        tag=tag,
+                        score=float(score),
+                        ts=current_ts
+                    )
+                    n_scores_created += 1
                 # Optionally remove the tag scores from metadata after conversion
                 # Uncomment the next line if you want to clean up the old format
-                # del item.md[tag_key]
-        
         logger.info(f'Score conversion completed:')
         logger.info(f'  Items processed: {n_items_processed}')
         logger.info(f'  New scores created: {n_scores_created}')
-        logger.info(f'  Existing scores updated: {n_scores_updated}')
-        logger.info(f'  Total score entries: {n_scores_created + n_scores_updated}')
