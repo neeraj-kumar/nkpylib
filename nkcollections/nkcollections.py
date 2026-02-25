@@ -254,8 +254,8 @@ Return only the JSON list, no other text."""
             self.query = self.query.filter(lambda item:
                 pony_exists(select(s for s in Score
                                  if s.id == item and
-                                    s.ttype.startswith('tag:') and
-                                    s.tag in parsed_tags)))
+                                   s.ttype == f'tag:{IMAGE_SUFFIX}' and
+                                   s.tag in parsed_tags)))
             self.filters_applied.append('search')
             logger.info(f'Applied search filter for {len(parsed_tags)} tags via SQL joins (OR logic)')
         else:
