@@ -29,6 +29,10 @@ class QdrantSearch(SearchImpl):
         self.client = client
         self.collection_name = collection_name
 
+    def __len__(self) -> int:
+        """Returns the number of points in the collection."""
+        return self.client.count(collection_name=self.collection_name).count
+
     def parse_cond(self, cond: SearchCond) -> dict|models.Filter|None:
         """Recursively traverse the search condition and convert it to a Qdrant filter.
 
