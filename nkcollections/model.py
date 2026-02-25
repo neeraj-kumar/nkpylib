@@ -33,7 +33,7 @@ from nkpylib.thread_utils import (
     consume_async_generator,
     consume_sync_generator,
 )
-from nkpylib.time_utils import elapsed_str
+from nkpylib.time_utils import elapsed_str, timed
 
 logger = logging.getLogger(__name__)
 
@@ -80,28 +80,6 @@ async def ret_immediate(func_output) -> Any:
             return first_value
         except StopIteration:
             return None
-
-
-def timed(func: Callable) -> Callable:
-    """Decorator to time a function and log its duration."""
-    async def async_wrapper(*args, **kw):
-        start = time.time()
-        result = await func(*args, **kw)
-        end = time.time()
-        logger.info(f'Function {func.__name__} took {end - start:.2f} seconds')
-        return result
-
-    def sync_wrapper(*args, **kw):
-        start = time.time()
-        result = func(*args, **kw)
-        end = time.time()
-        logger.info(f'Function {func.__name__} took {end - start:.2f} seconds')
-        return result
-
-    if asyncio.iscoroutinefunction(func):
-        return async_wrapper
-    else:
-        return sync_wrapper
 
 
 class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
