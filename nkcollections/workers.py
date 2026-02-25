@@ -40,6 +40,7 @@ from pony.orm import (
     Required,
     Set,
     select,
+    set_sql_debug,
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 from tornado.web import RequestHandler
@@ -625,10 +626,11 @@ class CollectionsWorker(BackgroundWorker):
             # now fetch lmdb data and compare versions
             key = f'tags:{tag}'
             self.tag_keys[tag] = key
-            cur = db.get(key, None)
+            if key not in db:
+                todo.append((tag, data, key, version))
+                continue
             md = db.md_get(key)
-            logger.debug(f'  Read emb {cur}, md {md}')
-            if cur is None or not md or md['version'] != version:
+            if md.get('version', '') != version:
                 todo.append((tag, data, key, version))
         if not todo:
             return
@@ -661,7 +663,8 @@ class CollectionsWorker(BackgroundWorker):
         self.run_likes_inference(all_ids=all_ids)
         #self.run_tags_inference(all_ids=all_ids) #FIXME
 
-    def run_tags_inference(self, all_ids: list[int]|None=None,
+    def run_tags_inference(self,
+                           all_ids: list[int]|None=None,
                            score_threshold: float=0.5,
                            max_tags: int=10) -> None:
         """Runs inference for the tags classifiers on items that don't have scores yet.
@@ -675,34 +678,23 @@ class CollectionsWorker(BackgroundWorker):
         for the first time on lots of items * lots of tags), but because we don't actually update
         the databases until we run inference on all tags (upto the max).
         """
-        db = self.load_lmdb()
         tag_keys = self.tag_keys
-        logger.debug(f'Got {len(tag_keys)} tag classifiers in lmdb: {list(tag_keys.items())[:5]}')
+        logger.debug(f'Got {len(tag_keys)} tag keys: {list(tag_keys.items())[:5]}')
         if all_ids is None:
             all_ids = self._get_all_image_ids()
         logger.debug(f'Got {len(all_ids)} ids with embeddings for inference: {all_ids[:5]}')
         all_ids = set(all_ids)
-        scores_by_id_tag = defaultdict(dict)
-        done_by_tag = {}
         ttype = f'tag:{self.image_suffix}'
         current_ts = time.time()
-        # Get existing scores from Score table to determine what's already been processed
-        with db_session:
-            existing_scores = {}
-            for tag in tag_keys.keys():
-                if self.valid_tags is not None and tag not in self.valid_tags:
-                    continue
-                # Get all items that already have scores for this tag
-                scored_items = Score.select(lambda s: s.ttype == ttype and s.tag == tag)
-                existing_scores[tag] = {s.id.id for s in scored_items}
-        
+        db = self.load_lmdb(flag='c')
         # create tqdm progress bar that we can update
         bar = tqdm(total=min(len(tag_keys), max_tags), desc='Running tags inference', unit='items')
+        n_tags_done = 0
         for tag, key in sorted(tag_keys.items()):
             if self.valid_tags is not None and tag not in self.valid_tags:
                 continue
-            md = db.md_get(key)
-            done = existing_scores.get(tag, set())
+            # get done ids for this tag from lmdb (Score table only has positives)
+            done = set(db.md_get(key+':done').get('ids', []))
             bar.set_postfix_str(f'Tag "{tag}": {len(done)} done')
             #logger.info(f'  For tag "{tag}": {len(done)} done')
             to_cls = all_ids - done
@@ -714,44 +706,20 @@ class CollectionsWorker(BackgroundWorker):
             result = self.load_and_run_classifier(ids=to_cls, path=cls_path)
             if result['items_classified'] == 0:
                 continue
+            n_tags_done += 1
             scores = result.pop('new_scores')
             logger.debug(f'  Got tag result {result}')
             # update scores and done by item id
-            done_by_tag[tag] = done
-            for id, v in scores.items():
-                done_by_tag[tag].add(id)
-                if v > score_threshold:
-                    scores_by_id_tag[id][tag] = v
-            if max_tags > 0 and len(done_by_tag) >= max_tags:
+            with db_session:
+                for id, v in scores.items():
+                    if v < score_threshold:
+                        continue
+                    Score(id=Item[int(id)], ttype=ttype, tag=tag, score=float(v), ts=current_ts)
+            # update lmdb with done ids
+            db.md_set(key+':done', ids=sorted(done | set(scores.keys())), version=result['classifier_version'])
+            db.sync()
+            if max_tags > 0 and n_tags_done >= max_tags:
                 break
-        
-        # update scores in Score table
-        with db_session:
-            for id, tag_scores in tqdm(scores_by_id_tag.items(), desc='Updating Score table with tag scores'):
-                item = Item[id]
-                for tag, score in tag_scores.items():
-                    # Check if Score entry already exists
-                    existing_score = Score.get(id=item, ttype=ttype, tag=tag)
-                    if existing_score:
-                        # Update existing score
-                        existing_score.score = float(score)
-                        existing_score.ts = current_ts
-                    else:
-                        # Create new Score entry
-                        Score(
-                            id=item,
-                            ttype=ttype,
-                            tag=tag,
-                            score=float(score),
-                            ts=current_ts
-                        )
-        
-        # update done ids in lmdb (now using Score table data instead of metadata)
-        logger.info(f'  Updating lmdb with done ids for {len(done_by_tag)} tags')
-        for tag, done in tqdm(done_by_tag.items()):
-            logger.debug(f'  Updating lmdb for tag {tag} with {len(done)} done ids')
-            db.md_update(self.tag_keys[tag], done_ids=sorted(done))
-        db.sync()
 
 
     def run_likes_inference(self, all_ids: list[int]|None=None) -> None:
