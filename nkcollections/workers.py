@@ -64,9 +64,12 @@ logger = logging.getLogger(__name__)
 LIKES_TTYPE = 'like:mn_image'
 
 
-@db_session
-def get_like_scores(self) -> dict[int, float]:
-    """Get current classifier scores from Score table."""
+@db_session(sql_debug=True)
+def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:
+    """Get current classifier scores from Score table.
+
+    If `ids` is provided, limit to just those ids.
+    """
     scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
     return scores
 
@@ -220,7 +223,7 @@ class BackgroundWorker(abc.ABC):
             counts = Counter(ts=time.time())
             timing['init_counters'] = time.time() - t3
             t4 = time.time()
-            like_scores = [score for id, score in get_like_scores.items() if int(id) in item_ids]
+            like_scores = [score for id, score in get_like_scores().items() if int(id) in item_ids]
             timing['extract_like_scores'] = time.time() - t4
             t5 = time.time()
             for item in user_items:
@@ -250,14 +253,12 @@ class BackgroundWorker(abc.ABC):
             counts['avg_like_score'] = sum(like_scores) / len(like_scores) if like_scores else 0.0
             counts['n_pos_like_score'] = sum(1 for s in like_scores if s > 0)
             timing['avg_score_calc'] = time.time() - t6
-            
             # Count Score rows by tag for this user's items
             t_tags = time.time()
             tag_counts = Counter()
             score_rows = Score.select(lambda s: s.id.id in item_ids)
             for score_row in score_rows:
                 tag_counts[score_row.tag] += 1
-            
             # Get top 5 tags
             top_tags = dict(tag_counts.most_common(5))
             counts['top_tags'] = top_tags
@@ -399,10 +400,13 @@ class CollectionsWorker(BackgroundWorker):
         self.image_suffix = image_suffix
         self.sleep_interval = sleep_interval
         self.exclude_top_n = exclude_top_n
-        self.valid_tags = valid_tags
+        if valid_tags:
+            self.valid_tags = valid_tags
+        else: # limit to those in our database currently
+            with db_session:
+                self.valid_tags = list(set(s.tag for s in Score.select(ttype=LIKES_TTYPE)))
         # Set classifier path -- no need to create dir since save_classifier does that
         self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
-
         # State tracking
         self.last: dict[str, Any] = {
             'pos_ids': frozenset(),

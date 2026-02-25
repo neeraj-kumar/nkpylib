@@ -213,22 +213,22 @@ class QueryBuilder:
         """Apply ML-based filters (min_like, pos)."""
         if not any(k in kw for k in ['min_like', 'pos']):
             return self
-            
+
         # Handle min_like filter with SQL join (more efficient)
         if 'min_like' in kw and not self.converted_to_list:
             min_like = float(kw['min_like'])
             logger.info(f'Applying min_like filter with SQL join: {min_like}')
             from nkpylib.nkcollections.workers import LIKES_TTYPE
             # Join with Score table to filter by like scores
-            self.query = self.query.filter(lambda item: 
-                pony_exists(select(s for s in Score 
-                                 if s.id == item and 
-                                    s.ttype == LIKES_TTYPE and 
-                                    s.tag == 'like' and 
+            self.query = self.query.filter(lambda item:
+                pony_exists(select(s for s in Score
+                                 if s.id == item and
+                                    s.ttype == LIKES_TTYPE and
+                                    s.tag == 'like' and
                                     s.score >= min_like)))
             self.filters_applied.append('min_like')
             logger.info(f'  Applied min_like filter via SQL join')
-        
+
         # For pos filter or if we already converted to list, use the original approach
         if 'pos' in kw or (self.converted_to_list and 'min_like' in kw):
             # Convert query to ID list for score-based filtering
@@ -239,7 +239,7 @@ class QueryBuilder:
                 self.query = ids_only
                 self.converted_to_list = True
                 logger.info(f'  Got {len(ids_only)} candidate ids for score filtering')
-            
+
             # Handle min_like on converted list (fallback case)
             if 'min_like' in kw and 'min_like' not in self.filters_applied:
                 min_like = float(kw['min_like'])
@@ -248,7 +248,7 @@ class QueryBuilder:
                 self.query = [id for id in self.query if scores.get(id, 0.0) >= min_like]
                 logger.info(f'  Filtered to {len(self.query)} items with min_like {min_like}')
                 self.filters_applied.append('min_like')
-            
+
             if 'pos' in kw:
                 pos = kw['pos']
                 logger.info(f'Applying pos filter: {pos}')
