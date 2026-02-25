@@ -496,6 +496,25 @@ class CollectionsWorker(BackgroundWorker):
         logger.info(f'Sampled {len(pos)} pos and {len(neg)} neg ({len(disliked_ids)} disliked)')
         return pos, neg
 
+    def _store_scores_in_db(self, scores: dict[str, float], ttype: str, tag: str, **metadata) -> None:
+        """Store scores in the Score table with optional metadata.
+        
+        - scores: Dict mapping item_id (as string) to score (as float)
+        - ttype: Type of score (e.g., 'like:mn_image', 'tag:mn_image')
+        - tag: Tag name (e.g., 'like', specific tag name)
+        - metadata: Additional metadata to store in the md field
+        """
+        current_ts = time.time()
+        with db_session:
+            for item_id, score in scores.items():
+                Score.upsert(
+                    get_kw=dict(id=Item[int(item_id)], ttype=ttype, tag=tag),
+                    score=float(score),
+                    ts=current_ts,
+                    md=metadata if metadata else None
+                )
+        logger.info(f"  Stored {len(scores)} {tag} scores in Score table")
+
     def _update_classifier(self) -> None:
         """Update the classifier if needed."""
         current_pos_ids = self._get_current_pos_ids()
@@ -546,14 +565,12 @@ class CollectionsWorker(BackgroundWorker):
                 **other_stuff,
             )
             # Store all scores in Score table
-            with db_session:
-                ttype = f'like:{self.image_suffix}'
-                for item_id, score in self.like_scores.items():
-                    Score.upsert(
-                        get_kw=dict(id=Item[int(item_id)], ttype=ttype, tag='like'),
-                        score=float(score),md=dict(classifier_version=saved_classifier['created_at'])
-                    )
-            logger.info(f"  Stored {len(self.like_scores)} like scores in Score table")
+            self._store_scores_in_db(
+                scores=self.like_scores,
+                ttype=f'like:{self.image_suffix}',
+                tag='like',
+                classifier_version=saved_classifier['created_at']
+            )
             # Update state
             self.last.update({
                 'pos_ids': current_pos_ids,
@@ -724,11 +741,14 @@ class CollectionsWorker(BackgroundWorker):
             scores = result.pop('new_scores')
             logger.debug(f'  Got tag result {result}')
             # update scores and done by item id
-            with db_session:
-                for id, v in scores.items():
-                    if v < score_threshold:
-                        continue
-                    Score(id=Item[int(id)], ttype=ttype, tag=tag, score=float(v), ts=current_ts)
+            filtered_scores = {str(id): v for id, v in scores.items() if v >= score_threshold}
+            if filtered_scores:
+                self._store_scores_in_db(
+                    scores=filtered_scores,
+                    ttype=ttype,
+                    tag=tag,
+                    classifier_version=result['classifier_version']
+                )
             # update lmdb with done ids
             db.md_set(key+':done', ids=sorted(done | set(scores.keys())), version=result['classifier_version'])
             db.sync()
@@ -763,14 +783,12 @@ class CollectionsWorker(BackgroundWorker):
                 self.like_scores.update(result['new_scores'])
                 logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.like_scores)} total scores")
                 # Store scores in Score table
-                with db_session:
-                    ttype = f'like:{self.image_suffix}'
-                    for item_id, score in result['new_scores'].items():
-                        Score.upsert(
-                            get_kw=dict(id=Item[int(item_id)], ttype=ttype, tag='like'),
-                            score=float(score),
-                        )
-                logger.info(f"  Stored {len(result['new_scores'])} like scores in Score table")
+                self._store_scores_in_db(
+                    scores=result['new_scores'],
+                    ttype=f'like:{self.image_suffix}',
+                    tag='like',
+                    classifier_version=result['classifier_version']
+                )
                 # Save the classifier with updated scores
                 try:
                     if self.last['saved_classifier'] and result['new_scores']:
