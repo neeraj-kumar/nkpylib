@@ -658,8 +658,8 @@ class CollectionsWorker(BackgroundWorker):
         """Run inference on unclassified items.
         """
         all_ids = self._get_all_image_ids()
-        run_likes_inference(all_ids=all_ids)
-        #run_tags_inference(all_ids=all_ids) #FIXME
+        self.run_likes_inference(all_ids=all_ids)
+        #self.run_tags_inference(all_ids=all_ids) #FIXME
 
     def run_tags_inference(self, all_ids: list[int]|None=None,
                            score_threshold: float=0.5,
