@@ -82,7 +82,7 @@ from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkcollections.embeddings import IMAGE_SUFFIX, cleanup_embeddings
-from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Source, J, timed, ACTIONS
+from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Score, Source, J, timed, ACTIONS
 from nkpylib.nkcollections.workers import CollectionsWorker, get_like_scores
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
@@ -213,39 +213,60 @@ class QueryBuilder:
         """Apply ML-based filters (min_like, pos)."""
         if not any(k in kw for k in ['min_like', 'pos']):
             return self
-        # Convert query to ID list for score-based filtering
-        if not self.converted_to_list:
-            if isinstance(self.query, Query):
-                self.query = self.query.without_distinct()
-            ids_only = [item.id for item in self.query]
-            self.query = ids_only
-            self.converted_to_list = True
-            logger.info(f'  Got {len(ids_only)} candidate ids for score filtering')
-        if 'min_like' in kw:
+            
+        # Handle min_like filter with SQL join (more efficient)
+        if 'min_like' in kw and not self.converted_to_list:
             min_like = float(kw['min_like'])
-            logger.info(f'Applying min_like filter: {min_like}')
-            scores = get_like_scores()
-            self.query = [id for id in self.query if scores.get(id, 0.0) >= min_like]
-            logger.info(f'  Filtered to {len(self.query)} items with min_like {min_like}')
+            logger.info(f'Applying min_like filter with SQL join: {min_like}')
+            from nkpylib.nkcollections.workers import LIKES_TTYPE
+            # Join with Score table to filter by like scores
+            self.query = self.query.filter(lambda item: 
+                pony_exists(select(s for s in Score 
+                                 if s.id == item and 
+                                    s.ttype == LIKES_TTYPE and 
+                                    s.tag == 'like' and 
+                                    s.score >= min_like)))
             self.filters_applied.append('min_like')
-        if 'pos' in kw:
-            pos = kw['pos']
-            logger.info(f'Applying pos filter: {pos}')
-            self.embs.reload_keys()
-            if kw.get('otype') == 'image':
-                sim = find_similar(pos, embs=self.embs, cur_ids=self.query)
-                scores = sim['scores']
-                min_score = min(scores.values()) if scores else 0.0
-                self.query = sorted(self.query, key=lambda id: scores.get(id, min_score-10), reverse=True)
-            elif kw.get('otype') == 'user':
-                sim = find_similar(pos, embs=self.embs, cur_ids=None)
-                logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
-                user_scores = self._aggregate_user_scores(sim['scores'], kw)
-                self.query = sorted(self.query, key=lambda id: user_scores.get(id, -10000), reverse=True)
-                logger.info(f'  Found {len(user_scores)} users with similarity scores: {Counter(user_scores).most_common(5)}')
+            logger.info(f'  Applied min_like filter via SQL join')
+        
+        # For pos filter or if we already converted to list, use the original approach
+        if 'pos' in kw or (self.converted_to_list and 'min_like' in kw):
+            # Convert query to ID list for score-based filtering
+            if not self.converted_to_list:
+                if isinstance(self.query, Query):
+                    self.query = self.query.without_distinct()
+                ids_only = [item.id for item in self.query]
+                self.query = ids_only
+                self.converted_to_list = True
+                logger.info(f'  Got {len(ids_only)} candidate ids for score filtering')
+            
+            # Handle min_like on converted list (fallback case)
+            if 'min_like' in kw and 'min_like' not in self.filters_applied:
+                min_like = float(kw['min_like'])
+                logger.info(f'Applying min_like filter on list: {min_like}')
+                scores = get_like_scores()
+                self.query = [id for id in self.query if scores.get(id, 0.0) >= min_like]
+                logger.info(f'  Filtered to {len(self.query)} items with min_like {min_like}')
+                self.filters_applied.append('min_like')
+            
+            if 'pos' in kw:
+                pos = kw['pos']
+                logger.info(f'Applying pos filter: {pos}')
+                self.embs.reload_keys()
+                if kw.get('otype') == 'image':
+                    sim = find_similar(pos, embs=self.embs, cur_ids=self.query)
+                    scores = sim['scores']
+                    min_score = min(scores.values()) if scores else 0.0
+                    self.query = sorted(self.query, key=lambda id: scores.get(id, min_score-10), reverse=True)
+                elif kw.get('otype') == 'user':
+                    sim = find_similar(pos, embs=self.embs, cur_ids=None)
+                    logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
+                    user_scores = self._aggregate_user_scores(sim['scores'], kw)
+                    self.query = sorted(self.query, key=lambda id: user_scores.get(id, -10000), reverse=True)
+                    logger.info(f'  Found {len(user_scores)} users with similarity scores: {Counter(user_scores).most_common(5)}')
 
-            self.needs_ordering = False
-            self.filters_applied.append('pos')
+                self.needs_ordering = False
+                self.filters_applied.append('pos')
 
         return self
 
