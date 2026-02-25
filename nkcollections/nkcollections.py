@@ -1,11 +1,10 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO remove unnecessary tags
+#TODO migrate like scores and tag scores to Score table
 #TODO faster search-by-example using intersection of sql + scores?
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers
-#TODO general slowness
 #TODO remove bad images
 #TODO diversity on likes classifier?
 #TODO handle reblog keys
@@ -14,6 +13,7 @@
 #TODO search texts queue
 #TODO transfer likes between related items
 #TODO enrich queued posts separately to not delay get()
+#TODO global clustering?
 #TODO multiple searches
 #TODO   more like this on objects
 #TODO   clickable tags
