@@ -81,6 +81,7 @@ from tqdm import tqdm # type: ignore
 from nkpylib.ml.client import embed_text, call_llm
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings
+from nkpylib.ml.llm_utils import load_llm_json
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkcollections.embeddings import IMAGE_SUFFIX, cleanup_embeddings
 from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Score, Source, J, timed, ACTIONS
@@ -211,25 +212,23 @@ class QueryBuilder:
                 self.filters_applied.append(filter_key)
         return self
 
+    @cache
+    def get_all_tags(self) -> list[str]:
+        """Get all available tags from Score table."""
+        with db_session:
+            all_tags = sorted(set(select(s.tag for s in Score if s.ttype.startswith('tag:'))))
+        return all_tags
+
     def apply_search_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply search-based filters using LLM tag parsing."""
-        if 'search' not in kw:
-            return self
-            
-        search_query = kw['search'].strip()
+        search_query = kw.get('search', '').strip()
         if not search_query:
             return self
-            
         logger.info(f'Applying search filter: {search_query}')
-        
-        # Get all available tags from Score table
-        with db_session:
-            all_tags = list(select(distinct(s.tag) for s in Score if s.ttype.startswith('tag:')))
-        
+        all_tags = self.get_all_tags()
         if not all_tags:
             logger.warning('No tags found in Score table for search')
             return self
-            
         # Use LLM to parse search query into relevant tags
         prompt = f"""Given this search query: "{search_query}"
 
@@ -238,63 +237,39 @@ Return a JSON list of tags from the following available tags that best match wha
 Available tags: {', '.join(all_tags)}
 
 Return only the JSON list, no other text."""
-        
+        #TODO async?
+        response = call_llm.single(prompt, model='fast')
         try:
-            if hasattr(call_llm, 'single_async'):
-                # Use async if available
-                import asyncio
-                if asyncio.iscoroutinefunction(call_llm.single_async):
-                    # We're in an async context, but QueryBuilder is sync
-                    # Fall back to sync version
-                    response = call_llm.single(prompt, model='fast')
-                else:
-                    response = call_llm.single_async(prompt, model='fast')
-            else:
-                response = call_llm.single(prompt, model='fast')
-                
-            # Parse the LLM response
-            import json
-            try:
-                parsed_tags = json.loads(response.strip())
-                if not isinstance(parsed_tags, list):
-                    parsed_tags = []
-            except json.JSONDecodeError:
-                logger.warning(f'Failed to parse LLM response as JSON: {response}')
-                parsed_tags = []
-                
-            if not parsed_tags:
-                logger.info('No relevant tags found for search query')
-                return self
-                
-            logger.info(f'LLM parsed search into tags: {parsed_tags}')
-            
-            # Apply tag filters using SQL joins (AND logic - item must have ALL tags)
-            if not self.converted_to_list:
-                for tag in parsed_tags:
-                    # For each tag, filter to items that have a score for this tag
-                    self.query = self.query.filter(lambda item:
-                        pony_exists(select(s for s in Score
-                                         if s.id == item and
-                                            s.ttype.startswith('tag:') and
-                                            s.tag == tag)))
-                self.filters_applied.append('search')
-                logger.info(f'Applied search filter for {len(parsed_tags)} tags via SQL joins')
-            else:
-                # If already converted to list, filter the list
-                filtered_ids = set(self.query)
-                for tag in parsed_tags:
-                    with db_session:
-                        tag_item_ids = {s.id.id for s in Score.select(lambda s: s.ttype.startswith('tag:') and s.tag == tag)}
-                    filtered_ids &= tag_item_ids
-                    
-                self.query = [id for id in self.query if id in filtered_ids]
-                self.filters_applied.append('search')
-                logger.info(f'Applied search filter for {len(parsed_tags)} tags on list, {len(self.query)} items remain')
-                
+            parsed_tags = load_llm_json(response)
         except Exception as e:
-            logger.error(f'Error processing search query: {e}')
-            # Continue without search filter rather than failing
-            
+            logger.warning(f'Failed to parse LLM response for search query: {e}\nResponse was: {response}')
+            parsed_tags = []
+        if not parsed_tags:
+            logger.info('No relevant tags found for search query')
+            return self
+        logger.info(f'LLM parsed search into tags: {parsed_tags}')
+        # Apply tag filters using SQL joins (AND logic - item must have ALL tags)
+        if not self.converted_to_list:
+            for tag in parsed_tags:
+                # For each tag, filter to items that have a score for this tag
+                self.query = self.query.filter(lambda item:
+                    pony_exists(select(s for s in Score
+                                     if s.id == item and
+                                        s.ttype.startswith('tag:') and
+                                        s.tag == tag)))
+            self.filters_applied.append('search')
+            logger.info(f'Applied search filter for {len(parsed_tags)} tags via SQL joins')
+        else:
+            # If already converted to list, filter the list
+            filtered_ids = set(self.query)
+            for tag in parsed_tags:
+                with db_session:
+                    tag_item_ids = {s.id.id for s in Score.select(lambda s: s.ttype.startswith('tag:') and s.tag == tag)}
+                filtered_ids &= tag_item_ids
+
+            self.query = [id for id in self.query if id in filtered_ids]
+            self.filters_applied.append('search')
+            logger.info(f'Applied search filter for {len(parsed_tags)} tags on list, {len(self.query)} items remain')
         return self
 
     def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
