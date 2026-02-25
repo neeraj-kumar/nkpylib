@@ -1,8 +1,8 @@
 """A search implementation that searches an in-memory objects.
 
-This assumes you have a sequence of items that you want to search over. The common case is that they
-are dicts, but we don't actually enforce that -- as long as things like `value = item[field]` or
-`field in item` work, the code should work fine.
+This assumes you have a sequence of items that you want to search over. The common case is that the
+items are dicts, but we don't actually enforce that -- as long as things like `value = item[field]`
+or `field in item` work, the code should work fine.
 
 We also support parallel searching through the `n_processes` argument. This forks the process using
 a multiprocessing.Pool (which should preserve Copy-On-Write semantics to avoid copying the items
