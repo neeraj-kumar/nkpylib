@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
+import functools
 import inspect
 import time
 
@@ -74,6 +76,82 @@ def elapsed_str(ts: float) -> str:
     if diff_mins > 1:
         return f'{diff_mins}m ago'
     return f'{diff_secs}s ago'
+
+def timed(func: Callable) -> Callable:
+    """Decorator to time a function and log its duration."""
+    async def async_wrapper(*args, **kw):
+        start = time.time()
+        result = await func(*args, **kw)
+        end = time.time()
+        logger.info(f'Function {func.__name__} took {end - start:.2f} seconds')
+        return result
+
+    def sync_wrapper(*args, **kw):
+        start = time.time()
+        result = func(*args, **kw)
+        end = time.time()
+        logger.info(f'Function {func.__name__} took {end - start:.2f} seconds')
+        return result
+
+    if asyncio.iscoroutinefunction(func):
+        return async_wrapper
+    else:
+        return sync_wrapper
+
+
+class Timer:
+    """Simple timer class to track cumulative time and counts for different labels.
+
+    You can call this as a decorator like this:
+    ```
+        timer = Timer()
+        @timer('my_function')
+    ```
+
+    Or as a context manager like this:
+    ```
+        timer = Timer()
+        with timer.timed('my_block'):
+            # some code to time
+    ```
+
+    It updates `times` and `counts` dictionaries with the time taken and count of
+    executions for each label.
+    """
+    def __init__(self):
+        self.times = {}
+        self.counts = {}
+
+    @contextmanager
+    def timed(self, label: str):
+        """Context manager to time a block of code and update timing statistics."""
+        start_time = time.time()
+        yield
+        elapsed_time = time.time() - start_time
+        if label not in self.times:
+            self.times[label] = 0.0
+            self.counts[label] = 0
+        self.times[label] += elapsed_time
+        self.counts[label] += 1
+
+    def __call__(self, label: str):
+        """Decorator to time a function and update timing statistics."""
+        def decorator(func):
+            if asyncio.iscoroutinefunction(func):
+                @functools.wraps(func)
+                async def async_wrapper(*args, **kw):
+                    with self.timed(label):
+                        result = await func(*args, **kw)
+                    return result
+                return async_wrapper
+            else:
+                @functools.wraps(func)
+                def sync_wrapper(*args, **kw):
+                    with self.timed(label):
+                        result = func(*args, **kw)
+                    return result
+                return sync_wrapper
+        return decorator
 
 
 class PerfTracker:
