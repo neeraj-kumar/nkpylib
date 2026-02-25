@@ -360,6 +360,7 @@ class CollectionsWorker(BackgroundWorker):
                  min_new_liked: int = 50,
                  image_suffix: str = 'mn_image',
                  sleep_interval: float = 10.0,
+                 valid_tags: list[str]|None = None,
                  exclude_top_n: int = 2000):
         super().__init__(name)
         self.embs = embs
@@ -371,6 +372,7 @@ class CollectionsWorker(BackgroundWorker):
         self.image_suffix = image_suffix
         self.sleep_interval = sleep_interval
         self.exclude_top_n = exclude_top_n
+        self.valid_tags = valid_tags
         # Set classifier path -- no need to create dir since save_classifier does that
         self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
 
@@ -664,6 +666,8 @@ class CollectionsWorker(BackgroundWorker):
                            max_tags: int=10) -> None:
         """Runs inference for the tags classifiers on items that don't have scores yet.
 
+        If `self.valid_tags` is not `None`, we only do tags that are in that list.
+
         We only add a tag to the sql database if the score is above `score_threshold`.
 
         If `max_tags` > 0, then only runs inference for upto that many tags (skipping those that
@@ -681,23 +685,25 @@ class CollectionsWorker(BackgroundWorker):
         scores_by_id_tag = defaultdict(dict)
         done_by_tag = {}
         # create tqdm progress bar that we can update
-        bar = tqdm(total=len(tag_keys), desc='Running tags inference', unit='items')
-        for tag, key in tag_keys.items():
+        bar = tqdm(total=min(len(tag_keys), max_tags), desc='Running tags inference', unit='items')
+        for tag, key in sorted(tag_keys.items()):
+            if self.valid_tags is not None and tag not in self.valid_tags:
+                continue
             md = db.md_get(key)
             done = set(md.get('done_ids', []))
             bar.set_postfix_str(f'Tag "{tag}": {len(done)} done')
-            bar.update(1)
             #logger.info(f'  For tag "{tag}": {len(done)} done')
             to_cls = all_ids - done
             if not to_cls:
                 continue
+            bar.update(1)
             # run classifier
             cls_path = join(self.classifiers_dir, f'tags-{self.image_suffix}/{tag}.joblib')
             result = self.load_and_run_classifier(ids=to_cls, path=cls_path)
             if result['items_classified'] == 0:
                 continue
             scores = result.pop('new_scores')
-            #bar.set_postfix_str(f'  Got tag result {result}')
+            logger.debug(f'  Got tag result {result}')
             # update scores and done by item id
             done_by_tag[tag] = done
             for id, v in scores.items():
@@ -712,15 +718,18 @@ class CollectionsWorker(BackgroundWorker):
             for id, tag_scores in tqdm(scores_by_id_tag.items(), desc='Updating items with tag scores'):
                 item = Item[id]
                 #logger.info(f'  Updating item {id} {tag_key} with tags {tag_scores}')
-                md_tag_scores = item.md.get(tag_key, {})
+                cur = item.md.get(tag_key, {})
                 # filter by score threshold
-                md_tag_scores = {tag: score for tag, score in md_tag_scores.items() if score >= score_threshold}
-                md_tag_scores.update(tag_scores)
-                item.md[tag_key] = md_tag_scores
+                cur = {tag: score for tag, score in cur.items() if score >= score_threshold}
+                # remove invalid tags
+                if self.valid_tags is not None:
+                    cur = {tag: score for tag, score in cur.items() if tag in self.valid_tags}
+                cur.update(tag_scores)
+                item.md[tag_key] = cur
         # update done ids in lmdb
         logger.info(f'  Updating lmdb with done ids for {len(done_by_tag)} tags')
         for tag, done in tqdm(done_by_tag.items()):
-            #logger.info(f'  Updating lmdb for tag {tag} with {len(done)} done ids')
+            logger.debug(f'  Updating lmdb for tag {tag} with {len(done)} done ids')
             db.md_update(self.tag_keys[tag], done_ids=sorted(done))
         db.sync()
 

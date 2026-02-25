@@ -1,6 +1,7 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
+#TODO remove unnecessary tags
 #TODO faster search-by-example using intersection of sql + scores?
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers
@@ -171,7 +172,7 @@ class MyBaseHandler(BaseHandler):
 
 
 class GetHandler(MyBaseHandler):
-    @db_session
+    @db_session(sql_debug=True, show_values=True)
     def build_query(self, kw: dict[str, Any]) -> Query:
         """Builds up the database query to get items matching the given kw filters.
 
