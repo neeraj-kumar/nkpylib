@@ -1100,6 +1100,7 @@ class CollectionsWorker(BackgroundWorker):
         So in this case, the ttype would be 'tag:mn_image', the tag and score are the keys and
         values of the dict, the ts can be right now, and no md for now.
         """
+        return #FIXME
         logger.info('Converting tag scores from Item metadata to Score table')
         ttype = f'tag:{self.image_suffix}'
         tag_key = f'{self.image_suffix}_tags'
