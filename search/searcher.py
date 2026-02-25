@@ -38,6 +38,8 @@ from typing import Sequence, Any, Callable, Generator
 
 import numpy as np
 
+from nkpylib.time_utils import Timer
+
 logger = logging.getLogger(__name__)
 
 Array1D = list[float] | tuple[float] | np.ndarray
@@ -182,28 +184,20 @@ class SearchResult:
 class SearchImpl(ABC):
     """Base class for search implementations.
 
-    This class provides a context manager `timed` to measure execution time of code blocks.
-    It updates `timing_times` and `timing_counts` dictionaries with the time taken and count of
-    executions for each label.
+    Subclass this to access different kinds of databases (chroma, qdrant, etc), using a common
+    interface. The only method you have to implement is `_async_search`, which takes a `SearchCond`,
+    the number of results, and any other keyword arguments, and returns a list of `SearchResult`
+    objects.
 
-    These are used to access different kinds of databases (chroma, qdrant, etc), using a common
-    interface.
+    The user can call this using either the synchronous `search()` method or the async
+    `async_search()` method with the same args.
+
+    For convenience, this class includes a `timer` instance variable, and also provides a context
+    manager `self.timed` to measure execution time of code blocks.
     """
     def __init__(self):
-        self.timing_times = {}
-        self.timing_counts = {}
-
-    @contextmanager
-    def timed(self, label: str):
-        """Context manager to time a block of code and update timing statistics."""
-        start_time = time.time()
-        yield
-        elapsed_time = time.time() - start_time
-        if label not in self.timing_times:
-            self.timing_times[label] = 0.0
-            self.timing_counts[label] = 0
-        self.timing_times[label] += elapsed_time
-        self.timing_counts[label] += 1
+        self.timer = Timer()
+        self.timed = self.timer.timed
 
     def search(self, cond: SearchCond|str, n_results: int=15, **kw) -> list[SearchResult]:
         """Search for results matching the given `cond`.
