@@ -1,8 +1,8 @@
 """Full search parser.
 
 This uses Lark to parse a terse but powerful search language and convert it to a SearchCond.
-We support arbitrarily nested clauses joined via AND (, or &), OR (|), and NOT (~) operators. Each clause has a
-field, op, and optional value.
+We support arbitrarily nested clauses joined via AND (, or &), OR (|), and NOT (~) operators. Each
+clause has a field, op, and optional value.
 
 See the global `OP_MAP` for the operators available, and the grammar for the syntax.
 """
@@ -22,23 +22,23 @@ from .searcher import SearchCond, Op, OpCond, JoinType, JoinCond
 logger = logging.getLogger(__name__)
 
 OP_MAP = {
-    '=': Op.EQ,
-    '!=': Op.NEQ,
-    '>': Op.GT,
-    '>=': Op.GTE,
-    '<': Op.LT,
-    '<=': Op.LTE,
-    '~': Op.LIKE,
-    '!~': Op.NOT_LIKE,
-    ':': Op.IN,
-    '!:': Op.NOT_IN,
-    '@': Op.HAS,
-    '!@': Op.NOT_HAS,
-    '~=': Op.CLOSE_TO,
-    '?': Op.EXISTS,
-    '!?': Op.NOT_EXISTS,
-    '!?+': Op.IS_NULL,
-    '?+': Op.IS_NOT_NULL
+    '=': Op.EQ,          # exact equality
+    '!=': Op.NEQ,        # not equal
+    '>': Op.GT,          # greater than
+    '>=': Op.GTE,        # greater than or equal
+    '<': Op.LT,          # less than
+    '<=': Op.LTE,        # less than or equal
+    '~': Op.LIKE,        # case-insensitive like (soft equality)
+    '!~': Op.NOT_LIKE,   # not like
+    ':': Op.IN,          # field in list
+    '!:': Op.NOT_IN,     # field not in list
+    '@': Op.HAS,         # list has value (inverse of IN)
+    '!@': Op.NOT_HAS,    # list does not have value
+    '~=': Op.CLOSE_TO,   # close to (for numbers/vectors, within some threshold)
+    '?': Op.EXISTS,      # field exists (might or might not be null)
+    '!?': Op.NOT_EXISTS, # field does not exist
+    '!?+': Op.IS_NULL,   # field doesn't exists or is null
+    '?+': Op.IS_NOT_NULL # field exists and is not null
 }
 
 #op_cond: "(" field op [value] ")" | field op [value]

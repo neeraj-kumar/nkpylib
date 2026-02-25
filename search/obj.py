@@ -186,28 +186,31 @@ class ObjSearch(SearchImpl):
             flags = re.IGNORECASE
         return bool(re.search(f'{pattern}', val, flags=flags))
 
+    def _close_to(self, v1: Array1D, v2: Array1D) -> float:
+        """Calculate Euclidean distance between two vectors"""
+        if len(v1) != len(v2):
+            return float('inf')
+        return sum((a - b) ** 2 for a, b in zip(v1, v2)) ** 0.5
+
     async def rerank(self,
                      results: list[SearchResult],
                      cond: SearchCond,
                      query: str='',
                      **kw) -> list[SearchResult]:
         """Rerank results based on how many search conditions they satisfy.
-        
+
         This gives higher scores to results that match more conditions in the search.
         """
         if not results:
             return results
-            
         for result in results:
             if result.metadata:
                 # Count how many conditions this result satisfies
                 condition_matches = self._count_condition_matches(result.metadata, cond)
                 # Boost score based on number of matching conditions
                 result.score = 1.0 + (condition_matches * 0.1)
-        
-        # Sort by score descending
         return sorted(results, key=lambda x: x.score, reverse=True)
-    
+
     def _count_condition_matches(self, item: dict, cond: SearchCond) -> int:
         """Count how many conditions in the search tree this item matches."""
         if isinstance(cond, OpCond):
@@ -223,9 +226,3 @@ class ObjSearch(SearchImpl):
                 # For NOT, count as 1 if the negated condition doesn't match
                 return 1 if not self._matches_condition(item, cond.conds[0]) else 0
         return 0
-
-    def _close_to(self, v1: Array1D, v2: Array1D) -> float:
-        """Calculate Euclidean distance between two vectors"""
-        if len(v1) != len(v2):
-            return float('inf')
-        return sum((a - b) ** 2 for a, b in zip(v1, v2)) ** 0.5

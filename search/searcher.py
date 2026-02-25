@@ -38,6 +38,7 @@ from typing import Sequence, Any, Callable, Generator
 
 import numpy as np
 
+from nkpylib.thread_utils import run_async
 from nkpylib.time_utils import Timer
 
 logger = logging.getLogger(__name__)
@@ -199,21 +200,38 @@ class SearchImpl(ABC):
         self.timer = Timer()
         self.timed = self.timer.timed
 
-    def search(self, cond: SearchCond|str, n_results: int=15, **kw) -> list[SearchResult]:
+    def search(self,
+               cond: SearchCond|str,
+               n_results: int=15,
+               rerank_kw: dict|None=None,
+               **kw) -> list[SearchResult]:
         """Search for results matching the given `cond`.
 
         The `cond` can be either a `SearchCond` object or a query string that is parsed.
 
         Returns a list of `SearchResult` objects.
         """
-        return asyncio.run(self.async_search(cond, n_results=n_results, **kw))
+        return run_async(self.async_search(cond, n_results=n_results, rerank_kw=rerank_kw, **kw))
 
     @abstractmethod
     async def _async_search(self, cond: SearchCond, n_results: int=15, **kw) -> list[SearchResult]:
         """Asynchronous search implementation to be provided by subclasses."""
         pass
 
-    async def async_search(self, cond: SearchCond|str, n_results: int=15, **kw) -> list[SearchResult]:
+    async def rerank(self,
+                     results: list[SearchResult],
+                     cond: SearchCond,
+                     query: str='',
+                     **kw) -> list[SearchResult]:
+        """Reranks the given `results` based on the given `cond` and (optionally) `query`."""
+        return results
+
+
+    async def async_search(self,
+                           cond: SearchCond|str,
+                           n_results: int=15,
+                           rerank_kw: dict|None=None,
+                           **kw) -> list[SearchResult]:
         """Search for results matching the given `cond`.
 
         The `cond` can be either a `SearchCond` object or a query string that is parsed.
@@ -222,5 +240,11 @@ class SearchImpl(ABC):
         """
         from .parser import parse_query_into_cond
         if isinstance(cond, str):
+            query = cond
             cond = parse_query_into_cond(cond)
-        return await self._async_search(cond, n_results=n_results, **kw)
+        else:
+            query = ''
+        ret = await self._async_search(cond, n_results=n_results, **kw)
+        rerank_kw = rerank_kw or {}
+        ret = await self.rerank(ret, cond=cond, query=query, **rerank_kw)
+        return ret
