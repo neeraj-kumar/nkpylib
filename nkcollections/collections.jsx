@@ -684,6 +684,11 @@ const STYLES = `
   overflow-y: auto;
 }
 
+h6 {
+  margin: 10px 0 8px 0;
+  color: #495057;
+}
+
 .details-content {
   margin-top: 10px;
   padding: 10px;
@@ -1043,7 +1048,6 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   const renderMedia = (block) => {
     const {type, data} = block;
     const isShowingVideo = showVideo[data.id];
-    
     switch (type) {
       case 'image':
         const imageUrl = data.local_path || data.url;
@@ -1214,16 +1218,49 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   );
 };
 
-// Button Bar Component
-const ButtonBar = ({
-  id, otype, liked, disliked, queued, url, parent_url, rels, compact,
-  hasMultipleMedia, currentMediaIndex, setCurrentMediaIndex, media_blocks,
-  showDetails, setShowDetails, currentCluster, clusterScore, isManualCluster
-}) => {
+/* Button Bar Component
+ *
+ * This component renders the action buttons for each object, including like/dislike, classification, queueing, and media navigation controls.
+ *
+ * It also handles the logic for each button's functionality and updates the UI accordingly.
+ *
+ * This component also includes media navigation buttons if there are multiple media blocks, and
+ * cluster assignment indicators if in cluster mode. The buttons have tooltips for better UX, and
+ * the media navigation allows users to click on the edges of the image or use dedicated buttons to
+ * navigate through media blocks. Cluster buttons show the current cluster and its score, and allow
+ * users to switch clusters or see if the cluster was manually assigned. The component is designed
+ * to be flexible and adapt to different object types and states, providing a consistent user
+ * experience across the application.
+ *
+ * Props:
+ * - id: ID of the object
+ * - otype: Object type (e.g., 'image', 'post', 'user')
+ * - liked: Boolean indicating if the object is liked
+ * - disliked: Boolean indicating if the object is disliked
+ * - queued: Boolean indicating if the object is in the queue
+ * - url: Original URL of the object
+ * - parent_url: URL of the parent object (if applicable)
+ * - rels: Object containing relationship info (e.g., if it's a queued post)
+ * - compact: Array of strings indicating which compact mode is active (e.g., ['Error'])
+ * - hasMultipleMedia: Boolean indicating if the object has multiple media blocks
+ * - currentMediaIndex: Index of the currently displayed media block
+ * - setCurrentMediaIndex: Function to update the current media index
+ * - media_blocks: Array of media blocks associated with the object
+ * - showDetails: Boolean indicating if the details view is expanded
+ * - setShowDetails: Function to toggle the details view
+ * - currentCluster: ID of the cluster this object belongs to (if in cluster mode)
+ * - clusterScore: Score of the cluster (if in cluster mode)
+ * - isManualCluster: Boolean indicating if the cluster was manually assigned
+ * - ctx: Application context for accessing global state and actions
+ */
+const ButtonBar = (props) => {
+  const {
+    id, otype, liked, disliked, queued, url, parent_url, rels, compact,
+    hasMultipleMedia, currentMediaIndex, setCurrentMediaIndex, media_blocks,
+    showDetails, setShowDetails, currentCluster, clusterScore, isManualCluster
+  } = props;
   const ctx = React.useContext(AppContext);
-  
   const cClasses = ['icon-button', 'classify-icon', (ctx.data.pos.includes(id) ? 'selected' : '')];
-  
   const mediaDivs = hasMultipleMedia ? [
     (<div key="a"
       className="icon-button media-nav-button"
@@ -1465,7 +1502,7 @@ const DetailsPanel = ({showDetails, detailed, rels, scores, ...props}) => {
           {/* Show rels first if they exist */}
           {rels && Object.keys(rels).length > 0 && (
             <div>
-              <h6 style={{margin: '0 0 8px 0', color: '#495057'}}>Relations:</h6>
+              <h6>Relations:</h6>
               {Object.entries(rels).map(([key, value]) => (
                 <div key={key} className="detail-item">
                   <span className="detail-key">{key}:</span>
@@ -1508,7 +1545,7 @@ const DetailsPanel = ({showDetails, detailed, rels, scores, ...props}) => {
           {/* Show scores if they exist */}
           {scores && Object.keys(scores).length > 0 && (
             <div>
-              <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Scores:</h6>
+              <h6>Scores:</h6>
               {Object.entries(scores)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([tagType, tagScores]) => (
@@ -1529,15 +1566,16 @@ const DetailsPanel = ({showDetails, detailed, rels, scores, ...props}) => {
             </div>
           )}
           {/* Show timestamps if they exist */}
+          <h6>Timestamps:</h6>
           {showTs('ts', props)}
           {showTs('added_ts', props)}
           {showTs('seen_ts', props)}
           {showTs('embed_ts', props)}
           {showTs('explored_ts', props)}
-          {/* Show md below rels */}
+          {/* Show md */}
           {props.md && Object.keys(props.md).length > 0 && (
             <div>
-              <h6 style={{margin: '10px 0 8px 0', color: '#495057'}}>Metadata:</h6>
+              <h6>Metadata:</h6>
               {Object.entries(props.md).map(([key, value]) => (
                 <div key={key} className="detail-item">
                   <span className="detail-key">{key}:</span>
