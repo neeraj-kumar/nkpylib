@@ -381,7 +381,6 @@ class CollectionsWorker(BackgroundWorker):
         self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
 
         # State tracking
-        self.like_scores: dict[str, float] = {}
         self.last: dict[str, Any] = {
             'pos_ids': frozenset(),
             'saved_classifier': None,
@@ -549,7 +548,7 @@ class CollectionsWorker(BackgroundWorker):
                 classifier, scores, other_stuff = l['classifier'], l['scores'], l['other_stuff']
             t1 = time.time()
             new_scores = self.rescore(scores=scores, pos=pos)
-            self.like_scores = {k.split(':')[0]: v for k, v in new_scores.items()}
+            like_scores = {k.split(':')[0]: v for k, v in new_scores.items()}
             saved_classifier = self.embs.save_classifier(
                 self.likes_classifier_path,
                 classifier,
@@ -559,12 +558,12 @@ class CollectionsWorker(BackgroundWorker):
                 pos_count=len(pos),
                 neg_count=len(neg),
                 total_classified=len(to_cls),
-                scores=self.like_scores,
+                scores=like_scores,
                 **other_stuff,
             )
             # Store all scores in Score table
             self._store_scores_in_db(
-                scores=self.like_scores,
+                scores=like_scores,
                 ttype=f'like:{self.image_suffix}',
                 tag='like',
                 classifier_version=saved_classifier['created_at']
@@ -577,14 +576,19 @@ class CollectionsWorker(BackgroundWorker):
                 'pos_count': current_pos_count,
             })
             t2 = time.time()
-            logger.info(f"Updated likes classifier in {t1-t0:.2f}s+{t2-t1:.2f}s, v{self.last['classifier_version']}")
+            logger.info(f"Updated likes classifier in {t1-t0:.2f}s+{t2-t1:.2f}s, v{self.last['classifier_version']}, {len(like_scores)} scores")
         except Exception as e:
             logger.error(f"Error updating likes classifier: {e}")
             print(traceback.format_exc())
 
     def get_like_scores(self) -> dict[str, float]:
-        """Get current classifier scores."""
-        return self.like_scores.copy()
+        """Get current classifier scores from Score table."""
+        ttype = f'like:{self.image_suffix}'
+        with db_session:
+            scores = {}
+            for score_entry in Score.select(lambda s: s.ttype == ttype and s.tag == 'like'):
+                scores[str(score_entry.id.id)] = score_entry.score
+            return scores
 
     def rescore(self, scores: dict[str, float], pos: list[int]) -> dict[str, float]:
         """Rescores `scores` using nearest neighbors from positive IDs."""
@@ -624,14 +628,11 @@ class CollectionsWorker(BackgroundWorker):
                 'classifier_version': saved_data.get('created_at', 0),
                 'pos_ids': frozenset(pos_ids),
             })
-            # Load scores from saved classifier data
-            self.like_scores = {}
-            for k, v in saved_data.get('scores', {}).items():
-                self.like_scores[int(k)] = float(v)
-            # note that these have already been rescored, so we don't redo it.
             # Also update pos_count from saved data
             self.last['pos_count'] = saved_data.get('pos_count', len(pos_ids))
-            logger.info(f"Loaded existing likes classifier v{self.last['classifier_version']} with {len(self.like_scores)} scores, {self.last['pos_count']} pos examples")
+            # Get current score count from Score table
+            current_scores = self.get_like_scores()
+            logger.info(f"Loaded existing likes classifier v{self.last['classifier_version']} with {len(current_scores)} scores, {self.last['pos_count']} pos examples")
         except Exception as e:
             logger.warning(f"Failed to load existing likes classifier: {e}\n{traceback.format_exc()}")
         # deal with tags classifiers
@@ -769,7 +770,9 @@ class CollectionsWorker(BackgroundWorker):
             # Get all image IDs that have embeddings
             if all_ids is None:
                 all_ids = self._get_all_image_ids()
-            classified_ids = set(int(id) for id in self.like_scores.keys())
+            # Get currently classified IDs from Score table
+            current_scores = self.get_like_scores()
+            classified_ids = set(int(id) for id in current_scores.keys())
             unclassified_ids = [id for id in all_ids if id not in classified_ids]
             if not unclassified_ids:
                 return
@@ -778,8 +781,6 @@ class CollectionsWorker(BackgroundWorker):
             result['new_scores'] = self.rescore(result['new_scores'], list(self.last['pos_ids']))
             # Update scores if successful
             if result['status'] == 'inference_completed':
-                self.like_scores.update(result['new_scores'])
-                logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(self.like_scores)} total scores")
                 # Store scores in Score table
                 self._store_scores_in_db(
                     scores=result['new_scores'],
@@ -787,12 +788,15 @@ class CollectionsWorker(BackgroundWorker):
                     tag='like',
                     classifier_version=result['classifier_version']
                 )
+                # Get updated total count from Score table
+                current_scores = self.get_like_scores()
+                logger.info(f"Inference completed in {result['inference_time']:.2f}s for {len(result['new_scores'])} items, {len(current_scores)} total scores")
                 # Save the classifier with updated scores
                 try:
                     if self.last['saved_classifier'] and result['new_scores']:
                         # Load the existing classifier data and update scores
                         saved_data = self.last['saved_classifier'].copy()
-                        saved_data['scores'] = self.like_scores
+                        saved_data['scores'] = current_scores
 
                         # Save the updated classifier data
                         self.embs.save_classifier(
@@ -800,7 +804,7 @@ class CollectionsWorker(BackgroundWorker):
                             saved_data.pop('classifier'),
                             **saved_data
                         )
-                        logger.info(f"  Updated classifier saved with {len(self.like_scores)} scores")
+                        logger.info(f"  Updated classifier saved with {len(current_scores)} scores")
                 except Exception as e:
                     logger.warning(f"Failed to save updated classifier: {e}, {traceback.format_exc()}")
         except Exception as e:
@@ -856,7 +860,7 @@ class CollectionsWorker(BackgroundWorker):
         with db_session:
             n_updated = 0
             for item_id, label in label_by_id.items():
-                item = Item[item_id]
+                item = Item[int(item_id)]
                 if item:
                     if item.md is None:
                         item.md = {}
