@@ -496,23 +496,21 @@ class CollectionsWorker(BackgroundWorker):
         logger.info(f'Sampled {len(pos)} pos and {len(neg)} neg ({len(disliked_ids)} disliked)')
         return pos, neg
 
-    def _store_scores_in_db(self, scores: dict[str, float], ttype: str, tag: str, **metadata) -> None:
+    @db_session
+    def _store_scores_in_db(self, scores: dict[str|int, float], ttype: str, tag: str, **md) -> None:
         """Store scores in the Score table with optional metadata.
-        
-        - scores: Dict mapping item_id (as string) to score (as float)
+
+        - scores: Dict mapping item_id to score (as float)
         - ttype: Type of score (e.g., 'like:mn_image', 'tag:mn_image')
         - tag: Tag name (e.g., 'like', specific tag name)
-        - metadata: Additional metadata to store in the md field
+        - md: Additional metadata to store in the md field
         """
         current_ts = time.time()
-        with db_session:
-            for item_id, score in scores.items():
-                Score.upsert(
-                    get_kw=dict(id=Item[int(item_id)], ttype=ttype, tag=tag),
-                    score=float(score),
-                    ts=current_ts,
-                    md=metadata if metadata else None
-                )
+        for item_id, score in scores.items():
+            get_kw = dict(id=Item[int(item_id)], ttype=ttype, tag=tag)
+            s = Score.get(**get_kw)
+            if s is None:
+                Score(**get_kw, score=float(score), ts=current_ts, md=md if md else None)
         logger.info(f"  Stored {len(scores)} {tag} scores in Score table")
 
     def _update_classifier(self) -> None:
@@ -741,7 +739,7 @@ class CollectionsWorker(BackgroundWorker):
             scores = result.pop('new_scores')
             logger.debug(f'  Got tag result {result}')
             # update scores and done by item id
-            filtered_scores = {str(id): v for id, v in scores.items() if v >= score_threshold}
+            filtered_scores = {id: v for id, v in scores.items() if v >= score_threshold}
             if filtered_scores:
                 self._store_scores_in_db(
                     scores=filtered_scores,
