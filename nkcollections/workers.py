@@ -1,3 +1,5 @@
+#TODO migrate likes to sql?
+
 from __future__ import annotations
 
 import abc
@@ -38,6 +40,7 @@ from pony.orm import (
     Optional,
     PrimaryKey,
     Required,
+    rollback,
     Set,
     select,
     set_sql_debug,
@@ -661,12 +664,13 @@ class CollectionsWorker(BackgroundWorker):
         """
         all_ids = self._get_all_image_ids()
         self.run_likes_inference(all_ids=all_ids)
-        #self.run_tags_inference(all_ids=all_ids) #FIXME
+        self.run_tags_inference(all_ids=all_ids)
 
     def run_tags_inference(self,
                            all_ids: list[int]|None=None,
                            score_threshold: float=0.5,
-                           max_tags: int=10) -> None:
+                           min_to_cls: int=20,
+                           max_tags: int=100) -> None:
         """Runs inference for the tags classifiers on items that don't have scores yet.
 
         If `self.valid_tags` is not `None`, we only do tags that are in that list.
@@ -679,7 +683,7 @@ class CollectionsWorker(BackgroundWorker):
         the databases until we run inference on all tags (upto the max).
         """
         tag_keys = self.tag_keys
-        logger.debug(f'Got {len(tag_keys)} tag keys: {list(tag_keys.items())[:5]}')
+        logger.info(f'Got {len(tag_keys)} tag keys, {len(self.valid_tags)} valid: {self.valid_tags[:5]}')
         if all_ids is None:
             all_ids = self._get_all_image_ids()
         logger.debug(f'Got {len(all_ids)} ids with embeddings for inference: {all_ids[:5]}')
@@ -688,19 +692,24 @@ class CollectionsWorker(BackgroundWorker):
         current_ts = time.time()
         db = self.load_lmdb(flag='c')
         # create tqdm progress bar that we can update
-        bar = tqdm(total=min(len(tag_keys), max_tags), desc='Running tags inference', unit='items')
+        bar = tqdm(total=len(tag_keys), desc='tag cls')
         n_tags_done = 0
-        for tag, key in sorted(tag_keys.items()):
+        for i, (tag, key) in enumerate(sorted(tag_keys.items())):
+            bar.update(1)
             if self.valid_tags is not None and tag not in self.valid_tags:
+                logger.info(f'Deleting scores for {tag}')
+                # delete from scores table
+                with db_session:
+                    Score.select(lambda s: s.ttype == ttype and s.tag == tag).delete(bulk=True)
                 continue
             # get done ids for this tag from lmdb (Score table only has positives)
             done = set(db.md_get(key+':done').get('ids', []))
-            bar.set_postfix_str(f'Tag "{tag}": {len(done)} done')
             #logger.info(f'  For tag "{tag}": {len(done)} done')
             to_cls = all_ids - done
-            if not to_cls:
+            s = f'{tag} [{i+1}/{len(tag_keys)}]: {len(done)} done, {len(to_cls)} new'
+            bar.set_postfix_str(s)
+            if len(to_cls) < min_to_cls:
                 continue
-            bar.update(1)
             # run classifier
             cls_path = join(self.classifiers_dir, f'tags-{self.image_suffix}/{tag}.joblib')
             result = self.load_and_run_classifier(ids=to_cls, path=cls_path)
@@ -720,7 +729,6 @@ class CollectionsWorker(BackgroundWorker):
             db.sync()
             if max_tags > 0 and n_tags_done >= max_tags:
                 break
-
 
     def run_likes_inference(self, all_ids: list[int]|None=None) -> None:
         """Runs inference for the likes classifier
