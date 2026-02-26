@@ -18,6 +18,8 @@ const DEBOUNCE_MS = 2000;
 const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
+const IOA = new intersectionObserverAdmin();
+
 const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
 const QUICK_LINKS = {
   // explored users
@@ -1946,6 +1948,8 @@ const AppProvider = ({ children }) => {
   const [autoClusters, setAutoClusters] = React.useState({}); // {cluster_num: [ids]}
   const [curCluster, setCurCluster] = React.useState(null); // currently selected cluster in auto-cluster mode
 
+  console.log('got ioa', IOA);
+
   // initial init
   React.useEffect(() => {
     document.title = 'NK Collections';
@@ -1960,6 +1964,13 @@ const AppProvider = ({ children }) => {
     faviconEl.rel = 'icon';
     faviconEl.href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖼️</text></svg>";
     document.head.appendChild(faviconEl);
+    // setup ioa callbacks
+    ioa.addEnterCallback(el, () => {
+      console.log('entering el with args', el, arguments);
+    });
+    ioa.addExitCallback(el, () => {
+      console.log('exiting el with args', el, arguments);
+    });
   }, []);
 
   // Set up global reference to setMessage
