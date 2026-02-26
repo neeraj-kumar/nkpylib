@@ -1749,6 +1749,27 @@ const Controls = () => {
     globalSetSourceStr = setSourceStr;
   }, [setSourceStr]);
 
+  // Set up IntersectionObserver for controls div (testing)
+  React.useEffect(() => {
+    const controlsDiv = document.querySelector('.controls');
+    if (controlsDiv && ctx.ui.ioa) {
+      console.log('Setting up IOA observation for controls div');
+      ctx.ui.ioa.observe(controlsDiv, {
+        root: null,
+        rootMargin: "0px",
+        threshold: 0.1
+      });
+      
+      ctx.ui.ioa.addEnterCallback(controlsDiv, () => {
+        console.log('Controls div entered viewport');
+      });
+      
+      ctx.ui.ioa.addExitCallback(controlsDiv, () => {
+        console.log('Controls div exited viewport');
+      });
+    }
+  }, [ctx.ui.ioa]);
+
   // Auto cluster navigation functions
   const navigateAutoCluster = React.useCallback((direction) => {
     const clusterKeys = Object.keys(ctx.data.autoClusters);
@@ -2496,7 +2517,8 @@ const AppProvider = ({ children }) => {
       setMode,
       message,
       setMessage,
-      refreshMasonry
+      refreshMasonry,
+      ioa: IOA
     },
     filters: {
       curOtypes,
