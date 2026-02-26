@@ -1977,13 +1977,13 @@ const AppProvider = ({ children }) => {
   const IOA = React.useMemo(() => {
     const handleIntersection = (entries) => {
       const now = Date.now();
-      
+
       entries.forEach(entry => {
         const objectElement = entry.target.closest('.object');
         if (!objectElement) return;
-        
+
         const objectId = objectElement.id.replace('id-', '');
-        
+
         if (entry.isIntersecting) {
           // Started viewing
           setViewingStartTimes(prev => ({
@@ -1996,12 +1996,12 @@ const AppProvider = ({ children }) => {
             const startTime = prev[objectId];
             if (startTime) {
               const duration = now - startTime;
-              
+
               setViewingTimes(prevTimes => ({
                 ...prevTimes,
                 [objectId]: (prevTimes[objectId] || 0) + duration
               }));
-              
+
               // Remove from start times
               const newStartTimes = {...prev};
               delete newStartTimes[objectId];
@@ -2020,14 +2020,14 @@ const AppProvider = ({ children }) => {
   const syncViewingTimes = React.useCallback(async () => {
     const now = Date.now();
     const dataToSync = {};
-    
+
     // Get accumulated times
     Object.entries(viewingTimes).forEach(([objectId, time]) => {
       if (time > 0) {
         dataToSync[objectId] = time;
       }
     });
-    
+
     // Add time for currently viewing items since last sync
     Object.entries(viewingStartTimes).forEach(([objectId, startTime]) => {
       const timeSinceSync = now - Math.max(startTime, lastSyncTime);
@@ -2035,16 +2035,16 @@ const AppProvider = ({ children }) => {
         dataToSync[objectId] = (dataToSync[objectId] || 0) + timeSinceSync;
       }
     });
-    
+
     if (Object.keys(dataToSync).length === 0) return;
-    
+
     try {
       await fetchEndpoint('/track_viewing_time', { viewing_times: dataToSync });
-      
+
       // Reset everything after successful sync
       setViewingTimes({});
       setLastSyncTime(now);
-      
+
       // Update start times for currently viewing items to now
       setViewingStartTimes(prev => {
         const updated = {};
@@ -2053,7 +2053,7 @@ const AppProvider = ({ children }) => {
         });
         return updated;
       });
-      
+
       console.log('Synced viewing times:', dataToSync);
     } catch (error) {
       console.error('Failed to sync viewing times:', error);
