@@ -1761,12 +1761,12 @@ const Controls = () => {
       console.log('Setting up IOA observation for controls div', controlsDiv);
       ctx.ui.ioa.observe(controlsDiv, IOA_PARAMS);
       
-      ctx.ui.ioa.addEnterCallback(controlsDiv, (entry, observer, admin) => {
-        console.log('Controls div entered viewport', entry, observer, admin);
+      ctx.ui.ioa.addEnterCallback(controlsDiv, () => {
+        console.log('Controls div entered viewport');
       });
       
-      ctx.ui.ioa.addExitCallback(controlsDiv, (entry, observer, admin) => {
-        console.log('Controls div exited viewport', entry, observer, admin);
+      ctx.ui.ioa.addExitCallback(controlsDiv, () => {
+        console.log('Controls div exited viewport');
       });
     }
     
