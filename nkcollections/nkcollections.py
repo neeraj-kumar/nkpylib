@@ -329,7 +329,7 @@ Return only the JSON list, no other text."""
             return self
         logger.info(f'Applying new semantic search filter: {search_query}')
         # Parse query into semantic groups via LLM
-        semantic_groups = self._parse_semantic_groups(search_query)
+        semantic_groups = await self._parse_semantic_groups(search_query)
         if not semantic_groups:
             logger.info('No semantic groups found for search query')
             return self
@@ -387,7 +387,7 @@ Return only the JSON list, no other text."""
         self.filters_applied.append('new_search')
         return self
 
-    def _parse_semantic_groups(self, query: str) -> list[list[str]]:
+    async def _parse_semantic_groups(self, query: str) -> list[list[str]]:
         """Parse search query into semantic groups with OR alternatives."""
         all_tags = get_all_tags()
         if not all_tags:
