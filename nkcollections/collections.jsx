@@ -1021,11 +1021,11 @@ const TumblrPostContent = (props) => {
  */
 const VideoOverlay = ({videoUrl, onClick}) => {
   if (!videoUrl) return null;
-  
+
   return (
-    <a 
-      href={videoUrl} 
-      target="_blank" 
+    <a
+      href={videoUrl}
+      target="_blank"
       rel="noreferrer"
       onClick={(e) => {
         e.stopPropagation();
@@ -1039,6 +1039,7 @@ const VideoOverlay = ({videoUrl, onClick}) => {
 };
 
 /* VideoWithZoom - Renders a video with poster image and zoom functionality
+ *
  * Props:
  * - videoUrl: URL of the video file
  * - posterUrl: URL of the poster/thumbnail image
@@ -1066,7 +1067,7 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
 
   if (showVideo) {
     return (
-      <>
+      <div>
         <div style={{position: 'relative'}}>
           <video
             src={videoUrl}
@@ -1107,15 +1108,15 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
             onClose={() => setZoomModal(null)}
           />
         )}
-      </>
+      </div>
     );
   }
 
   return (
-    <>
+    <div>
       <div className="video-link" style={{position: 'relative'}}>
-        <img 
-          src={posterUrl} 
+        <img
+          src={posterUrl}
           alt={`Video ${id} poster`}
           onClick={handleClick}
           onDoubleClick={(e) => {
@@ -1151,7 +1152,7 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
           onClose={() => setZoomModal(null)}
         />
       )}
-    </>
+    </div>
   );
 };
 
@@ -1208,22 +1209,22 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
   };
 
   return (
-    <div 
+    <div
       className={`image-zoom-modal ${isClosing ? 'closing' : 'opening'}`}
       onClick={handleBackgroundClick}
     >
-      <button 
+      <button
         className="image-zoom-close"
         onClick={handleClose}
         title="Close (ESC)"
       >
         ×
       </button>
-      
+
       {isLoading && (
         <div className="image-zoom-loading">Loading...</div>
       )}
-      
+
       {showVideo && videoUrl ? (
         <div style={{position: 'relative'}}>
           <video
@@ -1317,7 +1318,7 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
 
   if (showVideo && videoUrl) {
     return (
-      <>
+      <div>
         <div style={{position: 'relative'}}>
           <video
             src={videoUrl}
@@ -1358,12 +1359,12 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
             onClose={() => setZoomModal(null)}
           />
         )}
-      </>
+      </div>
     );
   }
-  
+
   return (
-    <>
+    <div>
       <div style={{position: 'relative'}}>
         <img
           src={imageUrl}
@@ -1404,7 +1405,7 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
           onClose={() => setZoomModal(null)}
         />
       )}
-    </>
+    </div>
   );
 };
 
@@ -1457,7 +1458,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   const renderMedia = (block) => {
     const {type, data} = block;
     const isShowingVideo = showVideo[data.id];
-    
+
     const handleMediaClick = (e) => {
       // Check if this is a navigation click (on edges) for multiple media
       if (mediaBlocks.length > 1) {
@@ -1465,7 +1466,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
         const clickX = e.clientX - rect.left;
         const imageWidth = rect.width;
         const clickThreshold = imageWidth * 0.45;
-        
+
         if (clickX <= clickThreshold) {
           // Left edge - previous
           e.preventDefault();
@@ -1480,7 +1481,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
           return;
         }
       }
-      
+
       // Center click - zoom (only on single click, not double)
       if (e.detail === 1) {
         setTimeout(() => {
@@ -1659,7 +1660,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   };
 
   return (
-    <>
+    <div>
       <div className="media-carousel"
         style={{minHeight: maxHeight > 0 ? `${maxHeight}px` : 'auto'}}
       >
@@ -1671,7 +1672,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
           onClose={() => setZoomModal(null)}
         />
       )}
-    </>
+    </div>
   );
 };
 
@@ -2069,7 +2070,7 @@ const Obj = (props) => {
   const ctx = React.useContext(AppContext);
   let {id, otype, url, md, score, rels, scores, source, media_blocks, detailed} = props;
   media_blocks = media_blocks || [];
-  
+
   const liked = Boolean(rels.like);
   const disliked = Boolean(rels.dislike);
   const queued = Boolean(rels.queue);
@@ -2811,11 +2812,11 @@ const AppProvider = ({ children }) => {
 
   const doSearch = React.useCallback((value) => {
     console.log('searching for', value);
-    
+
     try {
       const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
       const sourceObj = sourceStr ? JSON.parse(sourceStr) : {};
-      
+
       let newSourceObj;
       if (!value || value.trim() === '') {
         // Remove search field from source object if search is empty
@@ -2825,14 +2826,14 @@ const AppProvider = ({ children }) => {
         // Add search field to source object
         newSourceObj = { ...sourceObj, search: value.trim() };
       }
-      
+
       const newSourceStr = JSON.stringify(newSourceObj);
-      
+
       // Update the source string input
       if (globalSetSourceStr) {
         globalSetSourceStr(newSourceStr);
       }
-      
+
       // Execute the search
       doSource(newSourceStr);
     } catch (error) {
