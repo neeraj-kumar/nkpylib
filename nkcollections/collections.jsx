@@ -1233,7 +1233,7 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
             controls
             autoPlay
             onLoadedData={handleMediaLoad}
-            onClick={(e) => e.stopPropagation()}
+            onClick={handleClose}
           />
           {imageUrl && (
             <button
@@ -1262,7 +1262,7 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
             src={imageUrl}
             alt="Zoomed image"
             onLoad={handleMediaLoad}
-            onClick={(e) => e.stopPropagation()}
+            onClick={handleClose}
           />
           {videoUrl && (
             <button
