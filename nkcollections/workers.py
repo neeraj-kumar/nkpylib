@@ -269,32 +269,26 @@ class BackgroundWorker(abc.ABC):
         counts['top_tags'] = top_tags
         counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
         timing['tag_counting'] = time.time() - t_tags
-        
         # Aggregate scores for user by (ttype, tag)
         t_user_scores = time.time()
-        user_score_aggregates = defaultdict(list)
-        user_score_timestamps = defaultdict(list)
-        
+        user_scores = defaultdict(list)
+        score_times = defaultdict(list)
         # Group scores by (ttype, tag)
         for score_row in score_rows:
             key = (score_row.ttype, score_row.tag)
-            user_score_aggregates[key].append(score_row.score)
-            user_score_timestamps[key].append(score_row.ts or 0)
-        
+            user_scores[key].append(score_row.score)
+            score_times[key].append(score_row.ts or 0)
         # Upsert Score rows for the user
         user_item = Item[user_id]
         current_ts = time.time()
-        
-        for (ttype, tag), scores in user_score_aggregates.items():
-            timestamps = user_score_timestamps[(ttype, tag)]
-            
+        for (ttype, tag), scores in user_scores.items():
+            timestamps = score_times[(ttype, tag)]
             # Calculate aggregated statistics
             score_count = len(scores)
             score_sum = sum(scores)
             score_mean = score_sum / score_count if score_count > 0 else 0.0
             score_median = sorted(scores)[score_count // 2] if score_count > 0 else 0.0
             latest_ts = max(timestamps) if timestamps else 0
-            
             # Create metadata
             md = dict(
                 sum=score_sum,
@@ -302,19 +296,12 @@ class BackgroundWorker(abc.ABC):
                 median=score_median,
                 latest_ts=latest_ts
             )
-            
             # Upsert Score row for user
-            get_kw = dict(id=user_item, ttype=ttype, tag=tag)
-            user_score = Score.get(**get_kw)
-            if user_score is None:
-                Score(**get_kw, score=float(score_count), ts=current_ts, md=md)
-            else:
-                user_score.score = float(score_count)
-                user_score.ts = current_ts
-                user_score.md = md
-        
+            Score.upsert(get_kw=dict(id=user_item, ttype=ttype, tag=tag),
+                         score=float(score_count),
+                         ts=current_ts,
+                         md=md)
         timing['user_score_aggregation'] = time.time() - t_user_scores
-        
         timing['total_function'] = time.time() - t0
         # Print top timing items
         formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
@@ -351,7 +338,7 @@ class BackgroundWorker(abc.ABC):
         await Rel.handle_me_action(to_explore, 'explore')
         logger.info(f'Done exploring users')
 
-    def _update_user_stats(self, max_users:int=300) -> None:
+    def _update_user_stats(self, max_users:int=500) -> None:
         """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
 
         I'm tuning `max_users` to be under 30 secs.
@@ -681,10 +668,11 @@ class CollectionsWorker(BackgroundWorker):
         new_scores = self.embs.rescore_by_nn(scores=scores, pos=pos, min_score=1.0, metric='l2')
         logger.debug(f'  Output scores: {list(new_scores.items())[:5]}')
         max_score = 2.0
-        EPSILON = 0.2 #FIXME investigate
+        EPSILON = 0.01 #FIXME investigate
         assert frozenset(new_scores) == frozenset(scores)
         for k, v in new_scores.items():
-            assert v-EPSILON <= max_score, f"(a) Rescored value {v} for {k} exceeds {max_score}"
+            #assert v-EPSILON <= max_score, f"(a) Rescored value {v} for {k} exceeds {max_score}"
+            pass
         ret = {k.split(':')[0]: v for k, v in new_scores.items()}
         for k, v in ret.items():
             assert v <= max_score, f"(b) Rescored value {v} for {k} exceeds {max_score}"
