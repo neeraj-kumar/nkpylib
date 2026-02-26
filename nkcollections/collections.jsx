@@ -326,12 +326,11 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
   if (showVideo) {
     return (
       <div>
-        <div style={{position: 'relative'}}>
+        <div className="video-container">
           <video
             src={videoUrl}
             controls
             autoPlay
-            style={{maxWidth: '100%', height: 'auto'}}
             onDoubleClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -345,18 +344,8 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
           >
             🔍
           </button>
-          <div
-            style={{
-              position: 'absolute',
-              top: '5px',
-              left: '5px',
-              background: 'rgba(0, 0, 0, 0.7)',
-              color: 'white',
-              fontSize: '12px',
-              padding: '2px 4px',
-              borderRadius: '3px',
-              cursor: 'pointer'
-            }}
+          <button
+            className="video-toggle-button show-image"
             onClick={(e) => {
               e.stopPropagation();
               setShowVideo(false);
@@ -364,7 +353,7 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
             title="Show poster"
           >
             🖼️
-          </div>
+          </button>
         </div>
         {zoomModal && (
           <ImageZoomModal
@@ -377,7 +366,7 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
   }
   return (
     <div>
-      <div className="video-link" style={{position: 'relative'}}>
+      <div className="video-link image-container">
         <img
           src={posterUrl}
           alt={`Video ${id} poster`}
@@ -394,18 +383,8 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
         >
           🔍
         </button>
-        <div
-          style={{
-            position: 'absolute',
-            top: '5px',
-            right: '5px',
-            background: 'rgba(0, 0, 0, 0.7)',
-            color: 'white',
-            fontSize: '12px',
-            padding: '2px 4px',
-            borderRadius: '3px',
-            cursor: 'pointer'
-          }}
+        <button
+          className="video-toggle-button play-video"
           onClick={(e) => {
             e.stopPropagation();
             setShowVideo(true);
@@ -413,7 +392,7 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
           title="Play video"
         >
           ▶
-        </div>
+        </button>
       </div>
       {zoomModal && (
         <ImageZoomModal
@@ -494,7 +473,7 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
       )}
 
       {showVideo && videoUrl ? (
-        <div style={{position: 'relative'}}>
+        <div className="video-container">
           <video
             className="image-zoom-content"
             src={videoUrl}
@@ -505,17 +484,7 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
           />
           {imageUrl && (
             <button
-              style={{
-                position: 'absolute',
-                top: '10px',
-                left: '10px',
-                background: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '3px',
-                padding: '5px 10px',
-                cursor: 'pointer'
-              }}
+              className="modal-toggle-button show-image"
               onClick={toggleVideoMode}
               title="Show image"
             >
@@ -524,7 +493,7 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
           )}
         </div>
       ) : (
-        <div style={{position: 'relative'}}>
+        <div className="image-container">
           <img
             className="image-zoom-content"
             src={imageUrl}
@@ -534,17 +503,7 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
           />
           {videoUrl && (
             <button
-              style={{
-                position: 'absolute',
-                top: '10px',
-                right: '10px',
-                background: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '3px',
-                padding: '5px 10px',
-                cursor: 'pointer'
-              }}
+              className="modal-toggle-button play-video"
               onClick={toggleVideoMode}
               title="Play video"
             >
@@ -581,30 +540,19 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
   if (showVideo && videoUrl) {
     return (
       <div>
-        <div style={{position: 'relative'}}>
+        <div className="video-container">
           <video
             src={videoUrl}
             controls
             autoPlay
-            style={{maxWidth: '100%', height: 'auto'}}
             onDoubleClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               setLiked(id, !liked);
             }}
           />
-          <div
-            style={{
-              position: 'absolute',
-              top: '5px',
-              left: '5px',
-              background: 'rgba(0, 0, 0, 0.7)',
-              color: 'white',
-              fontSize: '12px',
-              padding: '2px 4px',
-              borderRadius: '3px',
-              cursor: 'pointer'
-            }}
+          <button
+            className="video-toggle-button show-image"
             onClick={(e) => {
               e.stopPropagation();
               setShowVideo(false);
@@ -612,7 +560,7 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
             title="Show image"
           >
             🖼️
-          </div>
+          </button>
         </div>
         {zoomModal && (
           <ImageZoomModal
@@ -626,7 +574,7 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
 
   return (
     <div>
-      <div style={{position: 'relative'}}>
+      <div className="image-container">
         <img
           src={imageUrl}
           alt={`Image ${id}`}
@@ -644,18 +592,8 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
           🔍
         </button>
         {videoUrl && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '5px',
-              right: '5px',
-              background: 'rgba(0, 0, 0, 0.7)',
-              color: 'white',
-              fontSize: '12px',
-              padding: '2px 4px',
-              borderRadius: '3px',
-              cursor: 'pointer'
-            }}
+          <button
+            className="video-toggle-button play-video"
             onClick={(e) => {
               e.stopPropagation();
               setShowVideo(true);
@@ -663,7 +601,7 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
             title="Play video"
           >
             ▶
-          </div>
+          </button>
         )}
       </div>
       {zoomModal && (
@@ -796,7 +734,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
           );
         }
         return (
-          <div style={{position: 'relative'}}>
+          <div className="image-container">
             <img
               src={imageUrl}
               alt={`Image ${data.id}`}
@@ -823,18 +761,8 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
               🔍
             </button>
             {videoUrl && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '5px',
-                  right: '5px',
-                  background: 'rgba(0, 0, 0, 0.7)',
-                  color: 'white',
-                  fontSize: '12px',
-                  padding: '2px 4px',
-                  borderRadius: '3px',
-                  cursor: 'pointer'
-                }}
+              <button
+                className="video-toggle-button play-video"
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowVideo(prev => ({...prev, [data.id]: true}));
@@ -842,7 +770,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
                 title="Play video"
               >
                 ▶
-              </div>
+              </button>
             )}
           </div>
         );
@@ -850,12 +778,11 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
         const posterUrl = data.md.poster_url && data.local_path || data.md.poster_url;
         if (isShowingVideo) {
           return (
-            <div style={{position: 'relative'}}>
+            <div className="video-container">
               <video
                 src={data.url}
                 controls
                 autoPlay
-                style={{maxWidth: '100%', height: 'auto'}}
                 onClick={handleMediaClick}
                 onDoubleClick={(e) => {
                   e.preventDefault();
@@ -864,18 +791,8 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
                   setLiked(data.id, !liked);
                 }}
               />
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '5px',
-                  left: '5px',
-                  background: 'rgba(0, 0, 0, 0.7)',
-                  color: 'white',
-                  fontSize: '12px',
-                  padding: '2px 4px',
-                  borderRadius: '3px',
-                  cursor: 'pointer'
-                }}
+              <button
+                className="video-toggle-button show-image"
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowVideo(prev => ({...prev, [data.id]: false}));
@@ -883,12 +800,12 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
                 title="Show poster"
               >
                 🖼️
-              </div>
+              </button>
             </div>
           );
         }
         return (
-          <div className="video-link" style={{position: 'relative'}}>
+          <div className="video-link image-container">
             <img
               src={posterUrl}
               alt={`Video ${data.id} poster`}
@@ -914,18 +831,8 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
             >
               🔍
             </button>
-            <div
-              style={{
-                position: 'absolute',
-                top: '5px',
-                right: '5px',
-                background: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                fontSize: '12px',
-                padding: '2px 4px',
-                borderRadius: '3px',
-                cursor: 'pointer'
-              }}
+            <button
+              className="video-toggle-button play-video"
               onClick={(e) => {
                 e.stopPropagation();
                 setShowVideo(prev => ({...prev, [data.id]: true}));
@@ -933,7 +840,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
               title="Play video"
             >
               ▶
-            </div>
+            </button>
           </div>
         );
       default:
