@@ -19,6 +19,11 @@ const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
 const IOA = new intersectionObserverAdmin();
+const IOA_PARAMS = {
+  root: null,
+  rootMargin: "0px",
+  threshold: 0.5,
+}
 
 const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
 const QUICK_LINKS = {
@@ -1753,19 +1758,13 @@ const Controls = () => {
   React.useEffect(() => {
     const controlsDiv = document.querySelector('.controls');
     if (controlsDiv && ctx.ui.ioa) {
-      console.log('Setting up IOA observation for controls div');
-      ctx.ui.ioa.observe(controlsDiv, {
-        root: null,
-        rootMargin: "0px",
-        threshold: 0.1
+      console.log('Setting up IOA observation for controls div', controlsDiv);
+      ctx.ui.ioa.observe(controlsDiv, IOA_PARAMS);
+      ctx.ui.ioa.addEnterCallback(controlsDiv, (x, y, z) => {
+        console.log('Controls div entered viewport', x, y, z);
       });
-      
-      ctx.ui.ioa.addEnterCallback(controlsDiv, () => {
-        console.log('Controls div entered viewport');
-      });
-      
       ctx.ui.ioa.addExitCallback(controlsDiv, () => {
-        console.log('Controls div exited viewport');
+        console.log('Controls div exited viewport', x, y, z);
       });
     }
   }, [ctx.ui.ioa]);
@@ -1985,13 +1984,15 @@ const AppProvider = ({ children }) => {
     faviconEl.rel = 'icon';
     faviconEl.href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖼️</text></svg>";
     document.head.appendChild(faviconEl);
+    /*
     // setup ioa callbacks
     ioa.addEnterCallback(el, () => {
-      console.log('entering el with args', el, arguments);
+      console.log('entering el with args', el);
     });
     ioa.addExitCallback(el, () => {
-      console.log('exiting el with args', el, arguments);
+      console.log('exiting el with args', el);
     });
+        */
   }, []);
 
   // Set up global reference to setMessage
