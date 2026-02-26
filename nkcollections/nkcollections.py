@@ -788,7 +788,6 @@ class MyBaseHandler(BaseHandler):
 
 
 class GetHandler(MyBaseHandler):
-    @db_session(sql_debug=True, show_values=True)
     async def build_query(self, kw: dict[str, Any]) -> Query:
         return await QueryBuilder.create(self.embs).build(kw)
 
