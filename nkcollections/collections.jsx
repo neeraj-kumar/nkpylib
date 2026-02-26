@@ -546,6 +546,84 @@ const STYLES = `
   pointer-events: auto;
 }
 
+/* Image zoom modal styles */
+.image-zoom-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+
+.image-zoom-modal.opening {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.image-zoom-modal.closing {
+  animation: fadeOut 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.image-zoom-content {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  cursor: default;
+  user-select: none;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.image-zoom-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+}
+
+.image-zoom-close:hover {
+  background: rgba(0, 0, 0, 0.9);
+}
+
+.image-zoom-loading {
+  color: white;
+  font-size: 18px;
+}
+
+/* Add zoom cursor to images */
+.object img {
+  cursor: zoom-in;
+}
+
+.media-carousel img {
+  cursor: zoom-in;
+}
+
 /* Video link overlay icon */
 .video-link {
   position: relative;
@@ -927,58 +1005,84 @@ const VideoOverlay = ({videoUrl, onClick}) => {
   );
 };
 
-const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
+const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
   const [showVideo, setShowVideo] = React.useState(false);
-  if (showVideo && videoUrl) {
+  const [zoomModal, setZoomModal] = React.useState(null);
+
+  const handleClick = (e) => {
+    if (e.detail === 1) {
+      setTimeout(() => {
+        if (e.detail === 1) {
+          setZoomModal({
+            imageUrl: posterUrl,
+            videoUrl: videoUrl,
+            isVideo: showVideo
+          });
+        }
+      }, 200);
+    }
+  };
+
+  if (showVideo) {
     return (
-      <div style={{position: 'relative'}}>
-        <video
-          src={videoUrl}
-          controls
-          autoPlay
-          style={{maxWidth: '100%', height: 'auto'}}
+      <>
+        <div style={{position: 'relative'}}>
+          <video
+            src={videoUrl}
+            controls
+            autoPlay
+            style={{maxWidth: '100%', height: 'auto'}}
+            onClick={handleClick}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setLiked(id, !liked);
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: '5px',
+              left: '5px',
+              background: 'rgba(0, 0, 0, 0.7)',
+              color: 'white',
+              fontSize: '12px',
+              padding: '2px 4px',
+              borderRadius: '3px',
+              cursor: 'pointer'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowVideo(false);
+            }}
+            title="Show poster"
+          >
+            🖼️
+          </div>
+        </div>
+        {zoomModal && (
+          <ImageZoomModal
+            {...zoomModal}
+            onClose={() => setZoomModal(null)}
+          />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="video-link" style={{position: 'relative'}}>
+        <img 
+          src={posterUrl} 
+          alt={`Video ${id} poster`}
+          onClick={handleClick}
           onDoubleClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setLiked(id, !liked);
           }}
         />
-        <div
-          style={{
-            position: 'absolute',
-            top: '5px',
-            left: '5px',
-            background: 'rgba(0, 0, 0, 0.7)',
-            color: 'white',
-            fontSize: '12px',
-            padding: '2px 4px',
-            borderRadius: '3px',
-            cursor: 'pointer'
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowVideo(false);
-          }}
-          title="Show image"
-        >
-          🖼️
-        </div>
-      </div>
-    );
-  }
-  
-  return (
-    <div style={{position: 'relative'}}>
-      <img
-        src={imageUrl}
-        alt={`Image ${id}`}
-        onDoubleClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setLiked(id, !liked);
-        }}
-      />
-      {videoUrl && (
         <div
           style={{
             position: 'absolute',
@@ -999,8 +1103,252 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
         >
           ▶
         </div>
+      </div>
+      {zoomModal && (
+        <ImageZoomModal
+          {...zoomModal}
+          onClose={() => setZoomModal(null)}
+        />
+      )}
+    </>
+  );
+};
+
+const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
+  const [isClosing, setIsClosing] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [showVideo, setShowVideo] = React.useState(isVideo);
+
+  // Handle ESC key and prevent body scroll
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    // Prevent body scroll
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = '';
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 200); // Match animation duration
+  };
+
+  const handleBackgroundClick = (e) => {
+    if (e.target === e.currentTarget) {
+      handleClose();
+    }
+  };
+
+  const handleMediaLoad = () => {
+    setIsLoading(false);
+  };
+
+  const toggleVideoMode = (e) => {
+    e.stopPropagation();
+    setShowVideo(!showVideo);
+  };
+
+  return (
+    <div 
+      className={`image-zoom-modal ${isClosing ? 'closing' : 'opening'}`}
+      onClick={handleBackgroundClick}
+    >
+      <button 
+        className="image-zoom-close"
+        onClick={handleClose}
+        title="Close (ESC)"
+      >
+        ×
+      </button>
+      
+      {isLoading && (
+        <div className="image-zoom-loading">Loading...</div>
+      )}
+      
+      {showVideo && videoUrl ? (
+        <div style={{position: 'relative'}}>
+          <video
+            className="image-zoom-content"
+            src={videoUrl}
+            controls
+            autoPlay
+            onLoadedData={handleMediaLoad}
+            onClick={(e) => e.stopPropagation()}
+          />
+          {imageUrl && (
+            <button
+              style={{
+                position: 'absolute',
+                top: '10px',
+                left: '10px',
+                background: 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '3px',
+                padding: '5px 10px',
+                cursor: 'pointer'
+              }}
+              onClick={toggleVideoMode}
+              title="Show image"
+            >
+              🖼️
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{position: 'relative'}}>
+          <img
+            className="image-zoom-content"
+            src={imageUrl}
+            alt="Zoomed image"
+            onLoad={handleMediaLoad}
+            onClick={(e) => e.stopPropagation()}
+          />
+          {videoUrl && (
+            <button
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                background: 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '3px',
+                padding: '5px 10px',
+                cursor: 'pointer'
+              }}
+              onClick={toggleVideoMode}
+              title="Play video"
+            >
+              ▶
+            </button>
+          )}
+        </div>
       )}
     </div>
+  );
+};
+
+const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
+  const [showVideo, setShowVideo] = React.useState(false);
+  const [zoomModal, setZoomModal] = React.useState(null);
+
+  const handleImageClick = (e) => {
+    // Only zoom if not a double-click (like action)
+    if (e.detail === 1) {
+      setTimeout(() => {
+        if (e.detail === 1) {
+          setZoomModal({
+            imageUrl,
+            videoUrl,
+            isVideo: showVideo
+          });
+        }
+      }, 200);
+    }
+  };
+
+  if (showVideo && videoUrl) {
+    return (
+      <>
+        <div style={{position: 'relative'}}>
+          <video
+            src={videoUrl}
+            controls
+            autoPlay
+            style={{maxWidth: '100%', height: 'auto'}}
+            onClick={handleImageClick}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setLiked(id, !liked);
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              top: '5px',
+              left: '5px',
+              background: 'rgba(0, 0, 0, 0.7)',
+              color: 'white',
+              fontSize: '12px',
+              padding: '2px 4px',
+              borderRadius: '3px',
+              cursor: 'pointer'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowVideo(false);
+            }}
+            title="Show image"
+          >
+            🖼️
+          </div>
+        </div>
+        {zoomModal && (
+          <ImageZoomModal
+            {...zoomModal}
+            onClose={() => setZoomModal(null)}
+          />
+        )}
+      </>
+    );
+  }
+  
+  return (
+    <>
+      <div style={{position: 'relative'}}>
+        <img
+          src={imageUrl}
+          alt={`Image ${id}`}
+          onClick={handleImageClick}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setLiked(id, !liked);
+          }}
+        />
+        {videoUrl && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '5px',
+              right: '5px',
+              background: 'rgba(0, 0, 0, 0.7)',
+              color: 'white',
+              fontSize: '12px',
+              padding: '2px 4px',
+              borderRadius: '3px',
+              cursor: 'pointer'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowVideo(true);
+            }}
+            title="Play video"
+          >
+            ▶
+          </div>
+        )}
+      </div>
+      {zoomModal && (
+        <ImageZoomModal
+          {...zoomModal}
+          onClose={() => setZoomModal(null)}
+        />
+      )}
+    </>
   );
 };
 
@@ -1008,6 +1356,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
   const [showVideo, setShowVideo] = React.useState({});
+  const [zoomModal, setZoomModal] = React.useState(null);
   // Calculate max height based on image metadata
   const maxHeight = React.useMemo(() => {
     if (!mediaBlocks.length) return 0;
@@ -1045,6 +1394,44 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   const renderMedia = (block) => {
     const {type, data} = block;
     const isShowingVideo = showVideo[data.id];
+    
+    const handleMediaClick = (e) => {
+      // Check if this is a navigation click (on edges) for multiple media
+      if (mediaBlocks.length > 1) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const imageWidth = rect.width;
+        const clickThreshold = imageWidth * 0.45;
+        
+        if (clickX <= clickThreshold) {
+          // Left edge - previous
+          e.preventDefault();
+          e.stopPropagation();
+          setCurrentIndex(currentIndex === 0 ? mediaBlocks.length - 1 : currentIndex - 1);
+          return;
+        } else if (clickX >= imageWidth - clickThreshold) {
+          // Right edge - next
+          e.preventDefault();
+          e.stopPropagation();
+          setCurrentIndex(currentIndex === mediaBlocks.length - 1 ? 0 : currentIndex + 1);
+          return;
+        }
+      }
+      
+      // Center click - zoom (only on single click, not double)
+      if (e.detail === 1) {
+        setTimeout(() => {
+          if (e.detail === 1) {
+            setZoomModal({
+              imageUrl: type === 'image' ? (data.local_path || data.url) : (data.md.poster_url),
+              videoUrl: type === 'image' ? (data.md && data.md.video_url) : data.url,
+              isVideo: isShowingVideo || type === 'video'
+            });
+          }
+        }, 200);
+      }
+    };
+
     switch (type) {
       case 'image':
         const imageUrl = data.local_path || data.url;
@@ -1057,6 +1444,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
                 controls
                 autoPlay
                 style={{maxWidth: '100%', height: 'auto'}}
+                onClick={handleMediaClick}
                 onDoubleClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1092,14 +1480,14 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
             <img
               src={imageUrl}
               alt={`Image ${data.id}`}
-              onClick={handleImageClick}
+              onClick={handleMediaClick}
               onDoubleClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 const liked = Boolean(data.rels.like);
                 setLiked(data.id, !liked);
               }}
-              style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
+              style={{cursor: 'zoom-in'}}
             />
             {videoUrl && (
               <div
@@ -1135,6 +1523,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
                 controls
                 autoPlay
                 style={{maxWidth: '100%', height: 'auto'}}
+                onClick={handleMediaClick}
                 onDoubleClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1170,14 +1559,14 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
             <img
               src={posterUrl}
               alt={`Video ${data.id} poster`}
-              onClick={handleImageClick}
+              onClick={handleMediaClick}
               onDoubleClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 const liked = Boolean(data.rels.like);
                 setLiked(data.id, !liked);
               }}
-              style={{cursor: mediaBlocks.length > 1 ? 'pointer' : 'default'}}
+              style={{cursor: 'zoom-in'}}
             />
             <div
               style={{
@@ -1207,11 +1596,19 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   };
 
   return (
-    <div className="media-carousel"
-      style={{minHeight: maxHeight > 0 ? `${maxHeight}px` : 'auto'}}
-    >
-      {renderMedia(currentMedia)}
-    </div>
+    <>
+      <div className="media-carousel"
+        style={{minHeight: maxHeight > 0 ? `${maxHeight}px` : 'auto'}}
+      >
+        {renderMedia(currentMedia)}
+      </div>
+      {zoomModal && (
+        <ImageZoomModal
+          {...zoomModal}
+          onClose={() => setZoomModal(null)}
+        />
+      )}
+    </>
   );
 };
 
@@ -1460,17 +1857,13 @@ const ObjectContent = ({otype, url, md, id, liked, local_path, compact, score, s
       )}
       {otype === 'video' && (
         <div className="content">
-          <div className="video-link" style={{position: 'relative'}}>
-            <img src={md.poster_url} alt={`Video ${id} poster`} />
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              ▶
-            </a>
-          </div>
+          <VideoWithZoom
+            videoUrl={url}
+            posterUrl={md.poster_url}
+            id={id}
+            liked={liked}
+            setLiked={ctx.actions.setLiked}
+          />
         </div>
       )}
       {otype === 'user' && (
