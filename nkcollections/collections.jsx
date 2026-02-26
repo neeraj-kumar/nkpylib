@@ -1757,21 +1757,6 @@ const Controls = () => {
     globalSetSourceStr = setSourceStr;
   }, [setSourceStr]);
 
-  // Set up IntersectionObserver for testing - observe the first object instead
-  const testElementRef = React.useRef(null);
-  React.useEffect(() => {
-    if (!ctx.ui.ioa || !testElementRef.current) return;
-    const element = testElementRef.current;
-    console.log('Setting up IOA observation for test element', element);
-    ctx.ui.ioa.observe(element);
-    // Cleanup function
-    return () => {
-      if (ctx.ui.ioa && element) {
-        ctx.ui.ioa.removeElement(element);
-      }
-    };
-  }, [ctx.ui.ioa]);
-
   // Auto cluster navigation functions
   const navigateAutoCluster = React.useCallback((direction) => {
     const clusterKeys = Object.keys(ctx.data.autoClusters);
