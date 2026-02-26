@@ -94,7 +94,7 @@ logger = logging.getLogger(__name__)
 def query_step(step_name: str, sql_debug: bool = False, profile: bool = False):
     """Decorator for QueryBuilder methods with exception handling and profiling."""
     def decorator(func):
-        def wrapper(self, kw: dict) -> 'QueryBuilder':
+        async def wrapper(self, kw: dict) -> 'QueryBuilder':
             if profile:
                 start_time = time.time()
 
@@ -104,7 +104,7 @@ def query_step(step_name: str, sql_debug: bool = False, profile: bool = False):
                 set_sql_debug(True)
 
             try:
-                result = func(self, kw)
+                result = await func(self, kw)
                 if profile:
                     elapsed = time.time() - start_time
                     logger.info(f"QueryBuilder.{step_name}: {elapsed:.3f}s")
@@ -149,22 +149,22 @@ class QueryBuilder:
         """Factory method to create a new QueryBuilder."""
         return cls(embs)
 
-    def build(self, kw: dict[str, Any]) -> Query|list:
+    async def build(self, kw: dict[str, Any]) -> Query|list:
         """Main build method with fluent chaining."""
         logger.info(f'Building query with filters: {kw}')
-        return (self
-                .apply_basic_filters(kw)
-                .apply_relationship_filters(kw)
-                .apply_numeric_filters(kw)
-                .apply_rel_filters(kw)
-                .apply_new_search_filters(kw) #FIXME
-                .apply_score_filters(kw)
-                .apply_ordering(kw)
-                .apply_pagination(kw)
-                .finalize())
+        builder = self
+        builder = await builder.apply_basic_filters(kw)
+        builder = await builder.apply_relationship_filters(kw)
+        builder = await builder.apply_numeric_filters(kw)
+        builder = await builder.apply_rel_filters(kw)
+        builder = await builder.apply_new_search_filters(kw)
+        builder = await builder.apply_score_filters(kw)
+        builder = await builder.apply_ordering(kw)
+        builder = await builder.apply_pagination(kw)
+        return builder.finalize()
 
     @query_step("basic_filters", profile=True)
-    def apply_basic_filters(self, kw: dict) -> 'QueryBuilder':
+    async def apply_basic_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply string and simple field filters."""
         if self.converted_to_list:
             return self
@@ -186,7 +186,7 @@ class QueryBuilder:
         return self
 
     @query_step("relationship_filters", profile=True)
-    def apply_relationship_filters(self, kw: dict) -> 'QueryBuilder':
+    async def apply_relationship_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply parent/ancestor/same_user filters."""
         if self.converted_to_list:
             return self
@@ -209,7 +209,7 @@ class QueryBuilder:
         return self
 
     @query_step("numeric_filters", profile=True)
-    def apply_numeric_filters(self, kw: dict) -> 'QueryBuilder':
+    async def apply_numeric_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply numeric field filters with operators."""
         if self.converted_to_list:
             return self
@@ -227,7 +227,7 @@ class QueryBuilder:
         return self
 
     @query_step("rel_filters", sql_debug=True, profile=True)
-    def apply_rel_filters(self, kw: dict) -> 'QueryBuilder':
+    async def apply_rel_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply relationship-based filters."""
         if self.converted_to_list:
             return self
@@ -258,7 +258,7 @@ class QueryBuilder:
         return self
 
     @query_step("search_filters", profile=True)
-    def apply_search_filters(self, kw: dict) -> 'QueryBuilder':
+    async def apply_search_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply search-based filters using LLM tag parsing."""
         logger.warning('WHOAAAA')
         search_query = kw.get('search', '').strip()
@@ -277,8 +277,7 @@ Return a JSON list of tags from the following available tags that best match wha
 Available tags: {', '.join(all_tags)}
 
 Return only the JSON list, no other text."""
-        #TODO async?
-        response = call_llm.single(prompt, model='fast')
+        response = await call_llm.single_async(prompt, model='fast')
         try:
             parsed_tags = load_llm_json(response)
         except Exception as e:
@@ -316,7 +315,7 @@ Return only the JSON list, no other text."""
             logger.info(f'Applied search filter for {len(parsed_tags)} tags on list (OR logic, score > {min_score}), {len(self.query)} items remain')
         return self
 
-    def apply_new_search_filters(self, kw: dict) -> 'QueryBuilder':
+    async def apply_new_search_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply advanced semantic search with AND+OR logic and score aggregation.
 
         Parses search query into semantic groups where each group represents OR alternatives
@@ -408,7 +407,7 @@ Available tags: {', '.join(all_tags)}
 
 Return only the JSON array, no other text."""
         try:
-            response = call_llm.single(prompt, model='fast')
+            response = await call_llm.single_async(prompt, model='fast')
             semantic_groups = load_llm_json(response)
             # Validate structure
             if not isinstance(semantic_groups, list):
@@ -511,7 +510,7 @@ Return only the JSON array, no other text."""
         # return sum(score * weight for score, weight in zip(group_scores, weights)) / sum(weights)
 
     @query_step("score_filters", sql_debug=True, profile=True)
-    def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
+    async def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply ML-based filters (min_like, pos)."""
         if not any(k in kw for k in ['min_like', 'pos']):
             return self
@@ -573,7 +572,7 @@ Return only the JSON array, no other text."""
         return self
 
     @query_step("ordering", profile=True)
-    def apply_ordering(self, kw: dict) -> 'QueryBuilder':
+    async def apply_ordering(self, kw: dict) -> 'QueryBuilder':
         """Apply ordering to the query."""
         if not self.needs_ordering:
             return self
@@ -611,7 +610,7 @@ Return only the JSON array, no other text."""
         return self
 
     @query_step("pagination", profile=True)
-    def apply_pagination(self, kw: dict) -> 'QueryBuilder':
+    async def apply_pagination(self, kw: dict) -> 'QueryBuilder':
         """Apply limit and offset."""
         limit = int(kw.get('limit', 10000000))
         offset = int(kw.get('offset', 0))
@@ -790,8 +789,8 @@ class MyBaseHandler(BaseHandler):
 
 class GetHandler(MyBaseHandler):
     @db_session(sql_debug=True, show_values=True)
-    def build_query(self, kw: dict[str, Any]) -> Query:
-        return QueryBuilder.create(self.embs).build(kw)
+    async def build_query(self, kw: dict[str, Any]) -> Query:
+        return await QueryBuilder.create(self.embs).build(kw)
 
 
     @classmethod
@@ -892,7 +891,7 @@ class GetHandler(MyBaseHandler):
         # Build query conditions
         with db_session:
             times = [time.time()]
-            q = self.build_query(data)
+            q = await self.build_query(data)
             times.append(time.time())
             row_by_id, cur_ids = await self.query_to_web(q, assemble_posts=data.get('assemble_posts', True))
             times.append(time.time())
