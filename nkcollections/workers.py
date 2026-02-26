@@ -242,8 +242,10 @@ class BackgroundWorker(abc.ABC):
             t_liked = time.time()
             if liked_rel:
                 counts['n_liked_items'] += 1
-                # Check if this is a "good item" (liked but no dwell_time)
-                if not hasattr(item, 'dwell_time') or item.dwell_time is None or item.dwell_time == 0:
+                # Check if this is a "good item" (positive like score and dwell_time < 1 second)
+                item_like_score = like_scores.get(item.id, 0.0)
+                item_dwell_time = getattr(item, 'dwell_time', None) or 0.0
+                if item_like_score > 0 and item_dwell_time < 1.0:
                     counts['n_good'] += 1
             timing['liked_check'] += time.time() - t_liked
             t_ts = time.time()
