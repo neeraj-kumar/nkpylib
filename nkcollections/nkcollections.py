@@ -250,7 +250,9 @@ Return only the JSON list, no other text."""
             return self
         logger.info(f'LLM parsed search into tags: {parsed_tags}')
         # Apply tag filters using SQL joins (OR logic - item must have ANY of the tags with score > min_score)
-        min_score = 0.7
+        min_item_score = float(kw.get('min_item_score', 0.7))
+        min_user_score = float(kw.get('min_user_score', 150))
+        min_score = min_user_score if kw.get('otype') == 'user' else min_item_score
         ttype = f'tag:{IMAGE_SUFFIX}'
         if not self.converted_to_list:
             # Create OR condition for any of the tags with score > min_score
