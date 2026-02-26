@@ -242,17 +242,14 @@ class BackgroundWorker(abc.ABC):
             t_liked = time.time()
             if liked_rel:
                 counts['n_liked_items'] += 1
-            
-            # Check if this is a "good item" (positive like score, dwell_time < 1 second, not liked or queued)
+            # Check if this is a "good item"
             item_like_score = like_scores.get(item.id, 0.0)
             item_dwell_time = getattr(item, 'dwell_time', None) or 0.0
-            
             # Check if item is queued
             queued_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='queue')
-            
-            if (item_like_score > 0 and 
-                item_dwell_time < 1.0 and 
-                not liked_rel and 
+            if (item_like_score > 0 and
+                item_dwell_time < 1.0 and
+                not liked_rel and
                 not queued_rel):
                 counts['n_good'] += 1
             timing['liked_check'] += time.time() - t_liked
@@ -493,10 +490,10 @@ class CollectionsWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
-                    #run_async(self._explore_users())
-                    #run_async(self._handle_user_actions())
+                    run_async(self._explore_users())
+                    run_async(self._handle_user_actions())
                     self._update_user_stats()
-                    #self._update_classifier()
+                    self._update_classifier()
                 except Exception as e:
                     logger.error(f"Error in process_task: {e}")
                     print(traceback.format_exc())

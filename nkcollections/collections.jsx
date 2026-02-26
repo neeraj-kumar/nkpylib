@@ -25,14 +25,14 @@ const IOA_PARAMS = {
 
 const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
 const QUICK_LINKS = {
+  // users sorted by goodness
+  Users: {...user_kw, "source": "tumblr", "order": "-lambda o: o.md['stats']['n_good']"},
   // explored users
   'Exp users': {...user_kw, "explored_ts": ">1", "source": "tumblr"},
-  // unexplored but queued
-  'Q users': {...user_kw, "explored_ts": "<>", "order": "-lambda o: o.md['n_queued_reblogs']"},
   // recent positive liked images
   'Pos Images': {"otype":"image","limit":200,"min_like":0.1,"order": "-embed_ts"},
-  // users sorted by n pos likes
-  Users: {...user_kw, "source": "tumblr", "order": "-lambda o: o.md['stats']['n_pos_like_score']"},
+  // unexplored but queued
+  'Q users': {...user_kw, "explored_ts": "<>", "order": "-lambda o: o.md['n_queued_reblogs']"},
   // recent users sorted by timestamp
   'Recent users': {...user_kw, "order": "-ts"},
   // recent embedded images
