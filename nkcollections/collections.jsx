@@ -1974,6 +1974,9 @@ const AppProvider = ({ children }) => {
   const [viewingTimes, setViewingTimes] = React.useState({}); // {objectId: msSinceLastSync}
   const [lastSyncTime, setLastSyncTime] = React.useState(Date.now()); // Global last sync timestamp
   const [isPageVisible, setIsPageVisible] = React.useState(!document.hidden); // Track page visibility
+  
+  // Minimum viewing time threshold (in milliseconds) - don't count views shorter than this
+  const MIN_VIEWING_TIME = 500; // 0.5 seconds
 
   // Create IntersectionObserver for viewing time tracking
   const IOA = React.useMemo(() => {
@@ -1993,16 +1996,19 @@ const AppProvider = ({ children }) => {
             [objectId]: now
           }));
         } else {
-          // Stopped viewing - add duration to current period
+          // Stopped viewing - add duration to current period only if above threshold
           setViewingStartTimes(prev => {
             const startTime = prev[objectId];
             if (startTime) {
               const duration = now - startTime;
 
-              setViewingTimes(prevTimes => ({
-                ...prevTimes,
-                [objectId]: (prevTimes[objectId] || 0) + duration
-              }));
+              // Only count viewing time if it meets the minimum threshold
+              if (duration >= MIN_VIEWING_TIME) {
+                setViewingTimes(prevTimes => ({
+                  ...prevTimes,
+                  [objectId]: (prevTimes[objectId] || 0) + duration
+                }));
+              }
 
               // Remove from start times
               const newStartTimes = {...prev};
@@ -2031,11 +2037,11 @@ const AppProvider = ({ children }) => {
     });
 
     // Add time for currently viewing items since last sync (convert from ms to seconds)
-    // Only count time if page is currently visible
+    // Only count time if page is currently visible and meets minimum threshold
     if (isPageVisible) {
       Object.entries(viewingStartTimes).forEach(([objectId, startTime]) => {
         const timeSinceSync = now - Math.max(startTime, lastSyncTime);
-        if (timeSinceSync > 0) {
+        if (timeSinceSync > 0 && timeSinceSync >= MIN_VIEWING_TIME) {
           dataToSync[objectId] = (dataToSync[objectId] || 0) + (timeSinceSync / 1000);
         }
       });
@@ -2078,10 +2084,13 @@ const AppProvider = ({ children }) => {
           const pausedTimes = {};
           Object.entries(prev).forEach(([objectId, startTime]) => {
             const duration = now - startTime;
-            setViewingTimes(prevTimes => ({
-              ...prevTimes,
-              [objectId]: (prevTimes[objectId] || 0) + duration
-            }));
+            // Only count viewing time if it meets the minimum threshold
+            if (duration >= MIN_VIEWING_TIME) {
+              setViewingTimes(prevTimes => ({
+                ...prevTimes,
+                [objectId]: (prevTimes[objectId] || 0) + duration
+              }));
+            }
           });
           return {}; // Clear all start times
         });
