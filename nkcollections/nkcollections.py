@@ -92,6 +92,41 @@ from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_req
 
 logger = logging.getLogger(__name__)
 
+
+def query_step(step_name: str, sql_debug: bool = False, profile: bool = False):
+    """Decorator for QueryBuilder methods with exception handling and profiling."""
+    def decorator(func):
+        def wrapper(self, kw: dict) -> 'QueryBuilder':
+            if profile:
+                start_time = time.time()
+            
+            # Enable SQL debugging if requested
+            if sql_debug:
+                from pony.orm import set_sql_debug
+                set_sql_debug(True)
+            
+            try:
+                result = func(self, kw)
+                if profile:
+                    elapsed = time.time() - start_time
+                    logger.info(f"QueryBuilder.{step_name}: {elapsed:.3f}s")
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error in QueryBuilder.{step_name}: {e}")
+                # Continue with unchanged query on error rather than failing
+                return self
+                
+            finally:
+                # Restore SQL debug setting
+                if sql_debug:
+                    from pony.orm import set_sql_debug
+                    set_sql_debug(False)
+                    
+        return wrapper
+    return decorator
+
+
 @cache
 def get_all_tags() -> list[str]:
     """Get all available tags from Score table."""
@@ -130,6 +165,7 @@ class QueryBuilder:
                 .apply_pagination(kw)
                 .finalize())
 
+    @query_step("basic_filters", profile=True)
     def apply_basic_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply string and simple field filters."""
         if self.converted_to_list:
@@ -151,6 +187,7 @@ class QueryBuilder:
                 self.filters_applied.append(field)
         return self
 
+    @query_step("relationship_filters", profile=True)
     def apply_relationship_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply parent/ancestor/same_user filters."""
         if self.converted_to_list:
@@ -173,6 +210,7 @@ class QueryBuilder:
             self.filters_applied.append('mn')
         return self
 
+    @query_step("numeric_filters", profile=True)
     def apply_numeric_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply numeric field filters with operators."""
         if self.converted_to_list:
@@ -190,6 +228,7 @@ class QueryBuilder:
             self.filters_applied.append(field)
         return self
 
+    @query_step("rel_filters", sql_debug=True, profile=True)
     def apply_rel_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply relationship-based filters."""
         if self.converted_to_list:
@@ -220,6 +259,7 @@ class QueryBuilder:
                 self.filters_applied.append(filter_key)
         return self
 
+    @query_step("search_filters", profile=True)
     def apply_search_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply search-based filters using LLM tag parsing."""
         search_query = kw.get('search', '').strip()
@@ -479,6 +519,7 @@ Return only the JSON array, no other text."""
         # weights = [1.0] * len(group_scores)  # Equal weights for now
         # return sum(score * weight for score, weight in zip(group_scores, weights)) / sum(weights)
 
+    @query_step("score_filters", sql_debug=True, profile=True)
     def apply_score_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply ML-based filters (min_like, pos)."""
         if not any(k in kw for k in ['min_like', 'pos']):
@@ -540,6 +581,7 @@ Return only the JSON array, no other text."""
 
         return self
 
+    @query_step("ordering", profile=True)
     def apply_ordering(self, kw: dict) -> 'QueryBuilder':
         """Apply ordering to the query."""
         if not self.needs_ordering:
@@ -577,6 +619,7 @@ Return only the JSON array, no other text."""
 
         return self
 
+    @query_step("pagination", profile=True)
     def apply_pagination(self, kw: dict) -> 'QueryBuilder':
         """Apply limit and offset."""
         limit = int(kw.get('limit', 10000000))
