@@ -1755,41 +1755,38 @@ const Controls = () => {
   }, [setSourceStr]);
 
   // Set up IntersectionObserver for testing - observe the first object instead
+  const testElementRef = React.useRef(null);
+  
   React.useEffect(() => {
-    // Wait a bit for objects to render, then observe the first one
-    const timer = setTimeout(() => {
-      const firstObject = document.querySelector('.object');
-      if (firstObject && ctx.ui.ioa) {
-        console.log('Setting up IOA observation for first object', firstObject);
-        
-        ctx.ui.ioa.observe(firstObject, {
-          root: null,
-          rootMargin: "-200px",
-          threshold: 0.1
-        });
-        
-        ctx.ui.ioa.addEnterCallback(firstObject, (entry) => {
-          console.log('First object entered viewport', entry);
-        });
-        
-        ctx.ui.ioa.addExitCallback(firstObject, (entry) => {
-          console.log('First object exited viewport', entry);
-        });
-        
-        console.log('First object rect:', firstObject.getBoundingClientRect());
-        console.log('Viewport height:', window.innerHeight);
-      }
-    }, 1000);
+    if (!ctx.ui.ioa || !testElementRef.current) return;
+    
+    const element = testElementRef.current;
+    console.log('Setting up IOA observation for test element', element);
+    
+    ctx.ui.ioa.observe(element, {
+      root: null,
+      rootMargin: "-100px",
+      threshold: 0.5
+    });
+    
+    ctx.ui.ioa.addEnterCallback(element, (entry) => {
+      console.log('Test element entered viewport', entry);
+    });
+    
+    ctx.ui.ioa.addExitCallback(element, (entry) => {
+      console.log('Test element exited viewport', entry);
+    });
+    
+    console.log('Test element rect:', element.getBoundingClientRect());
+    console.log('Viewport height:', window.innerHeight);
     
     // Cleanup function
     return () => {
-      clearTimeout(timer);
-      const firstObject = document.querySelector('.object');
-      if (firstObject && ctx.ui.ioa) {
-        ctx.ui.ioa.removeElement(firstObject);
+      if (ctx.ui.ioa && element) {
+        ctx.ui.ioa.removeElement(element);
       }
     };
-  }, [ctx.ui.ioa, ctx.data.curIds]); // Also depend on curIds so it re-runs when objects load
+  }, [ctx.ui.ioa]);
 
   // Auto cluster navigation functions
   const navigateAutoCluster = React.useCallback((direction) => {
@@ -1862,6 +1859,22 @@ const Controls = () => {
   return (
     <div className="controls">
       <div className="control text-fields">
+        <div 
+          ref={testElementRef}
+          style={{
+            width: '100px',
+            height: '50px',
+            backgroundColor: 'lightblue',
+            border: '2px solid blue',
+            margin: '10px 0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '12px'
+          }}
+        >
+          IOA Test
+        </div>
         <input
           type="text"
           className={getSourceInputClass()}
