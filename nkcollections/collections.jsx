@@ -1754,39 +1754,42 @@ const Controls = () => {
     globalSetSourceStr = setSourceStr;
   }, [setSourceStr]);
 
-  // Set up IntersectionObserver for controls div (testing)
+  // Set up IntersectionObserver for testing - observe the first object instead
   React.useEffect(() => {
-    const controlsDiv = document.querySelector('.controls');
-    if (controlsDiv && ctx.ui.ioa) {
-      console.log('Setting up IOA observation for controls div', controlsDiv, IOA_PARAMS);
-      // Try observing with explicit params
-      ctx.ui.ioa.observe(controlsDiv, {
-        root: null,
-        rootMargin: "-100px",
-        threshold: 0.1
-      });
-      
-      ctx.ui.ioa.addEnterCallback(controlsDiv, (entry) => {
-        console.log('Controls div entered viewport', entry);
-      });
-      
-      ctx.ui.ioa.addExitCallback(controlsDiv, (entry) => {
-        console.log('Controls div exited viewport', entry);
-      });
-      
-      // Also log the current state
-      console.log('Controls div rect:', controlsDiv.getBoundingClientRect());
-      console.log('Viewport height:', window.innerHeight);
-    }
+    // Wait a bit for objects to render, then observe the first one
+    const timer = setTimeout(() => {
+      const firstObject = document.querySelector('.object');
+      if (firstObject && ctx.ui.ioa) {
+        console.log('Setting up IOA observation for first object', firstObject);
+        
+        ctx.ui.ioa.observe(firstObject, {
+          root: null,
+          rootMargin: "-50px",
+          threshold: 0.5
+        });
+        
+        ctx.ui.ioa.addEnterCallback(firstObject, (entry) => {
+          console.log('First object entered viewport', entry);
+        });
+        
+        ctx.ui.ioa.addExitCallback(firstObject, (entry) => {
+          console.log('First object exited viewport', entry);
+        });
+        
+        console.log('First object rect:', firstObject.getBoundingClientRect());
+        console.log('Viewport height:', window.innerHeight);
+      }
+    }, 1000);
     
     // Cleanup function
     return () => {
-      const controlsDiv = document.querySelector('.controls');
-      if (controlsDiv && ctx.ui.ioa) {
-        ctx.ui.ioa.removeElement(controlsDiv);
+      clearTimeout(timer);
+      const firstObject = document.querySelector('.object');
+      if (firstObject && ctx.ui.ioa) {
+        ctx.ui.ioa.removeElement(firstObject);
       }
     };
-  }, [ctx.ui.ioa]);
+  }, [ctx.ui.ioa, ctx.data.curIds]); // Also depend on curIds so it re-runs when objects load
 
   // Auto cluster navigation functions
   const navigateAutoCluster = React.useCallback((direction) => {
