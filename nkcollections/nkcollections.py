@@ -157,7 +157,7 @@ class QueryBuilder:
                 .apply_relationship_filters(kw)
                 .apply_numeric_filters(kw)
                 .apply_rel_filters(kw)
-                .apply_search_filters(kw)
+                .apply_new_search_filters(kw) #FIXME
                 .apply_score_filters(kw)
                 .apply_ordering(kw)
                 .apply_pagination(kw)
@@ -260,6 +260,7 @@ class QueryBuilder:
     @query_step("search_filters", profile=True)
     def apply_search_filters(self, kw: dict) -> 'QueryBuilder':
         """Apply search-based filters using LLM tag parsing."""
+        logger.warning('WHOAAAA')
         search_query = kw.get('search', '').strip()
         if not search_query:
             return self
@@ -324,24 +325,19 @@ Return only the JSON list, no other text."""
         Example: "cute cat" -> [["adorable", "sweet"], ["feline", "kitten"]]
         Scoring: max(adorable_score, sweet_score) + max(feline_score, kitten_score)
         """
-        search_query = kw.get('new_search', '').strip()
+        search_query = kw.get('search', '').strip()
         if not search_query:
             return self
-
         logger.info(f'Applying new semantic search filter: {search_query}')
-
         # Parse query into semantic groups via LLM
         semantic_groups = self._parse_semantic_groups(search_query)
         if not semantic_groups:
             logger.info('No semantic groups found for search query')
             return self
-
         logger.info(f'Parsed into semantic groups: {semantic_groups}')
-
         # Get top-K scored items using complex scoring
         search_limit = int(kw.get('search_limit', 1000))
         min_score = float(kw.get('search_min_score', 0.8))
-
         if not self.converted_to_list:
             # Use subquery approach for efficiency
             scored_items = self._get_semantic_scored_items(semantic_groups, search_limit, min_score)
@@ -397,7 +393,6 @@ Return only the JSON list, no other text."""
         all_tags = get_all_tags()
         if not all_tags:
             return []
-
         prompt = f"""Parse this search query into semantic concept groups: "{query}"
 
 For each main concept in the query, provide alternative tags that mean the same thing.
@@ -412,16 +407,14 @@ Rules:
 Available tags: {', '.join(all_tags)}
 
 Return only the JSON array, no other text."""
-
         try:
             response = call_llm.single(prompt, model='fast')
             semantic_groups = load_llm_json(response)
-
             # Validate structure
             if not isinstance(semantic_groups, list):
                 logger.warning(f'Invalid semantic groups structure: {semantic_groups}')
                 return []
-
+            logger.info(f'Parsed {query} into semantic groups: {semantic_groups}')
             # Filter out empty groups and validate tags
             valid_groups = []
             for group in semantic_groups:
