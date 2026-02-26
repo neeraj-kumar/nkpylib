@@ -1758,9 +1758,7 @@ const Controls = () => {
   React.useEffect(() => {
     const controlsDiv = document.querySelector('.controls');
     if (controlsDiv && ctx.ui.ioa) {
-      console.log('Setting up IOA observation for controls div', controlsDiv);
-      console.log('IOA params:', IOA_PARAMS);
-      
+      console.log('Setting up IOA observation for controls div', controlsDiv, IOA_PARAMS);
       // Try observing with explicit params
       ctx.ui.ioa.observe(controlsDiv, {
         root: null,
