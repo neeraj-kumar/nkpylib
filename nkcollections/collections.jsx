@@ -148,6 +148,7 @@ const api = {
   sourceUrl: (url) => fetchEndpoint('/source', { url }),
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
   filter: (q, cur_ids) => fetchEndpoint('/filter', { q, cur_ids }),
+  dwell: (increments) => fetchEndpoint('/dwell', { increments }),
 };
 
 /* TwitterContentBlock - Renders individual content blocks within Twitter posts
@@ -2039,7 +2040,7 @@ const AppProvider = ({ children }) => {
     if (Object.keys(dataToSync).length === 0) return;
 
     try {
-      await fetchEndpoint('/track_viewing_time', { viewing_times: dataToSync });
+      await api.dwell(dataToSync);
 
       // Reset everything after successful sync
       setViewingTimes({});
