@@ -46,6 +46,14 @@ const json_str = (obj) => {
   return JSON.stringify(obj, null, 2);
 };
 
+const upgradeImageUrl = (url) => {
+  if (!url) return url;
+  // Replace /thumbs/w{number} or /thumbs/h{number} with higher resolution versions
+  return url
+    .replace(/\/thumbs\/w\d+/g, '/thumbs/w2000')
+    .replace(/\/thumbs\/h\d+/g, '/thumbs/h2000');
+};
+
 const elapsedStr = (ts) => {
   if (ts === null || ts === 0) return 'null';
   if (ts < 0) return `error: ${ts}`;
@@ -1056,7 +1064,7 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
       setTimeout(() => {
         if (e.detail === 1) {
           setZoomModal({
-            imageUrl: posterUrl,
+            imageUrl: upgradeImageUrl(posterUrl),
             videoUrl: videoUrl,
             isVideo: showVideo
           });
@@ -1487,7 +1495,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
         setTimeout(() => {
           if (e.detail === 1) {
             setZoomModal({
-              imageUrl: type === 'image' ? (data.local_path || data.url) : (data.md.poster_url),
+              imageUrl: upgradeImageUrl(type === 'image' ? (data.local_path || data.url) : (data.md.poster_url)),
               videoUrl: type === 'image' ? (data.md && data.md.video_url) : data.url,
               isVideo: isShowingVideo || type === 'video'
             });
