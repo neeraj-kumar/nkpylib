@@ -269,6 +269,52 @@ class BackgroundWorker(abc.ABC):
         counts['top_tags'] = top_tags
         counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
         timing['tag_counting'] = time.time() - t_tags
+        
+        # Aggregate scores for user by (ttype, tag)
+        t_user_scores = time.time()
+        user_score_aggregates = defaultdict(list)
+        user_score_timestamps = defaultdict(list)
+        
+        # Group scores by (ttype, tag)
+        for score_row in score_rows:
+            key = (score_row.ttype, score_row.tag)
+            user_score_aggregates[key].append(score_row.score)
+            user_score_timestamps[key].append(score_row.ts or 0)
+        
+        # Upsert Score rows for the user
+        user_item = Item[user_id]
+        current_ts = time.time()
+        
+        for (ttype, tag), scores in user_score_aggregates.items():
+            timestamps = user_score_timestamps[(ttype, tag)]
+            
+            # Calculate aggregated statistics
+            score_count = len(scores)
+            score_sum = sum(scores)
+            score_mean = score_sum / score_count if score_count > 0 else 0.0
+            score_median = sorted(scores)[score_count // 2] if score_count > 0 else 0.0
+            latest_ts = max(timestamps) if timestamps else 0
+            
+            # Create metadata
+            md = dict(
+                sum=score_sum,
+                mean=score_mean,
+                median=score_median,
+                latest_ts=latest_ts
+            )
+            
+            # Upsert Score row for user
+            get_kw = dict(id=user_item, ttype=ttype, tag=tag)
+            user_score = Score.get(**get_kw)
+            if user_score is None:
+                Score(**get_kw, score=float(score_count), ts=current_ts, md=md)
+            else:
+                user_score.score = float(score_count)
+                user_score.ts = current_ts
+                user_score.md = md
+        
+        timing['user_score_aggregation'] = time.time() - t_user_scores
+        
         timing['total_function'] = time.time() - t0
         # Print top timing items
         formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
