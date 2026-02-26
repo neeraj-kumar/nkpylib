@@ -632,12 +632,7 @@ class CollectionsWorker(BackgroundWorker):
                 classifier, scores, other_stuff = l['classifier'], l['scores'], l['other_stuff']
             t1 = time.time()
             new_scores = self.rescore(scores=scores, pos=pos)
-            def fix_key(k: str) -> int:
-                if ':' in k:
-                    return int(k.split(':')[0])
-                else:
-                    return int(k)
-            like_scores = {fix_key(k): v for k, v in new_scores.items()}
+            like_scores = {self.fix_key(k): v for k, v in new_scores.items()}
             saved_classifier = self.embs.save_classifier(
                 self.likes_classifier_path,
                 classifier,
@@ -688,16 +683,17 @@ class CollectionsWorker(BackgroundWorker):
         for k, v in new_scores.items():
             #assert v-EPSILON <= max_score, f"(a) Rescored value {v} for {k} exceeds {max_score}"
             pass
-        def fix_key(k: str|int) -> int:
-            if isinstance(k, str):
-                return int(k.split(':')[0])
-            else:
-                return int(k)
-        ret = {fix_key(k): v for k, v in new_scores.items()}
+        ret = {self.fix_key(k): v for k, v in new_scores.items()}
         for k, v in ret.items():
             #assert v <= max_score, f"(b) Rescored value {v} for {k} exceeds {max_score}"
             pass #FIXME
         return ret
+
+    def fix_key(self, k: str|int) -> int:
+        if isinstance(k, str):
+            return int(k.split(':')[0])
+        else:
+            return int(k)
 
     def _load_and_run_initial_inference(self) -> None:
         """Load existing classifiers on initialization and populate scores from saved data.
