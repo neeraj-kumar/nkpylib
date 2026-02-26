@@ -2,7 +2,6 @@
 
 """
 #TODO async query builder
-#TODO decorator on query builder funcs to selectively turn on sql debug/exception handling/etc
 #TODO aggregate tags to user
 #TODO text search of users
 #TODO similar users
@@ -1139,6 +1138,7 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
     ]
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/collections.jsx',
+                                css_filename=f'collections.css',
                                 port=port,
                                 more_handlers=more_handlers,
                                 parser=parser,
