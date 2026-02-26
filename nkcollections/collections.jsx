@@ -1,6 +1,5 @@
 /* NK Collections React App
  *
- * TODO show dwell times
  * TODO use recent likes to determine how to prioritize feed
  * TODO add an overall diversity slider that modifies recency priorities?
  * TODO filter users by seen/recent/scored posts
@@ -1974,9 +1973,9 @@ const AppProvider = ({ children }) => {
   const [viewingTimes, setViewingTimes] = React.useState({}); // {objectId: msSinceLastSync}
   const [lastSyncTime, setLastSyncTime] = React.useState(Date.now()); // Global last sync timestamp
   const [isPageVisible, setIsPageVisible] = React.useState(!document.hidden); // Track page visibility
-  
+
   // Minimum viewing time threshold (in milliseconds) - don't count views shorter than this
-  const MIN_VIEWING_TIME = 500; // 0.5 seconds
+  const MIN_VIEWING_TIME = 2000;
 
   // Create IntersectionObserver for viewing time tracking
   const IOA = React.useMemo(() => {
