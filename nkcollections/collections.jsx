@@ -2439,7 +2439,7 @@ const AppProvider = ({ children }) => {
     const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
     const sourceObj = JSON.parse(sourceStr);
     console.log('in search pos for', id, sourceObj, otype);
-    const toDel = ['offset', 'parent', 'ancestor', 'search', 'min_like'];
+    const toDel = ['offset', 'parent', 'ancestor', 'search', 'min_like', 'same_user'];
     switch(otype) {
       case 'image':
         toDel.push('source');
