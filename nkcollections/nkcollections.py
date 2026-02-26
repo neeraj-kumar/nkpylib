@@ -932,8 +932,48 @@ class SourceHandler(MyBaseHandler):
 
 class DwellHandler(MyBaseHandler):
     """Update dwell times of objects"""
+    @db_session
     def post(self):
-        pass
+        """Update dwell times for items.
+        
+        Expects POST data with 'increments' field containing a dict mapping
+        item IDs to dwell time increments in seconds.
+        """
+        data = json.loads(self.request.body)
+        increments = data.get('increments', {})
+        
+        if not increments:
+            self.write(dict(msg='No increments provided', updated_count=0))
+            return
+            
+        logger.info(f'DwellHandler updating dwell times for {len(increments)} items')
+        
+        updated_count = 0
+        for item_id_str, increment in increments.items():
+            try:
+                item_id = int(item_id_str)
+                increment = float(increment)
+                
+                if increment <= 0:
+                    continue
+                    
+                item = Item.get(id=item_id)
+                if item:
+                    # Initialize dwell_time if it doesn't exist
+                    if not hasattr(item, 'dwell_time') or item.dwell_time is None:
+                        item.dwell_time = 0.0
+                    
+                    # Increment the dwell time
+                    item.dwell_time += increment
+                    updated_count += 1
+                    
+            except (ValueError, TypeError) as e:
+                logger.warning(f'Invalid dwell increment for item {item_id_str}: {increment}, error: {e}')
+                continue
+        
+        msg = f'Updated dwell times for {updated_count} items'
+        logger.info(msg)
+        self.write(dict(msg=msg, updated_count=updated_count))
 
 class ActionHandler(MyBaseHandler):
     """The user took some action, which we will store in our `rels` table."""
