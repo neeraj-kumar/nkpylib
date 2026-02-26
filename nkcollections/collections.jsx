@@ -883,7 +883,10 @@ h6 {
 }
 `;
 
-// Source-specific content renderers for posts only
+/* TwitterContentBlock - Renders individual content blocks within Twitter posts
+ * Props:
+ * - block: Object with {type, data} representing a content block (text, image, video, etc.)
+ */
 const TwitterContentBlock = ({block}) => {
   const {type, data} = block;
   switch (type) {
@@ -898,6 +901,17 @@ const TwitterContentBlock = ({block}) => {
   }
 };
 
+/* TwitterPostContent - Renders the complete content of a Twitter post
+ * Props:
+ * - id: Post ID
+ * - otype: Object type ('post')
+ * - url: Original post URL
+ * - ts: Timestamp
+ * - md: Metadata object containing display_name, handle, replies, reposts, likes, views
+ * - score: Classification score (optional)
+ * - simpleMode: Boolean to hide detailed info like scores and IDs
+ * - content_blocks: Array of content blocks to render (text, media, etc.)
+ */
 const TwitterPostContent = (props) => {
   const {id, otype, url, ts, md, score, simpleMode, content_blocks} = props;
   const blocks = content_blocks || [];
@@ -932,6 +946,10 @@ const TwitterPostContent = (props) => {
   );
 };
 
+/* TumblrContentBlock - Renders individual content blocks within Tumblr posts
+ * Props:
+ * - block: Object with {type, data} representing a content block (text, link, image, video, etc.)
+ */
 const TumblrContentBlock = ({block}) => {
   const {type, data} = block;
 
@@ -958,6 +976,16 @@ const TumblrContentBlock = ({block}) => {
   }
 };
 
+/* TumblrPostContent - Renders the complete content of a Tumblr post
+ * Props:
+ * - id: Post ID
+ * - otype: Object type ('post')
+ * - url: Original post URL
+ * - md: Metadata object containing tags, n_notes, n_likes, n_reblogs
+ * - score: Classification score (optional)
+ * - simpleMode: Boolean to hide detailed info like scores and IDs
+ * - content_blocks: Array of content blocks to render (text, links, media, etc.)
+ */
 const TumblrPostContent = (props) => {
   const {id, otype, url, md, score, simpleMode} = props;
   const content_blocks = props.content_blocks || [];
@@ -986,6 +1014,11 @@ const TumblrPostContent = (props) => {
   );
 };
 
+/* VideoOverlay - Renders a play button overlay for videos
+ * Props:
+ * - videoUrl: URL of the video to link to
+ * - onClick: Optional click handler function
+ */
 const VideoOverlay = ({videoUrl, onClick}) => {
   if (!videoUrl) return null;
   
@@ -1005,6 +1038,14 @@ const VideoOverlay = ({videoUrl, onClick}) => {
   );
 };
 
+/* VideoWithZoom - Renders a video with poster image and zoom functionality
+ * Props:
+ * - videoUrl: URL of the video file
+ * - posterUrl: URL of the poster/thumbnail image
+ * - id: Item ID for like/dislike actions
+ * - liked: Boolean indicating if item is liked
+ * - setLiked: Function to update like status (id, newLikedState)
+ */
 const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
   const [showVideo, setShowVideo] = React.useState(false);
   const [zoomModal, setZoomModal] = React.useState(null);
@@ -1114,6 +1155,13 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
   );
 };
 
+/* ImageZoomModal - Full-screen modal for zooming images and videos
+ * Props:
+ * - imageUrl: URL of the image to display
+ * - videoUrl: URL of the video (optional)
+ * - isVideo: Boolean indicating whether to show video or image initially
+ * - onClose: Function called when modal is closed
+ */
 const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
   const [isClosing, setIsClosing] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -1240,6 +1288,14 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
   );
 };
 
+/* ImageWithVideo - Renders an image with optional video toggle and zoom functionality
+ * Props:
+ * - imageUrl: URL of the image to display
+ * - videoUrl: URL of associated video (optional)
+ * - id: Item ID for like/dislike actions
+ * - liked: Boolean indicating if item is liked
+ * - setLiked: Function to update like status (id, newLikedState)
+ */
 const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
   const [showVideo, setShowVideo] = React.useState(false);
   const [zoomModal, setZoomModal] = React.useState(null);
@@ -1352,6 +1408,13 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
   );
 };
 
+/* MediaCarousel - Displays a carousel of media items (images/videos) with navigation
+ * Props:
+ * - mediaBlocks: Array of media block objects with {type, data}
+ * - currentIndex: Index of currently displayed media item
+ * - setCurrentIndex: Function to change current media index
+ * - setLiked: Function to update like status (id, newLikedState)
+ */
 const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) => {
   if (!mediaBlocks.length) return null;
   const currentMedia = mediaBlocks[currentIndex];
@@ -1612,20 +1675,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
   );
 };
 
-/* Button Bar Component
- *
- * This component renders the action buttons for each object, including like/dislike, classification, queueing, and media navigation controls.
- *
- * It also handles the logic for each button's functionality and updates the UI accordingly.
- *
- * This component also includes media navigation buttons if there are multiple media blocks, and
- * cluster assignment indicators if in cluster mode. The buttons have tooltips for better UX, and
- * the media navigation allows users to click on the edges of the image or use dedicated buttons to
- * navigate through media blocks. Cluster buttons show the current cluster and its score, and allow
- * users to switch clusters or see if the cluster was manually assigned. The component is designed
- * to be flexible and adapt to different object types and states, providing a consistent user
- * experience across the application.
- *
+/* ButtonBar - Renders action buttons for each object (like, dislike, classify, queue, etc.)
  * Props:
  * - id: ID of the object
  * - otype: Object type (e.g., 'image', 'post', 'user')
@@ -1825,7 +1875,19 @@ const ButtonBar = (props) => {
   );
 };
 
-// Object Content Component
+/* ObjectContent - Renders the main content area of an object based on its type
+ * Props:
+ * - otype: Object type ('post', 'text', 'link', 'image', 'video', 'user')
+ * - url: Original URL of the object
+ * - md: Metadata object with type-specific data
+ * - id: Object ID
+ * - liked: Boolean indicating if object is liked
+ * - local_path: Local file path for images/videos
+ * - compact: Compact HTML representation (for users)
+ * - score: Classification score
+ * - simpleMode: Boolean to hide detailed info
+ * - ...props: Additional props passed through to content renderers
+ */
 const ObjectContent = ({otype, url, md, id, liked, local_path, compact, score, simpleMode, ...props}) => {
   const ctx = React.useContext(AppContext);
   const source = props.source;
@@ -1879,7 +1941,14 @@ const ObjectContent = ({otype, url, md, id, liked, local_path, compact, score, s
   );
 };
 
-// Details Panel Component
+/* DetailsPanel - Expandable panel showing detailed object information
+ * Props:
+ * - showDetails: Boolean indicating if details should be shown
+ * - detailed: Pre-formatted HTML details (optional)
+ * - rels: Object relationships (likes, queues, etc.)
+ * - scores: Classification scores by tag type
+ * - ...props: Additional props containing timestamps and metadata
+ */
 const DetailsPanel = ({showDetails, detailed, rels, scores, ...props}) => {
   if (!showDetails) return null;
 
@@ -1982,7 +2051,20 @@ const DetailsPanel = ({showDetails, detailed, rels, scores, ...props}) => {
   );
 };
 
-// Main Obj Component (now much simpler)
+/* Obj - Main component for rendering individual objects (images, posts, users, etc.)
+ * Props:
+ * - id: Object ID
+ * - otype: Object type ('image', 'post', 'user', etc.)
+ * - url: Original URL
+ * - md: Metadata object
+ * - score: Classification score
+ * - rels: Relationships (like, dislike, queue)
+ * - scores: Classification scores by tag
+ * - source: Source platform ('tumblr', 'twitter', etc.)
+ * - media_blocks: Array of associated media blocks
+ * - detailed: Pre-formatted detailed view HTML
+ * - ...additional props passed through to sub-components
+ */
 const Obj = (props) => {
   const ctx = React.useContext(AppContext);
   let {id, otype, url, md, score, rels, scores, source, media_blocks, detailed} = props;
@@ -2112,7 +2194,10 @@ const Obj = (props) => {
   );
 }
 
-// A floating info/control panel
+/* InfoBar - Floating control panel with statistics and navigation controls
+ * No props - uses AppContext for all data and actions
+ * Displays: item counts, scores, column controls, filters, navigation buttons
+ */
 const InfoBar = () => {
   const ctx = React.useContext(AppContext);
   // Local state for filter string and auto-likes timer
@@ -2384,6 +2469,16 @@ const InfoBar = () => {
 }
 
 
+/* DebouncedInput - Input field that delays action execution until user stops typing
+ * Props:
+ * - value: Current input value
+ * - onChange: Function called immediately on every keystroke
+ * - onDebouncedChange: Function called after delay when user stops typing
+ * - delay: Debounce delay in milliseconds (default: DEBOUNCE_MS)
+ * - placeholder: Input placeholder text
+ * - className: CSS class name
+ * - title: Tooltip text
+ */
 const DebouncedInput = ({
   value,
   onChange,
@@ -2442,6 +2537,10 @@ const DebouncedInput = ({
   );
 };
 
+/* Controls - Main control panel with source input, quick links, and filters
+ * No props - uses AppContext for all data and actions
+ * Contains: source string input, quick navigation links, search bar, object type filters, mode selector
+ */
 const Controls = () => {
   const ctx = React.useContext(AppContext);
   // Local state for search string and source string
@@ -2631,9 +2730,11 @@ const Controls = () => {
 }
 
 
-// Create the App Context
-const AppContext = React.createContext();
-
+/* AppProvider - Main application context provider that manages all global state
+ * Props:
+ * - children: React children to wrap with context
+ * Provides: UI state, data state, filters, actions, classification settings
+ */
 const AppProvider = ({ children }) => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
@@ -3241,6 +3342,10 @@ const AppProvider = ({ children }) => {
   );
 };
 
+/* App - Main application component that renders the entire collections interface
+ * No props - uses AppContext for all data and rendering logic
+ * Renders: header, labeled items, controls, info bar, and main object grid/clusters
+ */
 const App = () => {
   const ctx = React.useContext(AppContext);
 
