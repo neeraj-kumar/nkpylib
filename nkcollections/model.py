@@ -82,6 +82,18 @@ async def ret_immediate(func_output) -> Any:
             return None
 
 
+ItemUserSQL = """CREATE VIEW ItemUser AS
+SELECT i.id,
+CASE
+    WHEN p.otype='user' then p.id
+    WHEN gp.otype='user' then gp.id
+    ELSE NULL END
+AS user_id
+FROM item i
+LEFT JOIN item p ON i.parent = p.id
+LEFT JOIN item gp ON p.parent = gp.id
+WHERE p.otype='user' OR gp.otype='user';"""
+
 class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     """Each individual item, which can include users, posts, images, links, etc."""
     id = PrimaryKey(int, auto=True)
