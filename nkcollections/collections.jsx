@@ -1764,8 +1764,8 @@ const Controls = () => {
         
         ctx.ui.ioa.observe(firstObject, {
           root: null,
-          rootMargin: "-50px",
-          threshold: 0.5
+          rootMargin: "-200px",
+          threshold: 0.1
         });
         
         ctx.ui.ioa.addEnterCallback(firstObject, (entry) => {
