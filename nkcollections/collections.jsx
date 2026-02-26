@@ -18,12 +18,15 @@ const DEBOUNCE_MS = 2000;
 const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
-const IOA = new intersectionObserverAdmin();
 const IOA_PARAMS = {
-  root: document.body,
-  rootMargin: "-50px",
-  threshold: 0.1,
+  root: null, //document.body,
+  rootMargin: "0px",
+  threshold: 0.4,
 }
+//const IOA = new intersectionObserverAdmin();
+const IOA = new IntersectionObserver((entries) => {
+  console.log('got ioa callback', entries);
+}, IOA_PARAMS);
 
 const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
 const QUICK_LINKS = {
@@ -1756,30 +1759,11 @@ const Controls = () => {
 
   // Set up IntersectionObserver for testing - observe the first object instead
   const testElementRef = React.useRef(null);
-  
   React.useEffect(() => {
     if (!ctx.ui.ioa || !testElementRef.current) return;
-    
     const element = testElementRef.current;
     console.log('Setting up IOA observation for test element', element);
-    
-    ctx.ui.ioa.observe(element, {
-      root: null,
-      rootMargin: "-100px",
-      threshold: 0.5
-    });
-    
-    ctx.ui.ioa.addEnterCallback(element, (entry) => {
-      console.log('Test element entered viewport', entry);
-    });
-    
-    ctx.ui.ioa.addExitCallback(element, (entry) => {
-      console.log('Test element exited viewport', entry);
-    });
-    
-    console.log('Test element rect:', element.getBoundingClientRect());
-    console.log('Viewport height:', window.innerHeight);
-    
+    ctx.ui.ioa.observe(element);
     // Cleanup function
     return () => {
       if (ctx.ui.ioa && element) {
