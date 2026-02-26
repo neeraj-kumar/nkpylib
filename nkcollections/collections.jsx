@@ -1843,22 +1843,6 @@ const Controls = () => {
   return (
     <div className="controls">
       <div className="control text-fields">
-        <div 
-          ref={testElementRef}
-          style={{
-            width: '100px',
-            height: '50px',
-            backgroundColor: 'lightblue',
-            border: '2px solid blue',
-            margin: '10px 0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '12px'
-          }}
-        >
-          IOA Test
-        </div>
         <input
           type="text"
           className={getSourceInputClass()}
