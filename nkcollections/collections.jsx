@@ -1973,6 +1973,7 @@ const AppProvider = ({ children }) => {
   const [viewingStartTimes, setViewingStartTimes] = React.useState({}); // {objectId: startTimestamp}
   const [viewingTimes, setViewingTimes] = React.useState({}); // {objectId: msSinceLastSync}
   const [lastSyncTime, setLastSyncTime] = React.useState(Date.now()); // Global last sync timestamp
+  const [isPageVisible, setIsPageVisible] = React.useState(!document.hidden); // Track page visibility
 
   // Create IntersectionObserver for viewing time tracking
   const IOA = React.useMemo(() => {
@@ -1985,8 +1986,8 @@ const AppProvider = ({ children }) => {
 
         const objectId = objectElement.id.replace('id-', '');
 
-        if (entry.isIntersecting) {
-          // Started viewing
+        if (entry.isIntersecting && isPageVisible) {
+          // Started viewing (only if page is visible)
           setViewingStartTimes(prev => ({
             ...prev,
             [objectId]: now
@@ -2015,7 +2016,7 @@ const AppProvider = ({ children }) => {
     };
 
     return new IntersectionObserver(handleIntersection, IOA_PARAMS);
-  }, []);
+  }, [isPageVisible]);
 
   // Sync viewing times to server
   const syncViewingTimes = React.useCallback(async () => {
@@ -2030,12 +2031,15 @@ const AppProvider = ({ children }) => {
     });
 
     // Add time for currently viewing items since last sync (convert from ms to seconds)
-    Object.entries(viewingStartTimes).forEach(([objectId, startTime]) => {
-      const timeSinceSync = now - Math.max(startTime, lastSyncTime);
-      if (timeSinceSync > 0) {
-        dataToSync[objectId] = (dataToSync[objectId] || 0) + (timeSinceSync / 1000);
-      }
-    });
+    // Only count time if page is currently visible
+    if (isPageVisible) {
+      Object.entries(viewingStartTimes).forEach(([objectId, startTime]) => {
+        const timeSinceSync = now - Math.max(startTime, lastSyncTime);
+        if (timeSinceSync > 0) {
+          dataToSync[objectId] = (dataToSync[objectId] || 0) + (timeSinceSync / 1000);
+        }
+      });
+    }
 
     if (Object.keys(dataToSync).length === 0) return;
 
@@ -2061,6 +2065,37 @@ const AppProvider = ({ children }) => {
       // Don't reset on error - times will accumulate for next sync
     }
   }, [viewingTimes, viewingStartTimes, lastSyncTime]);
+
+  // Handle page visibility changes
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      const now = Date.now();
+      const newIsVisible = !document.hidden;
+      
+      if (!newIsVisible && isPageVisible) {
+        // Page became hidden - pause all active viewing sessions
+        setViewingStartTimes(prev => {
+          const pausedTimes = {};
+          Object.entries(prev).forEach(([objectId, startTime]) => {
+            const duration = now - startTime;
+            setViewingTimes(prevTimes => ({
+              ...prevTimes,
+              [objectId]: (prevTimes[objectId] || 0) + duration
+            }));
+          });
+          return {}; // Clear all start times
+        });
+      } else if (newIsVisible && !isPageVisible) {
+        // Page became visible - restart viewing sessions for currently intersecting items
+        // The intersection observer will handle restarting active sessions
+      }
+      
+      setIsPageVisible(newIsVisible);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isPageVisible]);
 
   // Set up periodic sync (every 5 seconds)
   React.useEffect(() => {
