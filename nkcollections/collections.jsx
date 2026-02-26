@@ -1984,6 +1984,7 @@ const AppProvider = ({ children }) => {
   const [autoClusters, setAutoClusters] = React.useState({}); // {cluster_num: [ids]}
   const [curCluster, setCurCluster] = React.useState(null); // currently selected cluster in auto-cluster mode
   const [hideSeenItems, setHideSeenItems] = React.useState(false); // toggle for hiding seen items
+  const [initialItemStatus, setInitialItemStatus] = React.useState({}); // capture initial status for hide seen filter
 
   // Viewing time tracking state
   const [viewingStartTimes, setViewingStartTimes] = React.useState({}); // {objectId: startTimestamp}
@@ -2304,6 +2305,7 @@ const AppProvider = ({ children }) => {
       setAutoClusters({});
       setCurCluster(null);
       setScores({});
+      setInitialItemStatus({}); // Reset initial status on new data
     }
     // if we have both a video and image of the same thing, filter the video out
     const toDel = [];
@@ -2320,6 +2322,24 @@ const AppProvider = ({ children }) => {
       newRowById[id] = row;
     });
     updateRowById(newRowById);
+    
+    // Capture initial status for hide seen filter
+    if (resetData) {
+      const initialStatus = {};
+      Object.entries(newRowById).forEach(([id, item]) => {
+        const isLiked = Boolean(item.rels && item.rels.like);
+        const isQueued = Boolean(item.rels && item.rels.queue);
+        const dwellTime = item.dwell_time || 0;
+        const hasHighDwellTime = dwellTime > 5;
+        initialStatus[id] = {
+          isLiked,
+          isQueued,
+          hasHighDwellTime
+        };
+      });
+      setInitialItemStatus(initialStatus);
+    }
+    
     if (data.cur_ids){
       setCurIds(data.cur_ids);
     } else {
@@ -2645,21 +2665,16 @@ const AppProvider = ({ children }) => {
   // Done with all state and effects, now preparing for rendering
   let ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
   
-  // Apply hide seen items filter
+  // Apply hide seen items filter using initial status
   if (hideSeenItems) {
     ids = ids.filter(id => {
-      const item = rowById[id];
-      if (!item) return true;
+      const initialStatus = initialItemStatus[id];
+      if (!initialStatus) return true; // Show items without initial status
       
-      // Check if item is liked or queued
-      const isLiked = Boolean(item.rels && item.rels.like);
-      const isQueued = Boolean(item.rels && item.rels.queue);
+      // Use initial status to determine if item should be hidden
+      const { isLiked, isQueued, hasHighDwellTime } = initialStatus;
       
-      // Check dwell time (> 5 seconds)
-      const dwellTime = item.dwell_time || 0;
-      const hasHighDwellTime = dwellTime > 5;
-      
-      // Hide if any of these conditions are true
+      // Hide if any of these initial conditions were true
       return !(isLiked || isQueued || hasHighDwellTime);
     });
   }
