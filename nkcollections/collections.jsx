@@ -20,9 +20,9 @@ const MODES = ['multicol', 'cluster'];
 
 const IOA = new intersectionObserverAdmin();
 const IOA_PARAMS = {
-  root: null,
-  rootMargin: "0px",
-  threshold: 0.5,
+  root: document.body,
+  rootMargin: "-50px",
+  threshold: 0.1,
 }
 
 const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
@@ -1759,15 +1759,26 @@ const Controls = () => {
     const controlsDiv = document.querySelector('.controls');
     if (controlsDiv && ctx.ui.ioa) {
       console.log('Setting up IOA observation for controls div', controlsDiv);
-      ctx.ui.ioa.observe(controlsDiv, IOA_PARAMS);
+      console.log('IOA params:', IOA_PARAMS);
       
-      ctx.ui.ioa.addEnterCallback(controlsDiv, () => {
-        console.log('Controls div entered viewport');
+      // Try observing with explicit params
+      ctx.ui.ioa.observe(controlsDiv, {
+        root: null,
+        rootMargin: "-100px",
+        threshold: 0.1
       });
       
-      ctx.ui.ioa.addExitCallback(controlsDiv, () => {
-        console.log('Controls div exited viewport');
+      ctx.ui.ioa.addEnterCallback(controlsDiv, (entry) => {
+        console.log('Controls div entered viewport', entry);
       });
+      
+      ctx.ui.ioa.addExitCallback(controlsDiv, (entry) => {
+        console.log('Controls div exited viewport', entry);
+      });
+      
+      // Also log the current state
+      console.log('Controls div rect:', controlsDiv.getBoundingClientRect());
+      console.log('Viewport height:', window.innerHeight);
     }
     
     // Cleanup function
