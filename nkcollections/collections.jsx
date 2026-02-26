@@ -1674,6 +1674,17 @@ const InfoBar = () => {
       <div className="control go-to-top"><button onClick={() => goTo('top')} title="Scroll to top of page">Top</button></div>
       <div className="control go-to-mid"><button onClick={() => goTo('mid')} title="Scroll to middle of page">Mid</button></div>
       <div className="control go-to-bot"><button onClick={() => goTo('bot')} title="Scroll to bottom of page">Bot</button></div>
+      <div className="control hide-seen-toggle">
+        <label title="Hide items that are liked, queued, or have dwell time > 5s">
+          <input
+            type="checkbox"
+            checked={ctx.filters.hideSeenItems}
+            onChange={(e) => ctx.filters.setHideSeenItems(e.target.checked)}
+            title="Hide items that are liked, queued, or have dwell time > 5s"
+          />
+          Hide Seen
+        </label>
+      </div>
       <div className="control refresh-masonry">
         <button onClick={ctx.ui.refreshMasonry} title="Refresh the masonry layout">↻ </button>
       </div>
@@ -1972,6 +1983,7 @@ const AppProvider = ({ children }) => {
   const [currentSource, setCurrentSource] = React.useState('');
   const [autoClusters, setAutoClusters] = React.useState({}); // {cluster_num: [ids]}
   const [curCluster, setCurCluster] = React.useState(null); // currently selected cluster in auto-cluster mode
+  const [hideSeenItems, setHideSeenItems] = React.useState(false); // toggle for hiding seen items
 
   // Viewing time tracking state
   const [viewingStartTimes, setViewingStartTimes] = React.useState({}); // {objectId: startTimestamp}
@@ -2632,6 +2644,26 @@ const AppProvider = ({ children }) => {
 
   // Done with all state and effects, now preparing for rendering
   let ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
+  
+  // Apply hide seen items filter
+  if (hideSeenItems) {
+    ids = ids.filter(id => {
+      const item = rowById[id];
+      if (!item) return true;
+      
+      // Check if item is liked or queued
+      const isLiked = Boolean(item.rels && item.rels.like);
+      const isQueued = Boolean(item.rels && item.rels.queue);
+      
+      // Check dwell time (> 5 seconds)
+      const dwellTime = item.dwell_time || 0;
+      const hasHighDwellTime = dwellTime > 5;
+      
+      // Hide if any of these conditions are true
+      return !(isLiked || isQueued || hasHighDwellTime);
+    });
+  }
+  
   // if we have a cur cluster, limit to that
   if (curCluster) {
     const lst = autoClusters[curCluster];
@@ -2668,6 +2700,8 @@ const AppProvider = ({ children }) => {
       setCurIds,
       setCurCluster,
       setAutoClusters,
+      hideSeenItems,
+      setHideSeenItems,
     },
     data: {
       rowById,
