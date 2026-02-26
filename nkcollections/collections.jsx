@@ -2022,18 +2022,18 @@ const AppProvider = ({ children }) => {
     const now = Date.now();
     const dataToSync = {};
 
-    // Get accumulated times
+    // Get accumulated times (convert from ms to seconds)
     Object.entries(viewingTimes).forEach(([objectId, time]) => {
       if (time > 0) {
-        dataToSync[objectId] = time;
+        dataToSync[objectId] = time / 1000;
       }
     });
 
-    // Add time for currently viewing items since last sync
+    // Add time for currently viewing items since last sync (convert from ms to seconds)
     Object.entries(viewingStartTimes).forEach(([objectId, startTime]) => {
       const timeSinceSync = now - Math.max(startTime, lastSyncTime);
       if (timeSinceSync > 0) {
-        dataToSync[objectId] = (dataToSync[objectId] || 0) + timeSinceSync;
+        dataToSync[objectId] = (dataToSync[objectId] || 0) + (timeSinceSync / 1000);
       }
     });
 
