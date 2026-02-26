@@ -145,6 +145,7 @@ const api = {
 };
 
 /* TwitterContentBlock - Renders individual content blocks within Twitter posts
+ *
  * Props:
  * - block: Object with {type, data} representing a content block (text, image, video, etc.)
  */
@@ -163,6 +164,7 @@ const TwitterContentBlock = ({block}) => {
 };
 
 /* TwitterPostContent - Renders the complete content of a Twitter post
+ *
  * Props:
  * - id: Post ID
  * - otype: Object type ('post')
@@ -208,6 +210,7 @@ const TwitterPostContent = (props) => {
 };
 
 /* TumblrContentBlock - Renders individual content blocks within Tumblr posts
+ *
  * Props:
  * - block: Object with {type, data} representing a content block (text, link, image, video, etc.)
  */
@@ -238,6 +241,7 @@ const TumblrContentBlock = ({block}) => {
 };
 
 /* TumblrPostContent - Renders the complete content of a Tumblr post
+ *
  * Props:
  * - id: Post ID
  * - otype: Object type ('post')
@@ -276,13 +280,13 @@ const TumblrPostContent = (props) => {
 };
 
 /* VideoOverlay - Renders a play button overlay for videos
+ *
  * Props:
  * - videoUrl: URL of the video to link to
  * - onClick: Optional click handler function
  */
 const VideoOverlay = ({videoUrl, onClick}) => {
   if (!videoUrl) return null;
-
   return (
     <a
       href={videoUrl}
@@ -311,7 +315,6 @@ const VideoOverlay = ({videoUrl, onClick}) => {
 const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
   const [showVideo, setShowVideo] = React.useState(false);
   const [zoomModal, setZoomModal] = React.useState(null);
-
   const handleZoomClick = (e) => {
     e.stopPropagation();
     setZoomModal({
@@ -320,7 +323,6 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
       isVideo: showVideo
     });
   };
-
   if (showVideo) {
     return (
       <div>
@@ -373,7 +375,6 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
       </div>
     );
   }
-
   return (
     <div>
       <div className="video-link" style={{position: 'relative'}}>
@@ -425,6 +426,7 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
 };
 
 /* ImageZoomModal - Full-screen modal for zooming images and videos
+ *
  * Props:
  * - imageUrl: URL of the image to display
  * - videoUrl: URL of the video (optional)
@@ -443,11 +445,9 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
         handleClose();
       }
     };
-
     // Prevent body scroll
     document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', handleKeyDown);
-
     return () => {
       document.body.style.overflow = '';
       document.removeEventListener('keydown', handleKeyDown);
