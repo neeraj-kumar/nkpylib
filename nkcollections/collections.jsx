@@ -1344,14 +1344,11 @@ const Obj = (props) => {
   React.useEffect(() => {
     const objectElement = document.getElementById(`id-${id}`);
     if (!objectElement || !ctx.ui.ioa) return;
-    
     const images = objectElement.querySelectorAll('img');
     if (!images.length) return;
-    
     images.forEach(img => {
       ctx.ui.ioa.observe(img);
     });
-    
     return () => {
       images.forEach(img => {
         ctx.ui.ioa.unobserve(img);
