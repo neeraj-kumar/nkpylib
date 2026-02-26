@@ -925,7 +925,7 @@ class SourceHandler(MyBaseHandler):
 class DwellHandler(MyBaseHandler):
     """Update dwell times of objects"""
     @db_session
-    def post(self):
+    async def post(self):
         """Update dwell times for items.
 
         Expects POST data with 'increments' field containing a dict mapping
