@@ -109,11 +109,14 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
     method = 'POST',
     headers = { 'Content-Type': 'application/json' },
     onError = (error) => console.error('Fetch error:', error),
+    silent = false,
     ...fetchOptions
   } = options;
 
   try {
-    setMessage(`Calling API: ${endpoint}...`);
+    if (!silent) {
+      setMessage(`Calling API: ${endpoint}...`);
+    }
     const response = await fetch(endpoint, {
       method,
       headers,
@@ -127,12 +130,14 @@ const fetchEndpoint = async (endpoint, data = {}, options = {}) => {
 
     const responseData = await response.json();
     // Check for success message in response
-    if (responseData.msg) {
+    if (responseData.msg && !silent) {
       setMessage(`API resp: ${responseData.msg} in ${Date.now() - t0}ms`);
     }
     return responseData;
   } catch (error) {
-    setMessage(`API call failed: ${endpoint} - ${error.message}`);
+    if (!silent) {
+      setMessage(`API call failed: ${endpoint} - ${error.message}`);
+    }
     onError(error);
     throw error;
   }
@@ -2049,7 +2054,7 @@ const AppProvider = ({ children }) => {
     if (Object.keys(dataToSync).length === 0) return;
 
     try {
-      await api.dwell(dataToSync);
+      await fetchEndpoint('/dwell', { increments: dataToSync }, { silent: true });
 
       // Reset everything after successful sync
       setViewingTimes({});
