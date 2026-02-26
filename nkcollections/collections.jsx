@@ -623,13 +623,25 @@ const STYLES = `
   font-size: 18px;
 }
 
-/* Add zoom cursor to images */
-.object img {
-  cursor: zoom-in;
+/* Zoom button overlay */
+.zoom-button {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 5;
+  opacity: 0.8;
 }
 
-.media-carousel img {
-  cursor: zoom-in;
+.zoom-button:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.9);
 }
 
 /* Video link overlay icon */
@@ -1059,18 +1071,13 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
   const [showVideo, setShowVideo] = React.useState(false);
   const [zoomModal, setZoomModal] = React.useState(null);
 
-  const handleClick = (e) => {
-    if (e.detail === 1) {
-      setTimeout(() => {
-        if (e.detail === 1) {
-          setZoomModal({
-            imageUrl: upgradeImageUrl(posterUrl),
-            videoUrl: videoUrl,
-            isVideo: showVideo
-          });
-        }
-      }, 200);
-    }
+  const handleZoomClick = (e) => {
+    e.stopPropagation();
+    setZoomModal({
+      imageUrl: upgradeImageUrl(posterUrl),
+      videoUrl: videoUrl,
+      isVideo: showVideo
+    });
   };
 
   if (showVideo) {
@@ -1082,13 +1089,19 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
             controls
             autoPlay
             style={{maxWidth: '100%', height: 'auto'}}
-            onClick={handleClick}
             onDoubleClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               setLiked(id, !liked);
             }}
           />
+          <button
+            className="zoom-button"
+            onClick={handleZoomClick}
+            title="Zoom video"
+          >
+            🔍
+          </button>
           <div
             style={{
               position: 'absolute',
@@ -1126,13 +1139,19 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
         <img
           src={posterUrl}
           alt={`Video ${id} poster`}
-          onClick={handleClick}
           onDoubleClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setLiked(id, !liked);
           }}
         />
+        <button
+          className="zoom-button"
+          onClick={handleZoomClick}
+          title="Zoom video"
+        >
+          🔍
+        </button>
         <div
           style={{
             position: 'absolute',
@@ -1309,19 +1328,13 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
   const [showVideo, setShowVideo] = React.useState(false);
   const [zoomModal, setZoomModal] = React.useState(null);
 
-  const handleImageClick = (e) => {
-    // Only zoom if not a double-click (like action)
-    if (e.detail === 1) {
-      setTimeout(() => {
-        if (e.detail === 1) {
-          setZoomModal({
-            imageUrl: upgradeImageUrl(imageUrl),
-            videoUrl,
-            isVideo: showVideo
-          });
-        }
-      }, 200);
-    }
+  const handleZoomClick = (e) => {
+    e.stopPropagation();
+    setZoomModal({
+      imageUrl: upgradeImageUrl(imageUrl),
+      videoUrl,
+      isVideo: showVideo
+    });
   };
 
   if (showVideo && videoUrl) {
@@ -1333,7 +1346,6 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
             controls
             autoPlay
             style={{maxWidth: '100%', height: 'auto'}}
-            onClick={handleImageClick}
             onDoubleClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -1377,13 +1389,19 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
         <img
           src={imageUrl}
           alt={`Image ${id}`}
-          onClick={handleImageClick}
           onDoubleClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setLiked(id, !liked);
           }}
         />
+        <button
+          className="zoom-button"
+          onClick={handleZoomClick}
+          title="Zoom image"
+        >
+          🔍
+        </button>
         {videoUrl && (
           <div
             style={{
@@ -1490,18 +1508,7 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
         }
       }
 
-      // Center click - zoom (only on single click, not double)
-      if (e.detail === 1) {
-        setTimeout(() => {
-          if (e.detail === 1) {
-            setZoomModal({
-              imageUrl: upgradeImageUrl(type === 'image' ? (data.local_path || data.url) : (data.md.poster_url)),
-              videoUrl: type === 'image' ? (data.md && data.md.video_url) : data.url,
-              isVideo: isShowingVideo || type === 'video'
-            });
-          }
-        }, 200);
-      }
+      // No zoom functionality here - handled by zoom button overlay
     };
 
     switch (type) {
@@ -1559,8 +1566,21 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
                 const liked = Boolean(data.rels.like);
                 setLiked(data.id, !liked);
               }}
-              style={{cursor: 'zoom-in'}}
             />
+            <button
+              className="zoom-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoomModal({
+                  imageUrl: upgradeImageUrl(imageUrl),
+                  videoUrl: data.md && data.md.video_url,
+                  isVideo: isShowingVideo
+                });
+              }}
+              title="Zoom image"
+            >
+              🔍
+            </button>
             {videoUrl && (
               <div
                 style={{
@@ -1638,8 +1658,21 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
                 const liked = Boolean(data.rels.like);
                 setLiked(data.id, !liked);
               }}
-              style={{cursor: 'zoom-in'}}
             />
+            <button
+              className="zoom-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoomModal({
+                  imageUrl: upgradeImageUrl(posterUrl),
+                  videoUrl: data.url,
+                  isVideo: isShowingVideo
+                });
+              }}
+              title="Zoom video"
+            >
+              🔍
+            </button>
             <div
               style={{
                 position: 'absolute',
