@@ -551,7 +551,12 @@ Return only the JSON array, no other text."""
                 self.filters_applied.append('min_like')
 
             if 'pos' in kw:
-                pos = kw['pos']
+                pos_raw = kw['pos']
+                # Ensure pos is a flat list of integers/strings
+                if isinstance(pos_raw, list):
+                    pos = pos_raw
+                else:
+                    pos = [pos_raw]
                 logger.info(f'Applying pos filter: {pos}')
                 self.embs.reload_keys()
                 if kw.get('otype') == 'image':
