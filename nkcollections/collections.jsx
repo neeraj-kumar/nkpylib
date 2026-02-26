@@ -1760,13 +1760,23 @@ const Controls = () => {
     if (controlsDiv && ctx.ui.ioa) {
       console.log('Setting up IOA observation for controls div', controlsDiv);
       ctx.ui.ioa.observe(controlsDiv, IOA_PARAMS);
-      ctx.ui.ioa.addEnterCallback(controlsDiv, (x, y, z) => {
-        console.log('Controls div entered viewport', x, y, z);
+      
+      ctx.ui.ioa.addEnterCallback(controlsDiv, (entry, observer, admin) => {
+        console.log('Controls div entered viewport', entry, observer, admin);
       });
-      ctx.ui.ioa.addExitCallback(controlsDiv, () => {
-        console.log('Controls div exited viewport', x, y, z);
+      
+      ctx.ui.ioa.addExitCallback(controlsDiv, (entry, observer, admin) => {
+        console.log('Controls div exited viewport', entry, observer, admin);
       });
     }
+    
+    // Cleanup function
+    return () => {
+      const controlsDiv = document.querySelector('.controls');
+      if (controlsDiv && ctx.ui.ioa) {
+        ctx.ui.ioa.removeElement(controlsDiv);
+      }
+    };
   }, [ctx.ui.ioa]);
 
   // Auto cluster navigation functions
