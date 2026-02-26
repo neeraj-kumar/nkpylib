@@ -242,6 +242,9 @@ class BackgroundWorker(abc.ABC):
             t_liked = time.time()
             if liked_rel:
                 counts['n_liked_items'] += 1
+                # Check if this is a "good item" (liked but no dwell_time)
+                if not hasattr(item, 'dwell_time') or item.dwell_time is None or item.dwell_time == 0:
+                    counts['n_good'] += 1
             timing['liked_check'] += time.time() - t_liked
             t_ts = time.time()
             # track most recent item
