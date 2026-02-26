@@ -1315,7 +1315,7 @@ const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
       setTimeout(() => {
         if (e.detail === 1) {
           setZoomModal({
-            imageUrl,
+            imageUrl: upgradeImageUrl(imageUrl),
             videoUrl,
             isVideo: showVideo
           });
