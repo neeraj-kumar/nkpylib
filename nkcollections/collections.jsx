@@ -50,8 +50,8 @@ const upgradeImageUrl = (url) => {
   if (!url) return url;
   // Replace /thumbs/w{number} or /thumbs/h{number} with higher resolution versions
   return url
-    .replace(/\/thumbs\/w\d+/g, '/thumbs/w2000')
-    .replace(/\/thumbs\/h\d+/g, '/thumbs/h2000');
+    .replace(/\/thumbs\/w\d+/g, '/thumbs/w1500')
+    .replace(/\/thumbs\/h\d+/g, '/thumbs/h1000');
 };
 
 const elapsedStr = (ts) => {
