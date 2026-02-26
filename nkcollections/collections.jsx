@@ -19,14 +19,10 @@ const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
 const IOA_PARAMS = {
-  root: null, //document.body,
+  root: null,
   rootMargin: "0px",
-  threshold: 0.4,
+  threshold: 0.1,
 }
-//const IOA = new intersectionObserverAdmin();
-const IOA = new IntersectionObserver((entries) => {
-  console.log('got ioa callback', entries);
-}, IOA_PARAMS);
 
 const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
 const QUICK_LINKS = {
@@ -1972,7 +1968,104 @@ const AppProvider = ({ children }) => {
   const [autoClusters, setAutoClusters] = React.useState({}); // {cluster_num: [ids]}
   const [curCluster, setCurCluster] = React.useState(null); // currently selected cluster in auto-cluster mode
 
-  console.log('got ioa', IOA);
+  // Viewing time tracking state
+  const [viewingStartTimes, setViewingStartTimes] = React.useState({}); // {objectId: startTimestamp}
+  const [viewingTimes, setViewingTimes] = React.useState({}); // {objectId: msSinceLastSync}
+  const [lastSyncTime, setLastSyncTime] = React.useState(Date.now()); // Global last sync timestamp
+
+  // Create IntersectionObserver for viewing time tracking
+  const IOA = React.useMemo(() => {
+    const handleIntersection = (entries) => {
+      const now = Date.now();
+      
+      entries.forEach(entry => {
+        const objectElement = entry.target.closest('.object');
+        if (!objectElement) return;
+        
+        const objectId = objectElement.id.replace('id-', '');
+        
+        if (entry.isIntersecting) {
+          // Started viewing
+          setViewingStartTimes(prev => ({
+            ...prev,
+            [objectId]: now
+          }));
+        } else {
+          // Stopped viewing - add duration to current period
+          setViewingStartTimes(prev => {
+            const startTime = prev[objectId];
+            if (startTime) {
+              const duration = now - startTime;
+              
+              setViewingTimes(prevTimes => ({
+                ...prevTimes,
+                [objectId]: (prevTimes[objectId] || 0) + duration
+              }));
+              
+              // Remove from start times
+              const newStartTimes = {...prev};
+              delete newStartTimes[objectId];
+              return newStartTimes;
+            }
+            return prev;
+          });
+        }
+      });
+    };
+
+    return new IntersectionObserver(handleIntersection, IOA_PARAMS);
+  }, []);
+
+  // Sync viewing times to server
+  const syncViewingTimes = React.useCallback(async () => {
+    const now = Date.now();
+    const dataToSync = {};
+    
+    // Get accumulated times
+    Object.entries(viewingTimes).forEach(([objectId, time]) => {
+      if (time > 0) {
+        dataToSync[objectId] = time;
+      }
+    });
+    
+    // Add time for currently viewing items since last sync
+    Object.entries(viewingStartTimes).forEach(([objectId, startTime]) => {
+      const timeSinceSync = now - Math.max(startTime, lastSyncTime);
+      if (timeSinceSync > 0) {
+        dataToSync[objectId] = (dataToSync[objectId] || 0) + timeSinceSync;
+      }
+    });
+    
+    if (Object.keys(dataToSync).length === 0) return;
+    
+    try {
+      await fetchEndpoint('/track_viewing_time', { viewing_times: dataToSync });
+      
+      // Reset everything after successful sync
+      setViewingTimes({});
+      setLastSyncTime(now);
+      
+      // Update start times for currently viewing items to now
+      setViewingStartTimes(prev => {
+        const updated = {};
+        Object.keys(prev).forEach(objectId => {
+          updated[objectId] = now;
+        });
+        return updated;
+      });
+      
+      console.log('Synced viewing times:', dataToSync);
+    } catch (error) {
+      console.error('Failed to sync viewing times:', error);
+      // Don't reset on error - times will accumulate for next sync
+    }
+  }, [viewingTimes, viewingStartTimes, lastSyncTime]);
+
+  // Set up periodic sync (every 5 seconds)
+  React.useEffect(() => {
+    const interval = setInterval(syncViewingTimes, 5000);
+    return () => clearInterval(interval);
+  }, [syncViewingTimes]);
 
   // initial init
   React.useEffect(() => {
@@ -1988,15 +2081,6 @@ const AppProvider = ({ children }) => {
     faviconEl.rel = 'icon';
     faviconEl.href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖼️</text></svg>";
     document.head.appendChild(faviconEl);
-    /*
-    // setup ioa callbacks
-    ioa.addEnterCallback(el, () => {
-      console.log('entering el with args', el);
-    });
-    ioa.addExitCallback(el, () => {
-      console.log('exiting el with args', el);
-    });
-        */
   }, []);
 
   // Set up global reference to setMessage
@@ -2524,6 +2608,10 @@ const AppProvider = ({ children }) => {
       setMessage,
       refreshMasonry,
       ioa: IOA
+    },
+    viewingData: {
+      getCurrentViewingTime: (objectId) => viewingTimes[objectId] || 0,
+      syncViewingTimes
     },
     filters: {
       curOtypes,
