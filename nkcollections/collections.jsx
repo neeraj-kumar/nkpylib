@@ -2538,6 +2538,9 @@ const DebouncedInput = ({
   );
 };
 
+// Create the App Context
+const AppContext = React.createContext();
+
 /* Controls - Main control panel with source input, quick links, and filters
  * No props - uses AppContext for all data and actions
  * Contains: source string input, quick navigation links, search bar, object type filters, mode selector
