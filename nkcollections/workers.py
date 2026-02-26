@@ -485,10 +485,10 @@ class CollectionsWorker(BackgroundWorker):
             while 1:
                 t0 = time.time()
                 try:
-                    run_async(self._explore_users())
-                    run_async(self._handle_user_actions())
+                    #run_async(self._explore_users())
+                    #run_async(self._handle_user_actions())
                     self._update_user_stats()
-                    self._update_classifier()
+                    #self._update_classifier()
                 except Exception as e:
                     logger.error(f"Error in process_task: {e}")
                     print(traceback.format_exc())
@@ -627,7 +627,12 @@ class CollectionsWorker(BackgroundWorker):
                 classifier, scores, other_stuff = l['classifier'], l['scores'], l['other_stuff']
             t1 = time.time()
             new_scores = self.rescore(scores=scores, pos=pos)
-            like_scores = {k.split(':')[0]: v for k, v in new_scores.items()}
+            def fix_key(k: str) -> int:
+                if ':' in k:
+                    return int(k.split(':')[0])
+                else:
+                    return int(k)
+            like_scores = {fix_key(k): v for k, v in new_scores.items()}
             saved_classifier = self.embs.save_classifier(
                 self.likes_classifier_path,
                 classifier,
