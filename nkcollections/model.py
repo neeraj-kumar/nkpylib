@@ -7,7 +7,7 @@ import logging
 import os
 import time
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 from os.path import abspath, exists, join, dirname
 from typing import Any, Callable
 
@@ -81,18 +81,6 @@ async def ret_immediate(func_output) -> Any:
         except StopIteration:
             return None
 
-
-ItemUserSQL = """CREATE VIEW ItemUser AS
-SELECT i.id,
-CASE
-    WHEN p.otype='user' then p.id
-    WHEN gp.otype='user' then gp.id
-    ELSE NULL END
-AS user_id
-FROM item i
-LEFT JOIN item p ON i.parent = p.id
-LEFT JOIN item gp ON p.parent = gp.id
-WHERE p.otype='user' OR gp.otype='user';"""
 
 class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     """Each individual item, which can include users, posts, images, links, etc."""
@@ -311,6 +299,20 @@ class Item(sql_db.Entity, GetMixin): # type: ignore[name-defined]
             cur = S.setdefault(score.ttype, {})
             cur[score.tag] = score.score
 
+def _create_item_user_view():
+    """A view that maps between item and associated user"""
+    cmd = """CREATE VIEW ItemUser AS
+    SELECT i.id,
+    CASE
+        WHEN p.otype='user' then p.id
+        WHEN gp.otype='user' then gp.id
+        ELSE NULL END
+    AS user_id
+    FROM item i
+    LEFT JOIN item p ON i.parent = p.id
+    LEFT JOIN item gp ON p.parent = gp.id
+    WHERE p.otype='user' OR gp.otype='user';"""
+
 
 class Score(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     """Scores for items of various types"""
@@ -322,6 +324,18 @@ class Score(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     md = Optional(Json)
     PrimaryKey(id, ttype, tag)
     #composite_index(id, ttype, tag, score) # can't do this in pony, but sqlite does it
+
+    @classmethod
+    def get_top_tags(cls, ids: list[str|int]):
+        """Returns a counter of the top tags for the given list of `ids`"""
+        from .embeddings import IMAGE_SUFFIX
+        ids = [int(id) for id in ids]
+        counts = Counter()
+        ttype = f'tag:{IMAGE_SUFFIX}'
+        cluster_scores = Score.select(lambda s: s.id.id in ids and s.ttype == ttype)
+        for score in cluster_scores:
+            counts[score.tag] += 1
+        return counts
 
 
 class Rel(sql_db.Entity, GetMixin): # type: ignore[name-defined]

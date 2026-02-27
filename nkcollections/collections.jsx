@@ -1,12 +1,9 @@
 /* NK Collections React App
  *
+ * TODO multiple images per user
  * TODO use recent likes to determine how to prioritize feed
  * TODO add an overall diversity slider that modifies recency priorities?
- * TODO filter users by seen/recent/scored posts
  * TODO send stream of important messages from server?
- * TODO likes toggle on page
- * TODO grouping by sim
- * TODO grouping by post
  * TODO detect broken img
  * TODO images with notes quick link?
  *
@@ -1629,7 +1626,7 @@ const InfoBar = () => {
             ←
           </button>
           <span style={{margin: '0 10px'}}>
-            Cluster {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster].length || 0})
+            {ctx.data.curCluster} ({ctx.data.autoClusters[ctx.data.curCluster].length || 0})
           </span>
           <button
             onClick={() => navigateAutoCluster('next')}
