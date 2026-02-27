@@ -1038,17 +1038,41 @@ class ClassifyHandler(MyBaseHandler):
                                method: str='kmeans',
                                **kw):
         """Does auto-clustering with `n_clusters`"""
-        #TODO get cluster names
-        #TODO weight features differently, based on likes classifier?
         cur_ids = [int(id) for id in cur_ids]
         all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
         ret = self.embs.cluster(all_keys=all_keys, method=method, n_clusters=n_clusters)
         clusters = {}
-        for i, lst in enumerate(ret):
-            lst = [int(key.split(':')[0]) for key in lst]
-            clusters[i] = lst
-        msg = f'Clustered {len(cur_ids)} ids into {len(clusters)} clusters (req: {n_clusters}) using method {method} and kw {kw}'
-        return dict(msg=msg, clusters=clusters)
+        cluster_names = {}
+        
+        # For each cluster, analyze tags and create names
+        with db_session:
+            for i, lst in enumerate(ret):
+                item_ids = [int(key.split(':')[0]) for key in lst]
+                clusters[i] = item_ids
+                
+                # Get tag counts for this cluster
+                tag_counts = Counter()
+                ttype_prefix = f'tag:{IMAGE_SUFFIX}'
+                
+                # Query scores for all items in this cluster
+                cluster_scores = Score.select(lambda s: 
+                    s.id.id in item_ids and 
+                    s.ttype.startswith(ttype_prefix) and
+                    s.score > 0.5  # Only count meaningful scores
+                )
+                
+                for score in cluster_scores:
+                    tag_counts[score.tag] += 1
+                
+                # Get top 5 most common tags for cluster name
+                top_tags = [tag for tag, count in tag_counts.most_common(5)]
+                cluster_name = ', '.join(top_tags) if top_tags else f'Cluster {i}'
+                cluster_names[i] = cluster_name
+                
+                logger.debug(f'Cluster {i} ({len(item_ids)} items): {cluster_name}')
+        
+        msg = f'Clustered {len(cur_ids)} ids into {len(clusters)} clusters (req: {n_clusters}) using method {method}'
+        return dict(msg=msg, clusters=clusters, cluster_names=cluster_names)
 
     async def post(self):
         #self.embs.reload_keys()
