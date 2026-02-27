@@ -1,26 +1,20 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
-#TODO async query builder
-#TODO aggregate tags to user
-#TODO text search of users
 #TODO similar users
 #TODO   by similarity of their images/embeddings
-#TODO   by similarity of tags
 #TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
+#TODO cluster users
 #TODO better feature extraction pipeline
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers
 #TODO remove bad images
 #TODO diversity on likes classifier?
 #TODO handle reblog keys
-#TODO search texts queue
 #TODO transfer likes between related items?
 #TODO enrich queued posts separately to not delay get()
-#TODO global clustering?
-#TODO multiple searches
-#TODO   more like this on objects
-#TODO   clickable tags
+#TODO global clustering of images?
+#TODO clickable tags
 #TODO debug desc errors
 #TODO propagate likes to source sites if possible
 #TODO import tumblr likes
@@ -72,6 +66,7 @@ from pony.orm import (
     Set,
     select,
     exists as pony_exists,
+    set_sql_debug
 ) # type: ignore
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 from tqdm import tqdm # type: ignore
@@ -97,30 +92,22 @@ def query_step(step_name: str, sql_debug: bool = False, profile: bool = False):
         async def wrapper(self, kw: dict) -> 'QueryBuilder':
             if profile:
                 start_time = time.time()
-
             # Enable SQL debugging if requested
             if sql_debug:
-                from pony.orm import set_sql_debug
                 set_sql_debug(True)
-
             try:
                 result = await func(self, kw)
                 if profile:
                     elapsed = time.time() - start_time
                     logger.info(f"QueryBuilder.{step_name}: {elapsed:.3f}s")
                 return result
-
             except Exception as e:
                 logger.error(f"Error in QueryBuilder.{step_name}: {e}")
                 # Continue with unchanged query on error rather than failing
                 return self
-
-            finally:
-                # Restore SQL debug setting
+            finally: # Restore SQL debug setting
                 if sql_debug:
-                    from pony.orm import set_sql_debug
                     set_sql_debug(False)
-
         return wrapper
     return decorator
 
@@ -277,7 +264,7 @@ Return a JSON list of tags from the following available tags that best match wha
 Available tags: {', '.join(all_tags)}
 
 Return only the JSON list, no other text."""
-        response = await call_llm.single_async(prompt, model='fast')
+        response = await call_llm.single_async(prompt, model='fast', use_cache=False)
         try:
             parsed_tags = load_llm_json(response)
         except Exception as e:
@@ -407,7 +394,7 @@ Available tags: {', '.join(all_tags)}
 
 Return only the JSON array, no other text."""
         try:
-            response = await call_llm.single_async(prompt, model='fast')
+            response = await call_llm.single_async(prompt, model='fast', use_cache=False)
             semantic_groups = load_llm_json(response)
             # Validate structure
             if not isinstance(semantic_groups, list):
@@ -619,10 +606,8 @@ Return only the JSON array, no other text."""
         """Apply limit and offset."""
         limit = int(kw.get('limit', 10000000))
         offset = int(kw.get('offset', 0))
-
         if 'limit' in kw:
-            if self.manual_reverse:
-                # Fetch all items and reverse
+            if self.manual_reverse: # Fetch all items and reverse
                 if isinstance(self.query, Query):
                     self.query = self.query[:]
                     self.query = self.query[::-1]
@@ -632,7 +617,6 @@ Return only the JSON array, no other text."""
                     self.query = self.query.limit(limit, offset=offset)
                 else:
                     self.query = self.query[offset:limit+offset]
-
         return self
 
     def finalize(self) -> Query|list:
