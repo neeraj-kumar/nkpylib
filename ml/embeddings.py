@@ -398,7 +398,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
     def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='l2', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores."""
         nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric)
-        keys, embs = self.get_embs(keys=all_keys)
+        keys, embs = self.get_embs(all_keys)
         logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         nn.fit(embs)
         scores, indices = nn.kneighbors(pos, min(n_neighbors, len(keys)), return_distance=True)
@@ -419,7 +419,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
         This version uses cdist directly.
         """
-        keys, embs = self.get_embs(keys=all_keys)
+        keys, embs = self.get_embs(all_keys)
         logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         scores = cdist(pos, embs, metric=metric)
         logger.debug(f'got scores: {scores.shape}: {scores}')
@@ -459,9 +459,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         assert len(to_cls) > 0
         # we get initial embeddings for all keys to normalize correctly.
         keys, embs = self.get_embs(keys=pos+neg+to_cls)
-        scaler = self._last_pipeline.named_steps['scale']
         times.append(time.time())
-        other_stuff['scaler'] = scaler
+        other_stuff['pipeline'] = self._last_pipeline
         pos_set = set(pos)
         neg_set = set(neg)
         to_cls = set(to_cls)
