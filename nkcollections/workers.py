@@ -332,7 +332,6 @@ class BackgroundWorker(abc.ABC):
                     logger.error(f'Error handling action {a}: {e}')
                     a.md['processed_ts'] = -1
 
-
     async def _explore_users(self, min_count=60) -> None:
         """Explores users who have more than `min_count` reblogs queued."""
         with db_session:
@@ -347,6 +346,11 @@ class BackgroundWorker(abc.ABC):
         logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
         await Rel.handle_me_action(to_explore, 'explore')
         logger.info(f'Done exploring users')
+
+    async def _update_embeddings(self, limit=1000) -> None:
+        """Updates upto {limit} embeddings per source."""
+        #FIXME implement after we figure out how to do config
+        pass
 
     def _update_user_stats(self, max_users:int=500) -> None:
         """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
@@ -466,7 +470,7 @@ class CollectionsWorker(BackgroundWorker):
             self.valid_tags = valid_tags
         else: # limit to those in our database currently
             with db_session:
-                self.valid_tags = list(set(s.tag for s in Score.select(ttype=LIKES_TTYPE)))
+                self.valid_tags = list(select(s.tag for s in Score if s.ttype==f'tag:{image_suffix}'))
         logger.info(f'Got {len(self.valid_tags)} valid tags: {self.valid_tags[:5]}')
         # Set classifier path -- no need to create dir since save_classifier does that
         self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
@@ -492,6 +496,7 @@ class CollectionsWorker(BackgroundWorker):
                 try:
                     run_async(self._explore_users())
                     run_async(self._handle_user_actions())
+                    run_async(self._update_embeddings())
                     self._update_user_stats()
                     self._update_classifier()
                 except Exception as e:
@@ -600,7 +605,7 @@ class CollectionsWorker(BackgroundWorker):
             s = Score.get(**get_kw)
             if s is None:
                 Score(**get_kw, score=float(score), ts=current_ts, md=md if md else None)
-        logger.info(f"  Stored {len(scores)} {tag} scores in Score table")
+        logger.debug(f"  Stored {len(scores)} {tag} scores in Score table")
 
     def _update_classifier(self) -> None:
         """Update the classifier if needed."""
