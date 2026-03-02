@@ -433,6 +433,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         logger.debug(f'got final ret: {ret[:10]}')
         return ret
 
+    @with_pipeline(Pipeliner.just_scaling())
     def train_and_run_classifier(self,
                                  pos: list[KeyT],
                                  neg: list[KeyT],
@@ -441,7 +442,6 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  method: str='rbf',
                                  C=1,
                                  cv: int=0,
-                                 pipeline: Pipeline|None=None,
                                  **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
         """High-level function to train a classifier with given `pos` and `neg` and run on `to_cls`.
 
@@ -458,15 +458,9 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         times = [time.time()]
         assert len(to_cls) > 0
         
-        # Create pipeline with RBF sampling for linear methods
-        if pipeline is None:
-            if method in ('linear', 'sgd'):
-                pipeline = Pipeliner.just_scaling().rbf_sample(n_components=4000, gamma='scale').build()
-            else:
-                pipeline = Pipeliner.just_scaling().build()
-        
-        self._last_pipeline = pipeline
-        self._fit_pipeline = True
+        # Override the default pipeline based on method
+        if method in ('linear', 'sgd') and self._fit_pipeline:
+            self._last_pipeline = Pipeliner.just_scaling().rbf_sample(n_components=4000, gamma='scale').build()
         
         # we get initial embeddings for all keys to normalize correctly.
         keys, embs = self.get_embs(keys=pos+neg+to_cls)
