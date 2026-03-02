@@ -394,10 +394,11 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
         return ret
 
+    @with_pipeline(Pipeline([]))
     def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='l2', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores."""
         nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric)
-        keys, embs = self.keys_vecs(keys=all_keys)
+        keys, embs = self.get_embs(keys=all_keys)
         logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         nn.fit(embs)
         scores, indices = nn.kneighbors(pos, min(n_neighbors, len(keys)), return_distance=True)
