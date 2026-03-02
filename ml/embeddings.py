@@ -457,11 +457,9 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         other_stuff = {}
         times = [time.time()]
         assert len(to_cls) > 0
-        
         # Override the default pipeline based on method
         if method in ('linear', 'sgd') and self._fit_pipeline:
             self._last_pipeline = Pipeliner.just_scaling().rbf_sample(n_components=4000, gamma='scale').build()
-        
         # we get initial embeddings for all keys to normalize correctly.
         keys, embs = self.get_embs(keys=pos+neg+to_cls)
         times.append(time.time())
@@ -510,10 +508,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                        classifier: BaseEstimator) -> dict[KeyT, Any]:
         """Runs binary `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
-        # Use last pipeline if no pipeline was provided via decorator
-        if self._last_pipeline is None:
-            self._last_pipeline = Pipeline([])
-        keys, embs = self.get_embs(keys=to_cls)
+        keys, embs = self.get_embs(to_cls)
         if not keys:
             return {}
         scores_array = classifier.decision_function(embs)
@@ -550,11 +545,11 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
     @with_pipeline(Pipeliner().normalize().build())
     def rescore_by_nn(self,
-                     scores: dict[KeyT, float],
-                     pos: list[KeyT],
-                     min_score: float=1.0,
-                     k: int=20,
-                     metric: str='l2') -> dict[KeyT, float]:
+                      scores: dict[KeyT, float],
+                      pos: list[KeyT],
+                      min_score: float=1.0,
+                      k: int=20,
+                      metric: str='l2') -> dict[KeyT, float]:
         """Given some existing `scores`, reweight the high ones based on number of NN in `radius`.
 
         This is typically for SVMs, for which high scores are not discriminative enough (i.e., not
