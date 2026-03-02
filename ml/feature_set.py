@@ -58,6 +58,11 @@ class FeaturePipelineBuilder:
     def __init__(self):
         self.steps = []
 
+    @classmethod
+    def basic(cls, norm: str='l2', with_mean: bool=True, with_std: bool=True) -> Pipeline:
+        """Create a standard normalization + scaling pipeline."""
+        return cls().normalize(norm=norm).scale(with_mean=with_mean, with_std=with_std).build()
+
     def normalize(self, norm: str='l2'):
         """Add normalization step.
 
@@ -112,6 +117,7 @@ class FeaturePipelineBuilder:
     def build(self) -> Pipeline:
         """Build the final sklearn Pipeline."""
         return Pipeline(self.steps)
+
 
 class FeatureSet(Mapping, Generic[KeyT]):
     """A set of features that you can do stuff with.
@@ -265,6 +271,7 @@ class FeatureSet(Mapping, Generic[KeyT]):
         If you set `return_scaler` to True, we also return the scaler object used for scaling as the
         last item in the return tuple.
         """
+        #FIXME this is deprecated
         times = [time.time()]
         keys, embs = self.keys_vecs(keys)
         times.append(time.time())
@@ -301,43 +308,11 @@ class FeatureSet(Mapping, Generic[KeyT]):
         - `fit_pipeline`: Whether to fit the pipeline on the data (True) or just transform (False)
         """
         keys, raw_vecs = self.keys_vecs(keys)
-
         if pipeline is None or not keys:
             return keys, raw_vecs
-
         if fit_pipeline:
             transformed = pipeline.fit_transform(raw_vecs)
         else:
             transformed = pipeline.transform(raw_vecs)
-
         return keys, transformed
 
-
-def create_basic_pipeline() -> Pipeline:
-    """Create a standard normalization + scaling pipeline."""
-    return FeaturePipelineBuilder().normalize().scale().build()
-
-
-def create_rbf_pipeline(n_components: int=1000, gamma: float=0.1) -> Pipeline:
-    """Create a pipeline with RBF sampling for kernel approximation.
-
-    - `n_components`: Number of RBF components to sample
-    - `gamma`: Parameter of the RBF kernel
-    """
-    return (FeaturePipelineBuilder()
-           .normalize()
-           .scale()
-           .rbf_sample(n_components=n_components, gamma=gamma)
-           .build())
-
-
-def create_dimensionality_reduction_pipeline(final_dims: int=512) -> Pipeline:
-    """Create a pipeline that reduces dimensionality via PCA.
-
-    - `final_dims`: Final number of dimensions after PCA
-    """
-    return (FeaturePipelineBuilder()
-           .normalize()
-           .scale()
-           .pca(n_components=final_dims)
-           .build())
