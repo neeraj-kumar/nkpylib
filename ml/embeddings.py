@@ -504,15 +504,16 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         logger.debug(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         return cls, scores, other_stuff
 
+    @with_pipeline(Pipeline([]))
     def run_classifier(self,
                        to_cls: list[KeyT],
-                       classifier: BaseEstimator,
-                       pipeline: Pipeline|None=None) -> dict[KeyT, Any]:
+                       classifier: BaseEstimator) -> dict[KeyT, Any]:
         """Runs binary `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
-        if pipeline is None:
-            pipeline = self._last_pipeline
-        keys, embs = self.keys_final_vecs(keys=to_cls, pipeline=pipeline, fit_pipeline=False)
+        # Use last pipeline if no pipeline was provided via decorator
+        if self._last_pipeline is None:
+            self._last_pipeline = Pipeline([])
+        keys, embs = self.get_embs(keys=to_cls)
         if not keys:
             return {}
         scores_array = classifier.decision_function(embs)
