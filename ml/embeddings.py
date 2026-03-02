@@ -24,6 +24,7 @@ import time
 from argparse import ArgumentParser
 from collections.abc import Mapping
 from collections import Counter
+from functools import wraps
 from os.path import abspath, dirname, exists, join
 from typing import Any, Sequence, Generic, TypeVar, Hashable
 
@@ -138,6 +139,35 @@ class Embeddings(FeatureSet, Generic[KeyT]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._last_pipeline: Pipeline|None = None
+        self._fit_pipeline: bool = True
+
+    def with_pipeline(self, default_pipeline: Pipeline):
+        """Class method decorator that handles pipeline management.
+        
+        - `default_pipeline`: Pipeline instance to use as default
+        """
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                # Check if pipeline was explicitly provided
+                if 'pipeline' in kwargs:
+                    self._last_pipeline = kwargs.pop('pipeline')
+                    self._fit_pipeline = False  # Assume provided pipelines are pre-fitted
+                else:
+                    # Use default pipeline
+                    self._last_pipeline = default_pipeline
+                    self._fit_pipeline = True
+                
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
+
+    def get_embs(self, keys: list[KeyT]|None=None) -> tuple[list[KeyT], np.ndarray]:
+        """Get embeddings using the current pipeline settings."""
+        if self._last_pipeline is None:
+            return self.keys_vecs(keys)
+        return self.keys_final_vecs(keys=keys, pipeline=self._last_pipeline, fit_pipeline=self._fit_pipeline)
+
     def get_clusterer(self, method: str='kmeans', n_clusters: int=-1, **kw) -> Any:
         if method == 'kmeans':
             clusterer = MiniBatchKMeans(n_clusters=n_clusters, n_init='auto', **kw)
@@ -207,12 +237,12 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             conflict_rate=conflict_rate
         )
 
+    @with_pipeline(Pipeliner.just_scaling())
     def guided_clustering(self,
                           labels: dict[KeyT, int],
                           keys: list[KeyT]|None=None,
                           n_clusters=-1,
                           method='kmeans',
-                          pipeline: Pipeline|None=None,
                           **kwargs) -> dict[KeyT, dict]:
         """You provide a few cluster assignments, and we fill in the rest.
 
@@ -226,10 +256,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 else:
                     clusters[key] = dict(num=random.randint(1, n_clusters), score=random.uniform(0, 1))
         elif method == 'rbf': # apply multiclass rbf classifier
-            if pipeline is None:
-                pipeline = Pipeliner.just_scaling()
-            self._last_pipeline = pipeline
-            keys_all, embs = self.keys_final_vecs(keys=keys, pipeline=pipeline)
+            keys_all, embs = self.get_embs(keys=keys)
             # if we don't have any labels for cluster=1, then add a few dummy examples at low weight
             orig_labels = labels.copy()
             key_order = list(labels)
@@ -259,10 +286,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         else:
             # apply clustering method repeatedly until we have no conflicts with labels
             clusterer = self.get_clusterer(method=method, n_clusters=n_clusters)
-            if pipeline is None:
-                pipeline = Pipeliner.just_scaling()
-            self._last_pipeline = pipeline
-            keys_all, embs = self.keys_final_vecs(keys=keys, pipeline=pipeline)
+            keys_all, embs = self.get_embs(keys=keys)
             #print(keys_all, embs)
             labels_array = np.array([labels[key] if key in labels else -1 for key in keys_all])
             print(labels_array)
@@ -285,7 +309,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 clusters[key] = dict(num=int(pred_labels[i])+1, score=float(score))
         return clusters
 
-    def cluster(self, n_clusters=-1, method='kmeans', all_keys=None, pipeline: Pipeline|None=None, **kwargs) -> list[list[KeyT]]:
+    @with_pipeline(Pipeliner.just_scaling())
+    def cluster(self, n_clusters=-1, method='kmeans', all_keys=None, **kwargs) -> list[list[KeyT]]:
         """Clusters our embeddings.
 
         If `n_clusters` is not positive (default), we set it to the sqrt of the number of
@@ -293,10 +318,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
         Returns a list of lists of keys, where each list is a cluster; in order from largest to smallest.
         """
-        if pipeline is None:
-            pipeline = Pipeliner.just_scaling()
-        self._last_pipeline = pipeline
-        keys, embs = self.keys_final_vecs(keys=all_keys, pipeline=pipeline)
+        keys, embs = self.get_embs(keys=all_keys)
         if n_clusters <= 0:
             n_clusters = int(np.sqrt(len(keys)))
         clusterer = self.get_clusterer(method=method, n_clusters=n_clusters, **kwargs)
@@ -307,6 +329,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             clusters[label].append(key)
         return sorted(clusters.values(), key=len, reverse=True)
 
+    @with_pipeline(Pipeliner.basic(norm='l2', with_mean=False, with_std=True))
     def similar(self,
                 queries: list[KeyT]|array2d|BaseEstimator,
                 weights: list[float]|None=None,
@@ -314,7 +337,6 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 method: str='rbf',
                 min_score: float=-0.1,
                 all_keys: list[KeyT]|None=None,
-                pipeline: Pipeline|None=None,
                 **kw) -> list[tuple[float, KeyT]]:
         """Returns the most similar keys and scores to the given `queries`.
 
@@ -334,10 +356,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             if queries[0] in self:
                 assert all(q in self for q in queries), f'All queries must be in the embeddings.'
         #TODO normalize queries if not in dataset
-        if pipeline is None:
-            pipeline = Pipeliner.basic(norm='l2', with_mean=False, with_std=True)
-        self._last_pipeline = pipeline
-        keys, embs = self.keys_final_vecs(keys=all_keys, pipeline=pipeline)
+        keys, embs = self.get_embs(keys=all_keys)
         pos: Any
         if method == 'nn': # queries must not be estimator
             if queries[0] in self:
@@ -375,14 +394,10 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
         return ret
 
-    def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='l2', all_keys=None, pipeline: Pipeline|None=None, **kw):
+    def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='l2', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores."""
         nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric)
-        if pipeline is None:
-            keys, embs = self.keys_vecs(keys=all_keys)
-        else:
-            self._last_pipeline = pipeline
-            keys, embs = self.keys_final_vecs(keys=all_keys, pipeline=pipeline)
+        keys, embs = self.keys_vecs(keys=all_keys)
         logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         nn.fit(embs)
         scores, indices = nn.kneighbors(pos, min(n_neighbors, len(keys)), return_distance=True)
@@ -397,15 +412,13 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         ret = [(score, keys[idx]) for idx, score in score_by_index.most_common()]
         return ret
 
-    def simple_nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='cosine', all_keys=None, pipeline: Pipeline|None=None, **kw):
+    @with_pipeline(Pipeliner().normalize().build())
+    def simple_nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='cosine', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores.
 
         This version uses cdist directly.
         """
-        if pipeline is None:
-            pipeline = Pipeliner().normalize().build()
-        self._last_pipeline = pipeline
-        keys, embs = self.keys_final_vecs(keys=all_keys, pipeline=pipeline)
+        keys, embs = self.get_embs(keys=all_keys)
         logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         scores = cdist(pos, embs, metric=metric)
         logger.debug(f'got scores: {scores.shape}: {scores}')
@@ -419,6 +432,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         logger.debug(f'got final ret: {ret[:10]}')
         return ret
 
+    @with_pipeline(Pipeliner.just_scaling())
     def train_and_run_classifier(self,
                                  pos: list[KeyT],
                                  neg: list[KeyT],
@@ -427,7 +441,6 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  method: str='rbf',
                                  C=1,
                                  cv: int=0,
-                                 pipeline: Pipeline|None=None,
                                  **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
         """High-level function to train a classifier with given `pos` and `neg` and run on `to_cls`.
 
@@ -444,11 +457,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         times = [time.time()]
         assert len(to_cls) > 0
         # we get initial embeddings for all keys to normalize correctly.
-        if pipeline is None:
-            pipeline = Pipeliner.just_scaling()
-        self._last_pipeline = pipeline
-        keys, embs = self.keys_final_vecs(keys=pos+neg+to_cls, pipeline=pipeline)
-        scaler = pipeline.named_steps['scale']
+        keys, embs = self.get_embs(keys=pos+neg+to_cls)
+        scaler = self._last_pipeline.named_steps['scale']
         times.append(time.time())
         other_stuff['scaler'] = scaler
         pos_set = set(pos)
@@ -540,13 +550,13 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         clf.fit(X, y, sample_weight=weights)
         return clf
 
+    @with_pipeline(Pipeliner().normalize().build())
     def rescore_by_nn(self,
                      scores: dict[KeyT, float],
                      pos: list[KeyT],
                      min_score: float=1.0,
                      k: int=20,
-                     metric: str='l2',
-                     pipeline: Pipeline|None=None) -> dict[KeyT, float]:
+                     metric: str='l2') -> dict[KeyT, float]:
         """Given some existing `scores`, reweight the high ones based on number of NN in `radius`.
 
         This is typically for SVMs, for which high scores are not discriminative enough (i.e., not
@@ -561,10 +571,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             if s >= min_score: # we only care about those above min_score
                 n_high += 1
                 all_keys.add(key)
-        if pipeline is None:
-            pipeline = Pipeliner().normalize().build()
-        self._last_pipeline = pipeline
-        keys, embs = self.keys_final_vecs(keys=list(all_keys), pipeline=pipeline)
+        keys, embs = self.get_embs(keys=list(all_keys))
         logger.info(f'In rescore, {len(scores)} scores, {n_high} high (>= {min_score}), {len(pos)} pos, {len(all_keys)} all keys -> {embs.shape}')
         logger.debug(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
         if len(embs) == 0:
