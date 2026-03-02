@@ -998,13 +998,12 @@ class FilterHandler(MyBaseHandler):
         self.write(dict(msg=msg, q=q, scores=scores))
 
 
-def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|None, app=None) -> dict[str, Any]:
+def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|None, classifier_path: str|None = None) -> dict[str, Any]:
     """Searches for similarity to `pos` amongst `cur_ids` using `embs`"""
     # Load pipeline from the last saved likes classifier
     pipeline = None
-    if app and hasattr(app, 'classifiers_dir'):
+    if classifier_path:
         try:
-            classifier_path = join(app.classifiers_dir, 'likes-mn_image.joblib')
             saved_data = embs.load_classifier(classifier_path)
             pipeline = saved_data.get('pipeline')
             logger.debug(f"Loaded pipeline from {classifier_path}")
