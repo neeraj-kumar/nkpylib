@@ -1,5 +1,3 @@
-#TODO migrate likes to sql?
-
 from __future__ import annotations
 
 import abc
@@ -78,25 +76,101 @@ def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:
     return scores
 
 
-class BackgroundWorker(abc.ABC):
-    """Abstract base class for long-running background worker threads.
+class CollectionsWorker:
+    """Worker for collections.
 
-    Subclasses must implement the `process_task` method to define how tasks are processed.
-
-    Communication with the worker happens via thread-safe queues:
-    - `add_task(task)` to send work to the background thread
-    - `get_result()` to retrieve completed results
-    - `get_all_results()` to retrieve all pending results
-
-    The worker runs in a daemon thread and will automatically stop when the main process exits.
+    This does a few different things in a loop:
+    - Updates like scores:
+      - If the set of liked items has changed, it retrains the classifier and updates scores.
+      - If not, but there are new items with embeddings that haven't been scored, it runs inference
+        on those items to update scores.
+      - In both cases, the updated scores are written out with the current classifier to a joblib
+        file for use by other parts of the system.
+    - Updates user stats: periodically updates user statistics in the database, such as counts of
+      different content types, average like scores, etc. This is used for exploration and other
+      features.
+    - User exploration: periodically checks for users who have a large number of queued reblogs and
+      automatically triggers them for exploration.
     """
-    def __init__(self, name: str = "BackgroundWorker"):
+
+    def __init__(self,
+                 embs: Embeddings,
+                 classifiers_dir: str,
+                 name: str = "CollectionsWorker",
+                 method: str = 'sgd',
+                 max_pos: int = 10000,
+                 neg_factor: float = 10,
+                 min_new_liked: int = 50,
+                 image_suffix: str = 'mn_image',
+                 sleep_interval: float = 10.0,
+                 valid_tags: list[str]|None = None,
+                 exclude_top_n: int = 2000):
         self.name = name
         self.input_queue: Queue = Queue()
         self.output_queue: Queue = Queue()
         self.running = False
         self.thread: Thread | None = None
         self._lock = threading.Lock()
+        self.embs = embs
+        self.classifiers_dir = classifiers_dir
+        self.method = method
+        self.max_pos = max_pos
+        self.neg_factor = neg_factor
+        self.min_new_liked = min_new_liked
+        self.image_suffix = image_suffix
+        self.sleep_interval = sleep_interval
+        self.exclude_top_n = exclude_top_n
+        if valid_tags:
+            self.valid_tags = valid_tags
+        else: # limit to those in our database currently
+            with db_session:
+                self.valid_tags = list(select(s.tag for s in Score if s.ttype==f'tag:{image_suffix}'))
+        logger.info(f'Got {len(self.valid_tags)} valid tags: {self.valid_tags[:5]}')
+        # Set classifier path -- no need to create dir since save_classifier does that
+        self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
+        # State tracking
+        self.last: dict[str, Any] = {
+            'pos_ids': frozenset(),
+            'saved_classifier': None,
+            'classifier_version': 0.0,
+            'pos_count': 0,
+        }
+        self._load_and_run_initial_inference()
+
+    def _handle_task_error(self, task: Any, error: Exception) -> Any:
+        """Handle errors that occur during task processing.
+
+        Override this method to customize error handling.
+
+        - task: The task that caused the error
+        - error: The exception that was raised
+        - Returns: Error result to put in output queue, or None to skip
+        """
+        return dict(error=str(error), task=task)
+
+    def add_task(self, task: Any) -> None:
+        """Add a task to the input queue for processing.
+
+        - task: Any data that will be passed to process_task()
+        """
+        self.input_queue.put(task)
+
+    def get_result(self) -> Any | None:
+        """Get one result from the output queue, or None if no results available."""
+        try:
+            return self.output_queue.get_nowait()
+        except Empty:
+            return None
+
+    def get_all_results(self) -> list[Any]:
+        """Get all available results from the output queue."""
+        results = []
+        while True:
+            result = self.get_result()
+            if result is None:
+                break
+            results.append(result)
+        return results
 
     def run(self) -> None:
         """Start the processing in the main thread (blocking)."""
@@ -159,329 +233,6 @@ class BackgroundWorker(abc.ABC):
             except Exception as e:
                 logger.error(f"{self.name} unexpected error in worker loop: {e}")
         logger.debug(f"{self.name} worker loop finished")
-
-    @abc.abstractmethod
-    def process_task(self, task: Any) -> Any:
-        """Process a single task and return the result.
-
-        This method must be implemented by subclasses.
-
-        - task: The task data from add_task()
-        - Returns: Result to be put in output queue, or None to skip
-        """
-        pass
-
-    def _handle_task_error(self, task: Any, error: Exception) -> Any:
-        """Handle errors that occur during task processing.
-
-        Override this method to customize error handling.
-
-        - task: The task that caused the error
-        - error: The exception that was raised
-        - Returns: Error result to put in output queue, or None to skip
-        """
-        return dict(error=str(error), task=task)
-
-    def add_task(self, task: Any) -> None:
-        """Add a task to the input queue for processing.
-
-        - task: Any data that will be passed to process_task()
-        """
-        self.input_queue.put(task)
-
-    def get_result(self) -> Any | None:
-        """Get one result from the output queue, or None if no results available."""
-        try:
-            return self.output_queue.get_nowait()
-        except Empty:
-            return None
-
-    def get_all_results(self) -> list[Any]:
-        """Get all available results from the output queue."""
-        results = []
-        while True:
-            result = self.get_result()
-            if result is None:
-                break
-            results.append(result)
-        return results
-
-    @db_session(sql_debug=False)
-    def _compute_user_stats(self, user_id: int, item_ids: list[int], like_scores: dict[int, float]) -> dict[str, Any]:
-        """Compute statistics for a specific `user_id`.
-
-        This expects a list of item IDs that belong to the user to be passed in.
-
-        Returns dict with user statistics including content counts, engagement, and scores.
-        """
-        timing = Counter()
-        t0 = time.time()
-        timing['db_session_start'] = time.time() - t0
-        t1 = time.time()
-        # Get all items from this user
-        user_items = Item.select(lambda i: i.id in item_ids)[:]
-        timing['user_items_query'] = time.time() - t1
-        t2 = time.time()
-        t3 = time.time()
-        # Initialize counters
-        counts = Counter()
-        timing['init_counters'] = time.time() - t3
-        t4 = time.time()
-        t5 = time.time()
-        for item in user_items:
-            t_item_start = time.time()
-            # otype counts
-            counts[f'n_{item.otype}s'] += 1
-            timing['otype_counts'] += time.time() - t_item_start
-            if item.otype == 'image': # set as a url to use for the user
-                counts['image_url'] = item.url
-            t_otype = time.time()
-            # liked counts
-            liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
-            timing['liked_rel_query'] += time.time() - t_otype
-            t_liked = time.time()
-            if liked_rel:
-                counts['n_liked_items'] += 1
-            # Check if this is a "good item"
-            item_like_score = like_scores.get(item.id, 0.0)
-            item_dwell_time = getattr(item, 'dwell_time', None) or 0.0
-            # Check if item is queued
-            queued_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='queue')
-            if (item_like_score > 0 and
-                item_dwell_time < 1.0 and
-                not liked_rel and
-                not queued_rel):
-                counts['n_good'] += 1
-            timing['liked_check'] += time.time() - t_liked
-            t_ts = time.time()
-            # track most recent item
-            if item.ts and item.ts > counts['last_item_ts']:
-                counts['last_item_ts'] = item.ts
-            timing['timestamp_check'] += time.time() - t_ts
-        timing['item_loop_total'] = time.time() - t5
-        t6 = time.time()
-        # average like score
-        likes = [score for id, score in like_scores.items() if int(id) in item_ids]
-        counts['n_scored'] = len(likes)
-        counts['avg_like_score'] = sum(likes) / len(likes) if likes else 0.0
-        counts['n_pos_like_score'] = sum(1 for s in likes if s > 0)
-        timing['avg_score_calc'] = time.time() - t6
-        # Count Score rows by tag for this user's items
-        t_tags = time.time()
-        tag_counts = Counter()
-        #score_rows = Score.select(lambda s: s.id.id in item_ids)
-        score_rows = Score.select(lambda s: s.id in user_items)
-        for score_row in score_rows:
-            if score_row.tag != 'like':
-                tag_counts[score_row.tag] += 1
-        # Get top 5 tags
-        top_tags = dict(tag_counts.most_common(7))
-        counts['top_tags'] = top_tags
-        counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
-        timing['tag_counting'] = time.time() - t_tags
-        # Aggregate scores for user by (ttype, tag)
-        t_user_scores = time.time()
-        user_scores = defaultdict(list)
-        score_times = defaultdict(list)
-        # Group scores by (ttype, tag)
-        for score_row in score_rows:
-            key = (score_row.ttype, score_row.tag)
-            user_scores[key].append(score_row.score)
-            score_times[key].append(score_row.ts or 0)
-        # Upsert Score rows for the user
-        user_item = Item[user_id]
-        current_ts = time.time()
-        for (ttype, tag), scores in user_scores.items():
-            timestamps = score_times[(ttype, tag)]
-            # Calculate aggregated statistics
-            score_count = len(scores)
-            score_sum = sum(scores)
-            score_mean = score_sum / score_count if score_count > 0 else 0.0
-            score_median = sorted(scores)[score_count // 2] if score_count > 0 else 0.0
-            latest_ts = max(timestamps) if timestamps else 0
-            # Create metadata
-            md = dict(
-                sum=score_sum,
-                mean=score_mean,
-                median=score_median,
-                latest_ts=latest_ts
-            )
-            # Upsert Score row for user
-            Score.upsert(get_kw=dict(id=user_item, ttype=ttype, tag=tag),
-                         score=float(score_count),
-                         ts=current_ts,
-                         md=md)
-        timing['user_score_aggregation'] = time.time() - t_user_scores
-        timing['total_function'] = time.time() - t0
-        # Print top timing items
-        formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
-        logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
-        return dict(counts)
-
-    async def _handle_user_actions(self, max_items:int= 10) -> None:
-        """Handles user actions that are in the table but have not been done."""
-        with db_session:
-            actions = Rel.select(lambda r: r.rtype in ACTIONS and r.md['processed_ts'] is None)[:max_items]
-            for a in actions:
-                s = a.tgt.get_source()
-                logger.info(f'handling action {a} with source {s}')
-                try:
-                    await s.handle_me_action([a.tgt.id], a.rtype)
-                    a.md['processed_ts'] = time.time()
-                except Exception as e:
-                    logger.error(f'Error handling action {a}: {e}')
-                    a.md['processed_ts'] = -1
-
-    async def _explore_users(self, min_count=60) -> None:
-        """Explores users who have more than `min_count` reblogs queued."""
-        with db_session:
-            users = Item.select(lambda u: u.otype == 'user' and u.explored_ts is None and u.md['n_queued_reblogs'] is not None)
-            to_explore = []
-            for user in users:
-                n_qbr = user.md.get('n_queued_reblogs', 0)
-                if n_qbr > min_count:
-                    to_explore.append(user.id)
-        if not to_explore:
-            return
-        logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
-        await Rel.handle_me_action(to_explore, 'explore')
-        logger.info(f'Done exploring users')
-
-    async def _update_embeddings(self, limit=1000) -> None:
-        """Updates upto {limit} embeddings per source."""
-        #FIXME implement after we figure out how to do config
-        pass
-
-    def _update_user_stats(self, max_users:int=500) -> None:
-        """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
-
-        I'm tuning `max_users` to be under 30 secs.
-        """
-        n_updated = 0
-        t0 = time.time()
-        with db_session:
-            users = Item.select(lambda u: u.otype == 'user')
-            # sort by last stats time
-            last_times = []
-            for u in users:
-                if u.md.setdefault('stats', {}) is None:
-                    u.md['stats'] = {}
-                last_times.append(u.md['stats'].get('ts', 0))
-            users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])][:max_users]
-            user_ids = {u.id for u in users}
-        # first build a dict from user id to list of their item ids
-        items_by_user = defaultdict(list)
-        n_items = 0
-        all_item_ids = set()
-        with db_session:
-            items = Item.select(lambda i: i.otype in ('post', 'image', 'video'))
-            items = items.filter(lambda i: i.parent and (i.parent.id in user_ids or (i.parent.parent and i.parent.parent.id in user_ids)))
-            for item in items:
-                user = item.get_closest(otype='user')
-                if not user or user.id not in user_ids:
-                    continue
-                items_by_user[user.id].append(item.id)
-                all_item_ids.add(item.id)
-                n_items += 1
-        user_ids = sorted(user_ids)
-        logger.info(f'Starting to get stats for {len(user_ids)} users with {n_items} items: {user_ids[:5]}')
-        # get like scores
-        like_scores = get_like_scores(ids=list(all_item_ids))
-        for user_id in user_ids:
-            # first get current stats
-            with db_session:
-                user = Item[user_id]
-                if user.md is None:
-                    user.md = {}
-                cur_stats = dict(user.md.get('stats', {}))
-            try:
-                if items_by_user[user_id]: # only compute stats if they have items
-                    stats = self._compute_user_stats(user_id, items_by_user[user_id], like_scores=like_scores)
-                else:
-                    stats = cur_stats
-                # now update user with computed stats
-                with db_session:
-                    user = Item[user_id]
-                    # set current timestamp
-                    stats['ts'] = time.time()
-                    # add the queued reblogs
-                    stats['n_queued_reblogs'] = user.md.get('n_queued_reblogs', 0)
-                    user.md['stats'] = stats
-                    n_updated += 1
-            except Exception as e:
-                logger.error(f"Error computing stats for user {user.id}: {e}")
-                print(traceback.format_exc())
-                continue
-        t1 = time.time()
-        logger.info(f"Updated stats for {n_updated} users in {t1 - t0:.2f}s")
-
-    def queue_sizes(self) -> dict[str, int]:
-        """Get current queue sizes for monitoring."""
-        return dict(
-            input_queue_size=self.input_queue.qsize(),
-            output_queue_size=self.output_queue.qsize()
-        )
-
-    def is_running(self) -> bool:
-        """Check if the worker thread is running."""
-        return self.running and self.thread is not None and self.thread.is_alive()
-
-
-class CollectionsWorker(BackgroundWorker):
-    """Background worker for collections.
-
-    This does a few different things in a loop:
-    - Updates like scores:
-      - If the set of liked items has changed, it retrains the classifier and updates scores.
-      - If not, but there are new items with embeddings that haven't been scored, it runs inference
-        on those items to update scores.
-      - In both cases, the updated scores are written out with the current classifier to a joblib
-        file for use by other parts of the system.
-    - Updates user stats: periodically updates user statistics in the database, such as counts of
-      different content types, average like scores, etc. This is used for exploration and other
-      features.
-    - User exploration: periodically checks for users who have a large number of queued reblogs and
-      automatically triggers them for exploration.
-    """
-
-    def __init__(self,
-                 embs: Embeddings,
-                 classifiers_dir: str,
-                 name: str = "CollectionsWorker",
-                 method: str = 'sgd',
-                 max_pos: int = 10000,
-                 neg_factor: float = 10,
-                 min_new_liked: int = 50,
-                 image_suffix: str = 'mn_image',
-                 sleep_interval: float = 10.0,
-                 valid_tags: list[str]|None = None,
-                 exclude_top_n: int = 2000):
-        super().__init__(name)
-        self.embs = embs
-        self.classifiers_dir = classifiers_dir
-        self.method = method
-        self.max_pos = max_pos
-        self.neg_factor = neg_factor
-        self.min_new_liked = min_new_liked
-        self.image_suffix = image_suffix
-        self.sleep_interval = sleep_interval
-        self.exclude_top_n = exclude_top_n
-        if valid_tags:
-            self.valid_tags = valid_tags
-        else: # limit to those in our database currently
-            with db_session:
-                self.valid_tags = list(select(s.tag for s in Score if s.ttype==f'tag:{image_suffix}'))
-        logger.info(f'Got {len(self.valid_tags)} valid tags: {self.valid_tags[:5]}')
-        # Set classifier path -- no need to create dir since save_classifier does that
-        self.likes_classifier_path = join(self.classifiers_dir, f'likes-{image_suffix}.joblib')
-        # State tracking
-        self.last: dict[str, Any] = {
-            'pos_ids': frozenset(),
-            'saved_classifier': None,
-            'classifier_version': 0.0,
-            'pos_count': 0,
-        }
-        self._load_and_run_initial_inference()
 
     def process_task(self, task: Any) -> Any:
         """Process a likes classification task.
@@ -761,6 +512,227 @@ class CollectionsWorker(BackgroundWorker):
             db[key] = emb
             db.md_set(key, **data)
         db.sync()
+
+    @db_session(sql_debug=False)
+    def _compute_user_stats(self, user_id: int, item_ids: list[int], like_scores: dict[int, float]) -> dict[str, Any]:
+        """Compute statistics for a specific `user_id`.
+
+        This expects a list of item IDs that belong to the user to be passed in.
+
+        Returns dict with user statistics including content counts, engagement, and scores.
+        """
+        timing = Counter()
+        t0 = time.time()
+        timing['db_session_start'] = time.time() - t0
+        t1 = time.time()
+        # Get all items from this user
+        user_items = Item.select(lambda i: i.id in item_ids)[:]
+        timing['user_items_query'] = time.time() - t1
+        t2 = time.time()
+        t3 = time.time()
+        # Initialize counters
+        counts = Counter()
+        timing['init_counters'] = time.time() - t3
+        t4 = time.time()
+        t5 = time.time()
+        for item in user_items:
+            t_item_start = time.time()
+            # otype counts
+            counts[f'n_{item.otype}s'] += 1
+            timing['otype_counts'] += time.time() - t_item_start
+            if item.otype == 'image': # set as a url to use for the user
+                counts['image_url'] = item.url
+            t_otype = time.time()
+            # liked counts
+            liked_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='like')
+            timing['liked_rel_query'] += time.time() - t_otype
+            t_liked = time.time()
+            if liked_rel:
+                counts['n_liked_items'] += 1
+            # Check if this is a "good item"
+            item_like_score = like_scores.get(item.id, 0.0)
+            item_dwell_time = getattr(item, 'dwell_time', None) or 0.0
+            # Check if item is queued
+            queued_rel = Rel.get(src=Item.get(source='me'), tgt=item, rtype='queue')
+            if (item_like_score > 0 and
+                item_dwell_time < 1.0 and
+                not liked_rel and
+                not queued_rel):
+                counts['n_good'] += 1
+            timing['liked_check'] += time.time() - t_liked
+            t_ts = time.time()
+            # track most recent item
+            if item.ts and item.ts > counts['last_item_ts']:
+                counts['last_item_ts'] = item.ts
+            timing['timestamp_check'] += time.time() - t_ts
+        timing['item_loop_total'] = time.time() - t5
+        t6 = time.time()
+        # average like score
+        likes = [score for id, score in like_scores.items() if int(id) in item_ids]
+        counts['n_scored'] = len(likes)
+        counts['avg_like_score'] = sum(likes) / len(likes) if likes else 0.0
+        counts['n_pos_like_score'] = sum(1 for s in likes if s > 0)
+        timing['avg_score_calc'] = time.time() - t6
+        # Count Score rows by tag for this user's items
+        t_tags = time.time()
+        tag_counts = Counter()
+        #score_rows = Score.select(lambda s: s.id.id in item_ids)
+        score_rows = Score.select(lambda s: s.id in user_items)
+        for score_row in score_rows:
+            if score_row.tag != 'like':
+                tag_counts[score_row.tag] += 1
+        # Get top 5 tags
+        top_tags = dict(tag_counts.most_common(7))
+        counts['top_tags'] = top_tags
+        counts['n_tagged_items'] = len(set(s.id.id for s in score_rows))
+        timing['tag_counting'] = time.time() - t_tags
+        # Aggregate scores for user by (ttype, tag)
+        t_user_scores = time.time()
+        user_scores = defaultdict(list)
+        score_times = defaultdict(list)
+        # Group scores by (ttype, tag)
+        for score_row in score_rows:
+            key = (score_row.ttype, score_row.tag)
+            user_scores[key].append(score_row.score)
+            score_times[key].append(score_row.ts or 0)
+        # Upsert Score rows for the user
+        user_item = Item[user_id]
+        current_ts = time.time()
+        for (ttype, tag), scores in user_scores.items():
+            timestamps = score_times[(ttype, tag)]
+            # Calculate aggregated statistics
+            score_count = len(scores)
+            score_sum = sum(scores)
+            score_mean = score_sum / score_count if score_count > 0 else 0.0
+            score_median = sorted(scores)[score_count // 2] if score_count > 0 else 0.0
+            latest_ts = max(timestamps) if timestamps else 0
+            # Create metadata
+            md = dict(
+                sum=score_sum,
+                mean=score_mean,
+                median=score_median,
+                latest_ts=latest_ts
+            )
+            # Upsert Score row for user
+            Score.upsert(get_kw=dict(id=user_item, ttype=ttype, tag=tag),
+                         score=float(score_count),
+                         ts=current_ts,
+                         md=md)
+        timing['user_score_aggregation'] = time.time() - t_user_scores
+        timing['total_function'] = time.time() - t0
+        # Print top timing items
+        formatted_timings = [(name, f"{time:.4f}") for name, time in timing.most_common(5)]
+        logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
+        return dict(counts)
+
+    async def _handle_user_actions(self, max_items:int= 10) -> None:
+        """Handles user actions that are in the table but have not been done."""
+        with db_session:
+            actions = Rel.select(lambda r: r.rtype in ACTIONS and r.md['processed_ts'] is None)[:max_items]
+            for a in actions:
+                s = a.tgt.get_source()
+                logger.info(f'handling action {a} with source {s}')
+                try:
+                    await s.handle_me_action([a.tgt.id], a.rtype)
+                    a.md['processed_ts'] = time.time()
+                except Exception as e:
+                    logger.error(f'Error handling action {a}: {e}')
+                    a.md['processed_ts'] = -1
+
+    async def _explore_users(self, min_count=60) -> None:
+        """Explores users who have more than `min_count` reblogs queued."""
+        with db_session:
+            users = Item.select(lambda u: u.otype == 'user' and u.explored_ts is None and u.md['n_queued_reblogs'] is not None)
+            to_explore = []
+            for user in users:
+                n_qbr = user.md.get('n_queued_reblogs', 0)
+                if n_qbr > min_count:
+                    to_explore.append(user.id)
+        if not to_explore:
+            return
+        logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
+        await Rel.handle_me_action(to_explore, 'explore')
+        logger.info(f'Done exploring users')
+
+    async def _update_embeddings(self, limit=1000) -> None:
+        """Updates upto {limit} embeddings per source."""
+        #FIXME implement after we figure out how to do config
+        pass
+
+    def _update_user_stats(self, max_users:int=500) -> None:
+        """Update statistics for upto `max_users` in the database, sorted by oldest stats time.
+
+        I'm tuning `max_users` to be under 30 secs.
+        """
+        n_updated = 0
+        t0 = time.time()
+        with db_session:
+            users = Item.select(lambda u: u.otype == 'user')
+            # sort by last stats time
+            last_times = []
+            for u in users:
+                if u.md.setdefault('stats', {}) is None:
+                    u.md['stats'] = {}
+                last_times.append(u.md['stats'].get('ts', 0))
+            users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])][:max_users]
+            user_ids = {u.id for u in users}
+        # first build a dict from user id to list of their item ids
+        items_by_user = defaultdict(list)
+        n_items = 0
+        all_item_ids = set()
+        with db_session:
+            items = Item.select(lambda i: i.otype in ('post', 'image', 'video'))
+            items = items.filter(lambda i: i.parent and (i.parent.id in user_ids or (i.parent.parent and i.parent.parent.id in user_ids)))
+            for item in items:
+                user = item.get_closest(otype='user')
+                if not user or user.id not in user_ids:
+                    continue
+                items_by_user[user.id].append(item.id)
+                all_item_ids.add(item.id)
+                n_items += 1
+        user_ids = sorted(user_ids)
+        logger.info(f'Starting to get stats for {len(user_ids)} users with {n_items} items: {user_ids[:5]}')
+        # get like scores
+        like_scores = get_like_scores(ids=list(all_item_ids))
+        for user_id in user_ids:
+            # first get current stats
+            with db_session:
+                user = Item[user_id]
+                if user.md is None:
+                    user.md = {}
+                cur_stats = dict(user.md.get('stats', {}))
+            try:
+                if items_by_user[user_id]: # only compute stats if they have items
+                    stats = self._compute_user_stats(user_id, items_by_user[user_id], like_scores=like_scores)
+                else:
+                    stats = cur_stats
+                # now update user with computed stats
+                with db_session:
+                    user = Item[user_id]
+                    # set current timestamp
+                    stats['ts'] = time.time()
+                    # add the queued reblogs
+                    stats['n_queued_reblogs'] = user.md.get('n_queued_reblogs', 0)
+                    user.md['stats'] = stats
+                    n_updated += 1
+            except Exception as e:
+                logger.error(f"Error computing stats for user {user.id}: {e}")
+                print(traceback.format_exc())
+                continue
+        t1 = time.time()
+        logger.info(f"Updated stats for {n_updated} users in {t1 - t0:.2f}s")
+
+    def queue_sizes(self) -> dict[str, int]:
+        """Get current queue sizes for monitoring."""
+        return dict(
+            input_queue_size=self.input_queue.qsize(),
+            output_queue_size=self.output_queue.qsize()
+        )
+
+    def is_running(self) -> bool:
+        """Check if the worker thread is running."""
+        return self.running and self.thread is not None and self.thread.is_alive()
+
 
     def load_lmdb(self, flag='c', **kw) -> NumpyLmdb:
         """Loads the lmdb for our embeddings for direct manipulation.
