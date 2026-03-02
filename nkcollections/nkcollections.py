@@ -5,6 +5,7 @@
 #TODO   by similarity of their images/embeddings
 #TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
 #TODO cluster users
+#TODO compute my preferred tags and preferred image embeddings over time based on likes ts
 #TODO better feature extraction pipeline
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers

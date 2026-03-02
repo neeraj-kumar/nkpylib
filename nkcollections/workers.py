@@ -648,8 +648,7 @@ class CollectionsWorker(BackgroundWorker):
                 neg_count=len(neg),
                 total_classified=len(to_cls),
                 scores=like_scores,
-                pipeline=other_stuff['pipeline'],
-                **{k: v for k, v in other_stuff.items() if k != 'pipeline'},
+                **other_stuff
             )
             # Store all scores in Score table
             self._store_scores_in_db(
@@ -1171,8 +1170,7 @@ class CollectionsWorker(BackgroundWorker):
                     total_classified=len(to_cls),
                     scores=scores,
                     cooccurring_tags=list(cooccurring_tags),
-                    pipeline=other_stuff['pipeline'],
-                    **{k: v for k, v in other_stuff.items() if k != 'pipeline'},
+                    **other_stuff,
                     **cls_kw
                 )
                 logger.info(f'Saved likes classifier for tag {tag} to {classifier_path}')
