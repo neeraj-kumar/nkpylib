@@ -433,7 +433,6 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         logger.debug(f'got final ret: {ret[:10]}')
         return ret
 
-    @with_pipeline(Pipeliner.just_scaling())
     def train_and_run_classifier(self,
                                  pos: list[KeyT],
                                  neg: list[KeyT],
@@ -442,6 +441,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  method: str='rbf',
                                  C=1,
                                  cv: int=0,
+                                 pipeline: Pipeline|None=None,
                                  **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
         """High-level function to train a classifier with given `pos` and `neg` and run on `to_cls`.
 
@@ -457,6 +457,17 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         other_stuff = {}
         times = [time.time()]
         assert len(to_cls) > 0
+        
+        # Create pipeline with RBF sampling for linear methods
+        if pipeline is None:
+            if method in ('linear', 'sgd'):
+                pipeline = Pipeliner.just_scaling().rbf_sample(n_components=4000, gamma='scale').build()
+            else:
+                pipeline = Pipeliner.just_scaling().build()
+        
+        self._last_pipeline = pipeline
+        self._fit_pipeline = True
+        
         # we get initial embeddings for all keys to normalize correctly.
         keys, embs = self.get_embs(keys=pos+neg+to_cls)
         times.append(time.time())
@@ -479,11 +490,6 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 test_keys.append(k)
                 test_X.append(emb)
         train_X = np.vstack(train_X)
-        #sampler = RBFSampler(gamma=1.0/len(emb), n_components=5000)
-        sampler = RBFSampler(gamma='scale', n_components=4000)
-        if method in ('linear', 'sgd'):
-            other_stuff['sampler'] = sampler
-            train_X = sampler.fit_transform(train_X)
         times.append(time.time())
         logger.info(f'In training, trainX: {train_X.shape}, y: {Counter(y).most_common()}')
         # Perform cross-validation if requested
@@ -495,8 +501,6 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
         test_X = np.vstack(test_X)
-        if method in ('linear', 'sgd'):
-            test_X = sampler.transform(test_X)
         scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(test_X))}
         times.append(time.time())
         other_stuff['times'] = dict(
@@ -509,15 +513,14 @@ class Embeddings(FeatureSet, Generic[KeyT]):
     def run_classifier(self,
                        to_cls: list[KeyT],
                        classifier: BaseEstimator,
-                       scaler: StandardScaler|None=None,
-                       sampler: RBFSampler|None=None) -> dict[KeyT, Any]:
+                       pipeline: Pipeline|None=None) -> dict[KeyT, Any]:
         """Runs binary `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
-        keys, embs = self.keys_final_vecs(keys=to_cls, pipeline=scaler, fit_pipeline=False)
+        if pipeline is None:
+            pipeline = self._last_pipeline
+        keys, embs = self.keys_final_vecs(keys=to_cls, pipeline=pipeline, fit_pipeline=False)
         if not keys:
             return {}
-        if sampler is not None:
-            embs = sampler.transform(embs)
         scores_array = classifier.decision_function(embs)
         return {key: float(score) for key, score in zip(keys, scores_array)}
 
