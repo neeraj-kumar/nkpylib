@@ -22,9 +22,11 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.decomposition import PCA
 from sklearn.kernel_approximation import RBFSampler
+from sklearn.linear_model import SGDClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import Normalizer, StandardScaler
 from sklearn.random_projection import GaussianRandomProjection
+from sklearn.svm import LinearSVC, SVC
 from tqdm import tqdm
 
 from nkpylib.ml.ml_types import nparray1d, nparray2d, array1d, array2d
@@ -112,6 +114,36 @@ class FeaturePipelineBuilder:
         - `weights`: 1D array of weights to multiply each feature by
         """
         self.steps.append(('weight', WeightTransformer(weights)))
+        return self
+
+    def classifier_weights(self, classifier: BaseEstimator):
+        """Add classifier feature weighting step.
+
+        Extracts feature weights from a trained linear classifier and applies them as weights.
+        Supports `SVC` with `kernel='linear'`, `SGDClassifier`, and `LinearSVC`.
+
+        - `classifier`: Trained sklearn classifier with linear coefficients
+        """
+        coef: np.ndarray|None = None
+        match classifier:
+            case SVC() if getattr(classifier, 'kernel', None) == 'linear':
+                coef = getattr(classifier, 'coef_', None)
+            case SGDClassifier() | LinearSVC():
+                coef = getattr(classifier, 'coef_', None)
+            case _:
+                raise NotImplementedError('classifier_weights supports only linear SVC or SGDClassifier.')
+        
+        if coef is None:
+            raise ValueError('Classifier does not expose coef_. Ensure it is a trained linear model.')
+        
+        coef_arr = np.asarray(coef)
+        if coef_arr.ndim == 1:
+            weights = coef_arr
+        else:  # Aggregate multiclass weights to a single per-feature vector
+            weights = np.mean(np.abs(coef_arr), axis=0)
+        
+        weights = np.abs(weights)  # take absolute value to get importance regardless of direction
+        self.steps.append(('classifier_weight', WeightTransformer(weights)))
         return self
 
     def build(self) -> Pipeline:
