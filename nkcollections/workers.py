@@ -648,7 +648,8 @@ class CollectionsWorker(BackgroundWorker):
                 neg_count=len(neg),
                 total_classified=len(to_cls),
                 scores=like_scores,
-                **other_stuff,
+                pipeline=other_stuff['pipeline'],
+                **{k: v for k, v in other_stuff.items() if k != 'pipeline'},
             )
             # Store all scores in Score table
             self._store_scores_in_db(
@@ -733,7 +734,7 @@ class CollectionsWorker(BackgroundWorker):
             data = self.embs.load_classifier(path)
             tag = data['tag']
             # delete some fields we don't want to save in lmdb
-            for field in 'classifier scaler scores total_classified'.split():
+            for field in 'classifier pipeline scores total_classified'.split():
                 if field in data:
                     del data[field]
             version = data['version'] = str(data.get('created_at', os.path.getmtime(path)))
@@ -886,8 +887,7 @@ class CollectionsWorker(BackgroundWorker):
         t0 = time.time()
         new_scores = self.embs.run_classifier(to_cls=to_cls,
                                               classifier=saved_data['classifier'],
-                                              scaler=saved_data.get('scaler', None),
-                                              sampler=saved_data.get('sampler', None))
+                                              pipeline=saved_data.get('pipeline'))
         new_scores = {int(key.split(':')[0]): score for key, score in new_scores.items()}
         t1 = time.time()
         return dict(
@@ -1171,7 +1171,8 @@ class CollectionsWorker(BackgroundWorker):
                     total_classified=len(to_cls),
                     scores=scores,
                     cooccurring_tags=list(cooccurring_tags),
-                    **other_stuff,
+                    pipeline=other_stuff['pipeline'],
+                    **{k: v for k, v in other_stuff.items() if k != 'pipeline'},
                     **cls_kw
                 )
                 logger.info(f'Saved likes classifier for tag {tag} to {classifier_path}')
