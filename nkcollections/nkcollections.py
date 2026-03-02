@@ -1000,7 +1000,6 @@ class FilterHandler(MyBaseHandler):
 
 def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|None, app=None) -> dict[str, Any]:
     """Searches for similarity to `pos` amongst `cur_ids` using `embs`"""
-    
     # Load pipeline from the last saved likes classifier
     pipeline = None
     if app and hasattr(app, 'classifiers_dir'):
@@ -1011,7 +1010,6 @@ def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|Non
             logger.debug(f"Loaded pipeline from {classifier_path}")
         except Exception as e:
             logger.warning(f"Could not load pipeline from classifier: {e}")
-    
     pos = [f'{p}:{IMAGE_SUFFIX}' for p in pos]
     if cur_ids is None:
         all_keys = [k for k in embs if k.endswith(f':{IMAGE_SUFFIX}')]
