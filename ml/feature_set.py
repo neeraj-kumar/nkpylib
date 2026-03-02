@@ -20,6 +20,7 @@ from typing import Any, Generic, TypeVar, Iterator
 import numpy as np
 
 from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from tqdm import tqdm
 
 from nkpylib.ml.ml_types import nparray1d, nparray2d, array1d, array2d
@@ -203,3 +204,27 @@ class FeatureSet(Mapping, Generic[KeyT]):
             return keys, embs, scaler
         else:
             return keys, embs
+
+    def keys_final_vecs(self,
+                        keys: list[KeyT]|None=None,
+                        pipeline: Pipeline|None=None,
+                        fit_pipeline: bool=True) -> tuple[list[KeyT], np.ndarray]:
+        """Returns a list of keys and a numpy array of final transformed vectors.
+
+        By default we return vectors for all our keys, but you can optionally pass in a list of
+        keys to get vectors for. Note that these are further filtered to those we have in our set.
+
+        - `pipeline`: sklearn Pipeline to apply transformations to the raw vectors
+        - `fit_pipeline`: Whether to fit the pipeline on the data (True) or just transform (False)
+        """
+        keys, raw_vecs = self.keys_vecs(keys)
+        
+        if pipeline is None or not keys:
+            return keys, raw_vecs
+        
+        if fit_pipeline:
+            transformed = pipeline.fit_transform(raw_vecs)
+        else:
+            transformed = pipeline.transform(raw_vecs)
+        
+        return keys, transformed
