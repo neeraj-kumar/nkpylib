@@ -51,6 +51,7 @@ from nkpylib.ml.feature_set import (
     array2d,
     nparray2d,
     FeatureSet,
+    Pipeliner,
 )
 from nkpylib.ml.nklmdb import (
     JsonLmdb,
@@ -220,7 +221,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 else:
                     clusters[key] = dict(num=random.randint(1, n_clusters), score=random.uniform(0, 1))
         elif method == 'rbf': # apply multiclass rbf classifier
-            keys_all, embs = self.get_keys_embeddings(keys=keys, normed=False, scale_mean=True, scale_std=True)
+            pipeline = Pipeliner.just_scaling()
+            keys_all, embs = self.keys_final_vecs(keys=keys, pipeline=pipeline)
             # if we don't have any labels for cluster=1, then add a few dummy examples at low weight
             orig_labels = labels.copy()
             key_order = list(labels)
@@ -250,7 +252,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         else:
             # apply clustering method repeatedly until we have no conflicts with labels
             clusterer = self.get_clusterer(method=method, n_clusters=n_clusters)
-            keys_all, embs = self.get_keys_embeddings(keys=keys, normed=False, scale_mean=True, scale_std=True)
+            pipeline = Pipeliner.just_scaling()
+            keys_all, embs = self.keys_final_vecs(keys=keys, pipeline=pipeline)
             #print(keys_all, embs)
             labels_array = np.array([labels[key] if key in labels else -1 for key in keys_all])
             print(labels_array)
@@ -281,7 +284,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
         Returns a list of lists of keys, where each list is a cluster; in order from largest to smallest.
         """
-        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=False, scale_mean=True, scale_std=True)
+        pipeline = Pipeliner.just_scaling()
+        keys, embs = self.keys_final_vecs(keys=all_keys, pipeline=pipeline)
         if n_clusters <= 0:
             n_clusters = int(np.sqrt(len(keys)))
         clusterer = self.get_clusterer(method=method, n_clusters=n_clusters, **kwargs)
@@ -318,7 +322,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             if queries[0] in self:
                 assert all(q in self for q in queries), f'All queries must be in the embeddings.'
         #TODO normalize queries if not in dataset
-        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=True)
+        pipeline = Pipeliner.basic(norm='l2', with_mean=False, with_std=True)
+        keys, embs = self.keys_final_vecs(keys=all_keys, pipeline=pipeline)
         pos: Any
         if method == 'nn': # queries must not be estimator
             if queries[0] in self:
@@ -359,8 +364,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
     def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='l2', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores."""
         nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric)
-        #keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=True)
-        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=False, scale_mean=False, scale_std=False)
+        keys, embs = self.keys_vecs(keys=all_keys)
         logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         nn.fit(embs)
         scores, indices = nn.kneighbors(pos, min(n_neighbors, len(keys)), return_distance=True)
@@ -380,7 +384,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
 
         This version uses cdist directly.
         """
-        keys, embs = self.get_keys_embeddings(keys=all_keys, normed=True, scale_mean=False, scale_std=False)
+        pipeline = Pipeliner().normalize().build()
+        keys, embs = self.keys_final_vecs(keys=all_keys, pipeline=pipeline)
         logger.debug(f'first keys and embs: {keys[:5]}, {embs[:5]}')
         scores = cdist(pos, embs, metric=metric)
         logger.debug(f'got scores: {scores.shape}: {scores}')
@@ -418,13 +423,9 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         times = [time.time()]
         assert len(to_cls) > 0
         # we get initial embeddings for all keys to normalize correctly.
-        keys, embs, scaler = self.get_keys_embeddings(
-            keys=pos+neg+to_cls,
-            normed=False,
-            scale_mean=True,
-            scale_std=True,
-            return_scaler=True,
-        )
+        pipeline = Pipeliner.just_scaling()
+        keys, embs = self.keys_final_vecs(keys=pos+neg+to_cls, pipeline=pipeline)
+        scaler = pipeline.named_steps['scale']
         times.append(time.time())
         other_stuff['scaler'] = scaler
         pos_set = set(pos)
@@ -479,14 +480,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                        sampler: RBFSampler|None=None) -> dict[KeyT, Any]:
         """Runs binary `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
-        keys, embs, scaler = self.get_keys_embeddings(
-            keys=to_cls,
-            normed=False,
-            scale_mean=True,
-            scale_std=True,
-            scaler=scaler,
-            return_scaler=True,
-        )
+        keys, embs = self.keys_final_vecs(keys=to_cls, pipeline=scaler, fit_pipeline=False)
         if not keys:
             return {}
         if sampler is not None:
@@ -543,7 +537,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             if s >= min_score: # we only care about those above min_score
                 n_high += 1
                 all_keys.add(key)
-        keys, embs = self.get_keys_embeddings(keys=list(all_keys), normed=True, scale_mean=False, scale_std=False)
+        pipeline = Pipeliner().normalize().build()
+        keys, embs = self.keys_final_vecs(keys=list(all_keys), pipeline=pipeline)
         logger.info(f'In rescore, {len(scores)} scores, {n_high} high (>= {min_score}), {len(pos)} pos, {len(all_keys)} all keys -> {embs.shape}')
         logger.debug(f'  First scores: {list(scores.items())[:5]}, first pos: {pos[:5]}')
         if len(embs) == 0:
