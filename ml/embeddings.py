@@ -131,19 +131,9 @@ class MixtureOfLinear(BaseEstimator, ClassifierMixin):
         return (self.decision_function(X) > 0).astype(int)
 
 
-KeyT = TypeVar('KeyT')
-
-class Embeddings(FeatureSet, Generic[KeyT]):
-    """A set of features that you can do stuff with."""
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._last_pipeline: Pipeline|None = None
-        self._fit_pipeline: bool = True
-
 def with_pipeline(default_pipeline: Pipeline):
     """Class method decorator that handles pipeline management.
-    
+
     - `default_pipeline`: Pipeline instance to use as default
     """
     def decorator(func):
@@ -157,10 +147,20 @@ def with_pipeline(default_pipeline: Pipeline):
                 # Use default pipeline
                 self._last_pipeline = default_pipeline
                 self._fit_pipeline = True
-            
+
             return func(self, *args, **kwargs)
         return wrapper
     return decorator
+
+KeyT = TypeVar('KeyT')
+
+class Embeddings(FeatureSet, Generic[KeyT]):
+    """A set of features that you can do stuff with."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._last_pipeline: Pipeline|None = None
+        self._fit_pipeline: bool = True
 
     def get_embs(self, keys: list[KeyT]|None=None) -> tuple[list[KeyT], np.ndarray]:
         """Get embeddings using the current pipeline settings."""
@@ -459,7 +459,7 @@ def with_pipeline(default_pipeline: Pipeline):
         assert len(to_cls) > 0
         # Override the default pipeline based on method
         if method in ('linear', 'sgd') and self._fit_pipeline:
-            self._last_pipeline = Pipeliner.just_scaling().rbf_sample(n_components=4000, gamma='scale').build()
+            self._last_pipeline = Pipeliner().scale().rbf_sample(n_components=4000, gamma='scale').build()
         # we get initial embeddings for all keys to normalize correctly.
         keys, embs = self.get_embs(keys=pos+neg+to_cls)
         times.append(time.time())
@@ -601,6 +601,13 @@ def with_pipeline(default_pipeline: Pipeline):
             #logger.info(f'  Rescored {key} ({min_score}, {dist}): {scores[key]} -> {ret[key]}')
         return ret
 
+    def load_classifier(self, path: str) -> dict[str, Any]:
+        """Load classifier from `path`, returning the saved data dict"""
+        # Load the saved data
+        saved_data = joblib.load(path)
+        logger.debug(f"Loaded classifier from {path}")
+        return saved_data
+
     def save_classifier(self, path: str, classifier: BaseEstimator, **kw) -> dict[str, Any]:
         """Save classifier with additional metadata using joblib.
 
@@ -624,14 +631,6 @@ def with_pipeline(default_pipeline: Pipeline):
         joblib.dump(save_data, path)
         logger.debug(f"Saved classifier to {path}")
         return save_data
-
-    @staticmethod
-    def load_classifier(path: str) -> dict[str, Any]:
-        """Load classifier from `path`, returning the saved data dict"""
-        # Load the saved data
-        saved_data = joblib.load(path)
-        logger.debug(f"Loaded classifier from {path}")
-        return saved_data
 
 
 # hashable bound

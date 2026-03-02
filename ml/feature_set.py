@@ -55,7 +55,7 @@ class WeightTransformer(BaseEstimator, TransformerMixin):
         return X * self.weights
 
 
-class FeaturePipelineBuilder:
+class Pipeliner:
     """Builder for creating sklearn pipelines for feature transformation."""
     def __init__(self):
         self.steps = []
@@ -64,6 +64,11 @@ class FeaturePipelineBuilder:
     def basic(cls, norm: str='l2', with_mean: bool=True, with_std: bool=True) -> Pipeline:
         """Create a standard normalization + scaling pipeline."""
         return cls().normalize(norm=norm).scale(with_mean=with_mean, with_std=with_std).build()
+
+    @classmethod
+    def just_scaling(cls, with_mean: bool=True, with_std: bool=True) -> Pipeline:
+        """Create a pipeline with just standard scaling."""
+        return cls().scale(with_mean=with_mean, with_std=with_std).build()
 
     def normalize(self, norm: str='l2'):
         """Add normalization step.
@@ -131,17 +136,14 @@ class FeaturePipelineBuilder:
             case SGDClassifier() | LinearSVC():
                 coef = getattr(classifier, 'coef_', None)
             case _:
-                raise NotImplementedError('classifier_weights supports only linear SVC or SGDClassifier.')
-        
+                raise NotImplementedError(f'we only support linear SVC or SGDClassifier, not {type(classifier)}')
         if coef is None:
             raise ValueError('Classifier does not expose coef_. Ensure it is a trained linear model.')
-        
         coef_arr = np.asarray(coef)
         if coef_arr.ndim == 1:
             weights = coef_arr
         else:  # Aggregate multiclass weights to a single per-feature vector
             weights = np.mean(np.abs(coef_arr), axis=0)
-        
         weights = np.abs(weights)  # take absolute value to get importance regardless of direction
         self.steps.append(('classifier_weight', WeightTransformer(weights)))
         return self
