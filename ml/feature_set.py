@@ -24,6 +24,7 @@ from sklearn.decomposition import PCA
 from sklearn.kernel_approximation import RBFSampler
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import Normalizer, StandardScaler
+from sklearn.random_projection import GaussianRandomProjection
 from tqdm import tqdm
 
 from nkpylib.ml.ml_types import nparray1d, nparray2d, array1d, array2d
@@ -89,6 +90,15 @@ class FeaturePipelineBuilder:
         - `n_components`: Number of principal components to keep
         """
         self.steps.append(('pca', PCA(n_components=n_components)))
+        return self
+
+    def random_projection(self, n_components: int=512, random_state: int|None=None):
+        """Add Gaussian random projection for dimensionality reduction.
+
+        - `n_components`: Number of components in the random projection
+        - `random_state`: Random seed for reproducibility
+        """
+        self.steps.append(('random_proj', GaussianRandomProjection(n_components=n_components, random_state=random_state)))
         return self
 
     def weight(self, weights: np.ndarray):
