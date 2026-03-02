@@ -141,26 +141,26 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         self._last_pipeline: Pipeline|None = None
         self._fit_pipeline: bool = True
 
-    def with_pipeline(self, default_pipeline: Pipeline):
-        """Class method decorator that handles pipeline management.
-        
-        - `default_pipeline`: Pipeline instance to use as default
-        """
-        def decorator(func):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                # Check if pipeline was explicitly provided
-                if 'pipeline' in kwargs:
-                    self._last_pipeline = kwargs.pop('pipeline')
-                    self._fit_pipeline = False  # Assume provided pipelines are pre-fitted
-                else:
-                    # Use default pipeline
-                    self._last_pipeline = default_pipeline
-                    self._fit_pipeline = True
-                
-                return func(*args, **kwargs)
-            return wrapper
-        return decorator
+def with_pipeline(default_pipeline: Pipeline):
+    """Class method decorator that handles pipeline management.
+    
+    - `default_pipeline`: Pipeline instance to use as default
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Check if pipeline was explicitly provided
+            if 'pipeline' in kwargs:
+                self._last_pipeline = kwargs.pop('pipeline')
+                self._fit_pipeline = False  # Assume provided pipelines are pre-fitted
+            else:
+                # Use default pipeline
+                self._last_pipeline = default_pipeline
+                self._fit_pipeline = True
+            
+            return func(self, *args, **kwargs)
+        return wrapper
+    return decorator
 
     def get_embs(self, keys: list[KeyT]|None=None) -> tuple[list[KeyT], np.ndarray]:
         """Get embeddings using the current pipeline settings."""
