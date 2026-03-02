@@ -19,9 +19,11 @@ from typing import Any, Generic, TypeVar, Iterator
 
 import numpy as np
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.decomposition import PCA
+from sklearn.kernel_approximation import RBFSampler
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import Normalizer, StandardScaler
 from tqdm import tqdm
 
 from nkpylib.ml.ml_types import nparray1d, nparray2d, array1d, array2d
@@ -34,18 +36,17 @@ KeyT = TypeVar('KeyT')
 
 class WeightTransformer(BaseEstimator, TransformerMixin):
     """Custom transformer for applying feature weights."""
-    
-    def __init__(self, weights: np.ndarray):
+    def __init__(self, weights: nparray1d):
         """Initialize with feature weights.
-        
+
         - `weights`: 1D array of weights to multiply each feature by
         """
         self.weights = weights
-    
+
     def fit(self, X: np.ndarray, y=None):
         """Fit the transformer (no-op for weighting)."""
         return self
-    
+
     def transform(self, X: np.ndarray) -> np.ndarray:
         """Apply feature weights to input array."""
         return X * self.weights
@@ -53,55 +54,51 @@ class WeightTransformer(BaseEstimator, TransformerMixin):
 
 class FeaturePipelineBuilder:
     """Builder for creating sklearn pipelines for feature transformation."""
-    
     def __init__(self):
         self.steps = []
-    
+
     def normalize(self, norm: str='l2'):
         """Add normalization step.
-        
+
         - `norm`: Type of normalization ('l1', 'l2', or 'max')
         """
-        from sklearn.preprocessing import Normalizer
         self.steps.append(('normalize', Normalizer(norm=norm)))
         return self
-    
+
     def scale(self, with_mean: bool=True, with_std: bool=True):
         """Add standard scaling step.
-        
+
         - `with_mean`: Whether to center data to zero mean
         - `with_std`: Whether to scale data to unit variance
         """
         self.steps.append(('scale', StandardScaler(with_mean=with_mean, with_std=with_std)))
         return self
-    
-    def rbf_sample(self, n_components: int=1000, gamma: float=0.1):
+
+    def rbf_sample(self, n_components: int=4000, gamma: float|str='scale'):
         """Add RBF sampling step for kernel approximation.
-        
+
         - `n_components`: Number of components to sample
-        - `gamma`: Parameter of the RBF kernel
+        - `gamma`: Parameter of the RBF kernel, default
         """
-        from sklearn.kernel_approximation import RBFSampler
         self.steps.append(('rbf', RBFSampler(n_components=n_components, gamma=gamma)))
         return self
-    
+
     def pca(self, n_components: int=512):
         """Add PCA dimensionality reduction.
-        
+
         - `n_components`: Number of principal components to keep
         """
-        from sklearn.decomposition import PCA
         self.steps.append(('pca', PCA(n_components=n_components)))
         return self
-    
+
     def weight(self, weights: np.ndarray):
         """Add feature weighting step.
-        
+
         - `weights`: 1D array of weights to multiply each feature by
         """
         self.steps.append(('weight', WeightTransformer(weights)))
         return self
-    
+
     def build(self) -> Pipeline:
         """Build the final sklearn Pipeline."""
         return Pipeline(self.steps)
@@ -294,15 +291,15 @@ class FeatureSet(Mapping, Generic[KeyT]):
         - `fit_pipeline`: Whether to fit the pipeline on the data (True) or just transform (False)
         """
         keys, raw_vecs = self.keys_vecs(keys)
-        
+
         if pipeline is None or not keys:
             return keys, raw_vecs
-        
+
         if fit_pipeline:
             transformed = pipeline.fit_transform(raw_vecs)
         else:
             transformed = pipeline.transform(raw_vecs)
-        
+
         return keys, transformed
 
 
@@ -313,20 +310,20 @@ def create_basic_pipeline() -> Pipeline:
 
 def create_rbf_pipeline(n_components: int=1000, gamma: float=0.1) -> Pipeline:
     """Create a pipeline with RBF sampling for kernel approximation.
-    
+
     - `n_components`: Number of RBF components to sample
     - `gamma`: Parameter of the RBF kernel
     """
     return (FeaturePipelineBuilder()
            .normalize()
-           .scale() 
+           .scale()
            .rbf_sample(n_components=n_components, gamma=gamma)
            .build())
 
 
 def create_dimensionality_reduction_pipeline(final_dims: int=512) -> Pipeline:
     """Create a pipeline that reduces dimensionality via PCA.
-    
+
     - `final_dims`: Final number of dimensions after PCA
     """
     return (FeaturePipelineBuilder()
