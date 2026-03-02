@@ -1134,11 +1134,11 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
         # Initialize scores file path for reading from worker process
         sources = list(Source._registry.values())
         if sources:
-            classifiers_dir = sources[0].classifiers_dir
+            app.classifiers_dir = sources[0].classifiers_dir
         else:
             assert False, "No sources registered, cannot determine classifiers_dir"
         if args.worker: # version with likes workers
-            app.likes_worker = CollectionsWorker(embs=app.embs, classifiers_dir=classifiers_dir)
+            app.likes_worker = CollectionsWorker(embs=app.embs, classifiers_dir=app.classifiers_dir)
             app.likes_worker.start()
             app.likes_worker.add_task('update')  # Start the main loop
             logger.info("CollectionsWorker started successfully")
