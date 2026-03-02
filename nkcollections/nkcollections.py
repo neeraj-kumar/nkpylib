@@ -548,12 +548,12 @@ Return only the JSON array, no other text."""
                 logger.info(f'Applying pos filter: {pos}')
                 self.embs.reload_keys()
                 if kw.get('otype') == 'image':
-                    sim = find_similar(pos, embs=self.embs, cur_ids=self.query, app=None)
+                    sim = find_similar(pos, embs=self.embs, cur_ids=self.query)
                     scores = sim['scores']
                     min_score = min(scores.values()) if scores else 0.0
                     self.query = sorted(self.query, key=lambda id: scores.get(id, min_score-10), reverse=True)
                 elif kw.get('otype') == 'user':
-                    sim = find_similar(pos, embs=self.embs, cur_ids=None, app=None)
+                    sim = find_similar(pos, embs=self.embs, cur_ids=None)
                     logger.info(f'For user: found {len(sim["scores"])} similar items for pos {pos}')
                     user_scores = self._aggregate_user_scores(sim['scores'], kw)
                     self.query = sorted(self.query, key=lambda id: user_scores.get(id, -10000), reverse=True)
@@ -1030,7 +1030,8 @@ class ClassifyHandler(MyBaseHandler):
                           **data):
         """Simple positive only classifier"""
         pos = data.get('pos', [])
-        return find_similar(pos, embs=self.embs, cur_ids=cur_ids, app=self.application)
+        classifier_path = join(self.application.classifiers_dir, 'likes-mn_image.joblib')
+        return find_similar(pos, embs=self.embs, cur_ids=cur_ids, classifier_path=classifier_path)
 
     async def _handle_likes(self,
                             cur_ids: list[int]|None=None,
