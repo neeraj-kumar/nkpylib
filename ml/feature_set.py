@@ -24,7 +24,7 @@ from sklearn.decomposition import PCA
 from sklearn.kernel_approximation import RBFSampler
 from sklearn.linear_model import SGDClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import Normalizer, StandardScaler
+from sklearn.preprocessing import FunctionTransformer, Normalizer, StandardScaler
 from sklearn.random_projection import GaussianRandomProjection
 from sklearn.svm import LinearSVC, SVC
 from tqdm import tqdm
@@ -59,6 +59,10 @@ class Pipeliner:
     """Builder for creating sklearn pipelines for feature transformation."""
     def __init__(self):
         self.steps = []
+
+    @classmethod
+    def no_op(cls) -> Pipeline:
+        return Pipeline([('identity', FunctionTransformer())])
 
     @classmethod
     def basic(cls, norm: str='l2', with_mean: bool=True, with_std: bool=True) -> Pipeline:

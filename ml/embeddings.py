@@ -140,7 +140,7 @@ def with_pipeline(default_pipeline: Pipeline):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             # Check if pipeline was explicitly provided
-            if 'pipeline' in kwargs:
+            if 'pipeline' in kwargs and hasattr(kwargs['pipeline'], 'fit_transform'):
                 self._last_pipeline = kwargs.pop('pipeline')
                 self._fit_pipeline = False  # Assume provided pipelines are pre-fitted
             else:
@@ -394,7 +394,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             ret = sorted([(float(s), k) for s, k in _ret if k not in queries], reverse=True)
         return ret
 
-    @with_pipeline(Pipeline([]))
+    @with_pipeline(Pipeliner.no_op())
     def nearest_neighbors(self, pos: array2d, n_neighbors:int=1000, metric='l2', all_keys=None, **kw):
         """Runs nearest neighbors with given `pos` embeddings, aggregating scores."""
         nn = NearestNeighbors(n_neighbors=n_neighbors, metric=metric)
@@ -502,7 +502,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         logger.debug(f'train_and_run_classifier times: {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         return cls, scores, other_stuff
 
-    @with_pipeline(Pipeline([]))
+    @with_pipeline(Pipeliner.no_op())
     def run_classifier(self,
                        to_cls: list[KeyT],
                        classifier: BaseEstimator) -> dict[KeyT, Any]:
