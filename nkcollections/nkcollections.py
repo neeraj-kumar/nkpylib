@@ -6,7 +6,6 @@
 #TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
 #TODO cluster users
 #TODO compute my preferred tags and preferred image embeddings over time based on likes ts
-#TODO better feature extraction pipeline
 #TODO separate out config on sources vs overall
 #TODO investigate multiple linear classifiers
 #TODO remove bad images
@@ -524,6 +523,8 @@ Return only the JSON array, no other text."""
             if not self.converted_to_list:
                 if isinstance(self.query, Query):
                     self.query = self.query.without_distinct()
+                #TODO for now we just rewrite the query by hand, since we know what it is
+                print(f'Query is : {self.query.get_sql()}')
                 ids_only = [item.id for item in self.query]
                 self.query = ids_only
                 self.converted_to_list = True
@@ -1002,11 +1003,11 @@ def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|Non
     """Searches for similarity to `pos` amongst `cur_ids` using `embs`"""
     # Load pipeline from the last saved likes classifier
     pipeline = None
-    if classifier_path:
+    if 0 and classifier_path: #FIXME broken
         try:
             saved_data = embs.load_classifier(classifier_path)
             pipeline = saved_data.get('pipeline')
-            logger.debug(f"Loaded pipeline from {classifier_path}")
+            logger.info(f"Loaded pipeline from {classifier_path}: {pipeline}")
         except Exception as e:
             logger.warning(f"Could not load pipeline from classifier: {e}")
     pos = [f'{p}:{IMAGE_SUFFIX}' for p in pos]
@@ -1015,7 +1016,8 @@ def find_similar(pos: list[str|int], *, embs: Embeddings, cur_ids: list[int]|Non
     else:
         all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
     logger.info(f'got pos={pos}, {len(all_keys)} all keys: {all_keys[:5]}...')
-    ret = embs.similar(pos, all_keys=all_keys, method='nn', pipeline=pipeline)
+    #ret = embs.similar(pos, all_keys=all_keys, method='nn', pipeline=pipeline)
+    ret = embs.similar(pos, all_keys=all_keys, method='nn') #FIXME
     scores, curIds = zip(*ret)
     return dict(
         pos=pos,

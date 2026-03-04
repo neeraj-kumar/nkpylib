@@ -2112,7 +2112,6 @@ const AppProvider = ({ children }) => {
         // Page became visible - restart viewing sessions for currently intersecting items
         // The intersection observer will handle restarting active sessions
       }
-      
       setIsPageVisible(newIsVisible);
     };
 
@@ -2675,7 +2674,6 @@ const AppProvider = ({ children }) => {
       return !(isLiked || isQueued || hasHighDwellTime);
     });
   }
-  
   // if we have a cur cluster, limit to that
   if (curCluster) {
     const lst = autoClusters[curCluster];

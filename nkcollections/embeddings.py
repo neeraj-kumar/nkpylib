@@ -286,7 +286,7 @@ async def update_image_descriptions(
     with db_session:
         q = q.filter(lambda c: c.otype == 'image' and c.embed_ts is not None and c.embed_ts > 0 and c.explored_ts is None)
         #rows = q.limit(limit)
-        rows = q.random(limit)
+        rows = q.random(limit) #FIXME
         if not rows:
             return Counter()
         logger.info(f'Updating descriptions for {len(rows)} image rows: {rows[:5]}...')
@@ -410,7 +410,7 @@ async def update_embeddings_async(lmdb_path: str,
         update_image_descriptions(vlm_prompt=vlm_prompt,
                                   sys_prompt=sys_prompt,
                                   vlm_model=vlm_model,
-                                  limit=limit//50,
+                                  limit=limit//30,
                                   **common_kw)
     )
     text_stats, image_stats, desc_stats = await asyncio.gather(text_task, image_task, desc_task)
