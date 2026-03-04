@@ -112,7 +112,7 @@ app = fastapi.FastAPI(lifespan=lifespan)
 # request queue sizes for different types of limits
 SEMAPHORES = {
     "extfast": asyncio.Semaphore(50),
-    "extslow": asyncio.Semaphore(20),
+    "extslow": asyncio.Semaphore(40),
     "fast": asyncio.Semaphore(50),
     "medium": asyncio.Semaphore(10),
     "slow": asyncio.Semaphore(2),
