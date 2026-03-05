@@ -190,7 +190,7 @@ async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> 
         stages=[extract_text_stage, embed_stage],
         pipeline_config=dict(
             q_size=[20, 10],
-            concurrency=[2, 3],
+            concurrency=[20, 10],
             exc_policy='stop'
         ),
         updater=updater,
@@ -252,7 +252,7 @@ async def update_image_embeddings(q: Query,
         stages=[download_stage, embed_stage],
         pipeline_config=dict(
             q_size=[20, 10],
-            concurrency=[5, 3],
+            concurrency=[20, 10],
             exc_policy='stop'
         ),
         updater=updater,
@@ -324,7 +324,7 @@ async def update_image_descriptions(
     pipeline = ProducerConsumerPipeline(
         funcs=[vlm_stage, embed_stage],
         q_size=[50, 20],
-        concurrency=[3, 2],
+        concurrency=[50, 20],
         exc_policy='stop'
     )
     counts: Counter = Counter()
@@ -410,7 +410,7 @@ async def update_embeddings_async(lmdb_path: str,
         update_image_descriptions(vlm_prompt=vlm_prompt,
                                   sys_prompt=sys_prompt,
                                   vlm_model=vlm_model,
-                                  limit=limit//30,
+                                  limit=limit//2,
                                   **common_kw)
     )
     text_stats, image_stats, desc_stats = await asyncio.gather(text_task, image_task, desc_task)
