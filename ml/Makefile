@@ -67,12 +67,12 @@ embeddings:
 
 ## syncs nkpylib to src3
 sync:
-	rsync -av ~/src/nkpylib src3:src/
+	rsync -av --exclude .mypy_cache --exclude .git --exclude __pycache__ ~/src/nkpylib src3:src/
 
 ## runs gat
 gat:
 	python3 graph_learning.py
 
-## trains movie embeddings
+## trains movie embeddings on src3 machine (first run source /opt/pytorch/bin/activate)
 train:
 	@python3 graph_learning.py ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb

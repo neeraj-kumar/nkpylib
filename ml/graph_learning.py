@@ -3,8 +3,24 @@
 Implementation of Graph Attention Network (GAT) using PyTorch and PyTorch Geometric.
 
 TODO:
+- add edge attributes for futher improvement:
+    # Edge features as additional input
+    edge_attr = torch.tensor([
+        [0.8, 1],    # Edge 0: weight=0.8, type=1 (actor)
+        [0.3, 2],    # Edge 1: weight=0.3, type=2 (director)
+        [0.9, 1],    # Edge 2: weight=0.9, type=1 (actor)
+    ])
+
+    # GAT with edge features
+    conv = GATConv(in_channels, out_channels, edge_dim=2)  # edge_dim=2 for 2 edge features
+    output = conv(x, edge_index, edge_attr=edge_attr)
+
+- this will require additional memory (raw storage of attrs + bigger intermediate) and some extra
+  computation (separate attention for edge features), but probably worth it for downstream tasks
+
+
+OLD TODO:
 - Develop multi-task classification heads
-- Fix memory issues
 - contrastive loss is good for link prediction?
   - maybe instead of concatenating node vectors, could do elementwise product/diff/etc?
 
@@ -178,6 +194,7 @@ from __future__ import annotations
 import functools
 import gc
 import logging
+import sys
 import time
 
 from abc import abstractmethod
@@ -219,7 +236,7 @@ from nkpylib.ml.feature_set import (
     NumpyLmdb,
 )
 from nkpylib.ml.ml_utils import trace, list_gpu_tensors
-from nkpylib.ml.graph_worker import initialize_worker, WorkItem
+from nkpylib.ml.graph_worker import initialize_worker, WorkItem, EdgeSampler
 
 CFG: Namespace|None = None
 RNG = npr.default_rng(0)
@@ -295,14 +312,18 @@ class GATBase(torch.nn.Module):
         x = self.conv2(x, edge_index)
         return x
 
-    def get_embeddings(self, x, edge_index):
+    def get_embeddings(self, x, edge_index, use_half=False, device=None):
         """Extract node embeddings from both GAT layers.
 
         Returns tensor of shape [num_nodes, hidden_channels * heads * 2]
         """
         self.eval()
         with torch.no_grad():
-            return self.embedding_forward(x, edge_index)
+            if use_half:
+                with torch.autocast(device_type=device, dtype=torch.float16):
+                    return self.embedding_forward(x, edge_index)
+            else:
+                return self.embedding_forward(x, edge_index)
 
     def log_memory(self, msg):
         mem = self.process.memory_info().rss / 1024 / 1024 / 1024  # Convert to GB
@@ -931,6 +952,7 @@ def save_embeddings(model: torch.nn.Module,
                     data: Data,
                     output_path: str,
                     output_flag: str = 'c',
+                    use_full: bool=False,
                     **kwargs,
                     ):
     """Extract learned embeddings and save to NumpyLmdb.
@@ -940,14 +962,31 @@ def save_embeddings(model: torch.nn.Module,
     - data: PyG Data object with original keys
     - output_path: Path to output NumpyLmdb
     - output_flag: LMDB flag for opening
+    - use_full: whether to use the full graph edges or a sampler
     - kwargs: Additional metadata to save in the database
     """
-    # Extract embeddings (using cpu mode, since we're using the full data, which might overflow gpu)
+    #sys.exit()#FIXME
+    # first clear some memory
+    logger.info(f'Clearing some memory')
+    torch.cuda.empty_cache()
+    gc.collect()
+    if use_full:
+        edges = data.edge_index
+    else:
+        edge_sampler = EdgeSampler(
+            edge_index=data.edge_index.numpy(),
+            max_edges_per_node=25,
+            global_sampling=True,
+        )
+        edges = torch.tensor(edge_sampler.sample())
+        logger.info(f'Sampled from {data.edge_index.shape} to {edges.shape}')
+    # Extract embeddings (using cpu mode, since we're using data which might overflow gpu)
     cur_device = 'cpu'
+    logger.info(f'Moving model to {cur_device} to extract embeddings')
     model = model.to(cur_device)
-    embeddings = model.get_embeddings(data.x.to(cur_device), data.edge_index.to(cur_device)).cpu().numpy()
+    logger.info(f'Trying to output embeddings now')
+    embeddings = model.get_embeddings(data.x.to(cur_device), edges.to(cur_device), device=cur_device).cpu().numpy()
     logger.info(f'Got embeddings of shape {embeddings.shape}: {embeddings}')
-
     # Save to NumpyLmdb
     with NumpyLmdb.open(output_path, flag=output_flag) as db:
         to_update = {}
@@ -1012,9 +1051,12 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
-    A('--cpu-batch-size', type=int, default=128, help=f'Batch size for CPU [{BATCH_SIZE}]')
-    A('--gpu-batch-size', type=int, default=128, help=f'Batch size for GPU [{BATCH_SIZE}]')
+    A('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
+    # set the following to 128 for my home cpu
+    # in general, gpu batch size should multiple of cpu
+    A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
+    # tune gpu batch size to max first
+    A('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     A('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
     # first load configs if any (they override defaults, but not command-line args)
