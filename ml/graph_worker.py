@@ -109,18 +109,19 @@ def initialize_worker(n_nodes: int,
 def contrastive_worker_one_step(n_pos: int) -> WorkItem:
     """Runs "one step" of processing in the worker process.
 
-    This version does it for contrastive learning based sampling. We use simple node connectivity to
-    determine positives and negatives.
+    This version does it for contrastive learning based sampling. We use direct neighbor
+    connectivity to determine positives and negatives.
     """
     global _worker_obj
     assert _worker_obj is not None
     cur_edges = _worker_obj.edge_sampler.sample()
-    anchors, pos_nodes = pos_pair_generator(
-        cur_edges=cur_edges,
+    
+    # Direct neighbor sampling: positive pairs are directly connected nodes
+    anchors, pos_nodes = direct_neighbor_pos_pairs(
+        edge_index=cur_edges,
         batch_size=n_pos,
-        walk_gen=_worker_obj.walk_gen,
-        walk_window=_worker_obj.walk_window,
     )
+    
     neg_nodes = cpu_neg_pair_generator(
         n_nodes=_worker_obj.walk_gen.N,
         anchors=anchors,
@@ -409,6 +410,38 @@ class EdgeSampler:
         else:
             ret = torch.empty((2, 0), dtype=self.edge_index.dtype).numpy()
         return ret
+
+@trace
+def direct_neighbor_pos_pairs(edge_index: nparray2d, batch_size: int) -> tuple[Tensor, Tensor]:
+    """Generate positive pairs from direct neighbors (connected nodes).
+    
+    Args:
+    - edge_index: Current set of sampled edges [2, num_edges]
+    - batch_size: Target number of positive pairs
+    
+    Returns:
+    - `(anchor_nodes, positive_nodes)` tensors
+    """
+    logger.debug(f'Starting direct_neighbor_pos_pairs with batch_size={batch_size}')
+    
+    if edge_index.shape[1] == 0:
+        logger.warning("No edges available for sampling positive pairs")
+        return torch.tensor([]), torch.tensor([])
+    
+    # Sample random edges for positive pairs
+    n_edges = edge_index.shape[1]
+    n_sample = min(batch_size, n_edges)
+    
+    # Randomly sample edge indices
+    edge_indices = RNG.choice(n_edges, size=n_sample, replace=False)
+    
+    # Extract anchor and positive nodes from sampled edges
+    anchors = torch.tensor(edge_index[0, edge_indices])
+    pos_nodes = torch.tensor(edge_index[1, edge_indices])
+    
+    logger.debug(f'Generated {len(anchors)} positive pairs from direct neighbors')
+    return anchors, pos_nodes
+
 
 @trace
 def pos_pair_generator(cur_edges: Tensor, batch_size: int, walk_gen: WalkGenerator, walk_window: int) -> tuple[Tensor, Tensor]:
