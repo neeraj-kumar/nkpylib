@@ -461,8 +461,8 @@ class ContrastiveGAT(GATBase):
     @classmethod
     def worker_one_step(cls, batch_size: int) -> WorkItem:
         """Worker function to generate a single work item for training."""
-        from nkpylib.ml.graph_worker import random_walk_worker_one_step
-        return random_walk_worker_one_step(batch_size)
+        from nkpylib.ml.graph_worker import contrastive_worker_one_step
+        return contrastive_worker_one_step(batch_size)
 
     @trace
     def batch_loss(self,
@@ -720,6 +720,7 @@ class GraphLearner:
 
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs)
         return model, losses
+
 
     def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE) -> tuple[GATBase, Tensor]:
         """Train a graph model using random walk objectives, returning `(model, losses)`.
@@ -1017,9 +1018,10 @@ def main():
 
     # Train model
     logger.info(f"Training {args.learner_type} model for {args.n_epochs} epochs")
-
     match args.learner_type:
         case 'random_walk': # Generate walks and train
+            model, losses = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
+        case 'contrastive': # Train with contrastive learning on pre-generated pairs
             model, losses = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
         case '_':
             raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
