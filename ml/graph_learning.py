@@ -722,6 +722,36 @@ class GraphLearner:
         return model, losses
 
 
+    def train_contrastive(self, n_epochs: int = 200, gpu_batch_size: int = BATCH_SIZE, temperature: float = 0.07) -> tuple[GATBase, Tensor]:
+        """Train a graph model using contrastive learning with direct neighbor sampling.
+        
+        This uses the direct neighbor approach where positive pairs are directly connected nodes
+        and negative pairs are randomly sampled nodes that avoid direct neighbors.
+        
+        Args:
+        - n_epochs: Number of training epochs
+        - gpu_batch_size: Batch size for GPU processing
+        - temperature: Temperature parameter for contrastive loss
+        
+        Returns:
+        - Tuple of (trained_model, loss_history)
+        """
+        model = ContrastiveGAT(
+            in_channels=self.data.num_features,
+            hidden_channels=self.hidden_channels,
+            heads=self.heads,
+            dropout=self.dropout,
+            v2=self.v2,
+            temperature=temperature,
+        )
+        
+        def loss_fn(model):
+            # This is a placeholder - actual loss computation happens in train_model via async workers
+            raise NotImplementedError("Loss computation handled by async workers")
+
+        losses = self.train_model(model, loss_fn, n_epochs=n_epochs, gpu_batch_size=gpu_batch_size)
+        return model, losses
+
     def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE) -> tuple[GATBase, Tensor]:
         """Train a graph model using random walk objectives, returning `(model, losses)`.
 
@@ -1021,8 +1051,8 @@ def main():
     match args.learner_type:
         case 'random_walk': # Generate walks and train
             model, losses = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
-        case 'contrastive': # Train with contrastive learning on pre-generated pairs
-            model, losses = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
+        case 'contrastive': # Train with contrastive learning using direct neighbor sampling
+            model, losses = gl.train_contrastive(n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
         case '_':
             raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
 
