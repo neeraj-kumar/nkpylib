@@ -424,6 +424,22 @@ class EnumFeature(Feature, Generic[EnumT]):
         self.enum_values = enum_values
         self.encoding = encoding
 
+    def __len__(self) -> int:
+        """Returns the length of the feature"""
+        match self.encoding:
+            case 'onehot':
+                return len(self.enum_values)
+            case 'int':
+                return 1
+            case 'binary':
+                return int(np.ceil(np.log2(len(self.enum_values))))
+            case 'target':
+                return 1  # Could be more for embeddings, but we don't know without sample
+            case 'hash':
+                return self.enum_values  # num_bins
+            case _:
+                return 0
+
     def _get(self, val: EnumT, *args, **kw) -> np.ndarray:
         """Returns the encoded feature as a numpy array."""
         if val is None:
@@ -433,6 +449,24 @@ class EnumFeature(Feature, Generic[EnumT]):
                 idx = self.enum_values.index(val)
                 arr = np.zeros(len(self.enum_values))
                 arr[idx] = 1
+                return arr
+            case 'int':
+                return np.array([self.enum_values.index(val)])
+            case 'binary':
+                idx = self.enum_values.index(val)
+                n_bits = int(np.ceil(np.log2(len(self.enum_values))))
+                binary = format(idx, f'0{n_bits}b')
+                return np.array([int(b) for b in binary])
+            case 'target':
+                v = self.enum_values[val]
+                if isinstance(v, (int, float)):
+                    v = [v]
+                return np.array(v)
+            case 'hash':
+                hash_val = hash(str(val))
+                bin_idx = hash_val % self.enum_values
+                arr = np.zeros(self.enum_values)
+                arr[bin_idx] = 1
                 return arr
 
     def schema(self) -> dict:
@@ -482,24 +516,6 @@ class EnumFeature(Feature, Generic[EnumT]):
                 enum_values = schema.get('enum_values', [])
         
         return cls(enum_values=enum_values, encoding=encoding, name=schema.get('name', ''))
-            case 'int':
-                return np.array([self.enum_values.index(val)])
-            case 'binary':
-                idx = self.enum_values.index(val)
-                n_bits = int(np.ceil(np.log2(len(self.enum_values))))
-                binary = format(idx, f'0{n_bits}b')
-                return np.array([int(b) for b in binary])
-            case 'target':
-                v = self.enum_values[val]
-                if isinstance(v, (int, float)):
-                    v = [v]
-                return np.array(v)
-            case 'hash':
-                hash_val = hash(str(val))
-                bin_idx = hash_val % self.enum_values
-                arr = np.zeros(self.enum_values)
-                arr[bin_idx] = 1
-                return arr
 
 
 T = TypeVar('T')
