@@ -97,7 +97,7 @@ def initialize_worker(kw: dict[str, Any]):
                                 neg_samples_factor=kw['neg_samples_factor'],
                                 task_config=kw.get('task_config', {}))
 
-@trace
+#@trace
 def contrastive_worker_one_step(n_pos: int) -> WorkItem:
     """Runs "one step" of processing in the worker process.
 
@@ -125,7 +125,7 @@ def contrastive_worker_one_step(n_pos: int) -> WorkItem:
         neg_nodes=neg_nodes,
     )
 
-@trace
+#@trace
 def random_walk_worker_one_step(n_pos: int) -> WorkItem:
     """Runs "one step" of processing in the worker process.
 
@@ -154,7 +154,7 @@ def random_walk_worker_one_step(n_pos: int) -> WorkItem:
         neg_nodes=neg_nodes,
     )
 
-@trace
+#@trace
 def node_classification_one_step(n_pos: int) -> WorkItem:
     """Runs "one step" of processing in the worker process.
 

@@ -656,7 +656,7 @@ class GraphLearner:
                 item = f.result()
                 futures.remove(f)
                 break
-            logger.info(f'Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}')
+            logger.info(f'Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}, q {self.queue.qsize()}')
             self.queue.put(item)
             # submit another job
             futures.append(self.pool.submit(model.worker_one_step, self.cpu_batch_size))
@@ -1051,7 +1051,7 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
+    A('-e', '--n-epochs', type=int, default=15000, help='Number of training epochs [500]')
     # set the following to 128 for my home cpu
     # in general, gpu batch size should multiple of cpu
     A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')

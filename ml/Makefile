@@ -76,3 +76,7 @@ gat:
 ## trains movie embeddings on src3 machine (first run source /opt/pytorch/bin/activate)
 train:
 	@python3 graph_learning.py ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb
+
+## fetches learned embeddings from src3 to local machine
+fetch:
+	rsync -avz --progress src3:embeddings/learned-movie-graph.lmdb ~/dp/projects/movies/embeddings/
