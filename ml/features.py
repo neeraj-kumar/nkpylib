@@ -255,6 +255,30 @@ class Feature(ABC):
         except Exception as e:
             assert False, f"{type(e)} with feature {feat}: value {arr}"
 
+    def schema(self) -> dict:
+        """Get schema information for this feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and other metadata
+        """
+        return {
+            'type': self.__class__.__name__,
+            'name': self.name,
+            'dims': len(self),
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> Feature:
+        """Create a feature instance from a schema dictionary.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - Feature instance
+        """
+        return cls(name=schema.get('name', ''))
+
 
 class CompositeFeature(Feature):
     """Feature with children that concatenates their outputs."""
@@ -284,6 +308,40 @@ class CompositeFeature(Feature):
             self.validate(arr, child)
         return np.concatenate(arrays)
 
+    def schema(self) -> dict:
+        """Get schema information for this composite feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and child schemas
+        """
+        return {
+            'type': 'CompositeFeature',
+            'name': self.name,
+            'dims': len(self),
+            'children': [child.schema() for child in self.children],
+            'num_children': len(self.children),
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> CompositeFeature:
+        """Create a composite feature instance from a schema dictionary.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - CompositeFeature instance with reconstructed children
+        """
+        feature = cls(name=schema.get('name', ''))
+        for child_schema in schema.get('children', []):
+            child_type = child_schema['type']
+            # Get the appropriate feature class
+            feature_class = globals().get(child_type)
+            if feature_class and issubclass(feature_class, Feature):
+                child = feature_class.from_schema(child_schema)
+                feature.add_child(child)
+        return feature
+
 
 class ConstantFeature(Feature):
     """A constant feature (could be many dims)"""
@@ -306,6 +364,33 @@ class ConstantFeature(Feature):
         if isinstance(vals, (int, float)):
             vals = [vals]
         return np.array(vals)
+
+    def schema(self) -> dict:
+        """Get schema information for this constant feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and storage info
+        """
+        return {
+            'type': 'ConstantFeature',
+            'name': self.name,
+            'dims': len(self),
+            'has_stored_values': self.values is not None,
+            'stored_values': self.values.tolist() if self.values is not None else None,
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> ConstantFeature:
+        """Create a constant feature instance from a schema dictionary.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - ConstantFeature instance
+        """
+        stored_values = schema.get('stored_values')
+        return cls(values=stored_values, name=schema.get('name', ''))
 
 
 EnumT = TypeVar('EnumT', bound=Hashable)
@@ -349,6 +434,54 @@ class EnumFeature(Feature, Generic[EnumT]):
                 arr = np.zeros(len(self.enum_values))
                 arr[idx] = 1
                 return arr
+
+    def schema(self) -> dict:
+        """Get schema information for this enum feature.
+        
+        Returns:
+        - Dictionary with feature type, name, encoding, enum values, and dimensions
+        """
+        schema = {
+            'type': 'EnumFeature',
+            'name': self.name,
+            'encoding': self.encoding,
+            'dims': len(self),
+        }
+        
+        # Add enum_values based on encoding type
+        match self.encoding:
+            case 'onehot' | 'int' | 'binary':
+                schema['enum_values'] = list(self.enum_values) if hasattr(self.enum_values, '__iter__') else [self.enum_values]
+            case 'target':
+                schema['target_mapping'] = dict(self.enum_values) if hasattr(self.enum_values, 'items') else self.enum_values
+            case 'hash':
+                schema['num_bins'] = self.enum_values
+        
+        return schema
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> EnumFeature:
+        """Create an enum feature instance from a schema dictionary.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - EnumFeature instance
+        """
+        encoding = schema.get('encoding', 'onehot')
+        
+        match encoding:
+            case 'onehot' | 'int' | 'binary':
+                enum_values = schema.get('enum_values', [])
+            case 'target':
+                enum_values = schema.get('target_mapping', {})
+            case 'hash':
+                enum_values = schema.get('num_bins', 10)
+            case _:
+                enum_values = schema.get('enum_values', [])
+        
+        return cls(enum_values=enum_values, encoding=encoding, name=schema.get('name', ''))
             case 'int':
                 return np.array([self.enum_values.index(val)])
             case 'binary':
@@ -397,6 +530,41 @@ class PairwiseMax(Feature, Generic[T]):
         except ValueError:
             return np.array([self.default])
 
+    def schema(self) -> dict:
+        """Get schema information for this pairwise max feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and default value
+        """
+        return {
+            'type': 'PairwiseMax',
+            'name': self.name,
+            'dims': len(self),
+            'default': self.default,
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> PairwiseMax:
+        """Create a pairwise max feature instance from a schema dictionary.
+        
+        Note: The similarity function cannot be serialized, so this creates
+        a placeholder that will need to be set manually.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - PairwiseMax instance with placeholder similarity function
+        """
+        def placeholder_sim_func(a, b):
+            return 0.0
+        
+        return cls(
+            sim_func=placeholder_sim_func,
+            default=schema.get('default', -1.0),
+            name=schema.get('name', '')
+        )
+
     def _len(self) -> int:
         """Returns the length of the feature"""
         return 1
@@ -429,6 +597,34 @@ class TimeContext(Feature):
             else:
                 raise ValueError(f"Unknown field {field}")
         return np.array(ret)
+
+    def schema(self) -> dict:
+        """Get schema information for this time context feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and fields
+        """
+        return {
+            'type': 'TimeContext',
+            'name': self.name,
+            'dims': len(self),
+            'fields': list(self.fields),
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> TimeContext:
+        """Create a time context feature instance from a schema dictionary.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - TimeContext instance
+        """
+        return cls(
+            fields=tuple(schema.get('fields', ('dow', 'hour'))),
+            name=schema.get('name', '')
+        )
 
 
 class Recency(Feature):
@@ -465,6 +661,34 @@ class Recency(Feature):
             ret = np.log1p(max(ret, 0.0))
         return np.array([ret])
 
+    def schema(self) -> dict:
+        """Get schema information for this recency feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and log setting
+        """
+        return {
+            'type': 'Recency',
+            'name': self.name,
+            'dims': len(self),
+            'apply_log': self.apply_log,
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> Recency:
+        """Create a recency feature instance from a schema dictionary.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - Recency instance
+        """
+        return cls(
+            apply_log=schema.get('apply_log', True),
+            name=schema.get('name', '')
+        )
+
     def _len(self) -> int:
         """Returns the length of the feature"""
         return 1
@@ -484,6 +708,35 @@ class MappingFeature(Feature, Generic[T]):
         """Returns the feature as a numpy array"""
         return np.array(self.mapping[key])
 
+    def schema(self) -> dict:
+        """Get schema information for this mapping feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and mapping info
+        """
+        return {
+            'type': 'MappingFeature',
+            'name': self.name,
+            'dims': len(self),
+            'num_keys': len(self.mapping),
+            'sample_keys': list(self.mapping.keys())[:5] if self.mapping else [],
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> MappingFeature:
+        """Create a mapping feature instance from a schema dictionary.
+        
+        Note: The actual mapping data cannot be serialized, so this creates
+        an empty mapping that will need to be populated manually.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - MappingFeature instance with empty mapping
+        """
+        return cls(mapping={}, name=schema.get('name', ''))
+
 
 class FunctionFeature(Feature):
     """A feature that is computed by a function."""
@@ -496,6 +749,36 @@ class FunctionFeature(Feature):
         """Returns the feature as a numpy array"""
         # Use provided args/kwargs or fall back to stored ones
         return np.array(self.func(*args, **kw))
+
+    def schema(self) -> dict:
+        """Get schema information for this function feature.
+        
+        Returns:
+        - Dictionary with feature type, name, and dimensions
+        """
+        return {
+            'type': 'FunctionFeature',
+            'name': self.name,
+            'dims': len(self),
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> FunctionFeature:
+        """Create a function feature instance from a schema dictionary.
+        
+        Note: The function cannot be serialized, so this creates
+        a placeholder that will need to be set manually.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        
+        Returns:
+        - FunctionFeature instance with placeholder function
+        """
+        def placeholder_func(*args, **kwargs):
+            return [0.0]
+        
+        return cls(func=placeholder_func, name=schema.get('name', ''))
 
 
 def save_as_image(path: str, arr: np.ndarray, n_cols=100, cmap='viridis'):
@@ -685,3 +968,44 @@ class MovieFeature(CompositeFeature):
         # Concatenate all features
         arrays = [np.array(fv) for fv in feature_values]
         return np.concatenate(arrays)
+
+    def schema(self) -> dict:
+        """Get schema information for this movie feature.
+        
+        Returns:
+        - Dictionary with feature type, name, dimensions, and feature groups
+        """
+        return {
+            'type': 'MovieFeature',
+            'name': self.name,
+            'dims': len(self),
+            'enum_dbs': {key: {'dims': db.n_dims} for key, db in self.enum_dbs.items()},
+            'feature_groups': {
+                'basic': ['year', 'runtime'],
+                'ratings': [f'{src}_{field}' for src in ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience'] 
+                           for field in ['rating', 'votes', 'popularity', 'log_votes']],
+                'jobs': [f'num_{job}' for job in ['actor', 'actress', 'director', 'writer']],
+                'financial': ['tmdb_budget', 'tmdb_log_budget', 'tmdb_revenue', 'tmdb_log_revenue'],
+                'content_rating': ['rt_content_rating'],
+                'embeddings': [f'{key}_emb' for key in self.enum_dbs.keys()],
+            }
+        }
+
+    @classmethod
+    def from_schema(cls, schema: dict, movie=None, enum_dbs: dict = None) -> MovieFeature:
+        """Create a movie feature instance from a schema dictionary.
+        
+        Note: This requires the actual movie object and enum_dbs to function properly.
+        
+        Args:
+        - schema: Dictionary containing feature configuration
+        - movie: Movie object (required for actual functionality)
+        - enum_dbs: Dictionary of enum databases (required for actual functionality)
+        
+        Returns:
+        - MovieFeature instance
+        """
+        if movie is None or enum_dbs is None:
+            raise ValueError("MovieFeature.from_schema requires movie and enum_dbs parameters")
+        
+        return cls(movie, enum_dbs=enum_dbs, name=schema.get('name', ''))
