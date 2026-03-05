@@ -106,6 +106,36 @@ def initialize_worker(n_nodes: int,
 
 
 @trace
+def contrastive_worker_one_step(n_pos: int) -> WorkItem:
+    """Runs "one step" of processing in the worker process.
+
+    This version does it for contrastive learning based sampling. We use simple node connectivity to
+    determine positives and negatives.
+    """
+    global _worker_obj
+    assert _worker_obj is not None
+    cur_edges = _worker_obj.edge_sampler.sample()
+    anchors, pos_nodes = pos_pair_generator(
+        cur_edges=cur_edges,
+        batch_size=n_pos,
+        walk_gen=_worker_obj.walk_gen,
+        walk_window=_worker_obj.walk_window,
+    )
+    neg_nodes = cpu_neg_pair_generator(
+        n_nodes=_worker_obj.walk_gen.N,
+        anchors=anchors,
+        pos_nodes=pos_nodes,
+        edge_index=cur_edges,
+        shape=(len(anchors), _worker_obj.neg_samples_factor),
+    )
+    return WorkItem(
+        cur_edges=cur_edges,
+        anchors=anchors,
+        pos_nodes=pos_nodes,
+        neg_nodes=neg_nodes,
+    )
+
+@trace
 def random_walk_worker_one_step(n_pos: int) -> WorkItem:
     """Runs "one step" of processing in the worker process.
 
