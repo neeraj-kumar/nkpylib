@@ -122,7 +122,7 @@ def contrastive_worker_one_step(n_pos: int) -> WorkItem:
         batch_size=n_pos,
     )
     
-    neg_nodes = cpu_neg_pair_generator(
+    neg_nodes = direct_cpu_neg_pair_generator(
         n_nodes=_worker_obj.walk_gen.N,
         anchors=anchors,
         pos_nodes=pos_nodes,
@@ -594,6 +594,62 @@ def neg_pair_generator(n_nodes: int,
         neg_nodes[i] = sampled
     assert neg_nodes.shape == shape
     return neg_nodes
+
+@trace
+def direct_cpu_neg_pair_generator(n_nodes: int,
+                                  anchors: Tensor,
+                                  pos_nodes: Tensor,
+                                  edge_index: nparray2d,
+                                  shape: tuple[int, int]) -> Tensor:
+    """Simple CPU-based negative sampling for direct neighbor approach.
+
+    This version only excludes direct neighbors and the anchor/positive nodes themselves.
+    It's simpler and more efficient than the walk-based version.
+
+    Args:
+    - n_nodes: total number of nodes in graph
+    - anchors: Current batch anchor nodes to exclude
+    - pos_nodes: Current batch positive nodes to exclude
+    - edge_index: Graph edges to identify direct neighbors to exclude
+    - shape: Target shape (batch_size, neg_samples_factor)
+
+    Returns:
+    - Tensor of negative node indices with shape `shape`
+    """
+    batch_size, neg_samples = shape
+
+    # Convert to numpy for CPU processing
+    anchors_np = anchors.cpu().numpy()
+    pos_nodes_np = pos_nodes.cpu().numpy()
+
+    # Build global exclusion matrix (batch_size x n_nodes boolean mask)
+    exclude_mask = np.zeros((batch_size, n_nodes), dtype=bool)
+
+    # Exclude anchors and positives (vectorized)
+    exclude_mask[np.arange(batch_size), anchors_np] = True
+    exclude_mask[np.arange(batch_size), pos_nodes_np] = True
+
+    # Exclude direct neighbors only
+    for i, anchor in enumerate(anchors_np):
+        neighbors = edge_index[1][edge_index[0] == anchor]
+        if len(neighbors) > 0:
+            exclude_mask[i, neighbors] = True
+
+    # Sample negatives for all anchors
+    neg_nodes_np = np.zeros((batch_size, neg_samples), dtype=np.int64)
+    for i in range(batch_size):
+        valid_indices = np.where(~exclude_mask[i])[0]
+        if len(valid_indices) >= neg_samples:
+            neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=False)
+        else:
+            # Fallback: sample with replacement if not enough valid nodes
+            neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=True)
+
+    # Convert back to torch tensor
+    neg_nodes = torch.from_numpy(neg_nodes_np).long()
+    assert neg_nodes.shape == shape
+    return neg_nodes
+
 
 @trace
 def cpu_neg_pair_generator(n_nodes: int,
