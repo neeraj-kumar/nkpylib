@@ -74,36 +74,28 @@ class WorkerObj:
 # global worker obj
 _worker_obj: WorkerObj|None = None
 
-def initialize_worker(n_nodes: int,
-                      edge_index: nparray2d,
-                      walk_length: int,
-                      max_edges_per_node: int,
-                      walk_window: int,
-                      neg_samples_factor: int,
-                      task_config: dict,
-                      ):
+def initialize_worker(kw: dict[str, Any]):
     """Initialize the global worker object for the process."""
     global _worker_obj
     if _worker_obj is None:
         logger.info('Initializing worker process')
         walk_gen = WalkGenerator(
-            n_nodes=n_nodes,
-            edge_index=edge_index,
-            walk_length=walk_length,
+            n_nodes=kw['n_nodes'],
+            edge_index=kw['edge_index'],
+            walk_length=kw['walk_length'],
             n_jobs=1,
         )
         edge_sampler = EdgeSampler(
-            edge_index=edge_index,
-            max_edges_per_node=max_edges_per_node,
+            edge_index=kw['edge_index'],
+            max_edges_per_node=kw['max_edges_per_node'],
             proportional=True,
             global_sampling=True,
         )
         _worker_obj = WorkerObj(walk_gen=walk_gen,
                                 edge_sampler=edge_sampler,
-                                walk_window=walk_window,
-                                neg_samples_factor=neg_samples_factor,
-                                task_config=task_config)
-
+                                walk_window=kw['walk_window'],
+                                neg_samples_factor=kw['neg_samples_factor'],
+                                task_config=kw.get('task_config', {}))
 
 @trace
 def contrastive_worker_one_step(n_pos: int) -> WorkItem:
@@ -115,19 +107,16 @@ def contrastive_worker_one_step(n_pos: int) -> WorkItem:
     global _worker_obj
     assert _worker_obj is not None
     cur_edges = _worker_obj.edge_sampler.sample()
-    
-    # Direct neighbor sampling: positive pairs are directly connected nodes
     anchors, pos_nodes = direct_neighbor_pos_pairs(
         edge_index=cur_edges,
         batch_size=n_pos,
     )
-    
     neg_nodes = direct_cpu_neg_pair_generator(
         n_nodes=_worker_obj.walk_gen.N,
         anchors=anchors,
         pos_nodes=pos_nodes,
         edge_index=cur_edges,
-        shape=(len(anchors), _worker_obj.neg_samples_factor),
+        neg_samples=_worker_obj.neg_samples_factor,
     )
     return WorkItem(
         cur_edges=cur_edges,
@@ -414,31 +403,26 @@ class EdgeSampler:
 @trace
 def direct_neighbor_pos_pairs(edge_index: nparray2d, batch_size: int) -> tuple[Tensor, Tensor]:
     """Generate positive pairs from direct neighbors (connected nodes).
-    
+
     Args:
     - edge_index: Current set of sampled edges [2, num_edges]
     - batch_size: Target number of positive pairs
-    
+
     Returns:
     - `(anchor_nodes, positive_nodes)` tensors
     """
     logger.debug(f'Starting direct_neighbor_pos_pairs with batch_size={batch_size}')
-    
     if edge_index.shape[1] == 0:
         logger.warning("No edges available for sampling positive pairs")
         return torch.tensor([]), torch.tensor([])
-    
     # Sample random edges for positive pairs
     n_edges = edge_index.shape[1]
     n_sample = min(batch_size, n_edges)
-    
     # Randomly sample edge indices
     edge_indices = RNG.choice(n_edges, size=n_sample, replace=False)
-    
     # Extract anchor and positive nodes from sampled edges
     anchors = torch.tensor(edge_index[0, edge_indices])
     pos_nodes = torch.tensor(edge_index[1, edge_indices])
-    
     logger.debug(f'Generated {len(anchors)} positive pairs from direct neighbors')
     return anchors, pos_nodes
 
@@ -600,7 +584,7 @@ def direct_cpu_neg_pair_generator(n_nodes: int,
                                   anchors: Tensor,
                                   pos_nodes: Tensor,
                                   edge_index: nparray2d,
-                                  shape: tuple[int, int]) -> Tensor:
+                                  neg_samples: int) -> Tensor:
     """Simple CPU-based negative sampling for direct neighbor approach.
 
     This version only excludes direct neighbors and the anchor/positive nodes themselves.
@@ -611,33 +595,25 @@ def direct_cpu_neg_pair_generator(n_nodes: int,
     - anchors: Current batch anchor nodes to exclude
     - pos_nodes: Current batch positive nodes to exclude
     - edge_index: Graph edges to identify direct neighbors to exclude
-    - shape: Target shape (batch_size, neg_samples_factor)
+    - neg_samples: Number of negatives to generate per anchor
 
     Returns:
-    - Tensor of negative node indices with shape `shape`
+    - Tensor of negative node indices with shape `(len(anchors), neg_samples)`
     """
-    batch_size, neg_samples = shape
-
-    # Convert to numpy for CPU processing
     anchors_np = anchors.cpu().numpy()
+    n_anchors = len(anchors_np)
     pos_nodes_np = pos_nodes.cpu().numpy()
-
-    # Build global exclusion matrix (batch_size x n_nodes boolean mask)
-    exclude_mask = np.zeros((batch_size, n_nodes), dtype=bool)
-
-    # Exclude anchors and positives (vectorized)
-    exclude_mask[np.arange(batch_size), anchors_np] = True
-    exclude_mask[np.arange(batch_size), pos_nodes_np] = True
-
-    # Exclude direct neighbors only
+    exclude_mask = np.zeros((n_anchors, n_nodes), dtype=bool)
+    exclude_mask[np.arange(n_anchors), anchors_np] = True
+    exclude_mask[np.arange(n_anchors), pos_nodes_np] = True
+    # Exclude direct neighbors
     for i, anchor in enumerate(anchors_np):
         neighbors = edge_index[1][edge_index[0] == anchor]
         if len(neighbors) > 0:
             exclude_mask[i, neighbors] = True
-
     # Sample negatives for all anchors
-    neg_nodes_np = np.zeros((batch_size, neg_samples), dtype=np.int64)
-    for i in range(batch_size):
+    neg_nodes_np = np.zeros((n_anchors, neg_samples), dtype=np.int64)
+    for i in range(n_anchors):
         valid_indices = np.where(~exclude_mask[i])[0]
         if len(valid_indices) >= neg_samples:
             neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=False)
@@ -647,7 +623,7 @@ def direct_cpu_neg_pair_generator(n_nodes: int,
 
     # Convert back to torch tensor
     neg_nodes = torch.from_numpy(neg_nodes_np).long()
-    assert neg_nodes.shape == shape
+    assert neg_nodes.shape == (len(anchors), neg_samples)
     return neg_nodes
 
 

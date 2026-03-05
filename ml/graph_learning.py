@@ -219,7 +219,7 @@ from nkpylib.ml.feature_set import (
     NumpyLmdb,
 )
 from nkpylib.ml.ml_utils import trace, list_gpu_tensors
-from nkpylib.ml.graph_worker import initialize_worker, worker_one_step, WorkItem
+from nkpylib.ml.graph_worker import initialize_worker, WorkItem
 
 CFG: Namespace|None = None
 RNG = npr.default_rng(0)
@@ -606,8 +606,16 @@ class GraphLearner:
         self.do_async = do_async
         if do_async:
             # n_nodes, edge_index, walk length, max_edges_per_node
-            initargs = (data.num_nodes, data.edge_index.to('cpu').numpy(), walk_length, sample_edges, walk_window, neg_samples_factor)
-            self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=initargs)
+            initargs = dict(
+                n_nodes=data.num_nodes,
+                edge_index=data.edge_index.to('cpu').numpy(),
+                walk_length=walk_length,
+                max_edges_per_node=sample_edges,
+                walk_window=walk_window,
+                neg_samples_factor=neg_samples_factor,
+                task_config=kw.get('task_config', {}),
+            )
+            self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=(initargs,))
 
     def start_cpu_thread(self, model: torch.nn.Module) -> None:
         """The main CPU thread, start this in a separate thread.
@@ -724,15 +732,15 @@ class GraphLearner:
 
     def train_contrastive(self, n_epochs: int = 200, gpu_batch_size: int = BATCH_SIZE, temperature: float = 0.07) -> tuple[GATBase, Tensor]:
         """Train a graph model using contrastive learning with direct neighbor sampling.
-        
+
         This uses the direct neighbor approach where positive pairs are directly connected nodes
         and negative pairs are randomly sampled nodes that avoid direct neighbors.
-        
+
         Args:
         - n_epochs: Number of training epochs
         - gpu_batch_size: Batch size for GPU processing
         - temperature: Temperature parameter for contrastive loss
-        
+
         Returns:
         - Tuple of (trained_model, loss_history)
         """
@@ -744,7 +752,7 @@ class GraphLearner:
             v2=self.v2,
             temperature=temperature,
         )
-        
+
         def loss_fn(model):
             # This is a placeholder - actual loss computation happens in train_model via async workers
             raise NotImplementedError("Loss computation handled by async workers")
@@ -995,7 +1003,7 @@ def main():
     A('output_path', help='Output NumpyLmdb path for learned embeddings')
     A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
     # Model configuration
-    A('-t', '--learner-type', default='random_walk', choices=LEARNERS, help='GAT learner [random_walk]')
+    A('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
     A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
     A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
@@ -1004,7 +1012,7 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=200, help='Number of training epochs [200]')
+    A('-e', '--n-epochs', type=int, default=20, help='Number of training epochs [200]')
     A('--cpu-batch-size', type=int, default=128, help=f'Batch size for CPU [{BATCH_SIZE}]')
     A('--gpu-batch-size', type=int, default=128, help=f'Batch size for GPU [{BATCH_SIZE}]')
     A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
