@@ -18,6 +18,7 @@ import numpy as np
 from chromadb import Collection, HttpClient, PersistentClient, Client, EphemeralClient
 from tqdm import tqdm
 
+from nkpylib.fs_tree import Tree
 from nkpylib.thread_utils import CollectionUpdater
 
 logger = logging.getLogger(__name__)
@@ -303,6 +304,74 @@ def copy_collection(src_db_port: int, dst_db_port: int, src_col_name: str, dst_c
         )
 
 
+class ChromaTree(Tree):
+    def __init__(self, col, hash_key: str, add_func: Optional[Callable]=None, incr: int=10, debug: bool=False):
+        """Initialize this chroma tree with the given chroma collection.
+
+        It assumes the keys are the ids from the collection.
+
+        It requires the collection to have hashes in the metadata for items (possibly not all filled
+        out), stored under name `hash_key`.
+
+        The `add_func` is called when we detect a new key in the "other" tree we compare this
+        against. It is called with `key` (from the other tree) and `other` parameters. It should
+        contain:
+        - embedding: the embedding to use for this item
+        - document: the document to use for this item
+        - any other metadata you want to store
+
+        The `incr` is the number of items updated/added at a time.
+        If you set `debug` to True, then no changes will be made.
+        """
+        self.col = col
+        self.hash_key = hash_key
+        self.add_func = add_func
+        self.incr = incr
+        self.debug = debug
+        keys = col.get(include=[])['ids']
+        super().__init__(keys)
+
+    def hash_function(self, keys: Iterable[str]) -> Iterable[str]:
+        """Returns the hash values for the given `keys`"""
+        keys = list(keys)
+        resp = self.col.get(ids=keys, include=['metadatas'])
+        ids, mds = resp['ids'], resp['metadatas']
+        # order them based on the keys
+        mds = {id: md for id, md in zip(ids, mds)}
+        ret = [mds[key].get(self.hash_key, '') for key in keys]
+        #print(f'For keys {keys[-5:]} got hashes {ret[-5:]}')
+        return ret
+
+    def execute_add(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes ADD operations from given `diffs` going from `self` to `other`.
+
+        This adds the given keys to chroma, including all relevant metadata.
+        """
+        assert self.add_func is not None
+        updater = ChromaUpdater(col=self.col, item_incr=self.incr, debug=self.debug)
+        for d in tqdm(diffs):
+            try:
+                md = self.add_func(key=d.b, other=other)
+            except Exception:
+                #raise #TODO for debugging
+                continue
+            updater.add(
+                id=d.b,
+                embedding=md.pop('embedding'),
+                document=md.pop('document'),
+                metadata=md,
+            )
+
+    def execute_delete(self, diffs: list[Diff], other: Tree) -> None:
+        """Executes DELETE operations from given `diffs` going from `self` to `other`
+
+        This does a straightforward chroma delete.
+        """
+        logger.info(f'Deleting {len(diffs)} ids: {[d.a for d in diffs]}')
+        if not self.debug:
+            self.col.delete(ids=[d.a for d in diffs])
+
+
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Copy a collection from one chroma database to another')
@@ -312,3 +381,4 @@ if __name__ == '__main__':
     parser.add_argument('dst_col_name', type=str, nargs='?', default='', help='Name of the destination collection')
     args = parser.parse_args()
     copy_collection(args.src_db_port, args.dst_db_port, args.src_col_name, args.dst_col_name)
+
