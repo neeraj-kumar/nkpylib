@@ -258,7 +258,7 @@ class Feature(ABC):
 
 class CompositeFeature(Feature):
     """Feature with children that concatenates their outputs."""
-    
+
     def __init__(self, **kw):
         """Initialize this composite feature."""
         super().__init__(**kw)
@@ -539,7 +539,7 @@ class FeatureMap(Mapping, Generic[KeyT]):
 
 
 class MovieFeature(CompositeFeature):
-    """Movie Feature Vector.
+    """Movie Features.
 
     This includes for each movie [feature dim]:
     - year [1]
@@ -552,7 +552,7 @@ class MovieFeature(CompositeFeature):
     - content rating (G, PG, etc) as int [1]
     """
     from nkpylib.ml.feature_set import NumpyLmdb
-    
+
     def __init__(self, m, *, enum_dbs: dict[str, NumpyLmdb], **kw):
         super().__init__(**kw)
         self.m = m
@@ -564,31 +564,31 @@ class MovieFeature(CompositeFeature):
         # Basic features
         self.add_child(ConstantFeature(name='year'))
         self.add_child(ConstantFeature(name='runtime'))
-        
+
         # Rating features
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
                 self.add_child(ConstantFeature(name=f'{src}_{field}'))
             self.add_child(ConstantFeature(name=f'{src}_log_votes'))
-        
+
         # Job count features
         for job in ['actor', 'actress', 'director', 'writer']:
             self.add_child(ConstantFeature(name=f'num_{job}'))
-        
+
         # Financial features
         self.add_child(ConstantFeature(name='tmdb_budget'))
         self.add_child(ConstantFeature(name='tmdb_log_budget'))
         self.add_child(ConstantFeature(name='tmdb_revenue'))
         self.add_child(ConstantFeature(name='tmdb_log_revenue'))
-        
+
         # Content rating
         self.add_child(EnumFeature(
             enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
             encoding='int',
             name='rt_content_rating'
         ))
-        
+
         # Enum embeddings
         for key, db in sorted(self.enum_dbs.items()):
             self.add_child(ConstantFeature(name=f'{key}_emb'))
@@ -635,37 +635,37 @@ class MovieFeature(CompositeFeature):
         """Compute all movie features and concatenate them."""
         m = self.m
         feature_values = []
-        
+
         # Basic features
         feature_values.append([m.year if m.year else 0])
         feature_values.append([m.runtime if m.runtime else 0])
-        
+
         # Rating features
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         rating_values = {src: {'rating': 0.0, 'votes': 0.0, 'popularity': 0.0} for src in rating_sources}
-        
+
         for r in m.ratings:
             if r.source in rating_values:
                 for field in ['rating', 'votes', 'popularity']:
                     rating_values[r.source][field] = self._try_float(r, field)
-        
+
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
                 feature_values.append([rating_values[src][field]])
             feature_values.append([np.log1p(rating_values[src]['votes'])])
-        
+
         # Job counts
         job_counts = Counter(tp.job_id.name for tp in m.people)
         for job in ['actor', 'actress', 'director', 'writer']:
             feature_values.append([job_counts.get(job, 0)])
-        
+
         # Financial features
         budget, revenue = self._extract_financials(m)
         feature_values.append([budget])
         feature_values.append([np.log1p(budget)])
         feature_values.append([revenue])
         feature_values.append([np.log1p(revenue)])
-        
+
         # Content rating
         content_rating = self._extract_content_rating(m)
         rating_enum = EnumFeature(
@@ -673,7 +673,7 @@ class MovieFeature(CompositeFeature):
             encoding='int'
         )
         feature_values.append(rating_enum.get(content_rating))
-        
+
         # Enum embeddings
         enum_embs = self._extract_enum_embs(m)
         for key, db in sorted(self.enum_dbs.items()):
@@ -681,7 +681,7 @@ class MovieFeature(CompositeFeature):
             embs = [db[v] for v in values if v in db]
             value = np.mean(embs, axis=0) if len(embs) > 0 else np.zeros(db.n_dims, dtype=np.float32)
             feature_values.append(value)
-        
+
         # Concatenate all features
         arrays = [np.array(fv) for fv in feature_values]
         return np.concatenate(arrays)
