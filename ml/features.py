@@ -295,9 +295,29 @@ class CompositeFeature(Feature):
         """Returns the length of the feature"""
         return sum(len(c) for c in self.children)
 
-    def _get(self, *args, **kw) -> np.ndarray:
-        """Composite features have to define how to map inputs to children."""
-        raise NotImplementedError()
+    def values_to_dict(self, *args, **kwargs) -> dict[str, Any]:
+        """Compute all feature values and return as name->value mapping.
+        
+        Subclasses should override this method to compute all values upfront.
+        The returned dictionary should map feature names to their input values.
+        """
+        raise NotImplementedError("Subclasses must implement values_to_dict()")
+
+    def _get(self, *args, **kwargs) -> np.ndarray:
+        """Generic implementation of the compute-then-delegate pattern."""
+        values = self.values_to_dict(*args, **kwargs)
+        arrays = []
+        
+        for feature in self:
+            value = values.pop(feature.name)
+            try:
+                arrays.append(feature.get(value))
+            except Exception as e:
+                logger.error(f"Error getting feature {feature.name} with value {value}: {e}")
+                raise
+        
+        assert not values, f"Unused values in feature computation: {values}"
+        return np.concatenate(arrays)
 
     def schema(self) -> dict:
         """Get schema information for this composite feature.
@@ -924,8 +944,8 @@ class MovieFeature(CompositeFeature):
                 enum_embs[key].add(t.value)
         return enum_embs
 
-    def _get(self, m, *args, **kw) -> np.ndarray:
-        """Compute all movie features and concatenate them."""
+    def values_to_dict(self, m, *args, **kwargs) -> dict[str, Any]:
+        """Compute all movie feature values and return as name->value mapping."""
         d = {}
         d['year'] = m.year if m.year else 0
         d['runtime'] = m.runtime if m.runtime else 0
@@ -959,17 +979,7 @@ class MovieFeature(CompositeFeature):
             embs = [db[v] for v in values if v in db]
             value = np.mean(embs, axis=0) if len(embs) > 0 else np.zeros(db.n_dims, dtype=np.float32)
             d[f'{key}_emb'] = value
-        # assemble output
-        arrays = []
-        for feature in self:
-            v = d.pop(feature.name)
-            try:
-                arrays.append(feature.get(v))
-            except Exception as e:
-                logger.error(f"Error getting feature {feature.name} with value {v}: {e}")
-                raise
-        assert not d, f"Unused keys in movie feature dict: {d}"
-        return np.concatenate(arrays)
+        return d
 
     def schema(self) -> dict:
         """Get schema information for this movie feature.
