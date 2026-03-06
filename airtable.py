@@ -27,6 +27,8 @@ from typing import Any, Iterator, Optional
 
 import requests
 
+from nkpylib.fs_tree import Tree
+
 logger = logging.getLogger(__name__)
 
 AIRTABLE_LOG_FILE = 'airtable_log.jsonl'
