@@ -37,21 +37,12 @@ return numpy arrays. The public interface is to call `get()`, which also perform
 optional caching, in subclasses).
 
 **CompositeFeature**: Schema-based feature that combines multiple sub-features. A schema is an
-`OrderedDict` of fields mapped to `Template` instances, stored in the class variable `SCHEMA`. Each
-subclass must have a `define_schema()` method that populates the `SCHEMA` by adding feature
-templates. For convenience (and some validation), rather than adding to `SCHEMA` directly,
-subclasses can call the `add_schema()` method to add individual templates to the schema.
-
-During initialization, the composite feature pre-allocates space for all schema features. To
-populate the sub-features, you call the `_set()` method with the name of the schema field and any
-arguments needed to create the feature from the corresponding template. After setting all features,
-call `update()` to ensure that all schema features have been initialized, using any provided
-defaults.
+`OrderedDict` of fields mapped to `Feature` instances. FIXME
 
 Finally, call `get()` (as with all Features) to get the final feature vector, which concatenates the
 results from all child features.
 
-**ConstantFeature**: Returns constant values as numpy arrays.
+**ConstantFeature**: Returns constant numerical values as numpy arrays.
 
 **EnumFeature**: Encodes categorical values using various encoding schemes (onehot, integer, binary,
 target, hash).
@@ -72,32 +63,15 @@ target, hash).
 For groups of features put together, as well as storage and retrieval, see feature_set.py
 
 
-    Methods implemented here:
-    - get(): Returns the feature as a numpy array, and validates it.
-      - If we have children, it concatenates their results, else it calls `_get()`.
-    - len(): Returns the length of the feature (default is len(get()))
+Methods implemented here:
+- get(*args, **kwargs): Returns the feature as a numpy array, and validates it.
 
-    Key methods that subclasses must implement:
-    - _get(): Returns the feature as a numpy array
-    - _len(): (optional) Returns the length of the feature, defaults to len(self.get())
+Key methods that subclasses must implement:
+- _get(*args, **kwargs): Returns the feature as a numpy array
+- __len__(): Returns the length of the feature
 
-    Optional methods subclasses may implement:
-    - update(**kw): Update the feature's internal state
-    - validate(arr, feat): Validate feature array output (default checks len > 0)
-
-    Usage:
-        Features can be used individually or composed into feature hierarchies:
-
-        # Single feature
-        feat = MyFeature(name='example')
-        arr = feat.get()  # Returns numpy array
-
-        # Composite features
-        parent = ParentFeature(children=[
-            ChildFeature1(),
-            ChildFeature2()
-        ])
-        arr = parent.get()  # Returns concatenated arrays from children
+Optional methods subclasses may implement:
+- validate(arr, feat): Validate feature array output (default checks len > 0)
 
 """
 
