@@ -1023,7 +1023,7 @@ def save_model_with_checkpoint(model: torch.nn.Module,
                               epoch: int = None,
                               **kwargs):
     """Save model with comprehensive checkpoint data for resuming training.
-    
+
     Args:
     - model: Trained model
     - data: Training data
@@ -1034,12 +1034,12 @@ def save_model_with_checkpoint(model: torch.nn.Module,
     - kwargs: Additional metadata
     """
     model_output_path = output_path.replace('.lmdb', '_model.pt')
-    
+
     # Debug model before saving
     param_count = sum(p.numel() for p in model.parameters())
     param_size = sum(p.numel() * p.element_size() for p in model.parameters())
     logger.info(f"Saving model with {param_count:,} parameters ({param_size / 1024 / 1024:.2f} MB)")
-    
+
     # Save comprehensive checkpoint
     checkpoint = {
         'model': model,
@@ -1056,50 +1056,42 @@ def save_model_with_checkpoint(model: torch.nn.Module,
         'timestamp': time.time(),
         **kwargs
     }
-    
+
     torch.save(checkpoint, model_output_path)
-    
+
     # Verify the save worked
     file_size = os.path.getsize(model_output_path)
     logger.info(f'Saved model checkpoint to {model_output_path} ({file_size:,} bytes)')
     if file_size < 10000:  # Less than 10KB is suspicious
         logger.warning("WARNING: Model checkpoint file is very small - may indicate save failure!")
 
-def load_saved_model(model_path: str, device: str='cpu') -> torch.nn.Module:
-    """Load a saved model from the given path."""
-    model = torch.load(model_path, map_location=device, weights_only=False)
-    logger.info(f'Loaded model from {model_path} with type {model.__class__.__name__}')
-    model = model.to(device)
-    return model
-
-
 def load_checkpoint(checkpoint_path: str, device: str = 'cpu') -> dict:
     """Load a comprehensive checkpoint with all training metadata.
-    
+
     Args:
     - checkpoint_path: Path to checkpoint file
     - device: Device to load the model on
-    
+
     Returns:
     - Dictionary containing model, training args, losses, etc.
     """
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    
+
     # Verify checkpoint structure
     required_keys = ['model', 'model_state_dict', 'training_args', 'losses']
     missing_keys = [key for key in required_keys if key not in checkpoint]
     if missing_keys:
         logger.warning(f"Checkpoint missing keys: {missing_keys}")
-    
+
     # Move model to device
     if 'model' in checkpoint:
         checkpoint['model'] = checkpoint['model'].to(device)
-    
+
     logger.info(f"Loaded checkpoint from {checkpoint_path}")
     logger.info(f"Model type: {checkpoint.get('model_class', 'Unknown')}")
     logger.info(f"Previous epochs: {checkpoint.get('epoch', 'Unknown')}")
     logger.info(f"Loss history length: {len(checkpoint.get('losses', []))}")
-    
+
     return checkpoint
 
 
@@ -1108,13 +1100,13 @@ def resume_from_checkpoint(checkpoint_path: str,
                           additional_epochs: int = 100,
                           **override_kwargs) -> tuple[torch.nn.Module, Tensor]:
     """Resume training from a comprehensive checkpoint.
-    
+
     Args:
     - checkpoint_path: Path to checkpoint file
     - data_path: Path to training data
     - additional_epochs: Additional epochs to train
     - **override_kwargs: Override any training arguments from checkpoint
-    
+
     Returns:
     - Tuple of (model, combined_loss_history)
     """
@@ -1124,18 +1116,18 @@ def resume_from_checkpoint(checkpoint_path: str,
     previous_losses = checkpoint['losses']
     training_args = checkpoint['training_args'].copy()
     last_epoch = checkpoint.get('epoch', len(previous_losses))
-    
+
     # Override training args if provided
     training_args.update(override_kwargs)
-    
+
     logger.info(f"Resuming from epoch {last_epoch} with {len(previous_losses)} previous losses")
-    
+
     # Load data
     data = torch.load(data_path, weights_only=False)
-    
+
     # Create GraphLearner with training args
     gl = GraphLearner(data, **training_args)
-    
+
     # Resume training based on model type
     if isinstance(model, ContrastiveGAT):
         model, new_losses = gl.train_contrastive(
@@ -1147,10 +1139,10 @@ def resume_from_checkpoint(checkpoint_path: str,
         raise NotImplementedError("Node classification resume not fully implemented")
     else:
         raise ValueError(f"Unknown model type: {type(model)}")
-    
+
     # Combine loss histories
     combined_losses = torch.cat([previous_losses, new_losses])
-    
+
     return model, combined_losses
 
 def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
@@ -1198,7 +1190,7 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
+    A('-e', '--n-epochs', type=int, default=5, help='Number of training epochs [500]')
     # set the following to 128 for my home cpu
     # in general, gpu batch size should multiple of cpu
     A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
@@ -1234,7 +1226,7 @@ def main():
     # Check for resume argument or existing checkpoint
     existing_model = None
     previous_losses = None
-    
+
     if hasattr(args, 'resume') and args.resume:
         # Resume from specified checkpoint
         logger.info(f'Resuming training from checkpoint: {args.resume}')
