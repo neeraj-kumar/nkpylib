@@ -284,6 +284,15 @@ class GATBase(torch.nn.Module):
         embeddings for other tasks.
         """
         super().__init__()
+        # Store the original config for serialization
+        self.model_config = {
+            'in_channels': in_channels,
+            'hidden_channels': hidden_channels,
+            'heads': heads,
+            'dropout': dropout,
+            **kw
+        }
+        
         ModelCls = GATv2Conv if kw.get('v2', False) else GATConv
         logger.info(f'Initializing model {ModelCls}')
         self.conv1 = ModelCls(in_channels, hidden_channels, heads=heads)
@@ -325,6 +334,10 @@ class GATBase(torch.nn.Module):
                     return self.embedding_forward(x, edge_index)
             else:
                 return self.embedding_forward(x, edge_index)
+
+    def get_config(self) -> dict:
+        """Get the model configuration for serialization."""
+        return self.model_config.copy()
 
     def log_memory(self, msg):
         mem = self.process.memory_info().rss / 1024 / 1024 / 1024  # Convert to GB
@@ -368,6 +381,8 @@ class NodeClassificationGAT(GATBase):
         All other `kw` are passed to the base GAT model.
         """
         super().__init__(hidden_channels=hidden_channels, heads=heads, **kw)
+        # Add task_config to the stored config
+        self.model_config['task_config'] = task_config
         self.task_config = task_config
         self.task_heads = nn.ModuleDict()
         input_dims = hidden_channels * heads
@@ -478,6 +493,8 @@ class ContrastiveGAT(GATBase):
             - temperature: Temperature for similarity scaling (higher = softer attention)
         """
         super().__init__(**kw)
+        # Add temperature to the stored config
+        self.model_config['temperature'] = temperature
         self.temperature = temperature
 
     @classmethod
