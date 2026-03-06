@@ -306,7 +306,7 @@ class CompositeFeature(Feature):
         - Dictionary with feature type, name, dimensions, and child schemas
         """
         return {
-            'type': 'CompositeFeature',
+            'type': self.__class__.__name__,
             'name': self.name,
             'dims': len(self),
             'children': {name: child.schema() for name, child in self._children.items()},
@@ -974,43 +974,20 @@ class MovieFeature(CompositeFeature):
             arrays.append(feature.get(ret.pop(feature.name)))
         return np.concatenate(arrays)
 
-    def schema(self) -> dict:
-        """Get schema information for this movie feature.
-
-        Returns:
-        - Dictionary with feature type, name, dimensions, and feature groups
-        """
-        return {
-            'type': 'MovieFeature',
-            'name': self.name,
-            'dims': len(self),
-            'enum_dbs': {key: {'dims': db.n_dims} for key, db in self.enum_dbs.items()},
-            'feature_groups': {
-                'basic': ['year', 'runtime'],
-                'ratings': [f'{src}_{field}' for src in ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
-                           for field in ['rating', 'votes', 'popularity', 'log_votes']],
-                'jobs': [f'num_{job}' for job in ['actor', 'actress', 'director', 'writer']],
-                'financial': ['tmdb_budget', 'tmdb_log_budget', 'tmdb_revenue', 'tmdb_log_revenue'],
-                'content_rating': ['rt_content_rating'],
-                'embeddings': [f'{key}_emb' for key in self.enum_dbs.keys()],
-            }
-        }
-
     @classmethod
-    def from_schema(cls, schema: dict, movie=None, enum_dbs: dict = None) -> MovieFeature:
+    def from_schema(cls, schema: dict, enum_dbs: dict = None) -> MovieFeature:
         """Create a movie feature instance from a schema dictionary.
 
-        Note: This requires the actual movie object and enum_dbs to function properly.
+        Note: This requires enum_dbs to function properly.
 
         Args:
         - schema: Dictionary containing feature configuration
-        - movie: Movie object (required for actual functionality)
         - enum_dbs: Dictionary of enum databases (required for actual functionality)
 
         Returns:
         - MovieFeature instance
         """
-        if movie is None or enum_dbs is None:
-            raise ValueError("MovieFeature.from_schema requires movie and enum_dbs parameters")
+        if enum_dbs is None:
+            raise ValueError("MovieFeature.from_schema requires enum_dbs parameter")
 
-        return cls(movie, enum_dbs=enum_dbs, name=schema.get('name', ''))
+        return cls(enum_dbs=enum_dbs, name=schema.get('name', ''))
