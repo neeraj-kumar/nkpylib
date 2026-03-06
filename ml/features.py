@@ -13,9 +13,9 @@ the general pattern is:
 values) or composite (combining multiple sub-features). All features implement a common interface
 with `get()` returning validated numpy arrays.
 
-**Composite Features**: Schema-driven features that combine multiple sub-features in a predefined
-structure. The schema defines what features are included and their order, enabling consistent
-feature vectors across instances.
+**Composite Features**: Features that combine multiple child features using a compute-then-delegate
+pattern. Child features are stored in an OrderedDict by name, and the composite feature computes
+all input values upfront via `values_to_dict()`, then delegates to each child feature in order.
 
 **Feature Maps**: Dictionary-like containers that map keys to feature vectors, providing a clean
 interface for batch feature computation.
@@ -23,9 +23,9 @@ interface for batch feature computation.
 
 ## Usage Pattern
 
-1. **Create composite features** using schemas to define consistent feature structures
-  - You will typically have a single top-level composite feature that contains all sub-features for
-    your task. You might also have other composite features nested within it.
+1. **Create composite features** by subclassing `CompositeFeature` and implementing `values_to_dict()`
+  - Add child features using `add()` method during initialization
+  - The composite feature will automatically concatenate child outputs in order
 2. **Use feature maps** to organize and access features by key
 3. **Call `get()`** on any feature to obtain its numpy array representation
 
@@ -33,19 +33,25 @@ interface for batch feature computation.
 ## Class Details
 
 **Feature**: Abstract base class defining the feature interface. Subclasses implement `_get()` to
-return numpy arrays. The public interface is to call `get()`, which also performs validation (and
-optional caching, in subclasses).
+return numpy arrays. The public interface is to call `get()`, which also performs validation.
+Key methods:
+- `get(*args, **kwargs)`: Returns the feature as a numpy array with validation
+- `schema()`: Returns JSON-serializable metadata about the feature
+- `from_schema(schema)`: Class method to reconstruct feature from schema
 
-**CompositeFeature**: Schema-based feature that combines multiple sub-features. A schema is an
-`OrderedDict` of fields mapped to `Feature` instances. FIXME
+**CompositeFeature**: Base class for features that combine multiple child features. Uses a
+compute-then-delegate pattern where `values_to_dict()` computes all input values upfront, then
+each child feature processes its corresponding value. Child features are stored by name in an
+OrderedDict and processed in order. Key methods:
+- `values_to_dict(*args, **kwargs)`: Must be implemented by subclasses to compute input values
+- `add(feature)`: Add a child feature by name
+- `explain(vector)`: Map feature vector back to child feature contributions
 
-Finally, call `get()` (as with all Features) to get the final feature vector, which concatenates the
-results from all child features.
-
-**ConstantFeature**: Returns constant numerical values as numpy arrays.
+**ConstantFeature**: Returns constant numerical values as numpy arrays. Can store values at
+initialization or accept them dynamically at runtime.
 
 **EnumFeature**: Encodes categorical values using various encoding schemes (onehot, integer, binary,
-target, hash).
+target, hash). Supports different enum value formats depending on encoding type.
 
 **PairwiseMax**: Computes maximum similarity between two sets using a comparison function.
 
@@ -53,25 +59,27 @@ target, hash).
 
 **Recency**: Computes time differences between timestamps with optional log transformation.
 
-**MappingFeature**: Wraps dictionary-like objects as features.
+**MappingFeature**: Wraps dictionary-like objects as features for key-based lookups.
 
 **FunctionFeature**: Wraps arbitrary functions as features.
 
 **FeatureMap**: Dictionary-like container mapping keys to feature vectors.
 
+**MovieFeature**: Example composite feature that extracts comprehensive movie features including
+ratings, financial data, cast/crew counts, and embeddings from enum databases.
+
 
 For groups of features put together, as well as storage and retrieval, see feature_set.py
 
 
-Methods implemented here:
-- get(*args, **kwargs): Returns the feature as a numpy array, and validates it.
-
-Key methods that subclasses must implement:
-- _get(*args, **kwargs): Returns the feature as a numpy array
-- __len__(): Returns the length of the feature
+Key methods that all features implement:
+- `get(*args, **kwargs)`: Returns the feature as a numpy array with validation
+- `__len__()`: Returns the expected length of the feature vector
+- `schema()`: Returns JSON-serializable metadata about the feature structure
+- `from_schema(schema)`: Class method to reconstruct feature from schema dictionary
 
 Optional methods subclasses may implement:
-- validate(arr, feat): Validate feature array output (default checks len > 0)
+- `validate(arr, feat)`: Custom validation logic (default checks length consistency)
 
 """
 
