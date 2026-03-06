@@ -960,7 +960,7 @@ def save_embeddings(model: torch.nn.Module,
     Args:
     - model: Trained GAT model
     - data: PyG Data object with original keys
-    - output_path: Path to output NumpyLmdb
+    - output_path: Path to output NumpyLmdb (and .lmdb -> _model.pt for the model itself)
     - output_flag: LMDB flag for opening
     - use_full: whether to use the full graph edges or a sampler
     - kwargs: Additional metadata to save in the database
@@ -994,7 +994,6 @@ def save_embeddings(model: torch.nn.Module,
             #db[key] = embedding
             to_update[key] = embedding
         db.update(to_update)
-
         # Save metadata
         db.md_set(db.global_key,
                   created_ts=time.time(),
@@ -1004,8 +1003,10 @@ def save_embeddings(model: torch.nn.Module,
                   n_orig_dims=data.num_features,
                   n_embedding_dims=embeddings.shape[1],
                   **kwargs)
-
     logger.info(f"Saved {len(embeddings)} embeddings to {output_path}")
+    model_output_path = output_path.replace('.lmdb', '_model.pt')
+    torch.save(model, model_output_path)
+    logger.info(f'Saved model to {model_output_path}')
 
 def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
     """This adds YAML config file parsing to a `parser`.

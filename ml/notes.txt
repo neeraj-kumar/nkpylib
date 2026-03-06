@@ -1,3 +1,77 @@
+Mar 5, 2026 - graph learning on movies
+--------------------------------------
+- with directors only graph (i.e. cliques), with only 20 epochs @ 128 batch size we had some good
+  results when looking at director-based movie rankings (e.g. most lynch movies were quite close to each other)
+- with full graph and 500 epochs @ 256 batch size, the results are quite bad...i can't tell if
+  there's any signal in there whatsoever.
+- trying now with full graph and 15000 epochs (i.e., 30x more training)
+  - this also looks basically random
+  - i computed some stats on the graph and it has very high connectivity (as I sorta knew)
+- so now i'm generating a much smaller graph:
+  - only rank 1 or 2 per person
+  - for a given (person, job), for each movie, create edges for upto 5 other movies, randomly picked
+
+
+
+Stats Mar 5:
+[Thu Mar 05 10:28:39] ~/dp/projects/movies
+neeraj@aphex$ make get-stats
+python3 embeddings.py get_stats
+2026-03-05 10:28:44,782 - __main__ - INFO - Loaded graph db embeddings/movie-graph.lmdb with 505001 movies, 420321 metadata entries
+420321it [00:04, 99235.76it/s]
+2026-03-05 10:28:49,021 - __main__ - INFO -
+=== GRAPH STATISTICS ===
+2026-03-05 10:28:49,021 - __main__ - INFO - Total movies with edges: 420320
+2026-03-05 10:28:49,021 - __main__ - INFO - Total edges: 44902966
+2026-03-05 10:28:49,034 - __main__ - INFO -
+Edges per movie:
+2026-03-05 10:28:49,035 - __main__ - INFO -   Mean: 106.8
+2026-03-05 10:28:49,045 - __main__ - INFO -   Median: 59.0
+2026-03-05 10:28:49,046 - __main__ - INFO -   Min: 1
+2026-03-05 10:28:49,046 - __main__ - INFO -   Max: 1397
+2026-03-05 10:28:49,047 - __main__ - INFO -   Std: 127.4
+2026-03-05 10:28:49,061 - __main__ - INFO -   Distribution:
+2026-03-05 10:28:49,061 - __main__ - INFO -     0-0: 0
+2026-03-05 10:28:49,061 - __main__ - INFO -     1-4: 55736
+2026-03-05 10:28:49,061 - __main__ - INFO -     5-9: 35806
+2026-03-05 10:28:49,061 - __main__ - INFO -     10-19: 40386
+2026-03-05 10:28:49,061 - __main__ - INFO -     20-49: 63528
+2026-03-05 10:28:49,061 - __main__ - INFO -     50-99: 65801
+2026-03-05 10:28:49,061 - __main__ - INFO -     100-499: 152267
+2026-03-05 10:28:49,061 - __main__ - INFO -     500-999: 6741
+2026-03-05 10:28:49,061 - __main__ - INFO -     1000+: 55
+2026-03-05 10:28:49,061 - __main__ - INFO -
+Edges by job type:
+2026-03-05 10:28:49,071 - __main__ - INFO -   actor (id=1):
+2026-03-05 10:28:49,071 - __main__ - INFO -     Total edges: 19043250
+2026-03-05 10:28:49,071 - __main__ - INFO -     Movies with this job: 330189
+2026-03-05 10:28:49,072 - __main__ - INFO -     Mean edges per movie: 57.7
+2026-03-05 10:28:49,074 - __main__ - INFO -     Median: 35.0
+2026-03-05 10:28:49,075 - __main__ - INFO -     Max: 661
+2026-03-05 10:28:49,084 - __main__ - INFO -     Distribution: {'0-0': 0, '1-1': 19532, '2-4': 32557, '5-9': 31107, '10-19': 39242, '20+': 207751}
+2026-03-05 10:28:49,093 - __main__ - INFO -   actress (id=4):
+2026-03-05 10:28:49,093 - __main__ - INFO -     Total edges: 12441632
+2026-03-05 10:28:49,093 - __main__ - INFO -     Movies with this job: 308758
+2026-03-05 10:28:49,094 - __main__ - INFO -     Mean edges per movie: 40.3
+2026-03-05 10:28:49,096 - __main__ - INFO -     Median: 25.0
+2026-03-05 10:28:49,096 - __main__ - INFO -     Max: 462
+2026-03-05 10:28:49,105 - __main__ - INFO -     Distribution: {'0-0': 0, '1-1': 19318, '2-4': 34393, '5-9': 34894, '10-19': 45889, '20+': 174264}
+2026-03-05 10:28:49,114 - __main__ - INFO -   writer (id=8):
+2026-03-05 10:28:49,114 - __main__ - INFO -     Total edges: 7347800
+2026-03-05 10:28:49,114 - __main__ - INFO -     Movies with this job: 306725
+2026-03-05 10:28:49,114 - __main__ - INFO -     Mean edges per movie: 24.0
+2026-03-05 10:28:49,117 - __main__ - INFO -     Median: 8.0
+2026-03-05 10:28:49,117 - __main__ - INFO -     Max: 984
+2026-03-05 10:28:49,125 - __main__ - INFO -     Distribution: {'0-0': 0, '1-1': 42037, '2-4': 67723, '5-9': 53737, '10-19': 51036, '20+': 92192}
+2026-03-05 10:28:49,135 - __main__ - INFO -   director (id=9):
+2026-03-05 10:28:49,135 - __main__ - INFO -     Total edges: 6070284
+2026-03-05 10:28:49,135 - __main__ - INFO -     Movies with this job: 347833
+2026-03-05 10:28:49,136 - __main__ - INFO -     Mean edges per movie: 17.5
+2026-03-05 10:28:49,138 - __main__ - INFO -     Median: 7.0
+2026-03-05 10:28:49,138 - __main__ - INFO -     Max: 412
+2026-03-05 10:28:49,147 - __main__ - INFO -     Distribution: {'0-0': 0, '1-1': 51057, '2-4': 82459, '5-9': 66356, '10-19': 61943, '20+': 86018}
+
+
 Timings on ec2 g4dn.xlarge, 4 cores, $12.624/day:
 
 huggingface:
