@@ -292,7 +292,7 @@ class GATBase(torch.nn.Module):
             'dropout': dropout,
             **kw
         }
-        
+
         ModelCls = GATv2Conv if kw.get('v2', False) else GATConv
         logger.info(f'Initializing model {ModelCls}')
         self.conv1 = ModelCls(in_channels, hidden_channels, heads=heads)
@@ -1114,19 +1114,16 @@ def load_checkpoint(checkpoint_path: str, device: str = 'cpu') -> dict:
         model = NodeClassificationGAT(**model_config)
     else:
         raise ValueError(f"Unknown model class: {model_class}")
-    
     # Load the state dict
     model.load_state_dict(checkpoint['model_state_dict'])
+    logger.debug(f'Loaded state dict from {checkpoint["model_state_dict"]}')
     model = model.to(device)
-    
     # Add reconstructed model to checkpoint
     checkpoint['model'] = model
-
     logger.info(f"Loaded checkpoint from {checkpoint_path}")
     logger.info(f"Model type: {model_class}")
     logger.info(f"Previous epochs: {checkpoint.get('epoch', 'Unknown')}")
     logger.info(f"Loss history length: {len(checkpoint.get('losses', []))}")
-
     return checkpoint
 
 
@@ -1175,7 +1172,9 @@ def resume_from_checkpoint(checkpoint_path: str,
     else:
         raise ValueError(f"Unknown model type: {type(model)}")
 
-    # Combine loss histories
+    # Combine loss histories (move both to cpu first)
+    previous_losses = torch.tensor([l for l in previous_losses]).cpu()
+    new_losses = torch.tensor(new_losses).cpu()
     combined_losses = torch.cat([previous_losses, new_losses])
 
     return model, combined_losses
@@ -1225,7 +1224,7 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=5, help='Number of training epochs [500]')
+    A('-e', '--n-epochs', type=int, default=5000, help='Number of training epochs [500]')
     # set the following to 128 for my home cpu
     # in general, gpu batch size should multiple of cpu
     A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
