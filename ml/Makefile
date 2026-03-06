@@ -75,7 +75,7 @@ gat:
 
 ## trains movie embeddings on src3 machine (first run source /opt/pytorch/bin/activate)
 train:
-	@python3 graph_learning.py ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb
+	@python3 graph_learning.py -c ~/graph.yaml ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb
 
 ## resume training from previous checkpoint
 resume:

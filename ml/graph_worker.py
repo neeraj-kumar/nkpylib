@@ -204,7 +204,7 @@ class WalkGenerator:
         self._adj: np.ndarray|None = None
         self._maybe_rebuild_adj(edge_index)
 
-    @trace
+    #@trace
     def _maybe_rebuild_adj(self, edge_index=None):
         if edge_index is None:
             return
@@ -218,7 +218,7 @@ class WalkGenerator:
         mb = lambda x: f'{x / 1024 / 1024:.2f}MB'
         logger.debug(f'Size of adj: {mb(mem)}, vs edges {mb(edge_index.nbytes)} vs global edges {mb(self.edge_index.nbytes)}')
 
-    @trace
+    #@trace
     def _gen_batch(self, batch_start: int, batch_size: int) -> nparray2d:
         """Generate a single batch of walks starting at `batch_start`"""
         assert batch_size > 0
@@ -249,7 +249,7 @@ class WalkGenerator:
         print(f'Times (max {max_degree}): {[t1-t0 for t0, t1 in zip(times, times[1:])]}')
         return walks
 
-    @trace
+    #@trace
     def gen_walks(self, n_walks: int, cur_edges=None) -> nparray2d:
         """Generate `n_walks` random walks, continuing from current index.
 
@@ -309,7 +309,7 @@ class EdgeSampler:
         if not self.global_sampling:
             self._build_edge_groups()
 
-    @trace
+    #@trace
     def _build_edge_groups(self):
         """Build edge groups efficiently and cache them."""
         src_nodes = self.edge_index[0]
@@ -330,7 +330,7 @@ class EdgeSampler:
             self.node_edge_counts[node] = count
             start_pos += count
 
-    @trace
+    #@trace
     def sample(self) -> nparray2d:
         """Sample edges efficiently.
 
@@ -369,7 +369,7 @@ class EdgeSampler:
         ret = self.edge_index[:, indices]
         times.append(time.time())
         per = n_edges / (times[-1] - times[0])
-        print(f'S times ({per}): {[t1 - t0 for t0, t1 in zip(times, times[1:])]}')
+        #print(f'S times ({per}): {[t1 - t0 for t0, t1 in zip(times, times[1:])]}')
         #print(f'All inds: {len(all_indices)}: {all_indices}')
         return ret
 
@@ -400,7 +400,7 @@ class EdgeSampler:
             ret = torch.empty((2, 0), dtype=self.edge_index.dtype).numpy()
         return ret
 
-@trace
+#@trace
 def direct_neighbor_pos_pairs(edge_index: nparray2d, batch_size: int) -> tuple[Tensor, Tensor]:
     """Generate positive pairs from direct neighbors (connected nodes).
 
@@ -427,7 +427,7 @@ def direct_neighbor_pos_pairs(edge_index: nparray2d, batch_size: int) -> tuple[T
     return anchors, pos_nodes
 
 
-@trace
+#@trace
 def pos_pair_generator(cur_edges: Tensor, batch_size: int, walk_gen: WalkGenerator, walk_window: int) -> tuple[Tensor, Tensor]:
     """Generate walks on-demand and yield positive pairs.
 
@@ -527,7 +527,7 @@ def pos_pair_generator(cur_edges: Tensor, batch_size: int, walk_gen: WalkGenerat
     return torch.tensor(ret_anchors), torch.tensor(ret_pos)
 
 
-@trace
+#@trace
 def neg_pair_generator(n_nodes: int,
                        anchors: Tensor,
                        pos_nodes: Tensor,
@@ -579,7 +579,7 @@ def neg_pair_generator(n_nodes: int,
     assert neg_nodes.shape == shape
     return neg_nodes
 
-@trace
+#@trace
 def direct_cpu_neg_pair_generator(n_nodes: int,
                                   anchors: Tensor,
                                   pos_nodes: Tensor,
@@ -627,7 +627,7 @@ def direct_cpu_neg_pair_generator(n_nodes: int,
     return neg_nodes
 
 
-@trace
+#@trace
 def cpu_neg_pair_generator(n_nodes: int,
                            anchors: Tensor,
                            pos_nodes: Tensor,

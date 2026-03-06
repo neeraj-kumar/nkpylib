@@ -301,7 +301,7 @@ class GATBase(torch.nn.Module):
         self.dropout = dropout
         self.process = psutil.Process()
 
-    @trace
+    #@trace
     def embedding_forward(self, x, edge_index):
         """Get raw embeddings from both layers before activation.
 
@@ -350,7 +350,7 @@ class GATBase(torch.nn.Module):
         """Worker function to generate a single work item for training."""
         pass
 
-    @trace
+    #@trace
     @abstractmethod
     def compute_loss(self,
                      item: WorkItem,
@@ -503,7 +503,7 @@ class ContrastiveGAT(GATBase):
         from nkpylib.ml.graph_worker import contrastive_worker_one_step
         return contrastive_worker_one_step(batch_size)
 
-    @trace
+    #@trace
     def batch_loss(self,
                    embeddings: Tensor,
                    anchors: Tensor,
@@ -544,7 +544,7 @@ class ContrastiveGAT(GATBase):
         #print(f'{cos}, {pos_sims.device}, {neg_sims.device}, {all_sims.device}, {targets.device}, {batch_loss.device}')
         return batch_loss
 
-    @trace
+    #@trace
     def compute_loss(self,
                      item: WorkItem,
                      x: Tensor,
@@ -560,10 +560,10 @@ class ContrastiveGAT(GATBase):
         Returns:
         - Average loss across all pairs
         """
-        logger.info(f'Computing contrastive loss with batch size {gpu_batch_size}, use_checkpoint {use_checkpoint}')
+        logger.debug(f'Computing contrastive loss with batch size {gpu_batch_size}, use_checkpoint {use_checkpoint}')
         # Get embeddings
         cur_edges = torch.tensor(item.cur_edges).to(x.device)
-        logger.info(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
+        logger.debug(f'Got edges of shape {cur_edges.shape} [{cur_edges.dtype}]')
         if use_checkpoint:
             embeddings = checkpoint(self.embedding_forward, x, cur_edges, use_reentrant=False)
         else:
@@ -674,7 +674,7 @@ class GraphLearner:
                 item = f.result()
                 futures.remove(f)
                 break
-            logger.info(f'Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}, q {self.queue.qsize()}')
+            logger.debug(f'Work item: {[(x.shape, x.dtype) for x in (item.anchors, item.pos_nodes, item.neg_nodes)]}, q {self.queue.qsize()}')
             self.queue.put(item)
             # submit another job
             futures.append(self.pool.submit(model.worker_one_step, self.cpu_batch_size))
@@ -730,9 +730,8 @@ class GraphLearner:
                 memory['peak diff'] = memory['peak'] - memory['initial']
                 # update tqdm description with memory info
                 mem_s = ', '.join(f'{k}:{int(v)}' for k, v in memory.items())
-                pbar.set_description(
-                    f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}'
-                )
+                #pbar.set_description(f'Epoch {epoch:03d}, Loss: {loss:.4f}, Memory (MB): {mem_s}')
+                pbar.set_description(f'Epoch {epoch:03d}, Loss: {loss:.4f}')
         except KeyboardInterrupt:
             if epoch < 2:
                 logger.warning("Training interrupted at epoch {epoch}. Quitting.")
@@ -1001,7 +1000,7 @@ def save_embeddings(model: torch.nn.Module,
     else:
         edge_sampler = EdgeSampler(
             edge_index=data.edge_index.numpy(),
-            max_edges_per_node=25,
+            max_edges_per_node=15,
             global_sampling=True,
         )
         edges = torch.tensor(edge_sampler.sample())
@@ -1190,13 +1189,15 @@ def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
     """
     # First pass: get config files only
     config_parser = ArgumentParser(add_help=False)
-    config_parser.add_argument('-c', '--configs', nargs='*', help='YAML config files')
+    config_parser.add_argument('-c', '--configs', action='append', help='YAML config files')
     config_args, remaining_args = config_parser.parse_known_args()
     # Load configs and merge them
     config_dict = {}
     if config_args.configs:
         for config_file in config_args.configs:
-            with open(config_file, 'r') as f:
+            #with open(config_file, 'r', encoding='utf-8', errors='replace') as f
+            print(f'Got config file: {config_file}')
+            with open(config_file) as f:
                 file_config = yaml.safe_load(f)
                 config_dict.update(file_config)
     # Now set defaults on the actual parser and then run it
@@ -1224,13 +1225,12 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=5000, help='Number of training epochs [500]')
+    A('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
     # set the following to 128 for my home cpu
     # in general, gpu batch size should multiple of cpu
     A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
     # tune gpu batch size to max first
     A('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
-    A('-s', '--similarity-threshold', type=float, default=0.5, help='Similarity threshold for edge creation [0.5]')
     A('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
     # first load configs if any (they override defaults, but not command-line args)
     #args = parser.parse_args()
@@ -1240,6 +1240,14 @@ def main():
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
     data.edge_index = data.edge_index.to(torch.int32)
     logger.info(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
+    if 0:
+        # check for duplicates in the edge index
+        dupes = Counter()
+        for a, b in data.edge_index.t().tolist():
+            dupes[(a, b)] += 1
+        num_dupes = sum(count - 1 for count in dupes.values() if count > 1)
+        logger.info(f'Found {num_dupes} duplicate edges in edge_index: {dupes.most_common(5)}')
+        sys.exit()
     if args.n_nodes:
         if 0: # proper sampling
             data.x = data.x[:args.n_nodes]
@@ -1275,21 +1283,6 @@ def main():
         save_embeddings(model, data, args.output_path, args.output_flag, **kwargs)
         save_model_with_checkpoint(model, data, args.output_path, vars(args), losses, **kwargs)
         return
-    else:
-        # Check for existing model to resume from
-        model_path = args.output_path.replace('.lmdb', '_model.pt')
-        if os.path.exists(model_path):
-            logger.info(f'Found existing checkpoint at {model_path}, loading it to resume training')
-            try:
-                checkpoint = load_checkpoint(model_path, device)
-                existing_model = checkpoint['model']
-                previous_losses = checkpoint.get('losses', torch.tensor([]))
-                logger.info(f'Loaded existing model with {len(previous_losses)} previous losses')
-            except Exception as e:
-                logger.warning(f'Failed to load checkpoint: {e}. Starting fresh training.')
-                existing_model = None
-                previous_losses = None
-
     # Create learner
     gl = create_learner(
         args.learner_type,
