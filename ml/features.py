@@ -295,29 +295,42 @@ class CompositeFeature(Feature):
         """Returns the length of the feature"""
         return sum(len(c) for c in self.children)
 
+    @abstractmethod
     def values_to_dict(self, *args, **kwargs) -> dict[str, Any]:
-        """Compute all feature values and return as name->value mapping.
-        
-        Subclasses should override this method to compute all values upfront.
-        The returned dictionary should map feature names to their input values.
+        """Compute all feature inputs and return as name->value mapping.
+
+        Subclasses should override this method to convert input args into this dict.
         """
         raise NotImplementedError("Subclasses must implement values_to_dict()")
 
     def _get(self, *args, **kwargs) -> np.ndarray:
-        """Generic implementation of the compute-then-delegate pattern."""
+        """Computes the feature vector for this composite feature.
+
+        This generates a dictionary of values for all child features using `values_to_dict()`, then
+        iterates through the child features in order, calling `get()` on each with the corresponding
+        value from the dictionary, and concatenates the results into a single feature vector. It
+        also validates that all values from the dictionary are used and logs any errors encountered
+        during feature computation.
+        """
         values = self.values_to_dict(*args, **kwargs)
         arrays = []
-        
         for feature in self:
             value = values.pop(feature.name)
             try:
                 arrays.append(feature.get(value))
             except Exception as e:
-                logger.error(f"Error getting feature {feature.name} with value {value}: {e}")
+                logger.error(f"Error computing feature {feature.name} with value {value}: {e}")
                 raise
-        
         assert not values, f"Unused values in feature computation: {values}"
         return np.concatenate(arrays)
+
+    def explain(self, v: np.ndarray) -> dict[str, np.ndarray]:
+        """Explains the feature vector `v` by mapping it back to child feature values.
+
+        This returns a dict that maps from child feature names to their corresponding slices of the
+        input vector `v`, based on the lengths of the child features. This can be useful for
+        debugging and interpretability.
+        """
 
     def schema(self) -> dict:
         """Get schema information for this composite feature.
