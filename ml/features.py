@@ -928,7 +928,7 @@ class MovieFeature(CompositeFeature):
                 enum_embs[key].add(t.value)
         return enum_embs
 
-    def _get(self, m: Movie, *args, **kw) -> np.ndarray:
+    def _get(self, m, *args, **kw) -> np.ndarray:
         """Compute all movie features and concatenate them."""
         # Basic features
         self.get_child('year').values = np.array([m.year if m.year else 0])
