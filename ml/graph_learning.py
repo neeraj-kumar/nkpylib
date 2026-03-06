@@ -194,6 +194,7 @@ from __future__ import annotations
 import functools
 import gc
 import logging
+import os
 import sys
 import time
 
@@ -751,7 +752,11 @@ class GraphLearner:
         return model, losses
 
 
-    def train_contrastive(self, n_epochs: int = 200, gpu_batch_size: int = BATCH_SIZE, temperature: float = 0.07) -> tuple[GATBase, Tensor]:
+    def train_contrastive(self,
+                          n_epochs: int = 200,
+                          gpu_batch_size: int = BATCH_SIZE,
+                          temperature: float = 0.07,
+                          existing_model: torch.nn.Module|None=None) -> tuple[GATBase, Tensor]:
         """Train a graph model using contrastive learning with direct neighbor sampling.
 
         This uses the direct neighbor approach where positive pairs are directly connected nodes
@@ -761,18 +766,22 @@ class GraphLearner:
         - n_epochs: Number of training epochs
         - gpu_batch_size: Batch size for GPU processing
         - temperature: Temperature parameter for contrastive loss
+        - existing_model: If provided, use this pre-initialized model instead of creating a new one
 
         Returns:
         - Tuple of (trained_model, loss_history)
         """
-        model = ContrastiveGAT(
-            in_channels=self.data.num_features,
-            hidden_channels=self.hidden_channels,
-            heads=self.heads,
-            dropout=self.dropout,
-            v2=self.v2,
-            temperature=temperature,
-        )
+        if existing_model is not None:
+            model = existing_model
+        else:
+            model = ContrastiveGAT(
+                in_channels=self.data.num_features,
+                hidden_channels=self.hidden_channels,
+                heads=self.heads,
+                dropout=self.dropout,
+                v2=self.v2,
+                temperature=temperature,
+            )
 
         def loss_fn(model):
             # This is a placeholder - actual loss computation happens in train_model via async workers
@@ -1008,6 +1017,13 @@ def save_embeddings(model: torch.nn.Module,
     torch.save(model, model_output_path)
     logger.info(f'Saved model to {model_output_path}')
 
+def load_saved_model(model_path: str, device: str='cpu') -> torch.nn.Module:
+    """Load a saved model from the given path."""
+    model = torch.load(model_path, map_location=device, weights_only=False)
+    logger.info(f'Loaded model from {model_path} with type {model.__class__.__name__}')
+    model = model.to(device)
+    return model
+
 def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
     """This adds YAML config file parsing to a `parser`.
 
@@ -1052,7 +1068,7 @@ def main():
     A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
     A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
     # Training parameters
-    A('-e', '--n-epochs', type=int, default=15000, help='Number of training epochs [500]')
+    A('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
     # set the following to 128 for my home cpu
     # in general, gpu batch size should multiple of cpu
     A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
@@ -1085,6 +1101,14 @@ def main():
             print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
         #return
 
+    # load the existing model if we have it, to resume training
+    existing_model = None
+    model_path = args.output_path.replace('.lmdb', '_model.pt')
+    if os.path.exists(model_path):
+        logger.info(f'Found existing model at {model_path}, loading it to resume training')
+        existing_model = load_saved_model(model_path, device)
+        #TODO we should also load the existing losses and append to them
+
     # Create learner
     gl = create_learner(
         args.learner_type,
@@ -1099,11 +1123,16 @@ def main():
 
     # Train model
     logger.info(f"Training {args.learner_type} model for {args.n_epochs} epochs")
+    kw = dict(
+        n_epochs=args.n_epochs,
+        gpu_batch_size=args.gpu_batch_size,
+        existing_model=existing_model,
+    )
     match args.learner_type:
         case 'random_walk': # Generate walks and train
-            model, losses = gl.train_random_walks(walk_length=args.walk_length, n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
+            model, losses = gl.train_random_walks(walk_length=args.walk_length, **kw)
         case 'contrastive': # Train with contrastive learning using direct neighbor sampling
-            model, losses = gl.train_contrastive(n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
+            model, losses = gl.train_contrastive(**kw)
         case '_':
             raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
 
