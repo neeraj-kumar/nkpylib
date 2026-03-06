@@ -219,6 +219,7 @@ import yaml
 from scipy.sparse import csr_matrix
 from sklearn.svm import LinearSVC, SVC # type: ignore
 from sklearn.metrics.pairwise import cosine_similarity # type: ignore
+from sklearn.preprocessing import MaxAbsScaler, QuantileTransformer, RobustScaler, StandardScaler # type: ignore
 from torch import Tensor
 from torch.utils.checkpoint import checkpoint
 from torch_geometric.nn import GATConv, GATv2Conv # type: ignore
@@ -247,6 +248,9 @@ logger = logging.getLogger(__name__)
 
 # default batch size
 BATCH_SIZE = 128
+
+# default temperature
+TEMPERATURE = 0.15 # was 0.07 initially
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -331,9 +335,12 @@ class GATBase(torch.nn.Module):
         with torch.no_grad():
             if use_half:
                 with torch.autocast(device_type=device, dtype=torch.float16):
-                    return self.embedding_forward(x, edge_index)
+                    ret = self.embedding_forward(x, edge_index)
             else:
-                return self.embedding_forward(x, edge_index)
+                ret = self.embedding_forward(x, edge_index)
+        # l2 normalize
+        ret = F.normalize(ret, p=2, dim=1)
+        return ret
 
     def get_config(self) -> dict:
         """Get the model configuration for serialization."""
@@ -485,7 +492,7 @@ class ContrastiveGAT(GATBase):
     of positive and negative examples to learn node embeddings.
     """
     def __init__(self,
-                 temperature: float = 0.07,
+                 temperature: float = TEMPERATURE,
                  **kw):
         """Initialize this ContrastiveGAT model.
 
@@ -771,7 +778,7 @@ class GraphLearner:
     def train_contrastive(self,
                           n_epochs: int = 200,
                           gpu_batch_size: int = BATCH_SIZE,
-                          temperature: float = 0.07,
+                          temperature: float = TEMPERATURE,
                           existing_model: torch.nn.Module|None=None) -> tuple[GATBase, Tensor]:
         """Train a graph model using contrastive learning with direct neighbor sampling.
 
@@ -1235,9 +1242,19 @@ def main():
     # first load configs if any (they override defaults, but not command-line args)
     #args = parser.parse_args()
     CFG = args = add_yaml_config_parsing(parser)
+    print(f'Final args: {args}')
     # load input graph
     data = torch.load(args.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
+    if 0:
+        # replace node features with random ones
+        data.x = torch.randn(data.x.shape, dtype=torch.float32) #FIXME
+    # scale features
+    #scaler = StandardScaler(with_mean=False, with_std=True)
+    #scaler = RobustScaler()
+    #scaler = MaxAbsScaler()
+    scaler = QuantileTransformer()
+    data.x = torch.tensor(scaler.fit_transform(data.x.cpu()), dtype=torch.float32)
     data.edge_index = data.edge_index.to(torch.int32)
     logger.info(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
     if 0:

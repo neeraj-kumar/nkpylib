@@ -1,3 +1,17 @@
+Mar 6
+------
+
+- people14: full graph, quantile transformer: 
+- people13: full graph, 200 epochs x 1024 (slightly fewer overall samples): maybe slightly worse?
+- people12: full graph, 2000 epochs x 128 (compared to 200 for previous runs): starting to get pretty good
+- people11: maxabsscaler, temp 0.15 (noticeably better)
+- people10: standard scaler, no mean, temp 0.15 (strictly worse)
+- people9: robust scaler, temp 0.15 (not clearly better or worse)
+- people8: standard scaler, temp 0.15 (does seem better qualitatively)
+- people7: standard scaler, temp 0.07 (not clearly better than random!)
+- people6: random features, temp 0.07
+
+
 Mar 5, 2026 - graph learning on movies
 --------------------------------------
 - with directors only graph (i.e. cliques), with only 20 epochs @ 128 batch size we had some good
