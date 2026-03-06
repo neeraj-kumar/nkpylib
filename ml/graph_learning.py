@@ -1057,18 +1057,9 @@ def save_model_with_checkpoint(model: torch.nn.Module,
     param_size = sum(p.numel() * p.element_size() for p in model.parameters())
     logger.info(f"Saving model with {param_count:,} parameters ({param_size / 1024 / 1024:.2f} MB)")
 
-    # Extract model configuration for reconstruction
-    model_config = {
-        'in_channels': model.conv1.in_channels,
-        'hidden_channels': model.conv1.out_channels // model.conv1.heads,
-        'heads': model.conv1.heads,
-        'dropout': model.dropout,
-    }
-    # Add model-specific config
-    if hasattr(model, 'temperature'):
-        model_config['temperature'] = model.temperature
-    if hasattr(model, 'task_config'):
-        model_config['task_config'] = model.task_config
+    # Get model configuration automatically
+    model_config = model.get_config()
+    logger.info(f"Saving model config: {model_config}")
 
     # Save state dict and reconstruction info (no full model to avoid pickle issues)
     checkpoint = {
