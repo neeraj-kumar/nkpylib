@@ -218,9 +218,10 @@ class Feature(ABC):
     def __repr__(self):
         return f'<{self.__class__.__name__} {self.name} [{len(self)}]>'
 
+    @abstractmethod
     def __len__(self) -> int:
         """Returns the length of the feature"""
-        return len(self.get())
+        raise NotImplementedError()
 
     @abstractmethod
     def _get(self, *args, **kw) -> np.ndarray:
@@ -237,6 +238,7 @@ class Feature(ABC):
         """Validates the feature `arr` obtained from feature `feat`."""
         try:
             assert len(arr) > 0, f"Feature {feat} has length 0"
+            assert len(feat) == len(arr), f"Feature {feat} expected length {len(feat)}, got {len(arr)}"
         except Exception as e:
             assert False, f"{type(e)} with feature {feat}: value {arr}"
 
@@ -267,7 +269,6 @@ class Feature(ABC):
 
 class CompositeFeature(Feature):
     """Feature with children that concatenates their outputs."""
-
     def __init__(self, **kw):
         """Initialize this composite feature."""
         super().__init__(**kw)
@@ -278,43 +279,25 @@ class CompositeFeature(Feature):
         """Get list of child features."""
         return list(self._children.values())
 
-    def add_child(self, feature: Feature) -> None:
+    def add(self, feature: Feature) -> None:
         """Add a child feature."""
         self._children[feature.name] = feature
 
-    def get_child(self, name: str) -> Feature:
-        """Get a child feature by name."""
-        return self._children[name]
-
     def __getitem__(self, name: str) -> Feature:
-        """Get a child feature by name."""
+        """Get a child feature by name"""
         return self._children[name]
 
-    def __setitem__(self, name: str, value: Feature | np.ndarray | float | int | list) -> None:
-        """Set a child feature or its values."""
-        if isinstance(value, Feature):
-            # Setting a whole feature
-            self._children[name] = value
-        else:
-            # Setting values on existing feature
-            if name not in self._children:
-                raise KeyError(f"Child feature '{name}' not found")
-            child = self._children[name]
-            if hasattr(child, 'values'):
-                child.values = np.array(value) if not isinstance(value, np.ndarray) else value
-            else:
-                raise TypeError(f"Cannot set values on {type(child).__name__}")
+    def __iter__(self) -> Iterator[Feature]:
+        """Iterate over child features."""
+        return iter(self.children)
 
     def __len__(self) -> int:
         """Returns the length of the feature"""
         return sum(len(c) for c in self.children)
 
     def _get(self, *args, **kw) -> np.ndarray:
-        """Composite features concatenate children."""
-        arrays = [c.get(*args, **kw) for c in self.children]
-        for child, arr in zip(self.children, arrays):
-            self.validate(arr, child)
-        return np.concatenate(arrays)
+        """Composite features have to define how to map inputs to children."""
+        raise NotImplementedError()
 
     def schema(self) -> dict:
         """Get schema information for this composite feature.
@@ -349,7 +332,7 @@ class CompositeFeature(Feature):
                 feature_class = globals().get(child_type)
                 if feature_class and issubclass(feature_class, Feature):
                     child = feature_class.from_schema(child_schema)
-                    feature.add_child(child)
+                    feature.add(child)
         else:
             # Legacy format: list of schemas
             for child_schema in children_data:
@@ -357,21 +340,32 @@ class CompositeFeature(Feature):
                 feature_class = globals().get(child_type)
                 if feature_class and issubclass(feature_class, Feature):
                     child = feature_class.from_schema(child_schema)
-                    feature.add_child(child)
+                    feature.add(child)
         return feature
 
 
 class ConstantFeature(Feature):
     """A constant feature (could be many dims)"""
-    def __init__(self, values: int|float|Sequence[int|float]|None=None, **kw):
-        """Initializes the constant feature"""
+    def __init__(self, values: int|float|Sequence[int|float]|None=None, dims: int=0, **kw):
+        """Initializes the constant feature.
+
+        You must provide either `values` (a single number or a sequence of numbers) or `dims` (the
+        number of dimensions that will be provided to `get()` at runtime.
+        """
         super().__init__(**kw)
+        assert values is not None or dims > 0, "Must provide either values or dims"
         if values is not None:
             if isinstance(values, (int, float)):
                 values = [values]
             self.values = np.array(values)
+            self.dims = len(self.values)
         else:
             self.values = None
+            self.dims = dims
+
+    def __len__(self) -> int:
+        """Returns the length of the feature"""
+        return self.dims
 
     def _get(self, values: int|float|Sequence[int|float]=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
@@ -393,7 +387,6 @@ class ConstantFeature(Feature):
             'type': 'ConstantFeature',
             'name': self.name,
             'dims': len(self),
-            'has_stored_values': self.values is not None,
             'stored_values': self.values.tolist() if self.values is not None else None,
         }
 
@@ -408,7 +401,7 @@ class ConstantFeature(Feature):
         - ConstantFeature instance
         """
         stored_values = schema.get('stored_values')
-        return cls(values=stored_values, name=schema.get('name', ''))
+        return cls(values=stored_values, dims=schema.get('dims'), name=schema.get('name', ''))
 
 
 EnumT = TypeVar('EnumT', bound=Hashable)
@@ -877,37 +870,30 @@ class MovieFeature(CompositeFeature):
 
     def _setup_features(self):
         """Set up all child features."""
-        # Basic features
-        self.add_child(ConstantFeature(name='year'))
-        self.add_child(ConstantFeature(name='runtime'))
-
+        C = lambda name, dims=1: self.add(ConstantFeature(name=name, dims=dims))
+        for field in ['year', 'runtime']: # Basic features
+            C(field)
         # Rating features
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
-                self.add_child(ConstantFeature(name=f'{src}_{field}'))
-            self.add_child(ConstantFeature(name=f'{src}_log_votes'))
-
+                C(f'{src}_{field}')
+            C(f'{src}_log_votes')
         # Job count features
         for job in ['actor', 'actress', 'director', 'writer']:
-            self.add_child(ConstantFeature(name=f'num_{job}'))
-
+            C(f'num_{job}')
         # Financial features
-        self.add_child(ConstantFeature(name='tmdb_budget'))
-        self.add_child(ConstantFeature(name='tmdb_log_budget'))
-        self.add_child(ConstantFeature(name='tmdb_revenue'))
-        self.add_child(ConstantFeature(name='tmdb_log_revenue'))
-
+        for field in ['tmdb_budget', 'tmdb_log_budget', 'tmdb_revenue', 'tmdb_log_revenue']:
+            C(field)
         # Content rating
-        self.add_child(EnumFeature(
+        self.add(EnumFeature(
             enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
             encoding='int',
             name='rt_content_rating'
         ))
-
         # Enum embeddings
         for key, db in sorted(self.enum_dbs.items()):
-            self.add_child(ConstantFeature(name=f'{key}_emb'))
+            self.add(ConstantFeature(name=f'{key}_emb', dims=db.n_dims))
 
     def _try_float(self, obj, attr, default=0.0):
         """Basically `float(obj.attr)` but returns default on any error or if None"""
@@ -921,7 +907,7 @@ class MovieFeature(CompositeFeature):
 
     def _extract_content_rating(self, m):
         """Extract content rating from movie tags."""
-        ratings = [None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR']
+        ratings = self['rt_content_rating'].enum_values
         for t in m.tags:
             if t.source == 'rotten_tomatoes' and t.type == 'content_rating':
                 return t.value if t.value in ratings else None
@@ -949,57 +935,43 @@ class MovieFeature(CompositeFeature):
 
     def _get(self, m, *args, **kw) -> np.ndarray:
         """Compute all movie features and concatenate them."""
-        # Basic features
-        self['year'] = m.year if m.year else 0
-        self['runtime'] = m.runtime if m.runtime else 0
-
+        ret = {}
+        ret['year'] = m.year if m.year else 0
+        ret['runtime'] = m.runtime if m.runtime else 0
         # Rating features
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         rating_values = {src: {'rating': 0.0, 'votes': 0.0, 'popularity': 0.0} for src in rating_sources}
-
         for r in m.ratings:
             if r.source in rating_values:
                 for field in ['rating', 'votes', 'popularity']:
                     rating_values[r.source][field] = self._try_float(r, field)
-
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
-                self[f'{src}_{field}'] = rating_values[src][field]
-            self[f'{src}_log_votes'] = np.log1p(rating_values[src]['votes'])
-
+                ret[f'{src}_{field}'] = rating_values[src][field]
+            ret[f'{src}_log_votes'] = np.log1p(rating_values[src]['votes'])
         # Job counts
         job_counts = Counter(tp.job_id.name for tp in m.people)
         for job in ['actor', 'actress', 'director', 'writer']:
-            self[f'num_{job}'] = job_counts.get(job, 0)
-
+            ret[f'num_{job}'] = job_counts.get(job, 0)
         # Financial features
         budget, revenue = self._extract_financials(m)
-        self['tmdb_budget'] = budget
-        self['tmdb_log_budget'] = np.log1p(budget)
-        self['tmdb_revenue'] = revenue
-        self['tmdb_log_revenue'] = np.log1p(revenue)
-
+        ret['tmdb_budget'] = budget
+        ret['tmdb_log_budget'] = np.log1p(budget)
+        ret['tmdb_revenue'] = revenue
+        ret['tmdb_log_revenue'] = np.log1p(revenue)
         # Content rating
-        content_rating = self._extract_content_rating(m)
-        # For EnumFeature, we need to call get() with the value
-        rating_vector = self['rt_content_rating'].get(content_rating)
-
+        ret['rt_content_rating'] = self._extract_content_rating(m)
         # Enum embeddings
         enum_embs = self._extract_enum_embs(m)
         for key, db in sorted(self.enum_dbs.items()):
             values = enum_embs.get(key, set())
             embs = [db[v] for v in values if v in db]
             value = np.mean(embs, axis=0) if len(embs) > 0 else np.zeros(db.n_dims, dtype=np.float32)
-            self[f'{key}_emb'] = value
-
-        # Use the parent's concatenation logic, but handle the special EnumFeature case
+            ret[f'{key}_emb'] = value
+        # assemble output
         arrays = []
-        for name, child in self._children.items():
-            if name == 'rt_content_rating':
-                arrays.append(rating_vector)
-            else:
-                arrays.append(child.get())
-        
+        for feature in self:
+            arrays.append(feature.get(ret.pop(feature.name)))
         return np.concatenate(arrays)
 
     def schema(self) -> dict:
