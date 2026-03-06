@@ -1013,9 +1013,57 @@ def save_embeddings(model: torch.nn.Module,
                   n_embedding_dims=embeddings.shape[1],
                   **kwargs)
     logger.info(f"Saved {len(embeddings)} embeddings to {output_path}")
+
+
+def save_model_with_checkpoint(model: torch.nn.Module,
+                              data: Data,
+                              output_path: str,
+                              training_args: dict,
+                              losses: Tensor,
+                              epoch: int = None,
+                              **kwargs):
+    """Save model with comprehensive checkpoint data for resuming training.
+    
+    Args:
+    - model: Trained model
+    - data: Training data
+    - output_path: Base path for saving (will create .pt file)
+    - training_args: Dictionary of training arguments used
+    - losses: Loss history from training
+    - epoch: Current epoch (for partial training saves)
+    - kwargs: Additional metadata
+    """
     model_output_path = output_path.replace('.lmdb', '_model.pt')
-    torch.save(model, model_output_path)
-    logger.info(f'Saved model to {model_output_path}')
+    
+    # Debug model before saving
+    param_count = sum(p.numel() for p in model.parameters())
+    param_size = sum(p.numel() * p.element_size() for p in model.parameters())
+    logger.info(f"Saving model with {param_count:,} parameters ({param_size / 1024 / 1024:.2f} MB)")
+    
+    # Save comprehensive checkpoint
+    checkpoint = {
+        'model': model,
+        'model_state_dict': model.state_dict(),
+        'model_class': model.__class__.__name__,
+        'training_args': training_args,
+        'losses': losses,
+        'epoch': epoch or len(losses),
+        'data_info': {
+            'num_nodes': data.num_nodes,
+            'num_edges': data.num_edges,
+            'num_features': data.num_features,
+        },
+        'timestamp': time.time(),
+        **kwargs
+    }
+    
+    torch.save(checkpoint, model_output_path)
+    
+    # Verify the save worked
+    file_size = os.path.getsize(model_output_path)
+    logger.info(f'Saved model checkpoint to {model_output_path} ({file_size:,} bytes)')
+    if file_size < 10000:  # Less than 10KB is suspicious
+        logger.warning("WARNING: Model checkpoint file is very small - may indicate save failure!")
 
 def load_saved_model(model_path: str, device: str='cpu') -> torch.nn.Module:
     """Load a saved model from the given path."""
@@ -1023,6 +1071,87 @@ def load_saved_model(model_path: str, device: str='cpu') -> torch.nn.Module:
     logger.info(f'Loaded model from {model_path} with type {model.__class__.__name__}')
     model = model.to(device)
     return model
+
+
+def load_checkpoint(checkpoint_path: str, device: str = 'cpu') -> dict:
+    """Load a comprehensive checkpoint with all training metadata.
+    
+    Args:
+    - checkpoint_path: Path to checkpoint file
+    - device: Device to load the model on
+    
+    Returns:
+    - Dictionary containing model, training args, losses, etc.
+    """
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    
+    # Verify checkpoint structure
+    required_keys = ['model', 'model_state_dict', 'training_args', 'losses']
+    missing_keys = [key for key in required_keys if key not in checkpoint]
+    if missing_keys:
+        logger.warning(f"Checkpoint missing keys: {missing_keys}")
+    
+    # Move model to device
+    if 'model' in checkpoint:
+        checkpoint['model'] = checkpoint['model'].to(device)
+    
+    logger.info(f"Loaded checkpoint from {checkpoint_path}")
+    logger.info(f"Model type: {checkpoint.get('model_class', 'Unknown')}")
+    logger.info(f"Previous epochs: {checkpoint.get('epoch', 'Unknown')}")
+    logger.info(f"Loss history length: {len(checkpoint.get('losses', []))}")
+    
+    return checkpoint
+
+
+def resume_from_checkpoint(checkpoint_path: str,
+                          data_path: str,
+                          additional_epochs: int = 100,
+                          **override_kwargs) -> tuple[torch.nn.Module, Tensor]:
+    """Resume training from a comprehensive checkpoint.
+    
+    Args:
+    - checkpoint_path: Path to checkpoint file
+    - data_path: Path to training data
+    - additional_epochs: Additional epochs to train
+    - **override_kwargs: Override any training arguments from checkpoint
+    
+    Returns:
+    - Tuple of (model, combined_loss_history)
+    """
+    # Load checkpoint
+    checkpoint = load_checkpoint(checkpoint_path, device=device)
+    model = checkpoint['model']
+    previous_losses = checkpoint['losses']
+    training_args = checkpoint['training_args'].copy()
+    last_epoch = checkpoint.get('epoch', len(previous_losses))
+    
+    # Override training args if provided
+    training_args.update(override_kwargs)
+    
+    logger.info(f"Resuming from epoch {last_epoch} with {len(previous_losses)} previous losses")
+    
+    # Load data
+    data = torch.load(data_path, weights_only=False)
+    
+    # Create GraphLearner with training args
+    gl = GraphLearner(data, **training_args)
+    
+    # Resume training based on model type
+    if isinstance(model, ContrastiveGAT):
+        model, new_losses = gl.train_contrastive(
+            n_epochs=additional_epochs,
+            gpu_batch_size=training_args.get('gpu_batch_size', 256),
+            existing_model=model
+        )
+    elif isinstance(model, NodeClassificationGAT):
+        raise NotImplementedError("Node classification resume not fully implemented")
+    else:
+        raise ValueError(f"Unknown model type: {type(model)}")
+    
+    # Combine loss histories
+    combined_losses = torch.cat([previous_losses, new_losses])
+    
+    return model, combined_losses
 
 def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
     """This adds YAML config file parsing to a `parser`.
@@ -1058,6 +1187,7 @@ def main():
     A('input_path', help='Input PyG.Data path (as .pt)')
     A('output_path', help='Output NumpyLmdb path for learned embeddings')
     A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
+    A('--resume', help='Path to model checkpoint to resume training from')
     # Model configuration
     A('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
     A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
@@ -1101,13 +1231,38 @@ def main():
             print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
         #return
 
-    # load the existing model if we have it, to resume training
+    # Check for resume argument or existing checkpoint
     existing_model = None
-    model_path = args.output_path.replace('.lmdb', '_model.pt')
-    if os.path.exists(model_path):
-        logger.info(f'Found existing model at {model_path}, loading it to resume training')
-        existing_model = load_saved_model(model_path, device)
-        #TODO we should also load the existing losses and append to them
+    previous_losses = None
+    
+    if hasattr(args, 'resume') and args.resume:
+        # Resume from specified checkpoint
+        logger.info(f'Resuming training from checkpoint: {args.resume}')
+        model, losses = resume_from_checkpoint(
+            checkpoint_path=args.resume,
+            data_path=args.input_path,
+            additional_epochs=args.n_epochs,
+            **{k: v for k, v in vars(args).items() if k not in ['resume', 'input_path', 'n_epochs']}
+        )
+        # Save final results and exit early
+        kwargs = {f'kw_{name}': value for name, value in vars(args).items()}
+        save_embeddings(model, data, args.output_path, args.output_flag, **kwargs)
+        save_model_with_checkpoint(model, data, args.output_path, vars(args), losses, **kwargs)
+        return
+    else:
+        # Check for existing model to resume from
+        model_path = args.output_path.replace('.lmdb', '_model.pt')
+        if os.path.exists(model_path):
+            logger.info(f'Found existing checkpoint at {model_path}, loading it to resume training')
+            try:
+                checkpoint = load_checkpoint(model_path, device)
+                existing_model = checkpoint['model']
+                previous_losses = checkpoint.get('losses', torch.tensor([]))
+                logger.info(f'Loaded existing model with {len(previous_losses)} previous losses')
+            except Exception as e:
+                logger.warning(f'Failed to load checkpoint: {e}. Starting fresh training.')
+                existing_model = None
+                previous_losses = None
 
     # Create learner
     gl = create_learner(
@@ -1130,15 +1285,23 @@ def main():
     )
     match args.learner_type:
         case 'random_walk': # Generate walks and train
-            model, losses = gl.train_random_walks(walk_length=args.walk_length, **kw)
+            model, new_losses = gl.train_random_walks(walk_length=args.walk_length, **kw)
         case 'contrastive': # Train with contrastive learning using direct neighbor sampling
-            model, losses = gl.train_contrastive(**kw)
+            model, new_losses = gl.train_contrastive(**kw)
         case '_':
             raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
 
-    # Save embeddings
+    # Combine with previous losses if resuming
+    if previous_losses is not None and len(previous_losses) > 0:
+        losses = torch.cat([previous_losses, new_losses])
+        logger.info(f'Combined {len(previous_losses)} previous losses with {len(new_losses)} new losses')
+    else:
+        losses = new_losses
+
+    # Save embeddings and model checkpoint
     kwargs = {f'kw_{name}': value for name, value in vars(args).items()}
     save_embeddings(model, data, args.output_path, args.output_flag, **kwargs)
+    save_model_with_checkpoint(model, data, args.output_path, vars(args), losses, **kwargs)
 
 
 if __name__ == '__main__':
