@@ -330,7 +330,26 @@ class CompositeFeature(Feature):
         This returns a dict that maps from child feature names to their corresponding slices of the
         input vector `v`, based on the lengths of the child features. This can be useful for
         debugging and interpretability.
+        
+        Args:
+        - v: Feature vector to explain, must have length equal to len(self)
+        
+        Returns:
+        - Dictionary mapping child feature names to their corresponding slices of v
         """
+        if len(v) != len(self):
+            raise ValueError(f"Feature vector length {len(v)} doesn't match composite feature length {len(self)}")
+        
+        explanation = {}
+        start_idx = 0
+        
+        for name, child in self._children.items():
+            child_len = len(child)
+            end_idx = start_idx + child_len
+            explanation[name] = v[start_idx:end_idx]
+            start_idx = end_idx
+        
+        return explanation
 
     def schema(self) -> dict:
         """Get schema information for this composite feature.
