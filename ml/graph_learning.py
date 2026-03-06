@@ -1022,7 +1022,7 @@ def save_model_with_checkpoint(model: torch.nn.Module,
                               losses: Tensor,
                               epoch: int = None,
                               **kwargs):
-    """Save model with comprehensive checkpoint data for resuming training.
+    """Save model state dict and config to avoid pickle issues.
 
     Args:
     - model: Trained model
@@ -1040,11 +1040,25 @@ def save_model_with_checkpoint(model: torch.nn.Module,
     param_size = sum(p.numel() * p.element_size() for p in model.parameters())
     logger.info(f"Saving model with {param_count:,} parameters ({param_size / 1024 / 1024:.2f} MB)")
 
-    # Save comprehensive checkpoint
+    # Extract model configuration for reconstruction
+    model_config = {
+        'in_channels': model.conv1.in_channels,
+        'hidden_channels': model.conv1.out_channels // model.conv1.heads,
+        'heads': model.conv1.heads,
+        'dropout': model.dropout,
+    }
+    
+    # Add model-specific config
+    if hasattr(model, 'temperature'):
+        model_config['temperature'] = model.temperature
+    if hasattr(model, 'task_config'):
+        model_config['task_config'] = model.task_config
+
+    # Save state dict and reconstruction info (no full model to avoid pickle issues)
     checkpoint = {
-        'model': model,
         'model_state_dict': model.state_dict(),
         'model_class': model.__class__.__name__,
+        'model_config': model_config,
         'training_args': training_args,
         'losses': losses,
         'epoch': epoch or len(losses),
@@ -1066,29 +1080,43 @@ def save_model_with_checkpoint(model: torch.nn.Module,
         logger.warning("WARNING: Model checkpoint file is very small - may indicate save failure!")
 
 def load_checkpoint(checkpoint_path: str, device: str = 'cpu') -> dict:
-    """Load a comprehensive checkpoint with all training metadata.
+    """Load checkpoint and reconstruct model from state dict.
 
     Args:
     - checkpoint_path: Path to checkpoint file
     - device: Device to load the model on
 
     Returns:
-    - Dictionary containing model, training args, losses, etc.
+    - Dictionary containing reconstructed model, training args, losses, etc.
     """
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
     # Verify checkpoint structure
-    required_keys = ['model', 'model_state_dict', 'training_args', 'losses']
+    required_keys = ['model_state_dict', 'model_class', 'model_config', 'training_args', 'losses']
     missing_keys = [key for key in required_keys if key not in checkpoint]
     if missing_keys:
         logger.warning(f"Checkpoint missing keys: {missing_keys}")
 
-    # Move model to device
-    if 'model' in checkpoint:
-        checkpoint['model'] = checkpoint['model'].to(device)
+    # Reconstruct model from saved config
+    model_class = checkpoint['model_class']
+    model_config = checkpoint['model_config']
+    
+    if model_class == 'ContrastiveGAT':
+        model = ContrastiveGAT(**model_config)
+    elif model_class == 'NodeClassificationGAT':
+        model = NodeClassificationGAT(**model_config)
+    else:
+        raise ValueError(f"Unknown model class: {model_class}")
+    
+    # Load the state dict
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model = model.to(device)
+    
+    # Add reconstructed model to checkpoint
+    checkpoint['model'] = model
 
     logger.info(f"Loaded checkpoint from {checkpoint_path}")
-    logger.info(f"Model type: {checkpoint.get('model_class', 'Unknown')}")
+    logger.info(f"Model type: {model_class}")
     logger.info(f"Previous epochs: {checkpoint.get('epoch', 'Unknown')}")
     logger.info(f"Loss history length: {len(checkpoint.get('losses', []))}")
 
