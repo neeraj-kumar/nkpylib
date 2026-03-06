@@ -325,22 +325,12 @@ class CompositeFeature(Feature):
         """
         feature = cls(name=schema.get('name', ''))
         children_data = schema.get('children', {})
-        if isinstance(children_data, dict):
-            # New format: dict mapping names to schemas
-            for name, child_schema in children_data.items():
-                child_type = child_schema['type']
-                feature_class = globals().get(child_type)
-                if feature_class and issubclass(feature_class, Feature):
-                    child = feature_class.from_schema(child_schema)
-                    feature.add(child)
-        else:
-            # Legacy format: list of schemas
-            for child_schema in children_data:
-                child_type = child_schema['type']
-                feature_class = globals().get(child_type)
-                if feature_class and issubclass(feature_class, Feature):
-                    child = feature_class.from_schema(child_schema)
-                    feature.add(child)
+        for name, child_schema in children_data.items():
+            child_type = child_schema['type']
+            feature_class = globals().get(child_type)
+            if feature_class and issubclass(feature_class, Feature):
+                child = feature_class.from_schema(child_schema)
+                feature.add(child)
         return feature
 
 
@@ -354,6 +344,7 @@ class ConstantFeature(Feature):
         """
         super().__init__(**kw)
         assert values is not None or dims > 0, "Must provide either values or dims"
+        self.values: None|np.ndarray
         if values is not None:
             if isinstance(values, (int, float)):
                 values = [values]
@@ -367,7 +358,7 @@ class ConstantFeature(Feature):
         """Returns the length of the feature"""
         return self.dims
 
-    def _get(self, values: int|float|Sequence[int|float]=None, *args, **kw) -> np.ndarray:
+    def _get(self, values: int|float|Sequence[int|float]|None=None, *args, **kw) -> np.ndarray:
         """Returns the feature as a numpy array"""
         # Use provided values or fall back to stored ones
         vals = values if values is not None else self.values
@@ -453,7 +444,7 @@ class EnumFeature(Feature, Generic[EnumT]):
 
     def _get(self, val: EnumT, *args, **kw) -> np.ndarray:
         """Returns the encoded feature as a numpy array."""
-        if val is None:
+        if val is None and None not in self.enum_values:
             raise ValueError("No value provided to EnumFeature")
         match self.encoding:
             case 'onehot':
@@ -935,9 +926,9 @@ class MovieFeature(CompositeFeature):
 
     def _get(self, m, *args, **kw) -> np.ndarray:
         """Compute all movie features and concatenate them."""
-        ret = {}
-        ret['year'] = m.year if m.year else 0
-        ret['runtime'] = m.runtime if m.runtime else 0
+        d = {}
+        d['year'] = m.year if m.year else 0
+        d['runtime'] = m.runtime if m.runtime else 0
         # Rating features
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
         rating_values = {src: {'rating': 0.0, 'votes': 0.0, 'popularity': 0.0} for src in rating_sources}
@@ -947,47 +938,56 @@ class MovieFeature(CompositeFeature):
                     rating_values[r.source][field] = self._try_float(r, field)
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
-                ret[f'{src}_{field}'] = rating_values[src][field]
-            ret[f'{src}_log_votes'] = np.log1p(rating_values[src]['votes'])
+                d[f'{src}_{field}'] = rating_values[src][field]
+            d[f'{src}_log_votes'] = np.log1p(rating_values[src]['votes'])
         # Job counts
         job_counts = Counter(tp.job_id.name for tp in m.people)
         for job in ['actor', 'actress', 'director', 'writer']:
-            ret[f'num_{job}'] = job_counts.get(job, 0)
+            d[f'num_{job}'] = job_counts.get(job, 0)
         # Financial features
         budget, revenue = self._extract_financials(m)
-        ret['tmdb_budget'] = budget
-        ret['tmdb_log_budget'] = np.log1p(budget)
-        ret['tmdb_revenue'] = revenue
-        ret['tmdb_log_revenue'] = np.log1p(revenue)
+        d['tmdb_budget'] = budget
+        d['tmdb_log_budget'] = np.log1p(budget)
+        d['tmdb_revenue'] = revenue
+        d['tmdb_log_revenue'] = np.log1p(revenue)
         # Content rating
-        ret['rt_content_rating'] = self._extract_content_rating(m)
+        d['rt_content_rating'] = self._extract_content_rating(m)
         # Enum embeddings
         enum_embs = self._extract_enum_embs(m)
         for key, db in sorted(self.enum_dbs.items()):
             values = enum_embs.get(key, set())
             embs = [db[v] for v in values if v in db]
             value = np.mean(embs, axis=0) if len(embs) > 0 else np.zeros(db.n_dims, dtype=np.float32)
-            ret[f'{key}_emb'] = value
+            d[f'{key}_emb'] = value
         # assemble output
         arrays = []
         for feature in self:
-            arrays.append(feature.get(ret.pop(feature.name)))
+            v = d.pop(feature.name)
+            try:
+                arrays.append(feature.get(v))
+            except Exception as e:
+                logger.error(f"Error getting feature {feature.name} with value {v}: {e}")
+                raise
+        assert not d, f"Unused keys in movie feature dict: {d}"
         return np.concatenate(arrays)
 
-    @classmethod
-    def from_schema(cls, schema: dict, enum_dbs: dict = None) -> MovieFeature:
-        """Create a movie feature instance from a schema dictionary.
+    def schema(self) -> dict:
+        """Get schema information for this movie feature.
 
-        Note: This requires enum_dbs to function properly.
+        This just uses the base class implementation with the addition of the enum_dbs keys.
+        """
+        base_schema = super().schema()
+        base_schema['enum_dbs'] = list(self.enum_dbs.keys())
+        return base_schema
+
+    @classmethod
+    def from_schema(cls, schema: dict) -> MovieFeature:
+        """Create a movie feature instance from a schema dictionary.
 
         Args:
         - schema: Dictionary containing feature configuration
-        - enum_dbs: Dictionary of enum databases (required for actual functionality)
 
         Returns:
         - MovieFeature instance
         """
-        if enum_dbs is None:
-            raise ValueError("MovieFeature.from_schema requires enum_dbs parameter")
-
-        return cls(enum_dbs=enum_dbs, name=schema.get('name', ''))
+        return cls(enum_dbs=schema['enum_dbs'], name=schema.get('name', ''))
