@@ -286,6 +286,25 @@ class CompositeFeature(Feature):
         """Get a child feature by name."""
         return self._children[name]
 
+    def __getitem__(self, name: str) -> Feature:
+        """Get a child feature by name."""
+        return self._children[name]
+
+    def __setitem__(self, name: str, value: Feature | np.ndarray | float | int | list) -> None:
+        """Set a child feature or its values."""
+        if isinstance(value, Feature):
+            # Setting a whole feature
+            self._children[name] = value
+        else:
+            # Setting values on existing feature
+            if name not in self._children:
+                raise KeyError(f"Child feature '{name}' not found")
+            child = self._children[name]
+            if hasattr(child, 'values'):
+                child.values = np.array(value) if not isinstance(value, np.ndarray) else value
+            else:
+                raise TypeError(f"Cannot set values on {type(child).__name__}")
+
     def __len__(self) -> int:
         """Returns the length of the feature"""
         return sum(len(c) for c in self.children)
@@ -931,8 +950,8 @@ class MovieFeature(CompositeFeature):
     def _get(self, m, *args, **kw) -> np.ndarray:
         """Compute all movie features and concatenate them."""
         # Basic features
-        self.get_child('year').values = np.array([m.year if m.year else 0])
-        self.get_child('runtime').values = np.array([m.runtime if m.runtime else 0])
+        self['year'] = m.year if m.year else 0
+        self['runtime'] = m.runtime if m.runtime else 0
 
         # Rating features
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
@@ -945,25 +964,25 @@ class MovieFeature(CompositeFeature):
 
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
-                self.get_child(f'{src}_{field}').values = np.array([rating_values[src][field]])
-            self.get_child(f'{src}_log_votes').values = np.array([np.log1p(rating_values[src]['votes'])])
+                self[f'{src}_{field}'] = rating_values[src][field]
+            self[f'{src}_log_votes'] = np.log1p(rating_values[src]['votes'])
 
         # Job counts
         job_counts = Counter(tp.job_id.name for tp in m.people)
         for job in ['actor', 'actress', 'director', 'writer']:
-            self.get_child(f'num_{job}').values = np.array([job_counts.get(job, 0)])
+            self[f'num_{job}'] = job_counts.get(job, 0)
 
         # Financial features
         budget, revenue = self._extract_financials(m)
-        self.get_child('tmdb_budget').values = np.array([budget])
-        self.get_child('tmdb_log_budget').values = np.array([np.log1p(budget)])
-        self.get_child('tmdb_revenue').values = np.array([revenue])
-        self.get_child('tmdb_log_revenue').values = np.array([np.log1p(revenue)])
+        self['tmdb_budget'] = budget
+        self['tmdb_log_budget'] = np.log1p(budget)
+        self['tmdb_revenue'] = revenue
+        self['tmdb_log_revenue'] = np.log1p(revenue)
 
         # Content rating
         content_rating = self._extract_content_rating(m)
         # For EnumFeature, we need to call get() with the value
-        rating_vector = self.get_child('rt_content_rating').get(content_rating)
+        rating_vector = self['rt_content_rating'].get(content_rating)
 
         # Enum embeddings
         enum_embs = self._extract_enum_embs(m)
@@ -971,7 +990,7 @@ class MovieFeature(CompositeFeature):
             values = enum_embs.get(key, set())
             embs = [db[v] for v in values if v in db]
             value = np.mean(embs, axis=0) if len(embs) > 0 else np.zeros(db.n_dims, dtype=np.float32)
-            self.get_child(f'{key}_emb').values = value
+            self[f'{key}_emb'] = value
 
         # Use the parent's concatenation logic, but handle the special EnumFeature case
         arrays = []
