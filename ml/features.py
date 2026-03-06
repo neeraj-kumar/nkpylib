@@ -271,16 +271,20 @@ class CompositeFeature(Feature):
     def __init__(self, **kw):
         """Initialize this composite feature."""
         super().__init__(**kw)
-        self._children: list[Feature] = []
+        self._children: OrderedDict[str, Feature] = OrderedDict()
 
     @property
     def children(self) -> list[Feature]:
         """Get list of child features."""
-        return self._children
+        return list(self._children.values())
 
     def add_child(self, feature: Feature) -> None:
         """Add a child feature."""
-        self._children.append(feature)
+        self._children[feature.name] = feature
+
+    def get_child(self, name: str) -> Feature:
+        """Get a child feature by name."""
+        return self._children[name]
 
     def __len__(self) -> int:
         """Returns the length of the feature"""
@@ -303,7 +307,7 @@ class CompositeFeature(Feature):
             'type': 'CompositeFeature',
             'name': self.name,
             'dims': len(self),
-            'children': [child.schema() for child in self.children],
+            'children': {name: child.schema() for name, child in self._children.items()},
             'num_children': len(self.children),
         }
 
@@ -318,13 +322,23 @@ class CompositeFeature(Feature):
         - CompositeFeature instance with reconstructed children
         """
         feature = cls(name=schema.get('name', ''))
-        for child_schema in schema.get('children', []):
-            child_type = child_schema['type']
-            # Get the appropriate feature class
-            feature_class = globals().get(child_type)
-            if feature_class and issubclass(feature_class, Feature):
-                child = feature_class.from_schema(child_schema)
-                feature.add_child(child)
+        children_data = schema.get('children', {})
+        if isinstance(children_data, dict):
+            # New format: dict mapping names to schemas
+            for name, child_schema in children_data.items():
+                child_type = child_schema['type']
+                feature_class = globals().get(child_type)
+                if feature_class and issubclass(feature_class, Feature):
+                    child = feature_class.from_schema(child_schema)
+                    feature.add_child(child)
+        else:
+            # Legacy format: list of schemas
+            for child_schema in children_data:
+                child_type = child_schema['type']
+                feature_class = globals().get(child_type)
+                if feature_class and issubclass(feature_class, Feature):
+                    child = feature_class.from_schema(child_schema)
+                    feature.add_child(child)
         return feature
 
 
@@ -916,11 +930,9 @@ class MovieFeature(CompositeFeature):
 
     def _get(self, m: Movie, *args, **kw) -> np.ndarray:
         """Compute all movie features and concatenate them."""
-        feature_values = []
-
         # Basic features
-        feature_values.append([m.year if m.year else 0])
-        feature_values.append([m.runtime if m.runtime else 0])
+        self.get_child('year').values = np.array([m.year if m.year else 0])
+        self.get_child('runtime').values = np.array([m.runtime if m.runtime else 0])
 
         # Rating features
         rating_sources = ['imdb', 'tmdb', 'letterboxd', 'rotten_tomatoes_critics', 'rotten_tomatoes_audience']
@@ -933,28 +945,25 @@ class MovieFeature(CompositeFeature):
 
         for src in rating_sources:
             for field in ['rating', 'votes', 'popularity']:
-                feature_values.append([rating_values[src][field]])
-            feature_values.append([np.log1p(rating_values[src]['votes'])])
+                self.get_child(f'{src}_{field}').values = np.array([rating_values[src][field]])
+            self.get_child(f'{src}_log_votes').values = np.array([np.log1p(rating_values[src]['votes'])])
 
         # Job counts
         job_counts = Counter(tp.job_id.name for tp in m.people)
         for job in ['actor', 'actress', 'director', 'writer']:
-            feature_values.append([job_counts.get(job, 0)])
+            self.get_child(f'num_{job}').values = np.array([job_counts.get(job, 0)])
 
         # Financial features
         budget, revenue = self._extract_financials(m)
-        feature_values.append([budget])
-        feature_values.append([np.log1p(budget)])
-        feature_values.append([revenue])
-        feature_values.append([np.log1p(revenue)])
+        self.get_child('tmdb_budget').values = np.array([budget])
+        self.get_child('tmdb_log_budget').values = np.array([np.log1p(budget)])
+        self.get_child('tmdb_revenue').values = np.array([revenue])
+        self.get_child('tmdb_log_revenue').values = np.array([np.log1p(revenue)])
 
         # Content rating
         content_rating = self._extract_content_rating(m)
-        rating_enum = EnumFeature(
-            enum_values=[None, 'G', 'PG', 'PG-13', 'R', 'NC17', 'NR'],
-            encoding='int'
-        )
-        feature_values.append(rating_enum.get(content_rating))
+        # For EnumFeature, we need to call get() with the value
+        rating_vector = self.get_child('rt_content_rating').get(content_rating)
 
         # Enum embeddings
         enum_embs = self._extract_enum_embs(m)
@@ -962,10 +971,16 @@ class MovieFeature(CompositeFeature):
             values = enum_embs.get(key, set())
             embs = [db[v] for v in values if v in db]
             value = np.mean(embs, axis=0) if len(embs) > 0 else np.zeros(db.n_dims, dtype=np.float32)
-            feature_values.append(value)
+            self.get_child(f'{key}_emb').values = value
 
-        # Concatenate all features
-        arrays = [np.array(fv) for fv in feature_values]
+        # Use the parent's concatenation logic, but handle the special EnumFeature case
+        arrays = []
+        for name, child in self._children.items():
+            if name == 'rt_content_rating':
+                arrays.append(rating_vector)
+            else:
+                arrays.append(child.get())
+        
         return np.concatenate(arrays)
 
     def schema(self) -> dict:
