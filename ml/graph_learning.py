@@ -1033,7 +1033,7 @@ def save_model_with_checkpoint(model: torch.nn.Module,
     - epoch: Current epoch (for partial training saves)
     - kwargs: Additional metadata
     """
-    model_output_path = output_path.replace('.lmdb', '_model.pt')
+    model_output_path = output_path.replace('.lmdb', '-model.pt')
 
     # Debug model before saving
     param_count = sum(p.numel() for p in model.parameters())
@@ -1047,7 +1047,6 @@ def save_model_with_checkpoint(model: torch.nn.Module,
         'heads': model.conv1.heads,
         'dropout': model.dropout,
     }
-    
     # Add model-specific config
     if hasattr(model, 'temperature'):
         model_config['temperature'] = model.temperature
@@ -1090,6 +1089,7 @@ def load_checkpoint(checkpoint_path: str, device: str = 'cpu') -> dict:
     - Dictionary containing reconstructed model, training args, losses, etc.
     """
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    print(f'saved config: {checkpoint["model_config"]}')
 
     # Verify checkpoint structure
     required_keys = ['model_state_dict', 'model_class', 'model_config', 'training_args', 'losses']
@@ -1100,7 +1100,6 @@ def load_checkpoint(checkpoint_path: str, device: str = 'cpu') -> dict:
     # Reconstruct model from saved config
     model_class = checkpoint['model_class']
     model_config = checkpoint['model_config']
-    
     if model_class == 'ContrastiveGAT':
         model = ContrastiveGAT(**model_config)
     elif model_class == 'NodeClassificationGAT':
