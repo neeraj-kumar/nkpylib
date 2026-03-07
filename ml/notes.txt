@@ -1,8 +1,9 @@
 Mar 6
 ------
 
-- people14: full graph, quantile transformer: 
-- people13: full graph, 200 epochs x 1024 (slightly fewer overall samples): maybe slightly worse?
+- people15: full graph, quantile transformer norm dist: slightly better
+- people14: full graph, quantile transformer: holy shit incredible
+- people13: full graph, 200 epochs x 1024 (slightly fewer overall samples, much faster): slightly better
 - people12: full graph, 2000 epochs x 128 (compared to 200 for previous runs): starting to get pretty good
 - people11: maxabsscaler, temp 0.15 (noticeably better)
 - people10: standard scaler, no mean, temp 0.15 (strictly worse)

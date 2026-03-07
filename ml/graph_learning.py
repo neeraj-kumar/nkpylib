@@ -1253,10 +1253,11 @@ def main():
     #scaler = StandardScaler(with_mean=False, with_std=True)
     #scaler = RobustScaler()
     #scaler = MaxAbsScaler()
-    scaler = QuantileTransformer()
+    scaler = QuantileTransformer(output_distribution='normal')
     data.x = torch.tensor(scaler.fit_transform(data.x.cpu()), dtype=torch.float32)
     data.edge_index = data.edge_index.to(torch.int32)
     logger.info(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
+    logger.info(f'All data keys: {data.keys()}')
     if 0:
         # check for duplicates in the edge index
         dupes = Counter()
