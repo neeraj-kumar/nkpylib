@@ -1,0 +1,4 @@
+cpu_batch_size: 1024
+gpu_batch_size: 1024
+heads: 3
+n_epochs: 200
