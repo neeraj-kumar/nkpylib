@@ -661,34 +661,21 @@ def user_preference_neg_pairs(user_pos: dict,
     """
     n_anchors = len(anchors)
     movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
-    
     neg_nodes_np = np.zeros((n_anchors, neg_samples), dtype=np.int64)
-    
     for i in range(n_anchors):
         user_id = user_ids[i]
-        
-        # Check if this user has negative movies
-        if user_id not in user_neg:
-            logger.warning(f"User {user_id} has no negative movies, using random sampling for anchor {i}")
-            # Fallback to random sampling for this anchor
-            neg_nodes_np[i] = RNG.choice(len(keys), size=neg_samples, replace=True)
-            continue
-            
         # Get negative movies for this specific user that exist in our graph
-        neg_movies = [m for m in user_neg[user_id] if m in movie_to_idx]
-        
+        neg_movies = [m for m in user_neg.get(user_id, []) if m in movie_to_idx]
         if len(neg_movies) == 0:
             logger.warning(f"User {user_id} has no negative movies in graph, using random sampling for anchor {i}")
             # Fallback to random sampling for this anchor
             neg_nodes_np[i] = RNG.choice(len(keys), size=neg_samples, replace=True)
             continue
-        
         # Sample negatives from this user's negative list
         for j in range(neg_samples):
             neg_movie = RNG.choice(neg_movies)
             neg_idx = movie_to_idx[neg_movie]
             neg_nodes_np[i, j] = neg_idx
-
     return torch.from_numpy(neg_nodes_np).long()
 
 
