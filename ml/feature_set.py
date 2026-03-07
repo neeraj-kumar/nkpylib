@@ -24,7 +24,7 @@ from sklearn.decomposition import PCA
 from sklearn.kernel_approximation import RBFSampler
 from sklearn.linear_model import SGDClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, Normalizer, StandardScaler
+from sklearn.preprocessing import FunctionTransformer, Normalizer, StandardScaler, QuantileTransformer
 from sklearn.random_projection import GaussianRandomProjection
 from sklearn.svm import LinearSVC, SVC
 from tqdm import tqdm
@@ -74,6 +74,11 @@ class Pipeliner:
         """Create a pipeline with just standard scaling."""
         return cls().scale(with_mean=with_mean, with_std=with_std).build()
 
+    @classmethod
+    def just_quantile(cls) -> Pipeline:
+        """Creates a pipeline with just quantile scaling"""
+        return cls().quantile().build()
+
     def normalize(self, norm: str='l2'):
         """Add normalization step.
 
@@ -89,6 +94,11 @@ class Pipeliner:
         - `with_std`: Whether to scale data to unit variance
         """
         self.steps.append(('scale', StandardScaler(with_mean=with_mean, with_std=with_std)))
+        return self
+
+    def quantile(self, output_distribution='normal'):
+        """Add quantile scaling step."""
+        self.steps.append(('quantile', QuantileTransformer(output_distribution=output_distribution)))
         return self
 
     def rbf_sample(self, n_components: int=4000, gamma: float|str='scale'):
