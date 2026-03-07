@@ -113,9 +113,7 @@ def contrastive_worker_one_step(n_pos: int) -> WorkItem:
     kw = _worker_obj.kw
     print(f'in one step with worker kw: {kw.keys()}')
     cur_edges = _worker_obj.edge_sampler.sample()
-    
-    # Check if we have user preference data
-    if 'user_pos' in kw and 'user_neg' in kw:
+    if 'user_pos' in kw and 'user_neg' in kw: # user preference sampling
         anchors, pos_nodes = user_preference_pos_pairs(
             user_pos=kw['user_pos'],
             keys=kw['keys'],
@@ -128,8 +126,7 @@ def contrastive_worker_one_step(n_pos: int) -> WorkItem:
             anchors=anchors,
             neg_samples=_worker_obj.neg_samples_factor,
         )
-    else:
-        # Fall back to direct neighbor sampling
+    else: # Fall back to direct neighbor sampling
         anchors, pos_nodes = direct_neighbor_pos_pairs(
             edge_index=cur_edges,
             batch_size=n_pos,
@@ -141,7 +138,6 @@ def contrastive_worker_one_step(n_pos: int) -> WorkItem:
             edge_index=cur_edges,
             neg_samples=_worker_obj.neg_samples_factor,
         )
-    
     return WorkItem(
         cur_edges=cur_edges,
         anchors=anchors,
@@ -605,103 +601,88 @@ def neg_pair_generator(n_nodes: int,
 
 def user_preference_pos_pairs(user_pos: dict, keys: list, batch_size: int) -> tuple[Tensor, Tensor]:
     """Generate positive pairs from user preferences.
-    
+
     Args:
     - user_pos: Dict mapping user_id -> list of movie_ids they liked
     - keys: List of movie_ids that maps to node indices
     - batch_size: Target number of positive pairs
-    
+
     Returns:
     - (anchor_nodes, positive_nodes) tensors with node indices
     """
     anchors = []
     pos_nodes = []
-    
-    # Create mapping from movie_id to node index
     movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
-    
     # Filter users who have enough movies for pair sampling
     valid_users = [user_id for user_id, movies in user_pos.items() if len(movies) >= 2]
-    
     if not valid_users:
         logger.warning("No users with enough positive movies for pair sampling")
         return torch.tensor([]), torch.tensor([])
-    
     pairs_generated = 0
     while pairs_generated < batch_size:
         # Randomly select a user
         user_id = RNG.choice(valid_users)
         user_movies = user_pos[user_id]
-        
         # Filter movies that exist in our graph
         valid_movies = [m for m in user_movies if m in movie_to_idx]
-        
         if len(valid_movies) >= 2:
             # Sample a pair of movies from this user's positive list
             movie_pair = RNG.choice(valid_movies, size=2, replace=False)
-            
             # Convert to node indices
             anchor_idx = movie_to_idx[movie_pair[0]]
             pos_idx = movie_to_idx[movie_pair[1]]
-            
             anchors.append(anchor_idx)
             pos_nodes.append(pos_idx)
             pairs_generated += 1
-    
     return torch.tensor(anchors), torch.tensor(pos_nodes)
 
 
-def user_preference_neg_pairs(user_pos: dict, user_neg: dict, keys: list, 
-                             anchors: Tensor, neg_samples: int) -> Tensor:
+def user_preference_neg_pairs(user_pos: dict,
+                              user_neg: dict,
+                              keys: list,
+                              anchors: Tensor,
+                              neg_samples: int) -> Tensor:
     """Generate negative pairs from user preferences.
-    
+
     Args:
     - user_pos: Dict mapping user_id -> list of movie_ids they liked
     - user_neg: Dict mapping user_id -> list of movie_ids they disliked
     - keys: List of movie_ids that maps to node indices
     - anchors: Anchor node indices (not used in user preference sampling)
     - neg_samples: Number of negatives to generate per anchor
-    
+
     Returns:
     - Tensor of negative node indices with shape (len(anchors), neg_samples)
     """
     n_anchors = len(anchors)
     movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
-    
     # Find users who have both positive and negative movies
     valid_users = []
     for user_id in user_pos.keys():
-        if user_id in user_neg and len(user_pos[user_id]) > 0 and len(user_neg[user_id]) > 0:
-            # Check if movies exist in our graph
+        if user_id in user_neg:
             pos_in_graph = [m for m in user_pos[user_id] if m in movie_to_idx]
             neg_in_graph = [m for m in user_neg[user_id] if m in movie_to_idx]
             if len(pos_in_graph) > 0 and len(neg_in_graph) > 0:
                 valid_users.append(user_id)
-    
     if not valid_users:
         logger.warning("No users with both positive and negative movies, falling back to random sampling")
         # Fallback to random sampling
         n_nodes = len(keys)
         neg_nodes_np = RNG.choice(n_nodes, size=(n_anchors, neg_samples), replace=True)
         return torch.from_numpy(neg_nodes_np).long()
-    
     neg_nodes_np = np.zeros((n_anchors, neg_samples), dtype=np.int64)
-    
     for i in range(n_anchors):
         for j in range(neg_samples):
             # Randomly select a user
             user_id = RNG.choice(valid_users)
-            
             # Sample one movie from positive list and one from negative list
             pos_movies = [m for m in user_pos[user_id] if m in movie_to_idx]
             neg_movies = [m for m in user_neg[user_id] if m in movie_to_idx]
-            
             # For negative pairs, we want movies the user disliked
             neg_movie = RNG.choice(neg_movies)
             neg_idx = movie_to_idx[neg_movie]
-            
             neg_nodes_np[i, j] = neg_idx
-    
+
     return torch.from_numpy(neg_nodes_np).long()
 
 
