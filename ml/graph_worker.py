@@ -70,6 +70,7 @@ class WorkerObj:
     walk_window: int
     neg_samples_factor: int
     task_config: dict
+    kw: dict
 
 # global worker obj
 _worker_obj: WorkerObj|None = None
@@ -79,23 +80,25 @@ def initialize_worker(kw: dict[str, Any]):
     global _worker_obj
     if _worker_obj is None:
         logger.info('Initializing worker process')
+        edge_index = kw.pop('edge_index')
         walk_gen = WalkGenerator(
-            n_nodes=kw['n_nodes'],
-            edge_index=kw['edge_index'],
-            walk_length=kw['walk_length'],
+            n_nodes=kw.pop('n_nodes'),
+            edge_index=edge_index,
+            walk_length=kw.pop('walk_length'),
             n_jobs=1,
         )
         edge_sampler = EdgeSampler(
-            edge_index=kw['edge_index'],
-            max_edges_per_node=kw['max_edges_per_node'],
+            edge_index=edge_index,
+            max_edges_per_node=kw.pop('max_edges_per_node'),
             proportional=True,
             global_sampling=True,
         )
         _worker_obj = WorkerObj(walk_gen=walk_gen,
                                 edge_sampler=edge_sampler,
-                                walk_window=kw['walk_window'],
-                                neg_samples_factor=kw['neg_samples_factor'],
-                                task_config=kw.get('task_config', {}))
+                                walk_window=kw.pop('walk_window'),
+                                neg_samples_factor=kw.pop('neg_samples_factor'),
+                                task_config=kw.pop('task_config', {}),
+                                kw=kw)
 
 #@trace
 def contrastive_worker_one_step(n_pos: int) -> WorkItem:
@@ -106,6 +109,8 @@ def contrastive_worker_one_step(n_pos: int) -> WorkItem:
     """
     global _worker_obj
     assert _worker_obj is not None
+    kw = _worker_obj.kw
+    print(f'in one step with worker kw: {kw.keys()}')
     cur_edges = _worker_obj.edge_sampler.sample()
     anchors, pos_nodes = direct_neighbor_pos_pairs(
         edge_index=cur_edges,
