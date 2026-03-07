@@ -611,32 +611,41 @@ def user_preference_pos_pairs(user_pos: dict, keys: list, batch_size: int) -> tu
     Returns:
     - (anchor_nodes, positive_nodes, user_ids) where user_ids[i] is the user who generated anchors[i]
     """
+    movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
+    
+    # Filter users who have enough movies for pair sampling and precompute valid movies
+    valid_user_movies = {}
+    for user_id, movies in user_pos.items():
+        valid_movies = [m for m in movies if m in movie_to_idx]
+        if len(valid_movies) >= 2:
+            valid_user_movies[user_id] = valid_movies
+    
+    if not valid_user_movies:
+        logger.warning("No users with enough positive movies for pair sampling")
+        return torch.tensor([]), torch.tensor([]), []
+    
+    valid_users = list(valid_user_movies.keys())
+    
+    # Sample users in batch
+    selected_users = RNG.choice(valid_users, size=batch_size, replace=True)
+    
     anchors = []
     pos_nodes = []
     user_ids = []
-    movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
-    # Filter users who have enough movies for pair sampling
-    valid_users = [user_id for user_id, movies in user_pos.items() if len(movies) >= 2]
-    if not valid_users:
-        logger.warning("No users with enough positive movies for pair sampling")
-        return torch.tensor([]), torch.tensor([]), []
-    pairs_generated = 0
-    while pairs_generated < batch_size:
-        # Randomly select a user
-        user_id = RNG.choice(valid_users)
-        user_movies = user_pos[user_id]
-        # Filter movies that exist in our graph
-        valid_movies = [m for m in user_movies if m in movie_to_idx]
-        if len(valid_movies) >= 2:
-            # Sample a pair of movies from this user's positive list
-            movie_pair = RNG.choice(valid_movies, size=2, replace=False)
-            # Convert to node indices
-            anchor_idx = movie_to_idx[movie_pair[0]]
-            pos_idx = movie_to_idx[movie_pair[1]]
-            anchors.append(anchor_idx)
-            pos_nodes.append(pos_idx)
-            user_ids.append(user_id)
-            pairs_generated += 1
+    
+    for user_id in selected_users:
+        valid_movies = valid_user_movies[user_id]
+        # Sample a pair of movies from this user's positive list
+        movie_pair = RNG.choice(valid_movies, size=2, replace=False)
+        
+        # Convert to node indices
+        anchor_idx = movie_to_idx[movie_pair[0]]
+        pos_idx = movie_to_idx[movie_pair[1]]
+        
+        anchors.append(anchor_idx)
+        pos_nodes.append(pos_idx)
+        user_ids.append(user_id)
+    
     return torch.tensor(anchors), torch.tensor(pos_nodes), user_ids
 
 
@@ -662,20 +671,45 @@ def user_preference_neg_pairs(user_pos: dict,
     n_anchors = len(anchors)
     movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
     neg_nodes_np = np.zeros((n_anchors, neg_samples), dtype=np.int64)
-    for i in range(n_anchors):
-        user_id = user_ids[i]
-        # Get negative movies for this specific user that exist in our graph
+    
+    # Precompute valid negative movies for each user
+    user_neg_movies = {}
+    for user_id in set(user_ids):
         neg_movies = [m for m in user_neg.get(user_id, []) if m in movie_to_idx]
+        user_neg_movies[user_id] = neg_movies
+    
+    # Group anchors by user to batch sample
+    user_anchor_groups = defaultdict(list)
+    for i, user_id in enumerate(user_ids):
+        user_anchor_groups[user_id].append(i)
+    
+    # Sample negatives for each user group
+    for user_id, anchor_indices in user_anchor_groups.items():
+        neg_movies = user_neg_movies.get(user_id, [])
+        
         if len(neg_movies) == 0:
-            logger.warning(f"User {user_id} has no negative movies in graph, using random sampling for anchor {i}")
-            # Fallback to random sampling for this anchor
-            neg_nodes_np[i] = RNG.choice(len(keys), size=neg_samples, replace=True)
-            continue
-        # Sample negatives from this user's negative list
-        for j in range(neg_samples):
-            neg_movie = RNG.choice(neg_movies)
-            neg_idx = movie_to_idx[neg_movie]
-            neg_nodes_np[i, j] = neg_idx
+            logger.warning(f"User {user_id} has no negative movies in graph, using random sampling")
+            # Fallback to random sampling for all anchors of this user
+            total_samples = len(anchor_indices) * neg_samples
+            random_samples = RNG.choice(len(keys), size=total_samples, replace=True)
+            for idx, anchor_idx in enumerate(anchor_indices):
+                start = idx * neg_samples
+                end = start + neg_samples
+                neg_nodes_np[anchor_idx] = random_samples[start:end]
+        else:
+            # Sample negatives in batch for this user
+            total_samples = len(anchor_indices) * neg_samples
+            neg_movie_samples = RNG.choice(neg_movies, size=total_samples, replace=True)
+            
+            # Convert to node indices in batch
+            neg_idx_samples = [movie_to_idx[movie] for movie in neg_movie_samples]
+            
+            # Assign to anchors
+            for idx, anchor_idx in enumerate(anchor_indices):
+                start = idx * neg_samples
+                end = start + neg_samples
+                neg_nodes_np[anchor_idx] = neg_idx_samples[start:end]
+    
     return torch.from_numpy(neg_nodes_np).long()
 
 
