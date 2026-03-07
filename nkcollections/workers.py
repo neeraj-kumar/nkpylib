@@ -382,7 +382,7 @@ class CollectionsWorker:
                 classifier, scores, other_stuff = self.embs.train_and_run_classifier(
                     pos=pos, neg=neg, to_cls=to_cls, method=self.method, cv=5
                 )
-                joblib.dump(dict(classifier=classifier, scores=scores, other_stuff=other_stuff), 'blah.joblib')
+                #joblib.dump(dict(classifier=classifier, scores=scores, other_stuff=other_stuff), 'blah.joblib')
             else:
                 l = joblib.load('blah.joblib')
                 classifier, scores, other_stuff = l['classifier'], l['scores'], l['other_stuff']
@@ -1151,3 +1151,8 @@ class CollectionsWorker:
                 print(traceback.format_exc())
                 continue
         logger.info(f'Completed training tag classifiers for {len(valid_tags)} tags')
+
+    def test_quant(self):
+        """Tests out quantile scaler"""
+        # tried this on mar 7, 2026 and it was very comparable to normal scaling
+        self._update_classifier()
