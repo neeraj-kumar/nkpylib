@@ -23,11 +23,13 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date, datetime
 from pprint import pprint
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Callable
 
 import requests
 
-from nkpylib.fs_tree import Tree
+from tqdm import tqdm
+
+from nkpylib.fs_tree import Diff, Tree, incr_iter
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +126,7 @@ class AirtableUpdater:
     def __init__(self,
                  table_name: str,
                  key_name: str,
-                 map_tables: Optional[list[str]]=None,
+                 map_tables: list[str]|None=None,
                  needs_review:bool = True) -> None:
         """This is an updater for given table and key name.
 
@@ -302,7 +304,7 @@ class AirtableTree(Tree):
                  hash_field: str,
                  base_id: str='',
                  api_key: str='',
-                 row_filter_func: Optional[Callable]=None,
+                 row_filter_func: Callable|None=None,
                  debug: bool=False):
         """Initialize this airtable tree with the given table and base id.
 
