@@ -341,7 +341,6 @@ class CollectionsWorker:
         logger.info(f'Sampled {len(pos)} pos and {len(neg)} neg ({len(disliked_ids)} disliked)')
         return pos, neg
 
-    @db_session
     def _store_scores_in_db(self, scores: dict[str|int, float], ttype: str, tag: str, **md) -> None:
         """Store scores in the Score table with optional metadata.
 
@@ -352,10 +351,11 @@ class CollectionsWorker:
         """
         current_ts = time.time()
         for item_id, score in scores.items():
-            get_kw = dict(id=Item[int(item_id)], ttype=ttype, tag=tag)
-            s = Score.get(**get_kw)
-            if s is None:
-                Score(**get_kw, score=float(score), ts=current_ts, md=md if md else None)
+            with db_session:
+                get_kw = dict(id=Item[int(item_id)], ttype=ttype, tag=tag)
+                s = Score.get(**get_kw)
+                if s is None:
+                    Score(**get_kw, score=float(score), ts=current_ts, md=md if md else None)
         logger.debug(f"  Stored {len(scores)} {tag} scores in Score table")
 
     def _update_classifier(self) -> None:

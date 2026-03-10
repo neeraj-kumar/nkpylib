@@ -17,6 +17,7 @@ import time
 from collections.abc import Mapping
 from typing import Any, Generic, TypeVar, Iterator
 
+import lmdb
 import numpy as np
 
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -287,7 +288,12 @@ class FeatureSet(Mapping, Generic[KeyT]):
                     done.add(k)
             keys = new_keys
             if keys:
-                vecs = np.vstack([self[k] for k in keys])
+                try:
+                    vecs = np.vstack([self[k] for k in keys])
+                except lmdb.MapResizedError as e:
+                    # retry once after reloading the lmdbs
+                    self.reload_keys(reload_lmdb=True)
+                    vecs = np.vstack([self[k] for k in keys])
             else:
                 vecs = np.zeros((0, self.n_dims), dtype=self.dtype)
         return keys, vecs

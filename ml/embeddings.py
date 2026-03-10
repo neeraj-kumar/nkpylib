@@ -505,7 +505,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
     @with_pipeline(Pipeliner.no_op())
     def run_classifier(self,
                        to_cls: list[KeyT],
-                       classifier: BaseEstimator) -> dict[KeyT, Any]:
+                       classifier: BaseEstimator,
+                       **kw) -> dict[KeyT, Any]:
         """Runs binary `classifier` on `to_cls`, returning dict of key to score."""
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
         keys, embs = self.get_embs(to_cls)

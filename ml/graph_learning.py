@@ -1,192 +1,6 @@
 """Graph learning tools.
 
-Implementation of Graph Attention Network (GAT) using PyTorch and PyTorch Geometric.
-
-TODO:
-- add edge attributes for futher improvement:
-    # Edge features as additional input
-    edge_attr = torch.tensor([
-        [0.8, 1],    # Edge 0: weight=0.8, type=1 (actor)
-        [0.3, 2],    # Edge 1: weight=0.3, type=2 (director)
-        [0.9, 1],    # Edge 2: weight=0.9, type=1 (actor)
-    ])
-
-    # GAT with edge features
-    conv = GATConv(in_channels, out_channels, edge_dim=2)  # edge_dim=2 for 2 edge features
-    output = conv(x, edge_index, edge_attr=edge_attr)
-
-- this will require additional memory (raw storage of attrs + bigger intermediate) and some extra
-  computation (separate attention for edge features), but probably worth it for downstream tasks
-
-
-OLD TODO:
-- Develop multi-task classification heads
-- contrastive loss is good for link prediction?
-  - maybe instead of concatenating node vectors, could do elementwise product/diff/etc?
-
-
-Yes, the current GAT implementation is designed around a node classification task, as evidenced by:
-
-1. The output layer (conv2) produces out_channels=dataset.num_classes
-2. Training uses cross-entropy loss against node labels (data.y)
-3. Evaluation measures classification accuracy
-
-There are several alternatives for training without/with different tasks:
-
-1. Self-supervised approaches:
-
- • Link prediction
- • Node reconstruction
- • Random walk objectives
- • Contrastive learning between node pairs
-
-2. Multi-task training:
-
- • Multiple classification heads
- • Mix of classification and regression tasks
- • Auxiliary tasks like structure prediction
-
-3. Unsupervised approaches:
-
- • Graph autoencoders
- • Structure-preserving objectives
- • Neighborhood reconstruction
-
-Would you like me to modify the GAT implementation to support one of these alternative training approaches?
-
-
-Tokens: 31k sent, 167 received. Cost: $0.09 message, $1.53 session.
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-ml/evaluator.py ml/gat.py
-> /ask describe each of these
-
-Here's a breakdown of each alternative GAT training approach:
-
-Self-supervised approaches:
-
-1. Link Prediction
-
- • Mask some edges during training
- • Train model to predict if edges exist between node pairs
- • Uses node embeddings to compute edge likelihood
- • Natural task for graphs, preserves structure
-
-2. Node Reconstruction
-
- • Corrupt node features randomly
- • Train model to reconstruct original features
- • Forces embeddings to preserve node information
- • Similar to denoising autoencoders
-
-3. Random Walk Objectives
-
- • Generate random walks through graph
- • Train model to predict nodes that appear together in walks
- • Similar to word2vec but for graphs
- • Captures both local and broader graph structure
-
-4. Contrastive Learning
-
- • Create positive pairs (connected/similar nodes)
- • Create negative pairs (distant/dissimilar nodes)
- • Train embeddings to be close for positives, far for negatives
- • Very flexible in how pairs are chosen
-
-Multi-task approaches:
-
-1. Multiple Classification Heads
-
- • Different classifiers for different node labels
- • Share embedding layers
- • Each task provides different supervision signal
- • Can weight tasks differently
-
-2. Mixed Classification/Regression
-
- • Some heads predict categories
- • Others predict continuous values
- • Richer supervision signal
- • More complex loss function
-
-3. Structure Prediction
-
- • Main task plus structural auxiliary tasks
- • e.g., predict node degree, clustering coefficient
- • Helps embeddings capture graph properties
- • Can improve main task performance
-
-Unsupervised approaches:
-
-1. Graph Autoencoders
-
- • Encode nodes into embeddings
- • Decode to reconstruct graph structure
- • No labels needed
- • Can preserve both features and structure
-
-2. Structure-preserving
-
- • Optimize embeddings to preserve graph distances
- • Similar to traditional dimensionality reduction
- • Can use various graph metrics
- • Pure structural approach
-
-3. Neighborhood Reconstruction
-
- • Encode node's features
- • Decode to predict neighbors' features
- • Preserves local graph structure
- • Natural for attention mechanisms
-
-
-Let me explain how each parameter would likely affect the GAT model's accuracy:
-
-1. n_epochs (currently 200):
- • Too few epochs: Model won't converge, leading to poor accuracy
- • Too many epochs: Risk of overfitting, especially on smaller datasets
- • Optimal range typically 100-500 depending on dataset size and complexity
- • Best practice: Use early stopping based on validation accuracy
-
-2. hidden_channels (currently 8):
- • Larger values (e.g., 16, 32, 64) allow capturing more complex patterns
- • But also increase model parameters and risk of overfitting
- • Too small values limit model capacity
- • Rule of thumb: Start with sqrt(input_dim * output_dim)
-
-3. heads (currently 8):
- • More attention heads allow capturing different types of node relationships
- • Common values range from 4-16
- • Increasing heads increases parameters linearly
- • Diminishing returns after certain point (dataset dependent)
-
-4. Number of GATConv layers (currently 2):
- • Adding layers allows capturing higher-order node relationships
- • But faces vanishing gradient problems beyond 2-3 layers
- • Each additional layer adds risk of over-smoothing
- • Common architectures use 2-3 layers
- • Could add skip/residual connections to help with deeper architectures
-
-
-data.tasks = {
-    'genre': {
-        'labels': torch.tensor([0, 1, 2, ...]),
-        'type': 'multiclass',
-        'num_classes': 10,
-        'train_mask': torch.tensor([True, False, True, ...]),
-        'val_mask': torch.tensor([False, True, False, ...]),
-        'test_mask': torch.tensor([False, False, True, ...]),
-        'names': ['Action', 'Comedy', 'Drama', ...]
-    },
-    'actors': {
-        'labels': torch.tensor([[1, 0, 1, ...], [0, 1, 1, ...]]),  # Multi-hot
-        'type': 'multilabel',
-        'num_classes': 1000,
-        'train_mask': torch.tensor([True, False, True, ...]),
-        'val_mask': torch.tensor([False, True, False, ...]),
-        'test_mask': torch.tensor([False, False, True, ...]),
-        'names': ['George Clooney', 'Anne Hathaway', ...]
-    }
-}
+Implementation of Graph Attention Networks (GAT) using PyTorch and PyTorch Geometric.
 """
 
 from __future__ import annotations
@@ -660,7 +474,12 @@ class GraphLearner:
                 walk_window=walk_window,
                 neg_samples_factor=neg_samples_factor,
                 task_config=kw.get('task_config', {}),
+                keys=data['keys'],
             )
+            if getattr(data, 'user_pos', None) is not None:
+                initargs['user_pos'] = data.user_pos
+            if getattr(data, 'user_neg', None) is not None:
+                initargs['user_neg'] = data.user_neg
             self.pool = ProcessPoolExecutor(max_workers=n_jobs, initializer=initialize_worker, initargs=(initargs,))
 
     def start_cpu_thread(self, model: torch.nn.Module) -> None:
@@ -1007,7 +826,7 @@ def save_embeddings(model: torch.nn.Module,
     else:
         edge_sampler = EdgeSampler(
             edge_index=data.edge_index.numpy(),
-            max_edges_per_node=15,
+            max_edges_per_node=10,
             global_sampling=True,
         )
         edges = torch.tensor(edge_sampler.sample())
@@ -1224,7 +1043,7 @@ def main():
     A('--resume', help='Path to model checkpoint to resume training from')
     # Model configuration
     A('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
-    A('-n', '--n-nodes', type=int, default=50000, help='Number of nodes to sample from feature set')
+    A('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
     A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
     A('--walk-window', type=int, default=5, help='Context window for walks [5]')
     # Architecture parameters
@@ -1266,14 +1085,10 @@ def main():
         num_dupes = sum(count - 1 for count in dupes.values() if count > 1)
         logger.info(f'Found {num_dupes} duplicate edges in edge_index: {dupes.most_common(5)}')
         sys.exit()
-    if args.n_nodes:
-        if 0: # proper sampling
-            data.x = data.x[:args.n_nodes]
-            data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
-        else: # cutting off edges
-            #data.edge_index = data.edge_index[:, :args.n_nodes*100]
-            pass
-        logger.info(f'Sampled to {data.num_nodes} nodes, now {data.num_edges} edges')
+    if args.n_nodes and data.num_nodes > args.n_nodes:
+        data.x = data.x[:args.n_nodes]
+        data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
+        logger.info(f'Sampled to {data.num_nodes} nodes, {data.num_edges} edges')
     if 0:
         # print all pairs in edge_index where one of them is a given idx
         print(data.edge_index)
@@ -1284,7 +1099,6 @@ def main():
         #return
 
     # Check for resume argument or existing checkpoint
-    existing_model = None
     previous_losses = None
 
     if hasattr(args, 'resume') and args.resume:
@@ -1315,11 +1129,7 @@ def main():
 
     # Train model
     logger.info(f"Training {args.learner_type} model for {args.n_epochs} epochs")
-    kw = dict(
-        n_epochs=args.n_epochs,
-        gpu_batch_size=args.gpu_batch_size,
-        existing_model=existing_model,
-    )
+    kw = dict(n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
     match args.learner_type:
         case 'random_walk': # Generate walks and train
             model, new_losses = gl.train_random_walks(walk_length=args.walk_length, **kw)

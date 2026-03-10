@@ -77,10 +77,16 @@ gat:
 train:
 	@python3 graph_learning.py -c ~/graph.yaml ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb
 
+## trains movielens embeddings on src3 machine (first run source /opt/pytorch/bin/activate)
+train-movielens:
+	#python3 graph_learning.py -c ~/graph.yaml ~/embeddings/movielens-graph.pt ~/embeddings/learned-movielens-graph.lmdb
+	python3 graph_learning.py -c ~/graph.yaml ~/embeddings/movieppl-graph.pt ~/embeddings/learned-movieppl-graph.lmdb
+
+
 ## resume training from previous checkpoint
 resume:
 	@python3 graph_learning.py ~/embeddings/movie-graph.pt ~/embeddings/learned-movie-graph.lmdb --resume ~/embeddings/learned-movie-graph-model.pt
 
 ## fetches learned embeddings from src3 to local machine
 fetch:
-	rsync -avz --progress src3:embeddings/learned-movie-graph.lmdb ~/dp/projects/movies/embeddings/
+	rsync -avz --progress src3:embeddings/learned* ~/dp/projects/movies/embeddings/
