@@ -1809,6 +1809,17 @@ const Controls = () => {
       setTimeout(() => ctx.actions.doSource(sourceStr), 500);
     }
   }, []); // Only run once on mount
+
+  // Watch for source string changes and auto-run doSource when changing from object to URL
+  React.useEffect(() => {
+    if (!sourceStr) return;
+    
+    const isUrl = sourceStr.startsWith('http');
+    if (isUrl) {
+      // If source string is now a URL, run doSource
+      ctx.actions.doSource(sourceStr);
+    }
+  }, [sourceStr, ctx.actions.doSource]);
   // add a "return" key handler for the source input
   const keyHandler = (e) => {
     if (e.key === 'Enter') {
