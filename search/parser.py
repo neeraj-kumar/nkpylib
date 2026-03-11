@@ -9,6 +9,7 @@ See the global `OP_MAP` for the operators available, and the grammar for the syn
 
 from __future__ import annotations
 
+import json
 import logging
 
 from typing import Any
@@ -235,13 +236,24 @@ class SearchTransformer(Transformer):
 # Create parser once as module variable
 parser = Lark(GRAMMAR, parser='lalr', propagate_positions=True, transformer=SearchTransformer())
 
-
 def parse_query_into_cond(query: str) -> SearchCond:
-    """Parse a query string into a `SearchCond` using our Lark parser"""
+    """Parse a query string into a `SearchCond`.
+
+    This first tries to parse it using JSON, then falls back to the Lark grammar if that fails.
+    """
     query = query.strip()
-    logger.debug(f"Parsing query: {query}")
+    try: # first try json format parsing
+        print(f'Trying to load {query}')
+        json_cond = json.loads(query)
+        cond = parse_json_into_cond(json_cond)
+    except Exception: # if that fails, try query string format parsing
+        cond = parse_grammar_str_into_cond(query)
+    return cond
+
+def parse_grammar_str_into_cond(query: str) -> SearchCond:
+    """Parses a query string in our search grammar into a SearchCond using Lark."""
     def parse(q: str):
-        if 0:
+        if 0: #FIXME...what was this for?
             tree = parser.parse(q)
             logger.debug(f"Parse tree:\n{tree.pretty()}")
             r = result = SearchTransformer().transform(tree)
@@ -260,68 +272,53 @@ def parse_query_into_cond(query: str) -> SearchCond:
             logger.error(f"Failed to parse query: {query} -> {e}")
             raise e
 
-
 def parse_json_into_cond(data: list | dict) -> SearchCond:
     """Parse a JSON array/dict into a `SearchCond` using compact array format.
-    
-    Supports formats like:
+
+    Supports formats:
     - [field, op, value] for operations
     - [field, op] for operations without values (like existence checks)
-    - [join_type, cond1, cond2, ...] for joins where join_type is '&', '|', or '!'
+    - [join_type, cond1, cond2, ...] for joins where join_type is one of:
+      - '&', ',', or 'and' (any case)
+      - '|' or 'or' (any case)
+      - '!' or 'not' (any case, only takes one condition)
+
+    For example:
+        ["&", ["title", "~", "machine learning"], ["year", ">=", 2020]]
+        ["&", ["!", ["draft", "=", true]], ["published_at", "?+"]]
     """
     logger.debug(f"Parsing JSON: {data}")
-    
+    ANDs = {'&', ',', 'and'}
+    ORs = {'|', 'or'}
+    NOTs = {'!', 'not'}
     def parse_item(item):
-        if isinstance(item, list):
-            if len(item) == 0:
-                raise ValueError("Empty array not allowed")
-            
-            first = item[0]
-            if first in ['&', '|', '!']:
-                # Join condition: ['&', cond1, cond2, ...]
-                if first == '&':
-                    join_type = JoinType.AND
-                elif first == '|':
-                    join_type = JoinType.OR
-                else:  # '!'
-                    join_type = JoinType.NOT
-                
-                if len(item) < 2:
-                    raise ValueError(f"Join condition '{first}' requires at least one sub-condition")
-                
-                conditions = [parse_item(c) for c in item[1:]]
-                return JoinCond(join_type, conditions)
-            
-            elif len(item) >= 2:
-                # Operation condition: [field, op, value] or [field, op]
-                field = item[0]
-                op_str = item[1]
-                
-                if op_str not in OP_MAP:
-                    raise ValueError(f"Unknown operator: {op_str}")
-                
-                op = OP_MAP[op_str]
-                value = item[2] if len(item) > 2 else None
-                return OpCond(field, op, value)
-            
+        if not isinstance(item, (list, tuple)) or len(item) == 0:
+            raise ValueError(f"Invalid format: must be a non-empty list or tuple, got {item} (type: {type(item)})")
+        first = item[0]
+        fl = first.lower().strip()
+        if fl in ANDs | ORs | NOTs: # Join condition
+            if fl in ANDs:
+                join_type = JoinType.AND
+            elif fl in ORs:
+                join_type = JoinType.OR
+            elif fl in NOTs:
+                join_type = JoinType.NOT
             else:
-                raise ValueError(f"Invalid array format: {item}")
-        
-        elif isinstance(item, dict):
-            # For dict format, convert to implicit AND of field operations
-            conditions = []
-            for field, value in item.items():
-                # Simple equality for now - could extend to support operator suffixes
-                conditions.append(OpCond(field, Op.EQ, value))
-            
-            if len(conditions) == 1:
-                return conditions[0]
-            else:
-                return JoinCond(JoinType.AND, conditions)
-        
+                raise ValueError(f"Unknown join operator: {first}")
+            if len(item) < 2:
+                raise ValueError(f"Join condition '{first}' requires at least one sub-condition")
+            conditions = [parse_item(c) for c in item[1:]]
+            return JoinCond(join_type, conditions)
+        elif 3 >= len(item) >= 2: # Operation condition: [field, op, value] or [field, op]
+            field = item[0]
+            op_str = item[1]
+            if op_str not in OP_MAP:
+                raise ValueError(f"Unknown operator: {op_str}")
+            op = OP_MAP[op_str]
+            value = item[2] if len(item) > 2 else None
+            return OpCond(field, op, value)
         else:
-            raise ValueError(f"Invalid condition format: {item} (type: {type(item)})")
-    
+            raise ValueError(f"Invalid array format: {item}")
     result = parse_item(data)
     logger.debug(f"JSON parse result: {result}")
     return result

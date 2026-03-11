@@ -228,22 +228,31 @@ class SearchImpl(ABC):
 
 
     async def async_search(self,
-                           cond: SearchCond|str,
+                           cond: SearchCond|str|list|tuple,
                            n_results: int=15,
                            rerank_kw: dict|None=None,
                            **kw) -> list[SearchResult]:
         """Search for results matching the given `cond`.
 
-        The `cond` can be either a `SearchCond` object or a query string that is parsed.
+        The `cond` can be one of:
+        - a `SearchCond` object
+        - a list or tuple of compact json-format conditions (see `parse_json_into_cond` for details)
+        - a string that can be eval'ed to json and then parses using the above method
+        - a query string that is parsed using the `parse_query_into_cond` method
 
         Returns a list of `SearchResult` objects.
         """
-        from .parser import parse_query_into_cond
-        if isinstance(cond, str):
+        from .parser import parse_query_into_cond, parse_json_into_cond
+        if isinstance(cond, (list, tuple)): # direct json format
+            query = json.dumps(cond)
+            cond = parse_json_into_cond(cond)
+        elif isinstance(cond, str): # string
             query = cond
             cond = parse_query_into_cond(cond)
-        else:
+        elif isinstance(cond, SearchCond): # already a SearchCond
             query = ''
+        else:
+            raise ValueError(f"Invalid condition format: {cond} (type {type(cond)})")
         ret = await self._async_search(cond, n_results=n_results, **kw)
         rerank_kw = rerank_kw or {}
         ret = await self.rerank(ret, cond=cond, query=query, **rerank_kw)
