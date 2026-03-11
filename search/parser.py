@@ -259,3 +259,69 @@ def parse_query_into_cond(query: str) -> SearchCond:
         except Exception as e:
             logger.error(f"Failed to parse query: {query} -> {e}")
             raise e
+
+
+def parse_json_into_cond(data: list | dict) -> SearchCond:
+    """Parse a JSON array/dict into a `SearchCond` using compact array format.
+    
+    Supports formats like:
+    - [field, op, value] for operations
+    - [field, op] for operations without values (like existence checks)
+    - [join_type, cond1, cond2, ...] for joins where join_type is '&', '|', or '!'
+    """
+    logger.debug(f"Parsing JSON: {data}")
+    
+    def parse_item(item):
+        if isinstance(item, list):
+            if len(item) == 0:
+                raise ValueError("Empty array not allowed")
+            
+            first = item[0]
+            if first in ['&', '|', '!']:
+                # Join condition: ['&', cond1, cond2, ...]
+                if first == '&':
+                    join_type = JoinType.AND
+                elif first == '|':
+                    join_type = JoinType.OR
+                else:  # '!'
+                    join_type = JoinType.NOT
+                
+                if len(item) < 2:
+                    raise ValueError(f"Join condition '{first}' requires at least one sub-condition")
+                
+                conditions = [parse_item(c) for c in item[1:]]
+                return JoinCond(join_type, conditions)
+            
+            elif len(item) >= 2:
+                # Operation condition: [field, op, value] or [field, op]
+                field = item[0]
+                op_str = item[1]
+                
+                if op_str not in OP_MAP:
+                    raise ValueError(f"Unknown operator: {op_str}")
+                
+                op = OP_MAP[op_str]
+                value = item[2] if len(item) > 2 else None
+                return OpCond(field, op, value)
+            
+            else:
+                raise ValueError(f"Invalid array format: {item}")
+        
+        elif isinstance(item, dict):
+            # For dict format, convert to implicit AND of field operations
+            conditions = []
+            for field, value in item.items():
+                # Simple equality for now - could extend to support operator suffixes
+                conditions.append(OpCond(field, Op.EQ, value))
+            
+            if len(conditions) == 1:
+                return conditions[0]
+            else:
+                return JoinCond(JoinType.AND, conditions)
+        
+        else:
+            raise ValueError(f"Invalid condition format: {item} (type: {type(item)})")
+    
+    result = parse_item(data)
+    logger.debug(f"JSON parse result: {result}")
+    return result
