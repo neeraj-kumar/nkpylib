@@ -146,7 +146,7 @@ class AirtableUpdater:
             #TODO generalize this somehow
             # fetch the main dishes table using multiple subsets based on length of the name
             fmt = 'and(len(%7BName%7D)%3EXXX%2Clen(%7BName%7D)%3CYYY)'
-            breakpoints = [0, 30, 40, 50, 60, 1000]
+            breakpoints = [-1, 30, 40, 50, 60, 1000]
             for b0, b1 in zip(breakpoints[:-1], breakpoints[1:]):
                 formula = fmt.replace('XXX', str(b0)).replace('YYY', str(b1))
                 f = pool.submit(lambda: list(airtable_all_rows(table_name, filterByFormula=formula)))
