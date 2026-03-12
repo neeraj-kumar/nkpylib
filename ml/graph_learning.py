@@ -635,12 +635,12 @@ class GraphLearner:
 
     def train_from_config(self, cfg) -> tuple[GATBase, Tensor]:
         """Train a model based on the provided configuration.
-        
+
         This method handles both fresh training and resuming from checkpoints.
-        
+
         Args:
         - cfg: NestedNamespace configuration object
-        
+
         Returns:
         - Tuple of (trained_model, loss_history)
         """
@@ -653,11 +653,9 @@ class GraphLearner:
                 additional_epochs=cfg.train.n_epochs,
             )
             return model, losses
-        
         # Fresh training based on learner type
         logger.info(f"Training {cfg.model.learner_type} model for {cfg.train.n_epochs} epochs")
         kw = dict(n_epochs=cfg.train.n_epochs, gpu_batch_size=cfg.train.gpu_batch_size)
-        
         match cfg.model.learner_type:
             case 'random_walk':
                 model, losses = self.train_random_walks(walk_length=cfg.model.walk_length, **kw)
@@ -665,7 +663,6 @@ class GraphLearner:
                 model, losses = self.train_contrastive(**kw)
             case _:
                 raise NotImplementedError(f"Learner type {cfg.model.learner_type} not implemented")
-        
         return model, losses
 
     def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE) -> tuple[GATBase, Tensor]:
@@ -1104,7 +1101,6 @@ def main():
             pairs = data.edge_index[:, indices[1]].T
             print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
         #return
-
     # Create learner
     gl = create_learner(
         CFG.model.learner_type,
@@ -1116,10 +1112,8 @@ def main():
         cpu_batch_size=CFG.train.cpu_batch_size,
         v2=False,
     )
-
     # Train model (handles both fresh training and resume)
     model, losses = gl.train_from_config(CFG)
-
     # Save embeddings and model checkpoint
     config_dict = CFG.to_flat_dict()
     save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **config_dict)
