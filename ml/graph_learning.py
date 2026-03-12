@@ -1080,10 +1080,9 @@ def main():
             additional_epochs=CFG.train.n_epochs,
         )
         # Save final results and exit early
-        kwargs = CFG.to_kwargs_dict()
         config_dict = CFG.to_flat_dict()
-        save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
-        save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **kwargs)
+        save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **config_dict)
+        save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **config_dict)
         return
     # Create learner
     gl = create_learner(
@@ -1116,11 +1115,10 @@ def main():
         losses = new_losses
 
     # Save embeddings and model checkpoint
-    kwargs = CFG.to_kwargs_dict()
     config_dict = CFG.to_flat_dict()
     
-    save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
-    save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **kwargs)
+    save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **config_dict)
+    save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **config_dict)
 
 
 if __name__ == '__main__':

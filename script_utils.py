@@ -115,10 +115,6 @@ class NestedNamespace:
                 result[full_key] = value
         return result
 
-    def to_kwargs_dict(self) -> dict[str, Any]:
-        """Convert to a flat dict suitable for **kwargs, with kw_ prefixes."""
-        flat_dict = self.to_flat_dict()
-        return {f'kw_{key}': value for key, value in flat_dict.items()}
 
     def __repr__(self):
         items = []
