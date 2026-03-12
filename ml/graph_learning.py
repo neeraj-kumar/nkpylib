@@ -1116,7 +1116,6 @@ def main():
 
     # Save embeddings and model checkpoint
     config_dict = CFG.to_flat_dict()
-    
     save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **config_dict)
     save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **config_dict)
 
