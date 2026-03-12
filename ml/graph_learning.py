@@ -1011,37 +1011,28 @@ def main():
 
     # Use the new YAML config manager
     with YamlConfigManager() as config_mgr:
-        # Create I/O parser
-        io_parser = config_mgr.add_parser('io', description='Input/Output Configuration')
-        io_parser.add_argument('input_path', help='Input PyG.Data path (as .pt)')
-        io_parser.add_argument('output_path', help='Output NumpyLmdb path for learned embeddings')
-        io_parser.add_argument('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
-        io_parser.add_argument('--resume', help='Path to model checkpoint to resume training from')
-
-        # Create model configuration parser
-        model_parser = config_mgr.add_parser('model', description='Model Configuration')
-        model_parser.add_argument('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
-        model_parser.add_argument('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
-        model_parser.add_argument('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
-        model_parser.add_argument('--walk-window', type=int, default=5, help='Context window for walks [5]')
-
-        # Create architecture parameters parser
-        arch_parser = config_mgr.add_parser('arch', description='Model Architecture Parameters')
-        arch_parser.add_argument('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
-        arch_parser.add_argument('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
-        arch_parser.add_argument('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
-
-        # Create training parameters parser
-        train_parser = config_mgr.add_parser('train', description='Training Parameters')
-        train_parser.add_argument('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
-        # set the following to 128 for my home cpu
-        # in general, gpu batch size should multiple of cpu
-        train_parser.add_argument('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
+        io = config_mgr.add_parser('io', description='Input/Output Configuration')
+        io.add_argument('input_path', help='Input PyG.Data path (as .pt)')
+        io.add_argument('output_path', help='Output NumpyLmdb path for learned embeddings')
+        io.add_argument('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
+        io.add_argument('--resume', help='Path to model checkpoint to resume training from')
+        model = config_mgr.add_parser('model', description='Model Configuration')
+        model.add_argument('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
+        model.add_argument('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
+        model.add_argument('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
+        model.add_argument('--walk-window', type=int, default=5, help='Context window for walks [5]')
+        arch = config_mgr.add_parser('arch', description='Model Architecture Parameters')
+        arch.add_argument('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
+        arch.add_argument('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
+        arch.add_argument('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
+        train = config_mgr.add_parser('train', description='Training Parameters')
+        train.add_argument('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
+        #NOTE set the following to 128 for my home cpu
         # tune gpu batch size to max first
-        train_parser.add_argument('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
-        train_parser.add_argument('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
-
-    # Parse all parsers and create nested config
+        train.add_argument('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
+        # in general, gpu batch size should be a multiple of cpu
+        train.add_argument('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
+        train.add_argument('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
     CFG = config_mgr.parse_all()
     print(f'Final config: {CFG}')
 
