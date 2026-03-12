@@ -1060,9 +1060,10 @@ def load_and_prepare_data(cfg) -> Data:
     data = torch.load(cfg.io.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
     
-    if 0:
-        # Replace node features with random ones
-        data.x = torch.randn(data.x.shape, dtype=torch.float32) #FIXME
+    # Replace node features with random ones if requested
+    if cfg.model.replace_features_with_random:
+        logger.info('Replacing node features with random values')
+        data.x = torch.randn(data.x.shape, dtype=torch.float32)
     
     # Apply feature scaling based on config
     match cfg.model.scaler:
@@ -1090,14 +1091,16 @@ def load_and_prepare_data(cfg) -> Data:
     logger.info(f'Loaded PyG from {cfg.io.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
     logger.info(f'All data keys: {data.keys()}')
     
-    if 0:
-        # Check for duplicates in the edge index
+    # Check for duplicates in the edge index if requested
+    if cfg.model.check_duplicate_edges:
+        logger.info('Checking for duplicate edges...')
         dupes = Counter()
         for a, b in data.edge_index.t().tolist():
             dupes[(a, b)] += 1
         num_dupes = sum(count - 1 for count in dupes.values() if count > 1)
         logger.info(f'Found {num_dupes} duplicate edges in edge_index: {dupes.most_common(5)}')
-        sys.exit()
+        if num_dupes > 0:
+            logger.warning(f'Graph contains {num_dupes} duplicate edges!')
     
     # Sample nodes if specified
     if cfg.model.n_nodes and data.num_nodes > cfg.model.n_nodes:
@@ -1105,14 +1108,15 @@ def load_and_prepare_data(cfg) -> Data:
         data.edge_index = data.edge_index[:, (data.edge_index[0] < cfg.model.n_nodes) & (data.edge_index[1] < cfg.model.n_nodes)]
         logger.info(f'Sampled to {data.num_nodes} nodes, {data.num_edges} edges')
     
-    if 0:
-        # Print all pairs in edge_index where one of them is a given idx
+    # Debug edge analysis for specific nodes if requested
+    if cfg.model.debug_edge_analysis:
+        logger.info('Running debug edge analysis...')
         print(data.edge_index)
         for idx in [1, 9739, 764, 55542]:
-            indices = torch.where(data.edge_index == idx)
-            pairs = data.edge_index[:, indices[1]].T
-            print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
-        #return
+            if idx < data.num_nodes:  # Only analyze if node exists
+                indices = torch.where(data.edge_index == idx)
+                pairs = data.edge_index[:, indices[1]].T
+                print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
     
     return data
 
@@ -1134,6 +1138,12 @@ def main():
         model.add_argument('--scaler', default='quantile_normal',
                           choices=['std_mean', 'std_std', 'std_both', 'robust', 'maxabs', 'quantile', 'quantile_normal'],
                           help='Feature scaling method [quantile_normal]')
+        model.add_argument('--replace-features-with-random', action='store_true',
+                          help='Replace node features with random values for testing')
+        model.add_argument('--check-duplicate-edges', action='store_true',
+                          help='Check for and report duplicate edges in the graph')
+        model.add_argument('--debug-edge-analysis', action='store_true',
+                          help='Print edge analysis for specific nodes (debugging)')
         arch = config_mgr.add_parser('arch', description='Model Architecture Parameters')
         arch.add_argument('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
         arch.add_argument('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
