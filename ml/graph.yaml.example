@@ -1,4 +1,27 @@
-cpu_batch_size: 1024
-gpu_batch_size: 1024
-heads: 3
-n_epochs: 200
+# Example configuration for graph learning
+# Use with: python -m ml.graph_learning input.pt output.lmdb -c graph.yaml
+
+io:
+  output_flag: w  # 'w' for write, 'c' for create
+
+model:
+  learner_type: contrastive
+  n_nodes: 1000000
+  walk_length: 12
+  walk_window: 5
+  scaler: quantile_normal
+  # Debug options (set to true to enable)
+  replace_features_with_random: false
+  check_duplicate_edges: false
+  debug_edge_analysis: false
+
+arch:
+  hidden_channels: 64
+  heads: 3
+  dropout: 0.6
+
+train:
+  n_epochs: 200
+  gpu_batch_size: 1024
+  cpu_batch_size: 1024
+  n_jobs: 4
