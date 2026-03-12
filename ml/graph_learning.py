@@ -1052,6 +1052,9 @@ def main():
         model.add_argument('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
         model.add_argument('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
         model.add_argument('--walk-window', type=int, default=5, help='Context window for walks [5]')
+        model.add_argument('--scaler', default='quantile_normal', 
+                          choices=['std_mean', 'std_std', 'std_both', 'robust', 'maxabs', 'quantile', 'quantile_normal'],
+                          help='Feature scaling method [quantile_normal]')
         arch = config_mgr.add_parser('arch', description='Model Architecture Parameters')
         arch.add_argument('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
         arch.add_argument('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
@@ -1072,11 +1075,27 @@ def main():
     if 0:
         # replace node features with random ones
         data.x = torch.randn(data.x.shape, dtype=torch.float32) #FIXME
-    # scale features
-    #scaler = StandardScaler(with_mean=False, with_std=True)
-    #scaler = RobustScaler()
-    #scaler = MaxAbsScaler()
-    scaler = QuantileTransformer(output_distribution='normal')
+    
+    # Apply feature scaling based on config
+    match CFG.model.scaler:
+        case 'std_mean':
+            scaler = StandardScaler(with_mean=True, with_std=False)
+        case 'std_std':
+            scaler = StandardScaler(with_mean=False, with_std=True)
+        case 'std_both':
+            scaler = StandardScaler(with_mean=True, with_std=True)
+        case 'robust':
+            scaler = RobustScaler()
+        case 'maxabs':
+            scaler = MaxAbsScaler()
+        case 'quantile':
+            scaler = QuantileTransformer(output_distribution='uniform')
+        case 'quantile_normal':
+            scaler = QuantileTransformer(output_distribution='normal')
+        case _:
+            raise ValueError(f"Unknown scaler type: {CFG.model.scaler}")
+    
+    logger.info(f'Applying {CFG.model.scaler} feature scaling')
     data.x = torch.tensor(scaler.fit_transform(data.x.cpu()), dtype=torch.float32)
     data.edge_index = data.edge_index.to(torch.int32)
     logger.info(f'Loaded PyG from {CFG.io.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
