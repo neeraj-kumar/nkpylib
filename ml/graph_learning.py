@@ -1036,12 +1036,6 @@ def main():
     CFG = config_mgr.parse_all()
     print(f'Final config: {CFG}')
 
-    # For backward compatibility, create a flat args object combining all sections
-    args = type('Args', (), {})()
-    for section_name, section_config in CFG.__dict__.items():
-        for key, value in section_config.__dict__.items():
-            setattr(args, key, value)
-    
     # load input graph
     data = torch.load(CFG.io.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
@@ -1055,7 +1049,7 @@ def main():
     scaler = QuantileTransformer(output_distribution='normal')
     data.x = torch.tensor(scaler.fit_transform(data.x.cpu()), dtype=torch.float32)
     data.edge_index = data.edge_index.to(torch.int32)
-    logger.info(f'Loaded PyG from {args.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
+    logger.info(f'Loaded PyG from {CFG.io.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
     logger.info(f'All data keys: {data.keys()}')
     if 0:
         # check for duplicates in the edge index
@@ -1088,10 +1082,12 @@ def main():
             checkpoint_path=CFG.io.resume,
             data_path=CFG.io.input_path,
             additional_epochs=CFG.train.n_epochs,
-            **vars(args)
         )
         # Save final results and exit early
-        kwargs = {f'kw_{name}': value for name, value in vars(args).items()}
+        kwargs = {}
+        for section_name, section_config in CFG.__dict__.items():
+            for key, value in section_config.__dict__.items():
+                kwargs[f'kw_{key}'] = value
         save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
         save_model_with_checkpoint(model, data, CFG.io.output_path, vars(args), losses, **kwargs)
         return
@@ -1126,9 +1122,15 @@ def main():
         losses = new_losses
 
     # Save embeddings and model checkpoint
-    kwargs = {f'kw_{name}': value for name, value in vars(args).items()}
+    kwargs = {}
+    config_dict = {}
+    for section_name, section_config in CFG.__dict__.items():
+        for key, value in section_config.__dict__.items():
+            kwargs[f'kw_{key}'] = value
+            config_dict[key] = value
+    
     save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
-    save_model_with_checkpoint(model, data, CFG.io.output_path, vars(args), losses, **kwargs)
+    save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **kwargs)
 
 
 if __name__ == '__main__':
