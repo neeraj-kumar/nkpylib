@@ -411,6 +411,13 @@ class ContrastiveGAT(GATBase):
         return total_loss / total_pairs
 
 
+LEARNERS = dict(
+    node_classification=NodeClassificationGAT,
+    contrastive=ContrastiveGAT,
+    random_walk=ContrastiveGAT,
+)
+
+
 class GraphLearner:
     """A class to do graph-based learning.
 
@@ -702,15 +709,15 @@ class GraphLearner:
         """
         if learner_type not in LEARNERS:
             raise ValueError(f"Unknown learner type: {learner_type}. Available: {list(LEARNERS.keys())}")
-        
+
         gl = cls(data, **kwargs)
-        
+
         match learner_type:
             case 'node_classification':
                 raise NotImplementedError('Node classification not implemented in this example')
             case _:
                 pass  # No special setup needed
-        
+
         return gl
 
     def train_and_eval_cls(self, embs):
@@ -829,12 +836,6 @@ def quick_test(data):
     print(f"Original accuracy: {orig_acc:.4f}")
     print("Random edges:", compare_embeddings(orig, random_edge), f"accuracy: {random_acc:.4f}")
     print("No edges:", compare_embeddings(orig, no_edge), f"accuracy: {no_edge_acc:.4f}")
-
-LEARNERS = dict(
-    node_classification=NodeClassificationGAT,
-    contrastive=ContrastiveGAT,
-    random_walk=ContrastiveGAT,
-)
 
 
 
@@ -1046,7 +1047,7 @@ def resume_from_checkpoint(checkpoint_path: str,
 
 def load_and_prepare_data(cfg) -> Data:
     """Load and prepare graph data based on configuration.
-    
+
     This handles:
     - Loading the PyG data from file
     - Optional feature replacement with random values
@@ -1055,22 +1056,22 @@ def load_and_prepare_data(cfg) -> Data:
     - Node sampling if specified
     - Optional duplicate edge analysis
     - Optional edge analysis for specific nodes
-    
+
     Args:
     - cfg: NestedNamespace configuration object
-    
+
     Returns:
     - Prepared PyG Data object
     """
     # Load input graph
     data = torch.load(cfg.io.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
-    
+
     # Replace node features with random ones if requested
     if cfg.model.replace_features_with_random:
         logger.info('Replacing node features with random values')
         data.x = torch.randn(data.x.shape, dtype=torch.float32)
-    
+
     # Apply feature scaling based on config
     match cfg.model.scaler:
         case 'std_mean':
@@ -1089,14 +1090,14 @@ def load_and_prepare_data(cfg) -> Data:
             scaler = QuantileTransformer(output_distribution='normal')
         case _:
             raise ValueError(f"Unknown scaler type: {cfg.model.scaler}")
-    
+
     logger.info(f'Applying {cfg.model.scaler} feature scaling')
     data.x = torch.tensor(scaler.fit_transform(data.x.cpu()), dtype=torch.float32)
     data.edge_index = data.edge_index.to(torch.int32)
-    
+
     logger.info(f'Loaded PyG from {cfg.io.input_path} with {data.num_nodes}x{data.num_features} nodes, {data.num_edges} edges, {data.x.dtype}, {data.edge_index.dtype}')
     logger.info(f'All data keys: {data.keys()}')
-    
+
     # Check for duplicates in the edge index if requested
     if cfg.model.check_duplicate_edges:
         logger.info('Checking for duplicate edges...')
@@ -1107,13 +1108,13 @@ def load_and_prepare_data(cfg) -> Data:
         logger.info(f'Found {num_dupes} duplicate edges in edge_index: {dupes.most_common(5)}')
         if num_dupes > 0:
             logger.warning(f'Graph contains {num_dupes} duplicate edges!')
-    
+
     # Sample nodes if specified
     if cfg.model.n_nodes and data.num_nodes > cfg.model.n_nodes:
         data.x = data.x[:cfg.model.n_nodes]
         data.edge_index = data.edge_index[:, (data.edge_index[0] < cfg.model.n_nodes) & (data.edge_index[1] < cfg.model.n_nodes)]
         logger.info(f'Sampled to {data.num_nodes} nodes, {data.num_edges} edges')
-    
+
     # Debug edge analysis for specific nodes if requested
     if cfg.model.debug_edge_analysis:
         logger.info('Running debug edge analysis...')
@@ -1123,7 +1124,7 @@ def load_and_prepare_data(cfg) -> Data:
                 indices = torch.where(data.edge_index == idx)
                 pairs = data.edge_index[:, indices[1]].T
                 print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
-    
+
     return data
 
 
@@ -1162,13 +1163,13 @@ def main():
         # in general, gpu batch size should be a multiple of cpu
         train.add_argument('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
         train.add_argument('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
-    
+
     CFG = config_mgr.parse_all()
     print(f'Final config: {CFG}')
-    
+
     # Load and prepare data
     data = load_and_prepare_data(CFG)
-    
+
     # Create learner
     gl = GraphLearner.create(
         CFG.model.learner_type,
@@ -1180,10 +1181,10 @@ def main():
         cpu_batch_size=CFG.train.cpu_batch_size,
         v2=False,
     )
-    
+
     # Train model (handles both fresh training and resume)
     model, losses = gl.train_from_config(CFG)
-    
+
     # Save embeddings and model checkpoint
     config_dict = CFG.to_flat_dict()
     save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **config_dict)
