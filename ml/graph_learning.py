@@ -1044,7 +1044,7 @@ def main():
     # Parse all parsers and create nested config
     CFG = config_mgr.parse_all()
     print(f'Final config: {CFG}')
-    
+
     # For backward compatibility, also create a flat args object
     args = CFG.main
     # load input graph
