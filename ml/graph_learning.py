@@ -1052,7 +1052,7 @@ def main():
         model.add_argument('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
         model.add_argument('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
         model.add_argument('--walk-window', type=int, default=5, help='Context window for walks [5]')
-        model.add_argument('--scaler', default='quantile_normal', 
+        model.add_argument('--scaler', default='quantile_normal',
                           choices=['std_mean', 'std_std', 'std_both', 'robust', 'maxabs', 'quantile', 'quantile_normal'],
                           help='Feature scaling method [quantile_normal]')
         arch = config_mgr.add_parser('arch', description='Model Architecture Parameters')
@@ -1075,7 +1075,6 @@ def main():
     if 0:
         # replace node features with random ones
         data.x = torch.randn(data.x.shape, dtype=torch.float32) #FIXME
-    
     # Apply feature scaling based on config
     match CFG.model.scaler:
         case 'std_mean':
@@ -1094,7 +1093,6 @@ def main():
             scaler = QuantileTransformer(output_distribution='normal')
         case _:
             raise ValueError(f"Unknown scaler type: {CFG.model.scaler}")
-    
     logger.info(f'Applying {CFG.model.scaler} feature scaling')
     data.x = torch.tensor(scaler.fit_transform(data.x.cpu()), dtype=torch.float32)
     data.edge_index = data.edge_index.to(torch.int32)
