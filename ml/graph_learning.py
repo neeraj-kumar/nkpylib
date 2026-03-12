@@ -4,54 +4,57 @@ This module provides a comprehensive framework for training GAT models on graph 
 PyTorch and PyTorch Geometric. It supports multiple training objectives including contrastive
 learning, random walk objectives, and node classification.
 
-## Main Components
+# Main Components
 
-### Model Classes (`GATBase` and subclasses)
+## Model Classes (`GATBase` and subclasses)
 - `GATBase`: Abstract base class for all GAT variants with 2-layer architecture
 - `ContrastiveGAT`: GAT trained with contrastive learning using positive/negative node pairs
 - `NodeClassificationGAT`: GAT for multi-task node classification with configurable loss functions
 
-### Training Orchestration (`GraphLearner`)
+## Training Orchestration (`GraphLearner`)
 - `GraphLearner`: Main training orchestrator that handles data preparation, model creation,
   and training loops with async worker processes for efficient batch generation
 - `GraphLearner.create()`: Factory method for creating learners based on configuration
 - `GraphLearner.train_from_config()`: Unified training interface supporting both fresh
   training and checkpoint resuming
 
-### Configuration and Data Pipeline
+## Configuration and Data Pipeline
 - Multi-parser YAML configuration system with nested namespaces (io, model, arch, train)
 - `load_and_prepare_data()`: Handles data loading, feature scaling, node sampling, and debugging
 - Configurable feature scaling (StandardScaler, RobustScaler, QuantileTransformer, etc.)
 - Optional data preprocessing (random features, duplicate edge detection, debug analysis)
 
-### Model Persistence
+## Model Persistence
 - `save_embeddings()`: Extracts and saves node embeddings to NumpyLmdb format
 - `save_model_with_checkpoint()`: Saves model state dict with full training metadata
 - `load_checkpoint()` / `resume_from_checkpoint()`: Checkpoint loading and training resumption
 
-## Training Objectives
 
-### Contrastive Learning
+# Training Objectives
+
+## Contrastive Learning
 Uses async worker processes to generate positive pairs (connected nodes) and negative pairs
 (randomly sampled non-neighbors). The model learns to bring positive pairs closer and push
 negative pairs apart in embedding space using temperature-scaled cosine similarity.
 
-### Random Walk Objectives  
+## Random Walk Objectives
 Generates random walks through the graph and creates positive pairs from nodes appearing
 within a sliding window. Similar to node2vec/DeepWalk but using GAT architecture.
 
-### Node Classification
+## Node Classification
 Multi-task classification supporting multiclass, multilabel, and top-k prediction modes
 with configurable task weights and loss functions.
 
-## Architecture
+
+# Architecture
 All models use a 2-layer GAT architecture where:
 - Layer 1: `in_features -> hidden_channels * heads` with multi-head attention
 - Layer 2: `hidden_channels * heads -> hidden_channels * heads` with single head
 - Final embeddings: Concatenation of both layer outputs (size: `hidden_channels * heads * 2`)
 - Supports both GATConv and GATv2Conv variants
 
-## Usage
+
+# Usage
 The main entry point is the `main()` function which:
 1. Sets up multi-parser YAML configuration (io/model/arch/train sections)
 2. Loads and preprocesses graph data with configurable scaling and sampling
