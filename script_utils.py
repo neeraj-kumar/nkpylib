@@ -1,4 +1,4 @@
-"""Some utils to help with writing scripts run from the command line"""
+"""Some utils to help with writing scripts that run from the command line."""
 
 from __future__ import annotations
 
@@ -14,25 +14,6 @@ from nkpylib.utils import specialize
 
 logger = logging.getLogger(__name__)
 
-
-class NestedNamespace:
-    """A namespace that supports nested attribute access."""
-    
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            if isinstance(value, dict):
-                setattr(self, key, NestedNamespace(**value))
-            else:
-                setattr(self, key, value)
-    
-    def __repr__(self):
-        items = []
-        for key, value in self.__dict__.items():
-            if isinstance(value, NestedNamespace):
-                items.append(f'{key}=<NestedNamespace>')
-            else:
-                items.append(f'{key}={value!r}')
-        return f"NestedNamespace({', '.join(items)})"
 
 def _cli_runner(func_list: list[Callable[..., Any]],
                description='',
@@ -110,6 +91,29 @@ def cli_runner(func_list: list[Callable[..., Any]], **kw) -> Any:
     parser.dispatch()
 
 
+class NestedNamespace:
+    """A namespace that supports nested attribute access."""
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            if isinstance(value, dict):
+                setattr(self, key, NestedNamespace(**value))
+            else:
+                setattr(self, key, value)
+
+    def __getattr__(self, name: str) -> Any:
+        """Returns `None` for missing attributes instead of raising an attribute error"""
+        return None
+
+    def __repr__(self):
+        items = []
+        for key, value in self.__dict__.items():
+            if isinstance(value, NestedNamespace):
+                items.append(f'{key}=<NestedNamespace>')
+            else:
+                items.append(f'{key}={value!r}')
+        return f"NestedNamespace({', '.join(items)})"
+
+
 def load_yaml_configs(config_files: list[str] | None) -> dict:
     """Load and merge YAML config files.
 
@@ -146,20 +150,19 @@ class YamlConfigManager:
             sub_parser = config_manager.add_parser('sub', description='Sub parser')
             # Add arguments to sub_parser
             # When the context exits, the YAML config defaults will be applied to all parsers
-        main_parser.parse_args() # This will now have defaults from the YAML config
+        config = config_manager.parse_all()
+        # now you can access config.main.arg1, config.sub.arg2, etc.
     """
     def __init__(self):
         self.config_parent = ArgumentParser(add_help=False)
-        self.config_parent.add_argument('-c', '--configs', action='append',
-                                       help='YAML config files')
+        self.config_parent.add_argument('-c', '--configs', action='append', help='YAML config files')
         self.parsers: dict[str, ArgumentParser] = {}
 
     def add_parser(self, name: str, **kwargs) -> ArgumentParser:
-        """Add a parser with the config parent."""
+        """Add a parser with given `name` and `kwargs` to our config parent."""
         if 'parents' not in kwargs:
             kwargs['parents'] = []
         kwargs['parents'].append(self.config_parent)
-
         parser = ArgumentParser(**kwargs)
         self.parsers[name] = parser
         return parser
@@ -167,7 +170,13 @@ class YamlConfigManager:
     def apply_yaml_defaults(self,
                             parsers: dict[str, ArgumentParser],
                             config_files: list[str] | None) -> None:
-        """Apply YAML config defaults to multiple parsers."""
+        """Apply YAML config defaults to multiple parsers.
+
+        This sets the default values for those options from the yaml, meaning if you specify
+        command line options for them, those will take precedence, but if you don't, the YAML values
+        will be used. And if the yaml doesn't contain a value for an option, then the default
+        specified in the argparser will be used.
+        """
         full_config = load_yaml_configs(config_files)
         for section_name, parser in parsers.items():
             section_config = full_config.get(section_name, {})
@@ -181,7 +190,6 @@ class YamlConfigManager:
             # Remove shared arguments to avoid duplication
             section_dict = {k: v for k, v in vars(args).items() if k != 'configs'}
             config_dict[section_name] = section_dict
-        
         return NestedNamespace(**config_dict)
 
     def __enter__(self):

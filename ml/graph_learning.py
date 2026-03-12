@@ -1007,9 +1007,8 @@ def resume_from_checkpoint(checkpoint_path: str,
 
 
 def main():
+    """Sets up the configuration, loads the data, trains the model, and saves the results."""
     global CFG
-
-    # Use the new YAML config manager
     with YamlConfigManager() as config_mgr:
         io = config_mgr.add_parser('io', description='Input/Output Configuration')
         io.add_argument('input_path', help='Input PyG.Data path (as .pt)')
@@ -1035,7 +1034,6 @@ def main():
         train.add_argument('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
     CFG = config_mgr.parse_all()
     print(f'Final config: {CFG}')
-
     # load input graph
     data = torch.load(CFG.io.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
@@ -1074,9 +1072,7 @@ def main():
 
     # Check for resume argument or existing checkpoint
     previous_losses = None
-
-    if hasattr(CFG.io, 'resume') and CFG.io.resume:
-        # Resume from specified checkpoint
+    if CFG.io.resume: # Resume from specified checkpoint
         logger.info(f'Resuming training from checkpoint: {CFG.io.resume}')
         model, losses = resume_from_checkpoint(
             checkpoint_path=CFG.io.resume,
