@@ -83,3 +83,79 @@ def cli_runner(func_list: list[Callable[..., Any]], **kw) -> Any:
     parser = argh.ArghParser()
     parser.add_commands(func_list)
     parser.dispatch()
+
+
+def load_yaml_configs(config_files: list[str] | None) -> dict:
+    """Load and merge YAML config files.
+
+    This takes yaml config files that can specify default values for any of the command-line
+    arguments, and merges them together (with later files taking precedence) to produce a single
+    config dictionary. This can then be used to set defaults for the command-line arguments.
+
+    For nested configs, the top-level keys should correspond to the parser names (e.g., 'main' for
+    the main parser), and the values should be dictionaries of argument defaults for that parser.
+    """
+    full_config = {}
+    if config_files:
+        for config_file in config_files:
+            logger.debug(f'Reading config file: {config_file}')
+            with open(config_file) as f:
+                file_config = yaml.safe_load(f)
+                # Deep merge configs
+                for key, value in file_config.items():
+                    if key in full_config and isinstance(value, dict):
+                        full_config[key].update(value)
+                    else:
+                        full_config[key] = value
+    return full_config
+
+
+class YamlConfigManager:
+    """Context manager for YAML config handling with multiple parsers.
+
+    Use this as follows:
+    ```
+        with YamlConfigManager() as config_manager:
+            main_parser = config_manager.add_parser('main', description='Main parser')
+            # Add arguments to main_parser
+            sub_parser = config_manager.add_parser('sub', description='Sub parser')
+            # Add arguments to sub_parser
+            # When the context exits, the YAML config defaults will be applied to all parsers
+        main_parser.parse_args() # This will now have defaults from the YAML config
+    """
+    def __init__(self):
+        self.config_parent = ArgumentParser(add_help=False)
+        self.config_parent.add_argument('-c', '--configs', action='append',
+                                       help='YAML config files')
+        self.parsers: dict[str, ArgumentParser] = {}
+
+    def add_parser(self, name: str, **kwargs) -> ArgumentParser:
+        """Add a parser with the config parent."""
+        if 'parents' not in kwargs:
+            kwargs['parents'] = []
+        kwargs['parents'].append(self.config_parent)
+
+        parser = ArgumentParser(**kwargs)
+        self.parsers[name] = parser
+        return parser
+
+    def apply_yaml_defaults(self,
+                            parsers: dict[str, ArgumentParser],
+                            config_files: list[str] | None) -> None:
+        """Apply YAML config defaults to multiple parsers."""
+        full_config = load_yaml_configs(config_files)
+        for section_name, parser in parsers.items():
+            section_config = full_config.get(section_name, {})
+            parser.set_defaults(**section_config)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # Get config files from any parser
+        if self.parsers:
+            first_parser = next(iter(self.parsers.values()))
+            temp_args, _ = first_parser.parse_known_args()
+            config_files = temp_args.configs
+            # Apply YAML defaults
+            apply_yaml_defaults(self.parsers, config_files)

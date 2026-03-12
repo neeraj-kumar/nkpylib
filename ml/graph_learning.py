@@ -51,8 +51,9 @@ from nkpylib.ml.feature_set import (
     FeatureSet,
     NumpyLmdb,
 )
-from nkpylib.ml.ml_utils import trace, list_gpu_tensors
 from nkpylib.ml.graph_worker import initialize_worker, WorkItem, EdgeSampler
+from nkpylib.ml.ml_utils import trace, list_gpu_tensors
+from nkpylib.script_utils import YamlConfigManager
 
 CFG: Namespace|None = None
 RNG = npr.default_rng(0)
@@ -1004,119 +1005,33 @@ def resume_from_checkpoint(checkpoint_path: str,
 
     return model, combined_losses
 
-def load_yaml_configs(config_files: list[str] | None) -> dict:
-    """Load and merge YAML config files."""
-    full_config = {}
-    if config_files:
-        for config_file in config_files:
-            print(f'Got config file: {config_file}')
-            with open(config_file) as f:
-                file_config = yaml.safe_load(f)
-                # Deep merge configs
-                for key, value in file_config.items():
-                    if key in full_config and isinstance(value, dict):
-                        full_config[key].update(value)
-                    else:
-                        full_config[key] = value
-    return full_config
-
-
-def apply_yaml_defaults(parsers: dict[str, ArgumentParser], 
-                       config_files: list[str] | None) -> None:
-    """Apply YAML config defaults to multiple parsers."""
-    full_config = load_yaml_configs(config_files)
-    
-    for section_name, parser in parsers.items():
-        section_config = full_config.get(section_name, {})
-        parser.set_defaults(**section_config)
-
-
-class YamlConfigManager:
-    """Context manager for YAML config handling with multiple parsers."""
-    
-    def __init__(self):
-        self.config_parent = ArgumentParser(add_help=False)
-        self.config_parent.add_argument('-c', '--configs', action='append', 
-                                       help='YAML config files')
-        self.parsers: dict[str, ArgumentParser] = {}
-    
-    def add_parser(self, name: str, **kwargs) -> ArgumentParser:
-        """Add a parser with the config parent."""
-        if 'parents' not in kwargs:
-            kwargs['parents'] = []
-        kwargs['parents'].append(self.config_parent)
-        
-        parser = ArgumentParser(**kwargs)
-        self.parsers[name] = parser
-        return parser
-    
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Get config files from any parser
-        if self.parsers:
-            first_parser = next(iter(self.parsers.values()))
-            temp_args, _ = first_parser.parse_known_args()
-            config_files = temp_args.configs
-            
-            # Apply YAML defaults
-            apply_yaml_defaults(self.parsers, config_files)
-
-
-def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
-    """Legacy function for backward compatibility.
-    
-    This adds YAML config file parsing to a `parser`.
-    Note: Consider using YamlConfigManager for multiple parsers.
-    """
-    # Create a temporary config manager for single parser use
-    with YamlConfigManager() as config_mgr:
-        # We need to recreate the parser with config parent
-        # This is a bit hacky but maintains backward compatibility
-        temp_parser = ArgumentParser(parents=[config_mgr.config_parent], add_help=False)
-        
-        # Copy all actions from original parser
-        for action in parser._actions:
-            if action.dest != 'help' and action.dest != 'configs':
-                temp_parser._add_action(action)
-        
-        # Get config files and apply defaults
-        temp_args, remaining_args = temp_parser.parse_known_args()
-        config_files = temp_args.configs
-        
-        if config_files:
-            full_config = load_yaml_configs(config_files)
-            parser.set_defaults(**full_config)
-    
-    return parser.parse_args(remaining_args)
 
 def main():
     global CFG
-    
+
     # Use the new YAML config manager
     with YamlConfigManager() as config_mgr:
         # Create main parser
         parser = config_mgr.add_parser('main', description='Graph Learning Driver')
         A = lambda *s, **kw: parser.add_argument(*s, **kw)
-        
+
         # Input/Output
         A('input_path', help='Input PyG.Data path (as .pt)')
         A('output_path', help='Output NumpyLmdb path for learned embeddings')
         A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
         A('--resume', help='Path to model checkpoint to resume training from')
-        
+
         # Model configuration
         A('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
         A('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
         A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
         A('--walk-window', type=int, default=5, help='Context window for walks [5]')
-        
+
         # Architecture parameters
         A('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
         A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
         A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
-        
+
         # Training parameters
         A('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
         # set the following to 128 for my home cpu
@@ -1125,7 +1040,7 @@ def main():
         # tune gpu batch size to max first
         A('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
         A('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
-    
+
     # Now YAML defaults are applied, parse normally
     CFG = args = parser.parse_args()
     print(f'Final args: {args}')
