@@ -1085,11 +1085,13 @@ def main():
         )
         # Save final results and exit early
         kwargs = {}
+        config_dict = {}
         for section_name, section_config in CFG.__dict__.items():
             for key, value in section_config.__dict__.items():
                 kwargs[f'kw_{key}'] = value
+                config_dict[key] = value
         save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
-        save_model_with_checkpoint(model, data, CFG.io.output_path, vars(args), losses, **kwargs)
+        save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **kwargs)
         return
     # Create learner
     gl = create_learner(
