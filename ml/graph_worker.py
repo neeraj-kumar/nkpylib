@@ -100,95 +100,139 @@ def initialize_worker(kw: dict[str, Any]):
                                 task_config=kw.pop('task_config', {}),
                                 kw=kw)
 
-#@trace
-def contrastive_worker_one_step(n_pos: int) -> WorkItem:
-    """Runs "one step" of processing in the worker process.
+class BaseWorker:
+    """Base class for all worker implementations."""
+    
+    @classmethod
+    def one_step(cls, batch_size: int) -> WorkItem:
+        """Generate a single work item for training."""
+        raise NotImplementedError
 
-    This version does it for contrastive learning based sampling. We use direct neighbor
-    connectivity to determine positives and negatives, unless user_pos/user_neg are available
-    in which case we use user preference-based sampling.
-    """
-    global _worker_obj
-    assert _worker_obj is not None
-    kw = _worker_obj.kw
-    cur_edges = _worker_obj.edge_sampler.sample()
-    if 'user_pos' in kw and 'user_neg' in kw: # user preference sampling
-        anchors, pos_nodes, user_ids = user_preference_pos_pairs(
-            user_pos=kw['user_pos'],
-            keys=kw['keys'],
-            batch_size=n_pos,
-        )
-        neg_nodes = user_preference_neg_pairs(
-            user_neg=kw['user_neg'],
-            keys=kw['keys'],
+
+class ContrastiveWorker(BaseWorker):
+    """Worker for contrastive learning based sampling."""
+    
+    @classmethod
+    def one_step(cls, batch_size: int) -> WorkItem:
+        """Runs "one step" of processing in the worker process.
+
+        This version does it for contrastive learning based sampling. We use direct neighbor
+        connectivity to determine positives and negatives, unless user_pos/user_neg are available
+        in which case we use user preference-based sampling.
+        """
+        global _worker_obj
+        assert _worker_obj is not None
+        kw = _worker_obj.kw
+        cur_edges = _worker_obj.edge_sampler.sample()
+        if 'user_pos' in kw and 'user_neg' in kw: # user preference sampling
+            anchors, pos_nodes, user_ids = user_preference_pos_pairs(
+                user_pos=kw['user_pos'],
+                keys=kw['keys'],
+                batch_size=batch_size,
+            )
+            neg_nodes = user_preference_neg_pairs(
+                user_neg=kw['user_neg'],
+                keys=kw['keys'],
+                anchors=anchors,
+                user_ids=user_ids,
+                neg_samples=_worker_obj.neg_samples_factor,
+            )
+        else: # Fall back to direct neighbor sampling
+            anchors, pos_nodes = direct_neighbor_pos_pairs(
+                edge_index=cur_edges,
+                batch_size=batch_size,
+            )
+            neg_nodes = direct_cpu_neg_pair_generator(
+                n_nodes=_worker_obj.walk_gen.N,
+                anchors=anchors,
+                pos_nodes=pos_nodes,
+                edge_index=cur_edges,
+                neg_samples=_worker_obj.neg_samples_factor,
+            )
+        return WorkItem(
+            cur_edges=cur_edges,
             anchors=anchors,
-            user_ids=user_ids,
-            neg_samples=_worker_obj.neg_samples_factor,
+            pos_nodes=pos_nodes,
+            neg_nodes=neg_nodes,
         )
-    else: # Fall back to direct neighbor sampling
-        anchors, pos_nodes = direct_neighbor_pos_pairs(
-            edge_index=cur_edges,
-            batch_size=n_pos,
+
+
+class RandomWalkWorker(BaseWorker):
+    """Worker for random walk based sampling."""
+    
+    @classmethod
+    def one_step(cls, batch_size: int) -> WorkItem:
+        """Runs "one step" of processing in the worker process.
+
+        This version does it for random walk based sampling.
+        """
+        global _worker_obj
+        assert _worker_obj is not None
+        cur_edges = _worker_obj.edge_sampler.sample()
+        anchors, pos_nodes = pos_pair_generator(
+            cur_edges=cur_edges,
+            batch_size=batch_size,
+            walk_gen=_worker_obj.walk_gen,
+            walk_window=_worker_obj.walk_window,
         )
-        neg_nodes = direct_cpu_neg_pair_generator(
+        neg_nodes = cpu_neg_pair_generator(
             n_nodes=_worker_obj.walk_gen.N,
             anchors=anchors,
             pos_nodes=pos_nodes,
             edge_index=cur_edges,
-            neg_samples=_worker_obj.neg_samples_factor,
+            shape=(len(anchors), _worker_obj.neg_samples_factor),
         )
-    return WorkItem(
-        cur_edges=cur_edges,
-        anchors=anchors,
-        pos_nodes=pos_nodes,
-        neg_nodes=neg_nodes,
-    )
+        return WorkItem(
+            cur_edges=cur_edges,
+            anchors=anchors,
+            pos_nodes=pos_nodes,
+            neg_nodes=neg_nodes,
+        )
+
+
+class NodeClassificationWorker(BaseWorker):
+    """Worker for node classification based sampling."""
+    
+    @classmethod
+    def one_step(cls, batch_size: int) -> WorkItem:
+        """Runs "one step" of processing in the worker process.
+
+        This version does it for node classification based sampling.
+        """
+        global _worker_obj
+        assert _worker_obj is not None
+        cur_edges = _worker_obj.edge_sampler.sample()
+        labels = {task: cfg['labels'] for task, cfg in _worker_obj.task_config.items()}
+        train_masks = {task: cfg['train_mask'] for task, cfg in _worker_obj.task_config.items()}
+        return WorkItem(
+            cur_edges=cur_edges,
+            labels=labels,
+            train_masks=train_masks,
+        )
+
+
+# Worker class registry
+WORKER_CLASSES = {
+    'ContrastiveGAT': ContrastiveWorker,
+    'NodeClassificationGAT': NodeClassificationWorker,
+}
+
+
+# Legacy function wrappers for backward compatibility
+#@trace
+def contrastive_worker_one_step(n_pos: int) -> WorkItem:
+    """Legacy wrapper for ContrastiveWorker.one_step()."""
+    return ContrastiveWorker.one_step(n_pos)
 
 #@trace
 def random_walk_worker_one_step(n_pos: int) -> WorkItem:
-    """Runs "one step" of processing in the worker process.
-
-    This version does it for random walk based sampling.
-    """
-    global _worker_obj
-    assert _worker_obj is not None
-    cur_edges = _worker_obj.edge_sampler.sample()
-    anchors, pos_nodes = pos_pair_generator(
-        cur_edges=cur_edges,
-        batch_size=n_pos,
-        walk_gen=_worker_obj.walk_gen,
-        walk_window=_worker_obj.walk_window,
-    )
-    neg_nodes = cpu_neg_pair_generator(
-        n_nodes=_worker_obj.walk_gen.N,
-        anchors=anchors,
-        pos_nodes=pos_nodes,
-        edge_index=cur_edges,
-        shape=(len(anchors), _worker_obj.neg_samples_factor),
-    )
-    return WorkItem(
-        cur_edges=cur_edges,
-        anchors=anchors,
-        pos_nodes=pos_nodes,
-        neg_nodes=neg_nodes,
-    )
+    """Legacy wrapper for RandomWalkWorker.one_step()."""
+    return RandomWalkWorker.one_step(n_pos)
 
 #@trace
 def node_classification_one_step(n_pos: int) -> WorkItem:
-    """Runs "one step" of processing in the worker process.
-
-    This version does it for node classification based sampling.
-    """
-    global _worker_obj
-    assert _worker_obj is not None
-    cur_edges = _worker_obj.edge_sampler.sample()
-    labels = {task: cfg['labels'] for task, cfg in _worker_obj.task_config.items()}
-    train_masks = {task: cfg['train_mask'][cur_nodes] for task, cfg in _worker_obj.task_config.items()}
-    return WorkItem(
-        cur_edges=cur_edges,
-        labels=labels,
-        train_masks=train_masks,
-    )
+    """Legacy wrapper for NodeClassificationWorker.one_step()."""
+    return NodeClassificationWorker.one_step(n_pos)
 
 
 def gen_random(n_edges, size):

@@ -235,10 +235,18 @@ class GATBase(torch.nn.Module):
 
 
     @classmethod
-    @abstractmethod
+    def get_worker_class(cls):
+        """Get the worker class for this model type."""
+        from nkpylib.ml.graph_worker import WORKER_CLASSES
+        return WORKER_CLASSES.get(cls.__name__)
+    
+    @classmethod
     def worker_one_step(cls, batch_size: int) -> WorkItem:
         """Worker function to generate a single work item for training."""
-        pass
+        worker_class = cls.get_worker_class()
+        if worker_class is None:
+            raise NotImplementedError(f"No worker class found for {cls.__name__}")
+        return worker_class.one_step(batch_size)
 
     #@trace
     @abstractmethod
@@ -293,11 +301,6 @@ class NodeClassificationGAT(GATBase):
             outputs[task_name] = head(x)
         return outputs
 
-    @classmethod
-    def worker_one_step(cls, batch_size: int) -> WorkItem:
-        """Worker function to generate a single work item for training."""
-        from nkpylib.ml.graph_worker import node_classification_one_step
-        return node_classification_one_step(batch_size)
 
     def top_k_loss(self, logits: Tensor, targets: Tensor, k: int = 5) -> Tensor:
         """Custom loss for top-k multilabel prediction.
@@ -387,11 +390,6 @@ class ContrastiveGAT(GATBase):
         self.model_config['temperature'] = temperature
         self.temperature = temperature
 
-    @classmethod
-    def worker_one_step(cls, batch_size: int) -> WorkItem:
-        """Worker function to generate a single work item for training."""
-        from nkpylib.ml.graph_worker import contrastive_worker_one_step
-        return contrastive_worker_one_step(batch_size)
 
     #@trace
     def batch_loss(self,
