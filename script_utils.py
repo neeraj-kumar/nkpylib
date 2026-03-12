@@ -9,6 +9,26 @@ from typing import Any, Callable
 
 from nkpylib.utils import specialize
 
+
+class NestedNamespace:
+    """A namespace that supports nested attribute access."""
+    
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            if isinstance(value, dict):
+                setattr(self, key, NestedNamespace(**value))
+            else:
+                setattr(self, key, value)
+    
+    def __repr__(self):
+        items = []
+        for key, value in self.__dict__.items():
+            if isinstance(value, NestedNamespace):
+                items.append(f'{key}=<NestedNamespace>')
+            else:
+                items.append(f'{key}={value!r}')
+        return f"NestedNamespace({', '.join(items)})"
+
 def _cli_runner(func_list: list[Callable[..., Any]],
                description='',
                add_arbitrary=True,
@@ -148,6 +168,17 @@ class YamlConfigManager:
             section_config = full_config.get(section_name, {})
             parser.set_defaults(**section_config)
 
+    def parse_all(self) -> NestedNamespace:
+        """Parse all parsers and return a nested namespace."""
+        config_dict = {}
+        for section_name, parser in self.parsers.items():
+            args = parser.parse_args()
+            # Remove shared arguments to avoid duplication
+            section_dict = {k: v for k, v in vars(args).items() if k != 'configs'}
+            config_dict[section_name] = section_dict
+        
+        return NestedNamespace(**config_dict)
+
     def __enter__(self):
         return self
 
@@ -158,4 +189,4 @@ class YamlConfigManager:
             temp_args, _ = first_parser.parse_known_args()
             config_files = temp_args.configs
             # Apply YAML defaults
-            apply_yaml_defaults(self.parsers, config_files)
+            self.apply_yaml_defaults(self.parsers, config_files)

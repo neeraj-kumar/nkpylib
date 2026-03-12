@@ -1041,9 +1041,12 @@ def main():
         A('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
         A('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
 
-    # Now YAML defaults are applied, parse normally
-    CFG = args = parser.parse_args()
-    print(f'Final args: {args}')
+    # Parse all parsers and create nested config
+    CFG = config_mgr.parse_all()
+    print(f'Final config: {CFG}')
+    
+    # For backward compatibility, also create a flat args object
+    args = CFG.main
     # load input graph
     data = torch.load(args.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
