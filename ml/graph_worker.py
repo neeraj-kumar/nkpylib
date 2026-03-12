@@ -102,7 +102,7 @@ def initialize_worker(kw: dict[str, Any]):
 
 class BaseWorker:
     """Base class for all worker implementations."""
-    
+
     @classmethod
     def one_step(cls, batch_size: int) -> WorkItem:
         """Generate a single work item for training."""
@@ -111,7 +111,7 @@ class BaseWorker:
 
 class ContrastiveWorker(BaseWorker):
     """Worker for contrastive learning based sampling."""
-    
+
     @classmethod
     def one_step(cls, batch_size: int) -> WorkItem:
         """Runs "one step" of processing in the worker process.
@@ -159,7 +159,7 @@ class ContrastiveWorker(BaseWorker):
 
 class RandomWalkWorker(BaseWorker):
     """Worker for random walk based sampling."""
-    
+
     @classmethod
     def one_step(cls, batch_size: int) -> WorkItem:
         """Runs "one step" of processing in the worker process.
@@ -192,7 +192,7 @@ class RandomWalkWorker(BaseWorker):
 
 class NodeClassificationWorker(BaseWorker):
     """Worker for node classification based sampling."""
-    
+
     @classmethod
     def one_step(cls, batch_size: int) -> WorkItem:
         """Runs "one step" of processing in the worker process.
@@ -218,9 +218,8 @@ WORKER_CLASSES = {
 }
 
 
-
-
 def gen_random(n_edges, size):
+    """Helper function to generate random indices, used for parallel sampling."""
     return RNG.choice(n_edges, size=size, replace=False)
 
 
