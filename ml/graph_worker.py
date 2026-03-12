@@ -123,11 +123,11 @@ class ContrastiveWorker(BaseWorker):
         assert _worker_obj is not None
         cur_edges = _worker_obj.edge_sampler.sample()
 
-        anchors, pos_nodes = direct_neighbor_pos_pairs(
+        anchors, pos_nodes = cls.direct_neighbor_pos_pairs(
             edge_index=cur_edges,
             batch_size=batch_size,
         )
-        neg_nodes = direct_cpu_neg_pair_generator(
+        neg_nodes = cls.direct_cpu_neg_pair_generator(
             n_nodes=_worker_obj.walk_gen.N,
             anchors=anchors,
             pos_nodes=pos_nodes,
@@ -140,6 +140,80 @@ class ContrastiveWorker(BaseWorker):
             pos_nodes=pos_nodes,
             neg_nodes=neg_nodes,
         )
+
+    @classmethod
+    def direct_neighbor_pos_pairs(cls, edge_index: nparray2d, batch_size: int) -> tuple[Tensor, Tensor]:
+        """Generate positive pairs from direct neighbors (connected nodes).
+
+        Args:
+        - edge_index: Current set of sampled edges [2, num_edges]
+        - batch_size: Target number of positive pairs
+
+        Returns:
+        - `(anchor_nodes, positive_nodes)` tensors
+        """
+        logger.debug(f'Starting direct_neighbor_pos_pairs with batch_size={batch_size}')
+        if edge_index.shape[1] == 0:
+            logger.warning("No edges available for sampling positive pairs")
+            return torch.tensor([]), torch.tensor([])
+        # Sample random edges for positive pairs
+        n_edges = edge_index.shape[1]
+        n_sample = min(batch_size, n_edges)
+        # Randomly sample edge indices
+        edge_indices = RNG.choice(n_edges, size=n_sample, replace=False)
+        # Extract anchor and positive nodes from sampled edges
+        anchors = torch.tensor(edge_index[0, edge_indices])
+        pos_nodes = torch.tensor(edge_index[1, edge_indices])
+        logger.debug(f'Generated {len(anchors)} positive pairs from direct neighbors')
+        return anchors, pos_nodes
+
+    @classmethod
+    def direct_cpu_neg_pair_generator(cls,
+                                      n_nodes: int,
+                                      anchors: Tensor,
+                                      pos_nodes: Tensor,
+                                      edge_index: nparray2d,
+                                      neg_samples: int) -> Tensor:
+        """Simple CPU-based negative sampling for direct neighbor approach.
+
+        This version only excludes direct neighbors and the anchor/positive nodes themselves.
+        It's simpler and more efficient than the walk-based version.
+
+        Args:
+        - n_nodes: total number of nodes in graph
+        - anchors: Current batch anchor nodes to exclude
+        - pos_nodes: Current batch positive nodes to exclude
+        - edge_index: Graph edges to identify direct neighbors to exclude
+        - neg_samples: Number of negatives to generate per anchor
+
+        Returns:
+        - Tensor of negative node indices with shape `(len(anchors), neg_samples)`
+        """
+        anchors_np = anchors.cpu().numpy()
+        n_anchors = len(anchors_np)
+        pos_nodes_np = pos_nodes.cpu().numpy()
+        exclude_mask = np.zeros((n_anchors, n_nodes), dtype=bool)
+        exclude_mask[np.arange(n_anchors), anchors_np] = True
+        exclude_mask[np.arange(n_anchors), pos_nodes_np] = True
+        # Exclude direct neighbors
+        for i, anchor in enumerate(anchors_np):
+            neighbors = edge_index[1][edge_index[0] == anchor]
+            if len(neighbors) > 0:
+                exclude_mask[i, neighbors] = True
+        # Sample negatives for all anchors
+        neg_nodes_np = np.zeros((n_anchors, neg_samples), dtype=np.int64)
+        for i in range(n_anchors):
+            valid_indices = np.where(~exclude_mask[i])[0]
+            if len(valid_indices) >= neg_samples:
+                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=False)
+            else:
+                # Fallback: sample with replacement if not enough valid nodes
+                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=True)
+
+        # Convert back to torch tensor
+        neg_nodes = torch.from_numpy(neg_nodes_np).long()
+        assert neg_nodes.shape == (len(anchors), neg_samples)
+        return neg_nodes
 
 
 class UserPreferenceWorker(BaseWorker):
@@ -157,12 +231,12 @@ class UserPreferenceWorker(BaseWorker):
         kw = _worker_obj.kw
         cur_edges = _worker_obj.edge_sampler.sample()
 
-        anchors, pos_nodes, user_ids = user_preference_pos_pairs(
+        anchors, pos_nodes, user_ids = cls.user_preference_pos_pairs(
             user_pos=kw['user_pos'],
             keys=kw['keys'],
             batch_size=batch_size,
         )
-        neg_nodes = user_preference_neg_pairs(
+        neg_nodes = cls.user_preference_neg_pairs(
             user_neg=kw['user_neg'],
             keys=kw['keys'],
             anchors=anchors,
@@ -175,6 +249,95 @@ class UserPreferenceWorker(BaseWorker):
             pos_nodes=pos_nodes,
             neg_nodes=neg_nodes,
         )
+
+    @classmethod
+    def user_preference_pos_pairs(cls, user_pos: dict, keys: list, batch_size: int) -> tuple[Tensor, Tensor, list]:
+        """Generate positive pairs from user preferences.
+
+        Args:
+        - user_pos: Dict mapping user_id -> list of movie_ids they liked
+        - keys: List of movie_ids that maps to node indices
+        - batch_size: Target number of positive pairs
+
+        Returns:
+        - (anchor_nodes, positive_nodes, user_ids) where user_ids[i] is the user who generated anchors[i]
+        """
+        movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
+        # Filter users who have enough movies for pair sampling and precompute valid movies
+        valid_user_movies = {}
+        #print(f'Got {len(user_pos)} pos: {list(user_pos.items())[:3]}')
+        #print(f'Got {len(keys)} keys: {keys[:10]}')
+        for user_id, movies in user_pos.items():
+            valid_movies = [m for m in movies if m in movie_to_idx]
+            if len(valid_movies) >= 2:
+                valid_user_movies[user_id] = valid_movies
+        if not valid_user_movies:
+            logger.warning("No users with enough positive movies for pair sampling")
+            return torch.tensor([]), torch.tensor([]), []
+        valid_users = list(valid_user_movies.keys())
+        # Sample users in batch
+        selected_users = RNG.choice(valid_users, size=batch_size, replace=True)
+        anchors = []
+        pos_nodes = []
+        user_ids = []
+        for user_id in selected_users:
+            valid_movies = valid_user_movies[user_id]
+            movie_pair = RNG.choice(valid_movies, size=2, replace=False)
+            anchor_idx = movie_to_idx[movie_pair[0]]
+            pos_idx = movie_to_idx[movie_pair[1]]
+            anchors.append(anchor_idx)
+            pos_nodes.append(pos_idx)
+            user_ids.append(user_id)
+        return torch.tensor(anchors), torch.tensor(pos_nodes), user_ids
+
+    @classmethod
+    def user_preference_neg_pairs(cls,
+                                  user_neg: dict,
+                                  keys: list,
+                                  anchors: Tensor,
+                                  user_ids: list,
+                                  neg_samples: int) -> Tensor:
+        """Generate negative pairs from user preferences.
+
+        Args:
+        - user_neg: Dict mapping user_id -> list of movie_ids they disliked
+        - keys: List of movie_ids that maps to node indices
+        - anchors: Anchor node indices
+        - user_ids: List of user_ids corresponding to each anchor (user_ids[i] generated anchors[i])
+        - neg_samples: Number of negatives to generate per anchor
+
+        Returns:
+        - Tensor of negative node indices with shape (len(anchors), neg_samples)
+        """
+        n_anchors = len(anchors)
+        movie_to_idx = {movie_id: idx for idx, movie_id in enumerate(keys)}
+        neg_nodes_np = np.zeros((n_anchors, neg_samples), dtype=np.int64)
+        # Precompute valid negative movies for each user
+        user_neg_movies = {}
+        for user_id in set(user_ids):
+            neg_movies = [m for m in user_neg.get(user_id, []) if m in movie_to_idx]
+            user_neg_movies[user_id] = neg_movies
+        # Group anchors by user to batch sample
+        user_anchor_groups = defaultdict(list)
+        for i, user_id in enumerate(user_ids):
+            user_anchor_groups[user_id].append(i)
+        # Sample negatives for each user group
+        for user_id, anchor_indices in user_anchor_groups.items():
+            neg_movies = user_neg_movies.get(user_id, [])
+            total_samples = len(anchor_indices) * neg_samples
+            if len(neg_movies) == 0: # Fallback to random sampling for all anchors of this user
+                #logger.warning(f"User {user_id} has no negative movies in graph, using random sampling")
+                neg_idx_samples = RNG.choice(len(keys), size=total_samples, replace=True)
+            else: # Sample negatives in batch for this user
+                #logger.warning(f"User {user_id} has {len(neg_movies)} negative movies in graph")
+                neg_movie_samples = RNG.choice(neg_movies, size=total_samples, replace=True)
+                neg_idx_samples = [movie_to_idx[movie] for movie in neg_movie_samples]
+            # Assign to anchors
+            for idx, anchor_idx in enumerate(anchor_indices):
+                start = idx * neg_samples
+                end = start + neg_samples
+                neg_nodes_np[anchor_idx] = neg_idx_samples[start:end]
+        return torch.from_numpy(neg_nodes_np).long()
 
 
 class RandomWalkWorker(BaseWorker):
@@ -189,13 +352,13 @@ class RandomWalkWorker(BaseWorker):
         global _worker_obj
         assert _worker_obj is not None
         cur_edges = _worker_obj.edge_sampler.sample()
-        anchors, pos_nodes = pos_pair_generator(
+        anchors, pos_nodes = cls.pos_pair_generator(
             cur_edges=cur_edges,
             batch_size=batch_size,
             walk_gen=_worker_obj.walk_gen,
             walk_window=_worker_obj.walk_window,
         )
-        neg_nodes = cpu_neg_pair_generator(
+        neg_nodes = cls.cpu_neg_pair_generator(
             n_nodes=_worker_obj.walk_gen.N,
             anchors=anchors,
             pos_nodes=pos_nodes,
@@ -208,6 +371,174 @@ class RandomWalkWorker(BaseWorker):
             pos_nodes=pos_nodes,
             neg_nodes=neg_nodes,
         )
+
+    @classmethod
+    def pos_pair_generator(cls, cur_edges: Tensor, batch_size: int, walk_gen: WalkGenerator, walk_window: int) -> tuple[Tensor, Tensor]:
+        """Generate walks on-demand and yield positive pairs.
+
+        This generates only as many walks as needed to produce a batch of positive pairs,
+        reducing memory usage compared to pre-generating all walks.
+
+        Args:
+        - cur_edges: Current set of sampled edges
+        - batch_size: Target number of positive pairs per batch
+
+        Returns:
+        - `(anchor_nodes, positive_nodes)` tensors
+        """
+        logger.debug(f'Starting pos_pair_generator with batch_size={batch_size}, walk_window={walk_window}')
+        pairs_generated = 0
+        iteration = 0
+        ret_anchors, ret_pos = [], []
+        while pairs_generated < batch_size:
+            iteration += 1
+            # Estimate how many walks we need for remaining pairs
+            # Because we filter out various pairs, generate a bunch more than we need
+            remaining_pairs = batch_size - pairs_generated
+            walks_needed = max(1, remaining_pairs)
+
+            # Generate a small batch of walks on-demand
+            logger.debug(f'Iteration {iteration}: Generating {walks_needed} walks to get {remaining_pairs} more pairs ({batch_size}, {pairs_generated}), window {walk_window}')
+            batch_walks = walk_gen.gen_walks(walks_needed, cur_edges=cur_edges)
+            logger.debug(f'Generated batch_walks shape: {batch_walks.shape}, dtype: {batch_walks.dtype}: {batch_walks[:10]}')
+
+            # Convert to tensor and extract pairs
+            walks_tensor = torch.tensor(batch_walks)
+            valid_mask = walks_tensor != INVALID_NODE
+            walk_length = walks_tensor.shape[1]
+            logger.debug(f'walks_tensor shape: {walks_tensor.shape}, valid_mask shape: {valid_mask.shape}')
+            logger.debug(f'Total valid nodes in walks: {valid_mask.sum().item()}/{valid_mask.numel()}')
+
+            batch_anchors = []
+            batch_positives = []
+
+            # Extract pairs from these walks
+            for i in range(walk_length):
+                pos_mask = valid_mask[:, i].clone()
+                logger.debug(f'Position {i}: pos_mask has {pos_mask.sum().item()} valid nodes out of {len(pos_mask)}')
+                if not pos_mask.any():
+                    logger.debug(f'Position {i}: No valid nodes, skipping')
+                    continue
+
+                pos_walks = pos_mask.nonzero().squeeze(1)
+                if len(pos_walks.shape) == 0:
+                    pos_walks = pos_walks.unsqueeze(0)
+                logger.debug(f'Position {i}: Processing {len(pos_walks)} walks')
+
+                for walk_idx in pos_walks:
+                    # Get context window for this walk position
+                    start = max(0, i - walk_window)
+                    end = min(walk_length, i + walk_window + 1)
+                    context = walks_tensor[walk_idx, start:end]
+                    context_mask = valid_mask[walk_idx, start:end].clone()
+                    context_mask[i-start] = False  # Exclude anchor position
+
+                    logger.debug(f'Walk {walk_idx.item()}, pos {i}: context window [{start}:{end}], context={context.tolist()}, mask={context_mask.tolist()}')
+
+                    valid_context = context[context_mask]
+                    logger.debug(f'Walk {walk_idx.item()}, pos {i}: valid_context={valid_context.tolist() if len(valid_context) > 0 else "EMPTY"}')
+
+                    if len(valid_context) > 0:
+                        anchor_node = walks_tensor[walk_idx, i]
+                        logger.debug(f'Adding {len(valid_context)} pairs with anchor {anchor_node.item()}')
+                        batch_anchors.extend([anchor_node] * len(valid_context))
+                        batch_positives.extend(valid_context.tolist())
+
+                        # Check if we have enough pairs for this batch
+                        if len(batch_anchors) >= remaining_pairs:
+                            logger.debug(f'Reached target pairs ({len(batch_anchors)} >= {remaining_pairs}), breaking')
+                            break
+                    else:
+                        logger.debug(f'Walk {walk_idx.item()}, pos {i}: No valid context nodes')
+                if len(batch_anchors) >= remaining_pairs:
+                    logger.debug(f'Breaking from position loop, have {len(batch_anchors)} pairs')
+                    break
+            logger.debug(f'Iteration {iteration}: Generated {len(batch_anchors)} positive pairs from {walks_tensor.shape} walks, needed {remaining_pairs}')
+            # Accumulate pairs if we have any
+            if batch_anchors:
+                # Limit to exactly the number of pairs we need
+                n_pairs = min(len(batch_anchors), remaining_pairs)
+                logger.debug(f'Yielding {n_pairs} pairs (anchors: {batch_anchors[:3]}..., positives: {batch_positives[:3]}...)')
+                ret_anchors.extend(batch_anchors[:n_pairs])
+                ret_pos.extend(batch_positives[:n_pairs])
+                pairs_generated += n_pairs
+                logger.debug(f'Total pairs generated so far: {pairs_generated}/{batch_size}')
+            else:
+                logger.warning(f'Iteration {iteration}: No pairs generated from {walks_tensor.shape[0]} walks!')
+                # Prevent infinite loop if no pairs can be generated
+                if iteration > 10:
+                    logger.error(f'Breaking after {iteration} iterations with no pairs generated')
+                    break
+        return torch.tensor(ret_anchors), torch.tensor(ret_pos)
+
+    @classmethod
+    def cpu_neg_pair_generator(cls,
+                               n_nodes: int,
+                               anchors: Tensor,
+                               pos_nodes: Tensor,
+                               edge_index: nparray2d,
+                               shape: tuple[int, int],
+                               walks: Tensor|None = None) -> Tensor:
+        """Vectorized CPU-based negative sampling to reduce GPU memory usage.
+
+        This version uses vectorized numpy operations for better performance
+        compared to the previous loop-based approach.
+
+        Args:
+        - n_nodes: total number of nodes in graph
+        - anchors: Current batch anchor nodes to exclude
+        - pos_nodes: Current batch positive nodes to exclude
+        - edge_index: Graph edges to identify actual neighbors to exclude
+        - shape: Target shape (batch_size, neg_samples_factor)
+        - walks: Optional tensor of current walks to exclude walk neighbors
+
+        Returns:
+        - Tensor of negative node indices with shape `shape`
+        """
+        batch_size, neg_samples = shape
+
+        # Convert to numpy for CPU processing
+        anchors_np = anchors.cpu().numpy()
+        pos_nodes_np = pos_nodes.cpu().numpy()
+        walks_np = walks.cpu().numpy() if walks is not None else None
+
+        # Build global exclusion matrix (batch_size x n_nodes boolean mask)
+        exclude_mask = np.zeros((batch_size, n_nodes), dtype=bool)
+
+        # Exclude anchors and positives (vectorized)
+        exclude_mask[np.arange(batch_size), anchors_np] = True
+        exclude_mask[np.arange(batch_size), pos_nodes_np] = True
+
+        # Exclude neighbors (vectorized where possible)
+        for i, anchor in enumerate(anchors_np):
+            neighbors = edge_index[1][edge_index[0] == anchor]
+            if len(neighbors) > 0:
+                exclude_mask[i, neighbors] = True
+
+        # Exclude walk neighbors if provided
+        if walks_np is not None:
+            for i, anchor in enumerate(anchors_np):
+                walk_mask = (walks_np == anchor).any(axis=1)
+                if walk_mask.any():
+                    walk_neighbors = walks_np[walk_mask].flatten()
+                    valid_walk_neighbors = walk_neighbors[walk_neighbors != INVALID_NODE]
+                    if len(valid_walk_neighbors) > 0:
+                        exclude_mask[i, valid_walk_neighbors] = True
+
+        # Sample negatives for all anchors (vectorized where possible)
+        neg_nodes_np = np.zeros((batch_size, neg_samples), dtype=np.int64)
+        for i in range(batch_size):
+            valid_indices = np.where(~exclude_mask[i])[0]
+            if len(valid_indices) >= neg_samples:
+                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=False)
+            else:
+                # Fallback: sample with replacement if not enough valid nodes
+                neg_nodes_np[i] = RNG.choice(valid_indices, neg_samples, replace=True)
+
+        # Convert back to torch tensor only at the end
+        neg_nodes = torch.from_numpy(neg_nodes_np).long()
+        assert neg_nodes.shape == shape
+        return neg_nodes
 
 
 class NodeClassificationWorker(BaseWorker):
