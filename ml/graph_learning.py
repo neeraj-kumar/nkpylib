@@ -1011,44 +1011,48 @@ def main():
 
     # Use the new YAML config manager
     with YamlConfigManager() as config_mgr:
-        # Create main parser
-        parser = config_mgr.add_parser('main', description='Graph Learning Driver')
-        A = lambda *s, **kw: parser.add_argument(*s, **kw)
+        # Create I/O parser
+        io_parser = config_mgr.add_parser('io', description='Input/Output Configuration')
+        io_parser.add_argument('input_path', help='Input PyG.Data path (as .pt)')
+        io_parser.add_argument('output_path', help='Output NumpyLmdb path for learned embeddings')
+        io_parser.add_argument('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
+        io_parser.add_argument('--resume', help='Path to model checkpoint to resume training from')
 
-        # Input/Output
-        A('input_path', help='Input PyG.Data path (as .pt)')
-        A('output_path', help='Output NumpyLmdb path for learned embeddings')
-        A('-f', '--output-flag', default='c', choices=['c', 'w', 'n'], help='LMDB flag for output [c]')
-        A('--resume', help='Path to model checkpoint to resume training from')
+        # Create model configuration parser
+        model_parser = config_mgr.add_parser('model', description='Model Configuration')
+        model_parser.add_argument('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
+        model_parser.add_argument('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
+        model_parser.add_argument('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
+        model_parser.add_argument('--walk-window', type=int, default=5, help='Context window for walks [5]')
 
-        # Model configuration
-        A('-t', '--learner-type', default='contrastive', choices=LEARNERS, help='GAT learner [contrastive]')
-        A('-n', '--n-nodes', type=int, default=5000000, help='Number of nodes to sample from feature set')
-        A('-w', '--walk-length', type=int, default=12, help='Length of random walks [12]')
-        A('--walk-window', type=int, default=5, help='Context window for walks [5]')
+        # Create architecture parameters parser
+        arch_parser = config_mgr.add_parser('arch', description='Model Architecture Parameters')
+        arch_parser.add_argument('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
+        arch_parser.add_argument('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
+        arch_parser.add_argument('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
 
-        # Architecture parameters
-        A('--hidden-channels', type=int, default=48, help='Hidden channels in GAT layers [64]')
-        A('-H', '--heads', type=int, default=4, help='Number of attention heads [8]')
-        A('-d', '--dropout', type=float, default=0.6, help='Training dropout rate [0.6]')
-
-        # Training parameters
-        A('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
+        # Create training parameters parser
+        train_parser = config_mgr.add_parser('train', description='Training Parameters')
+        train_parser.add_argument('-e', '--n-epochs', type=int, default=500, help='Number of training epochs [500]')
         # set the following to 128 for my home cpu
         # in general, gpu batch size should multiple of cpu
-        A('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
+        train_parser.add_argument('--cpu-batch-size', type=int, default=256, help=f'Batch size for CPU [{BATCH_SIZE}]')
         # tune gpu batch size to max first
-        A('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
-        A('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
+        train_parser.add_argument('--gpu-batch-size', type=int, default=256, help=f'Batch size for GPU [{BATCH_SIZE}]')
+        train_parser.add_argument('-j', '--n_jobs', type=int, default=2, help='Number of parallel jobs [6]')
 
     # Parse all parsers and create nested config
     CFG = config_mgr.parse_all()
     print(f'Final config: {CFG}')
 
-    # For backward compatibility, also create a flat args object
-    args = CFG.main
+    # For backward compatibility, create a flat args object combining all sections
+    args = type('Args', (), {})()
+    for section_name, section_config in CFG.__dict__.items():
+        for key, value in section_config.__dict__.items():
+            setattr(args, key, value)
+    
     # load input graph
-    data = torch.load(args.input_path, weights_only=False)
+    data = torch.load(CFG.io.input_path, weights_only=False)
     assert data.num_nodes < 2**31, "Number of nodes exceeds int32 range"
     if 0:
         # replace node features with random ones
@@ -1070,9 +1074,9 @@ def main():
         num_dupes = sum(count - 1 for count in dupes.values() if count > 1)
         logger.info(f'Found {num_dupes} duplicate edges in edge_index: {dupes.most_common(5)}')
         sys.exit()
-    if args.n_nodes and data.num_nodes > args.n_nodes:
-        data.x = data.x[:args.n_nodes]
-        data.edge_index = data.edge_index[:, (data.edge_index[0] < args.n_nodes) & (data.edge_index[1] < args.n_nodes)]
+    if CFG.model.n_nodes and data.num_nodes > CFG.model.n_nodes:
+        data.x = data.x[:CFG.model.n_nodes]
+        data.edge_index = data.edge_index[:, (data.edge_index[0] < CFG.model.n_nodes) & (data.edge_index[1] < CFG.model.n_nodes)]
         logger.info(f'Sampled to {data.num_nodes} nodes, {data.num_edges} edges')
     if 0:
         # print all pairs in edge_index where one of them is a given idx
@@ -1086,42 +1090,42 @@ def main():
     # Check for resume argument or existing checkpoint
     previous_losses = None
 
-    if hasattr(args, 'resume') and args.resume:
+    if hasattr(CFG.io, 'resume') and CFG.io.resume:
         # Resume from specified checkpoint
-        logger.info(f'Resuming training from checkpoint: {args.resume}')
+        logger.info(f'Resuming training from checkpoint: {CFG.io.resume}')
         model, losses = resume_from_checkpoint(
-            checkpoint_path=args.resume,
-            data_path=args.input_path,
-            additional_epochs=args.n_epochs,
-            **{k: v for k, v in vars(args).items() if k not in ['resume', 'input_path', 'n_epochs']}
+            checkpoint_path=CFG.io.resume,
+            data_path=CFG.io.input_path,
+            additional_epochs=CFG.train.n_epochs,
+            **vars(args)
         )
         # Save final results and exit early
         kwargs = {f'kw_{name}': value for name, value in vars(args).items()}
-        save_embeddings(model, data, args.output_path, args.output_flag, **kwargs)
-        save_model_with_checkpoint(model, data, args.output_path, vars(args), losses, **kwargs)
+        save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
+        save_model_with_checkpoint(model, data, CFG.io.output_path, vars(args), losses, **kwargs)
         return
     # Create learner
     gl = create_learner(
-        args.learner_type,
+        CFG.model.learner_type,
         data,
-        hidden_channels=args.hidden_channels,
-        heads=args.heads,
-        dropout=args.dropout,
-        n_jobs=args.n_jobs,
-        cpu_batch_size=args.cpu_batch_size,
+        hidden_channels=CFG.arch.hidden_channels,
+        heads=CFG.arch.heads,
+        dropout=CFG.arch.dropout,
+        n_jobs=CFG.train.n_jobs,
+        cpu_batch_size=CFG.train.cpu_batch_size,
         v2=False,
     )
 
     # Train model
-    logger.info(f"Training {args.learner_type} model for {args.n_epochs} epochs")
-    kw = dict(n_epochs=args.n_epochs, gpu_batch_size=args.gpu_batch_size)
-    match args.learner_type:
+    logger.info(f"Training {CFG.model.learner_type} model for {CFG.train.n_epochs} epochs")
+    kw = dict(n_epochs=CFG.train.n_epochs, gpu_batch_size=CFG.train.gpu_batch_size)
+    match CFG.model.learner_type:
         case 'random_walk': # Generate walks and train
-            model, new_losses = gl.train_random_walks(walk_length=args.walk_length, **kw)
+            model, new_losses = gl.train_random_walks(walk_length=CFG.model.walk_length, **kw)
         case 'contrastive': # Train with contrastive learning using direct neighbor sampling
             model, new_losses = gl.train_contrastive(**kw)
         case '_':
-            raise NotImplementedError(f"Learner type {args.learner_type} not implemented")
+            raise NotImplementedError(f"Learner type {CFG.model.learner_type} not implemented")
 
     # Combine with previous losses if resuming
     if previous_losses is not None and len(previous_losses) > 0:
@@ -1132,8 +1136,8 @@ def main():
 
     # Save embeddings and model checkpoint
     kwargs = {f'kw_{name}': value for name, value in vars(args).items()}
-    save_embeddings(model, data, args.output_path, args.output_flag, **kwargs)
-    save_model_with_checkpoint(model, data, args.output_path, vars(args), losses, **kwargs)
+    save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
+    save_model_with_checkpoint(model, data, CFG.io.output_path, vars(args), losses, **kwargs)
 
 
 if __name__ == '__main__':
