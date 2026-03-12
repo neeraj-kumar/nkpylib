@@ -688,6 +688,31 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs, gpu_batch_size=batch_size)
         return model, losses
 
+    @classmethod
+    def create(cls, learner_type: str, data: Data, **kwargs) -> 'GraphLearner':
+        """Factory method to create the appropriate GAT learner.
+
+        Args:
+        - learner_type: Type of learner ('node_classification', 'random_walk', 'contrastive')
+        - data: PyG Data object
+        - **kwargs: Additional parameters for the learner
+
+        Returns:
+        - Configured GraphLearner instance
+        """
+        if learner_type not in LEARNERS:
+            raise ValueError(f"Unknown learner type: {learner_type}. Available: {list(LEARNERS.keys())}")
+        
+        gl = cls(data, **kwargs)
+        
+        match learner_type:
+            case 'node_classification':
+                raise NotImplementedError('Node classification not implemented in this example')
+            case _:
+                pass  # No special setup needed
+        
+        return gl
+
     def train_and_eval_cls(self, embs):
         """Train and evaluate a node classification model on given `embs`.
 
@@ -811,25 +836,6 @@ LEARNERS = dict(
     random_walk=ContrastiveGAT,
 )
 
-def create_learner(learner_type: str, data: Data, **kwargs) -> GraphLearner:
-    """Factory function to create the appropriate GAT learner.
-
-    Args:
-    - learner_type: Type of learner ('node_classification', 'random_walk', 'contrastive')
-    - data: PyG Data object
-    - **kwargs: Additional parameters for the learner
-
-    Returns:
-    - Configured GraphLearner instance
-    """
-    assert learner_type in LEARNERS, f"Unknown learner type: {learner_type}"
-    gl = GraphLearner(data, **kwargs)
-    match learner_type:
-        case 'node_classification':
-            raise NotImplementedError('Node classification not implemented in this example')
-        case '_':
-            pass  # No special setup needed
-    return gl
 
 
 def save_embeddings(model: torch.nn.Module,
@@ -1164,7 +1170,7 @@ def main():
     data = load_and_prepare_data(CFG)
     
     # Create learner
-    gl = create_learner(
+    gl = GraphLearner.create(
         CFG.model.learner_type,
         data,
         hidden_channels=CFG.arch.hidden_channels,
