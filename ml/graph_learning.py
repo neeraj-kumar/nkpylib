@@ -1013,6 +1013,7 @@ def add_yaml_config_parsing(parser: ArgumentParser) -> Namespace:
     Finally, it runs the actual parser with the remaining args and returns the final args.
     Note that you should NOT call parser.parse_args(), since this does that.
     """
+    #FIXME change this to use the 'parent' functionality of argparse
     # First pass: get config files only
     config_parser = ArgumentParser(add_help=False)
     config_parser.add_argument('-c', '--configs', action='append', help='YAML config files')
