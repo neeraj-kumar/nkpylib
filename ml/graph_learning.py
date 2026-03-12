@@ -1080,12 +1080,8 @@ def main():
             additional_epochs=CFG.train.n_epochs,
         )
         # Save final results and exit early
-        kwargs = {}
-        config_dict = {}
-        for section_name, section_config in CFG.__dict__.items():
-            for key, value in section_config.__dict__.items():
-                kwargs[f'kw_{key}'] = value
-                config_dict[key] = value
+        kwargs = CFG.to_kwargs_dict()
+        config_dict = CFG.to_flat_dict()
         save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
         save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **kwargs)
         return
@@ -1120,12 +1116,8 @@ def main():
         losses = new_losses
 
     # Save embeddings and model checkpoint
-    kwargs = {}
-    config_dict = {}
-    for section_name, section_config in CFG.__dict__.items():
-        for key, value in section_config.__dict__.items():
-            kwargs[f'kw_{key}'] = value
-            config_dict[key] = value
+    kwargs = CFG.to_kwargs_dict()
+    config_dict = CFG.to_flat_dict()
     
     save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **kwargs)
     save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **kwargs)

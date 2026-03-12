@@ -104,6 +104,22 @@ class NestedNamespace:
         """Returns `None` for missing attributes instead of raising an attribute error"""
         return None
 
+    def to_flat_dict(self, prefix: str = '', separator: str = '_') -> dict[str, Any]:
+        """Convert nested namespace to a flat dictionary."""
+        result = {}
+        for key, value in self.__dict__.items():
+            full_key = f'{prefix}{key}' if prefix else key
+            if isinstance(value, NestedNamespace):
+                result.update(value.to_flat_dict(f'{full_key}{separator}', separator))
+            else:
+                result[full_key] = value
+        return result
+
+    def to_kwargs_dict(self) -> dict[str, Any]:
+        """Convert to a flat dict suitable for **kwargs, with kw_ prefixes."""
+        flat_dict = self.to_flat_dict()
+        return {f'kw_{key}': value for key, value in flat_dict.items()}
+
     def __repr__(self):
         items = []
         for key, value in self.__dict__.items():
