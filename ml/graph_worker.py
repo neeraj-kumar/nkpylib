@@ -218,21 +218,6 @@ WORKER_CLASSES = {
 }
 
 
-# Legacy function wrappers for backward compatibility
-#@trace
-def contrastive_worker_one_step(n_pos: int) -> WorkItem:
-    """Legacy wrapper for ContrastiveWorker.one_step()."""
-    return ContrastiveWorker.one_step(n_pos)
-
-#@trace
-def random_walk_worker_one_step(n_pos: int) -> WorkItem:
-    """Legacy wrapper for RandomWalkWorker.one_step()."""
-    return RandomWalkWorker.one_step(n_pos)
-
-#@trace
-def node_classification_one_step(n_pos: int) -> WorkItem:
-    """Legacy wrapper for NodeClassificationWorker.one_step()."""
-    return NodeClassificationWorker.one_step(n_pos)
 
 
 def gen_random(n_edges, size):
