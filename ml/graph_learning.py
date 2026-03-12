@@ -481,6 +481,7 @@ LEARNERS = dict(
     node_classification=NodeClassificationGAT,
     contrastive=ContrastiveGAT,
     random_walk=ContrastiveGAT,
+    user_preference=ContrastiveGAT,
 )
 
 
@@ -732,7 +733,7 @@ class GraphLearner:
         match cfg.model.learner_type:
             case 'random_walk':
                 model, losses = self.train_random_walks(walk_length=cfg.model.walk_length, **kw)
-            case 'contrastive':
+            case 'contrastive' | 'user_preference':
                 model, losses = self.train_contrastive(**kw)
             case _:
                 raise NotImplementedError(f"Learner type {cfg.model.learner_type} not implemented")

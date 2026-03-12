@@ -110,45 +110,65 @@ class BaseWorker:
 
 
 class ContrastiveWorker(BaseWorker):
-    """Worker for contrastive learning based sampling."""
+    """Worker for contrastive learning based sampling using direct neighbor connectivity."""
 
     @classmethod
     def one_step(cls, batch_size: int) -> WorkItem:
         """Runs "one step" of processing in the worker process.
 
-        This version does it for contrastive learning based sampling. We use direct neighbor
-        connectivity to determine positives and negatives, unless user_pos/user_neg are available
-        in which case we use user preference-based sampling.
+        This version does contrastive learning using direct neighbor connectivity to determine 
+        positives and negatives.
+        """
+        global _worker_obj
+        assert _worker_obj is not None
+        cur_edges = _worker_obj.edge_sampler.sample()
+        
+        anchors, pos_nodes = direct_neighbor_pos_pairs(
+            edge_index=cur_edges,
+            batch_size=batch_size,
+        )
+        neg_nodes = direct_cpu_neg_pair_generator(
+            n_nodes=_worker_obj.walk_gen.N,
+            anchors=anchors,
+            pos_nodes=pos_nodes,
+            edge_index=cur_edges,
+            neg_samples=_worker_obj.neg_samples_factor,
+        )
+        return WorkItem(
+            cur_edges=cur_edges,
+            anchors=anchors,
+            pos_nodes=pos_nodes,
+            neg_nodes=neg_nodes,
+        )
+
+
+class UserPreferenceWorker(BaseWorker):
+    """Worker for user preference based contrastive learning."""
+
+    @classmethod
+    def one_step(cls, batch_size: int) -> WorkItem:
+        """Runs "one step" of processing in the worker process.
+
+        This version does contrastive learning using user preference data to determine
+        positives and negatives.
         """
         global _worker_obj
         assert _worker_obj is not None
         kw = _worker_obj.kw
         cur_edges = _worker_obj.edge_sampler.sample()
-        if 'user_pos' in kw and 'user_neg' in kw: # user preference sampling
-            anchors, pos_nodes, user_ids = user_preference_pos_pairs(
-                user_pos=kw['user_pos'],
-                keys=kw['keys'],
-                batch_size=batch_size,
-            )
-            neg_nodes = user_preference_neg_pairs(
-                user_neg=kw['user_neg'],
-                keys=kw['keys'],
-                anchors=anchors,
-                user_ids=user_ids,
-                neg_samples=_worker_obj.neg_samples_factor,
-            )
-        else: # Fall back to direct neighbor sampling
-            anchors, pos_nodes = direct_neighbor_pos_pairs(
-                edge_index=cur_edges,
-                batch_size=batch_size,
-            )
-            neg_nodes = direct_cpu_neg_pair_generator(
-                n_nodes=_worker_obj.walk_gen.N,
-                anchors=anchors,
-                pos_nodes=pos_nodes,
-                edge_index=cur_edges,
-                neg_samples=_worker_obj.neg_samples_factor,
-            )
+        
+        anchors, pos_nodes, user_ids = user_preference_pos_pairs(
+            user_pos=kw['user_pos'],
+            keys=kw['keys'],
+            batch_size=batch_size,
+        )
+        neg_nodes = user_preference_neg_pairs(
+            user_neg=kw['user_neg'],
+            keys=kw['keys'],
+            anchors=anchors,
+            user_ids=user_ids,
+            neg_samples=_worker_obj.neg_samples_factor,
+        )
         return WorkItem(
             cur_edges=cur_edges,
             anchors=anchors,
@@ -215,6 +235,7 @@ class NodeClassificationWorker(BaseWorker):
 WORKER_CLASSES = {
     'ContrastiveGAT': ContrastiveWorker,
     'NodeClassificationGAT': NodeClassificationWorker,
+    'UserPreferenceGAT': UserPreferenceWorker,
 }
 
 
