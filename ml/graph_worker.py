@@ -55,12 +55,12 @@ INVALID_NODE = -1
 @dataclass
 class WorkItem:
     """A single work item for async processing."""
-    cur_edges: nparray2d # The current edges to use
-    anchors: Tensor=None # Anchor nodes
-    pos_nodes: Tensor=None # Positive nodes
-    neg_nodes: Tensor=None # Negative nodes
-    labels: dict[str, Tensor]=None # Labels for node classification
-    train_masks: dict[str, Tensor]=None # Train masks for node classification
+    cur_edges: nparray2d|Tensor # The current edges to use
+    anchors: Tensor|None=None # Anchor nodes
+    pos_nodes: Tensor|None=None # Positive nodes
+    neg_nodes: Tensor|None=None # Negative nodes
+    labels: dict[str, Tensor]|None=None # Labels for node classification
+    train_masks: dict[str, Tensor]|None=None # Train masks for node classification
 
 @dataclass
 class WorkerObj:
@@ -116,13 +116,13 @@ class ContrastiveWorker(BaseWorker):
     def one_step(cls, batch_size: int) -> WorkItem:
         """Runs "one step" of processing in the worker process.
 
-        This version does contrastive learning using direct neighbor connectivity to determine 
+        This version does contrastive learning using direct neighbor connectivity to determine
         positives and negatives.
         """
         global _worker_obj
         assert _worker_obj is not None
         cur_edges = _worker_obj.edge_sampler.sample()
-        
+
         anchors, pos_nodes = direct_neighbor_pos_pairs(
             edge_index=cur_edges,
             batch_size=batch_size,
@@ -156,7 +156,7 @@ class UserPreferenceWorker(BaseWorker):
         assert _worker_obj is not None
         kw = _worker_obj.kw
         cur_edges = _worker_obj.edge_sampler.sample()
-        
+
         anchors, pos_nodes, user_ids = user_preference_pos_pairs(
             user_pos=kw['user_pos'],
             keys=kw['keys'],
