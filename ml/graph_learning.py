@@ -633,6 +633,41 @@ class GraphLearner:
         losses = self.train_model(model, loss_fn, n_epochs=n_epochs, gpu_batch_size=gpu_batch_size)
         return model, losses
 
+    def train_from_config(self, cfg) -> tuple[GATBase, Tensor]:
+        """Train a model based on the provided configuration.
+        
+        This method handles both fresh training and resuming from checkpoints.
+        
+        Args:
+        - cfg: NestedNamespace configuration object
+        
+        Returns:
+        - Tuple of (trained_model, loss_history)
+        """
+        # Check for resume
+        if cfg.io.resume:
+            logger.info(f'Resuming training from checkpoint: {cfg.io.resume}')
+            model, losses = resume_from_checkpoint(
+                checkpoint_path=cfg.io.resume,
+                data_path=cfg.io.input_path,
+                additional_epochs=cfg.train.n_epochs,
+            )
+            return model, losses
+        
+        # Fresh training based on learner type
+        logger.info(f"Training {cfg.model.learner_type} model for {cfg.train.n_epochs} epochs")
+        kw = dict(n_epochs=cfg.train.n_epochs, gpu_batch_size=cfg.train.gpu_batch_size)
+        
+        match cfg.model.learner_type:
+            case 'random_walk':
+                model, losses = self.train_random_walks(walk_length=cfg.model.walk_length, **kw)
+            case 'contrastive':
+                model, losses = self.train_contrastive(**kw)
+            case _:
+                raise NotImplementedError(f"Learner type {cfg.model.learner_type} not implemented")
+        
+        return model, losses
+
     def train_random_walks(self, walk_length: int, n_epochs=5, gpu_batch_size:int=BATCH_SIZE) -> tuple[GATBase, Tensor]:
         """Train a graph model using random walk objectives, returning `(model, losses)`.
 
@@ -1070,20 +1105,6 @@ def main():
             print(f'{len(pairs)} Edges involving node {idx}: {pairs.T}')
         #return
 
-    # Check for resume argument or existing checkpoint
-    previous_losses = None
-    if CFG.io.resume: # Resume from specified checkpoint
-        logger.info(f'Resuming training from checkpoint: {CFG.io.resume}')
-        model, losses = resume_from_checkpoint(
-            checkpoint_path=CFG.io.resume,
-            data_path=CFG.io.input_path,
-            additional_epochs=CFG.train.n_epochs,
-        )
-        # Save final results and exit early
-        config_dict = CFG.to_flat_dict()
-        save_embeddings(model, data, CFG.io.output_path, CFG.io.output_flag, **config_dict)
-        save_model_with_checkpoint(model, data, CFG.io.output_path, config_dict, losses, **config_dict)
-        return
     # Create learner
     gl = create_learner(
         CFG.model.learner_type,
@@ -1096,23 +1117,8 @@ def main():
         v2=False,
     )
 
-    # Train model
-    logger.info(f"Training {CFG.model.learner_type} model for {CFG.train.n_epochs} epochs")
-    kw = dict(n_epochs=CFG.train.n_epochs, gpu_batch_size=CFG.train.gpu_batch_size)
-    match CFG.model.learner_type:
-        case 'random_walk': # Generate walks and train
-            model, new_losses = gl.train_random_walks(walk_length=CFG.model.walk_length, **kw)
-        case 'contrastive': # Train with contrastive learning using direct neighbor sampling
-            model, new_losses = gl.train_contrastive(**kw)
-        case '_':
-            raise NotImplementedError(f"Learner type {CFG.model.learner_type} not implemented")
-
-    # Combine with previous losses if resuming
-    if previous_losses is not None and len(previous_losses) > 0:
-        losses = torch.cat([previous_losses, new_losses])
-        logger.info(f'Combined {len(previous_losses)} previous losses with {len(new_losses)} new losses')
-    else:
-        losses = new_losses
+    # Train model (handles both fresh training and resume)
+    model, losses = gl.train_from_config(CFG)
 
     # Save embeddings and model checkpoint
     config_dict = CFG.to_flat_dict()
