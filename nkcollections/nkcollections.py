@@ -38,7 +38,6 @@ import traceback
 
 from argparse import ArgumentParser
 from collections import defaultdict, Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import cache
 from multiprocessing import Process
 from os.path import abspath, exists, join, dirname
@@ -78,15 +77,30 @@ from nkpylib.ml.llm_utils import load_llm_json
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkcollections.embeddings import cleanup_embeddings, find_similar
 from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Score, Source, J, timed, ACTIONS, LIKES_TTYPE, CFG, IMAGE_SUFFIX, get_like_scores
-from nkpylib.nkcollections.query_builder import QueryBuilder
+from nkpylib.nkcollections.query_builder import QueryBuilder, make_search_argparser
 from nkpylib.nkcollections.workers import CollectionsWorker
 from nkpylib.nkpony import recursive_to_dict
+from nkpylib.script_utils import NestedNamespace, YamlConfigManager
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
 
+def parse_config(config_path: str) -> NestedNamespace:
+    """This parses config from `config_path` and returns it.
 
+    It also sets the config as global CFG.
+    """
+    global CFG
+    with YamlConfigManager() as manager:
+        search = config_manager.add_parser('search', make_search_argparser())
+    CFG = manager.parse_all()
+    return CFG
+
+def make_web_argparser() -> ArgumentParser:
+    """Makes the argparser for the web"""
+    parser = ArgumentParser(description="NK collections web server")
+    return parser
 
 class CachedFileLoader(abc.ABC):
     """Base class for loading files with mtime-based caching.
@@ -540,84 +554,6 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
                                 post_parse_fn=post_parse_fn,
                                 more_kw=kw,
                                 on_start=on_start)
-
-def embeddings_main(batch_size: int=20,
-                    loop_delay: float=1,
-                    source_timeout_factor: float=0.5,
-                    loop_callback: Callable|None=None,
-                    cleanup_freq: int=100,
-                    **kw):
-    """Runs embedding updates from the command line in an infinite loop.
-
-    You probably want to call this from your subclass, after having initialized your Source.
-
-    Params:
-    - batch_size: The number of embeddings to process per source per otype per loop iteration
-    - loop_delay: The desired max delay between loop iterations, in seconds
-    - source_timeout_factor: How long to wait for each source to do one round of updates. This is
-      number of seconds * batch_size.
-    - loop_callback: An optional callback to call at the end of each loop iteration, given the
-      counts of embeddings updated. If this returns a dict, then we replace our kw with those.
-    - kw: Any other kw are passed to Source.update_embeddings
-    """
-    sources = list(Source._registry.values())
-    logger.info(f'Initialized embeddings main with {len(sources)} sources: {sources}')
-    executor = ThreadPoolExecutor()
-    per_timeout = source_timeout_factor * batch_size
-    i = 0
-    while 1:
-        with db_session:
-            commit()
-            if i % cleanup_freq == 0:
-                for s in sources:
-                    cleanup_embeddings(s.lmdb_path)
-                commit()
-        counts: Counter = Counter()
-        t0 = time.time()
-        futures = {}
-        for s in sources:
-            future = executor.submit(s.update_embeddings, limit=batch_size, **kw)
-            futures[future] = s
-        def finish_future(future):
-            if not future.done():
-                return
-            try:
-                cur = future.result()
-                s = futures[future]
-                if sum(cur.values()) > 0:
-                    logger.info(f'  Updated embeddings for source {s}, got counts {cur}')
-                for k, v in cur.items():
-                    counts[k] += v
-            except Exception as e:
-                logger.warning(f'Error updating embeddings for source {s}: {e}')
-                print(traceback.format_exc())
-
-        try:
-            # Wait for at most per_timeout seconds for the first future to complete
-            completed_future = next(as_completed(futures, timeout=per_timeout))
-            finish_future(completed_future)
-        except StopIteration:
-            logger.warning('No futures completed')
-        except TimeoutError:
-            logger.warning(f'No source completed within {per_timeout}s')
-        except Exception as e:
-            logger.warning(f'Error in embeddings main loop: {e}')
-            print(traceback.format_exc())
-        finally:
-            # Finish/cancel all remaining futures
-            for future in futures:
-                if future.done():
-                    finish_future(future)
-                else:
-                    future.cancel()
-        if loop_callback:
-            out = loop_callback(counts)
-            if isinstance(out, dict):
-                kw = out
-        elapsed = time.time() - t0
-        diff = loop_delay - elapsed
-        time.sleep(max(0, diff))
-
 
 def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_suffix: str='mn_image', **kw) -> None:
     """Standalone process that runs just the CollectionsWorker.
