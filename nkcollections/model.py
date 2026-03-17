@@ -27,6 +27,7 @@ from pony.orm import (
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
+from nkpylib.script_utils import NestedNamespace, YamlConfigManager
 from nkpylib.thread_utils import (
     background_task,
     classify_func_output,
@@ -37,11 +38,19 @@ from nkpylib.time_utils import elapsed_str, timed
 
 logger = logging.getLogger(__name__)
 
+CFG: NestedNamespace|None = None
+
+IMAGE_SUFFIX = 'mn_image'
+
+
 sql_db = Database()
 
 J = lambda obj: json.dumps(obj, indent=2)
 
 ACTIONS = 'like unlike dislike undislike queue unqueue explore'.split()
+
+LIKES_TTYPE = 'like:mn_image'
+
 
 async def ret_immediate(func_output) -> Any:
     """Given some `func_output`, we want to return something asap.
@@ -584,3 +593,17 @@ class Source(abc.ABC):
             kw['source'] = self.name
         #logger.info(f'In {self}, updating embeddings for {len(ids)} items')
         return update_embeddings(lmdb_path=self.lmdb_path, images_dir=self.images_dir, **kw)
+
+@db_session()
+def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:
+    """Get current classifier scores from Score table.
+
+    If `ids` is provided, limit to just those ids.
+    """
+    if ids is not None:
+        scores = (Score.get(id=int(id), ttype=LIKES_TTYPE, tag='like') for id in ids)
+        scores = {s.id.id: s.score for s in scores if s}
+    else:
+        scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
+    return scores
+

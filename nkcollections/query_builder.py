@@ -17,14 +17,18 @@ from pony.orm import (
 from nkpylib.ml.client import call_llm
 from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.llm_utils import load_llm_json
+from nkpylib.nkcollections.embeddings import find_similar
 from nkpylib.nkcollections.model import (
+    get_like_scores,
     Item,
     Rel,
     Score,
+    IMAGE_SUFFIX,
     LIKES_TTYPE,
     CFG,
 )
 from nkpylib.stringutils import parse_num_spec
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +37,7 @@ def get_all_tags() -> list[str]:
     """Get all available tags from Score table."""
     logger.info(f'Getting all tags')
     with db_session:
-        all_tags = sorted(set(select(s.tag for s in Score if s.ttype.startswith('tag:'))))
+        all_tags = sorted(set(select(s.tag for s in Score if s.ttype.startswith('tag:')))) # type: ignore[attr-defined]
     return all_tags
 
 
@@ -389,7 +393,7 @@ Return only the JSON array, no other text."""
                                       s.score > min_score)
 
             # Group scores by item and semantic group
-            item_group_scores = defaultdict(lambda: defaultdict(list))
+            item_group_scores: defaultdict[Any] = defaultdict(lambda: defaultdict(list))
 
             for item_id, tag, score in score_query:
                 # Find which semantic group this tag belongs to

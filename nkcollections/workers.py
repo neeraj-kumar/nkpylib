@@ -51,16 +51,13 @@ from nkpylib.ml.client import embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import Item, Rel, Score, Source, ret_immediate, ACTIONS, J
+from nkpylib.nkcollections.model import Item, Rel, Score, Source, ret_immediate, ACTIONS, J, LIKES_TTYPE, CFG
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async, background_task
 from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_request, make_request_async
 
 logger = logging.getLogger(__name__)
-
-LIKES_TTYPE = 'like:mn_image'
-
 
 @db_session()
 def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:

@@ -14,14 +14,13 @@ from pony.orm import db_session
 from pony.orm.core import Query, QueryResult
 
 from nkpylib.ml.client import call_vlm, embed_image, embed_text
+from nkpylib.ml.embeddings import Embeddings
 from nkpylib.ml.nklmdb import LmdbUpdater, NumpyLmdb
-from nkpylib.nkcollections.model import Item
+from nkpylib.nkcollections.model import Item, CFG, IMAGE_SUFFIX
 from nkpylib.thread_utils import ProducerConsumerPipeline, run_async
 from nkpylib.web_utils import make_request_async
 
 logger = logging.getLogger(__name__)
-
-IMAGE_SUFFIX = 'mn_image'
 
 
 class PipelineResult(NamedTuple):
@@ -507,3 +506,33 @@ def cleanup_embeddings(lmdb_path: str):
         n_done += fix(rows, 'text', 'explored_ts', fix_missing=False, db=db)
     del db
     logger.info(f'Cleaned up {n_missing} missing and {n_done} done embeddings')
+
+def find_similar(pos: list[str|int],
+                 *,
+                 embs: Embeddings,
+                 cur_ids: list[int]|None,
+                 classifier_path: str|None = None) -> dict[str, Any]:
+    """Searches for similarity to `pos` amongst `cur_ids` using `embs`"""
+    # Load pipeline from the last saved likes classifier
+    pipeline = None
+    if 0 and classifier_path: #FIXME broken
+        try:
+            saved_data = embs.load_classifier(classifier_path)
+            pipeline = saved_data.get('pipeline')
+            logger.info(f"Loaded pipeline from {classifier_path}: {pipeline}")
+        except Exception as e:
+            logger.warning(f"Could not load pipeline from classifier: {e}")
+    pos = [f'{p}:{IMAGE_SUFFIX}' for p in pos]
+    if cur_ids is None:
+        all_keys = [k for k in embs if k.endswith(f':{IMAGE_SUFFIX}')]
+    else:
+        all_keys = [f'{id}:{IMAGE_SUFFIX}' for id in cur_ids]
+    logger.info(f'got pos={pos}, {len(all_keys)} all keys: {all_keys[:5]}...')
+    #ret = embs.similar(pos, all_keys=all_keys, method='nn', pipeline=pipeline)
+    ret = embs.similar(pos, all_keys=all_keys, method='nn') #FIXME
+    scores, curIds = zip(*ret)
+    return dict(
+        pos=pos,
+        scores={int(id.split(':')[0]): score for id, score in zip(curIds, scores)},
+        msg=f'Classified {len(scores)} items with pos {pos}',
+    )
