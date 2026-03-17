@@ -206,7 +206,7 @@ class YamlConfigManager:
         """Parse all parsers and return a nested namespace."""
         config_dict = {}
         for section_name, parser in self.parsers.items():
-            print(f'parsing {section_name} with parser {parser}')
+            logger.debug(f'parsing {section_name} with parser {parser}')
             args = parser.parse_args(args=input_args)
             # Remove shared arguments to avoid duplication
             section_dict = {k: v for k, v in vars(args).items() if k != 'configs'}
@@ -219,5 +219,5 @@ class YamlConfigManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.parsers:
             temp_args, _ = self.config_parent.parse_known_args()
-            print(f'Got parsers: {self.parsers}')
+            logger.debug(f'Got parsers: {self.parsers}')
             self.apply_yaml_defaults(self.parsers, temp_args.configs)

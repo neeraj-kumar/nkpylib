@@ -78,7 +78,7 @@ from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
 from nkpylib.nkcollections.embeddings import cleanup_embeddings, find_similar
 from nkpylib.nkcollections.model import init_sql_db, Item, Rel, Score, Source, J, timed, ACTIONS, LIKES_TTYPE, CFG, IMAGE_SUFFIX, get_like_scores
 from nkpylib.nkcollections.query_builder import QueryBuilder, make_search_argparser
-from nkpylib.nkcollections.workers import CollectionsWorker
+from nkpylib.nkcollections.workers import CollectionsWorker, make_worker_argparser
 from nkpylib.nkpony import recursive_to_dict
 from nkpylib.script_utils import NestedNamespace, YamlConfigManager
 from nkpylib.stringutils import parse_num_spec
@@ -96,6 +96,7 @@ def parse_config(config_path: str, input_args=None) -> NestedNamespace:
         search = config_manager.add_parser('search', make_search_argparser())
         web = config_manager.add_parser('web', make_web_argparser())
         db = config_manager.add_parser('db', make_db_argparser())
+        worker = config_manager.add_parser('worker', make_worker_argparser())
     CFG = config_manager.parse_all(input_args)
     return CFG
 
@@ -561,23 +562,27 @@ def web_main(cfg_path: str, **kw):
                                 parse_args=False,
                                 on_start=on_start)
 
-def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_suffix: str='mn_image', **kw) -> None:
+def worker_main(cfg_path: str, **kw) -> None:
     """Standalone process that runs just the CollectionsWorker.
 
     - sqlite_path: Path to the SQLite database
     - lmdb_path: Path to the LMDB embeddings database
     - classifiers_dir: Directory where classifiers are saved
+
+    sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_suffix: str='mn_image', **kw)
     """
-    logger.info(f"Starting worker process with sqlite={sqlite_path}, lmdb={lmdb_path}, image_suffix={image_suffix}")
+    CFG = parse_config(cfg_path, **kw)
+    logger.info(f"Starting worker process with sqlite={CFG.db.sqlite_path}, lmdb={CFG.db.lmdb_path}, image_suffix={CFG.worker.image_suffix}")
     try:
         # Initialize database and embeddings in this process
-        sql_db = init_sql_db(sqlite_path)
+        sql_db = init_sql_db(CFG.db.sqlite_path)
+        lmdb_path = CFG.db.lmdb_path[0][1] # Assuming one LMDB path for worker
         embs: Embeddings = Embeddings([lmdb_path])
         # Create and start worker
         likes_worker = CollectionsWorker(
             embs=embs,
-            classifiers_dir=classifiers_dir,
-            image_suffix=image_suffix,
+            classifiers_dir=CFG.db.classifiers_dir,
+            image_suffix=CFG.worker.image_suffix,
         )
         likes_worker.add_task('update')  # Start the main loop
         likes_worker.run()

@@ -51,7 +51,7 @@ from nkpylib.ml.client import embed_image, embed_text
 from nkpylib.ml.constants import data_url_from_file
 from nkpylib.ml.embeddings import Embeddings, compute_binary_classifier_stats
 from nkpylib.ml.nklmdb import NumpyLmdb, batch_extract_embeddings, LmdbUpdater
-from nkpylib.nkcollections.model import Item, Rel, Score, Source, ret_immediate, ACTIONS, J, LIKES_TTYPE, CFG
+from nkpylib.nkcollections.model import Item, Rel, Score, Source, ret_immediate, ACTIONS, J, LIKES_TTYPE, CFG, get_like_scores
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
 from nkpylib.stringutils import parse_num_spec
 from nkpylib.thread_utils import run_async, background_task
@@ -59,19 +59,12 @@ from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_req
 
 logger = logging.getLogger(__name__)
 
-@db_session()
-def get_like_scores(ids:list[str|int]|None=None) -> dict[int, float]:
-    """Get current classifier scores from Score table.
 
-    If `ids` is provided, limit to just those ids.
-    """
-    if ids is not None:
-        scores = (Score.get(id=int(id), ttype=LIKES_TTYPE, tag='like') for id in ids)
-        scores = {s.id.id: s.score for s in scores if s}
-    else:
-        scores = {s.id.id: s.score for s in Score.select(ttype=LIKES_TTYPE, tag='like')}
-    return scores
-
+def make_worker_argparser() -> ArgumentParser:
+    """Makes the worker argparser"""
+    parser = ArgumentParser(description="Worker for collections tasks")
+    parser.add_argument('--image-suffix', type=str, default='mn_image', help='Suffix to use for image keys in embeddings and scores')
+    return parser
 
 class CollectionsWorker:
     """Worker for collections.
@@ -95,7 +88,7 @@ class CollectionsWorker:
                  classifiers_dir: str,
                  name: str = "CollectionsWorker",
                  method: str = 'sgd',
-                 max_pos: int = 10000,
+                 max_pos: int = 20000,
                  neg_factor: float = 10,
                  min_new_liked: int = 50,
                  image_suffix: str = 'mn_image',
@@ -505,8 +498,10 @@ class CollectionsWorker:
                 emb = emb_futures[tag].result()
             except Exception:
                 emb = []
-            logger.info(f'  Updating lmdb for tag {tag} with version {version}: {emb[:5]}')
+            logger.debug(f'  Updating lmdb for tag {tag} with version {version}: {emb[:5]}')
             db[key] = emb
+            data.pop('scaler', None)
+            logger.debug(f'Trying to set md {key} to {data}')
             db.md_set(key, **data)
         db.sync()
 
