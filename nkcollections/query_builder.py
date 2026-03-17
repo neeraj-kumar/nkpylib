@@ -33,9 +33,9 @@ from nkpylib.stringutils import parse_num_spec
 
 logger = logging.getLogger(__name__)
 
-def make_query_argparser():
-    """Creates an argparser for query-related args"""
-    parser = ArgumentParser(description="Query arguments")
+def make_search_argparser():
+    """Creates an argparser for search-related args"""
+    parser = ArgumentParser(description="Search arguments")
     parser.add_argument('--min_item_score', type=float, default=0.7,
                         help='Minimum score threshold for item-based searches')
     parser.add_argument('--min_user_score', type=float, default=150.0,

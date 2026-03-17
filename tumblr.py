@@ -31,12 +31,10 @@ from pyquery import PyQuery as pq # type: ignore
 from tqdm import tqdm
 
 from nkpylib.nkcollections.nkcollections import (
-    embeddings_main,
     init_sql_db,
     Item,
     Rel,
     Source,
-    web_main,
 )
 from nkpylib.nkcollections.workers import CollectionsWorker
 from nkpylib.ml.nklmdb import NumpyLmdb, LmdbUpdater
@@ -841,17 +839,6 @@ def test_post(config_path: str, **kw):
     notes = tumblr.get_post_notes('zegalba', 701480526115192832)
     print(f'Got {len(notes)} notes: {J(notes)[:3000]}')
 
-def update_embeddings(**kw):
-    """Updates embeddings"""
-    t = Tumblr()
-    embeddings_main(**kw)
-
-def web(**kw):
-    """Runs the collections web interface."""
-    t = Tumblr()
-    #print(J(t.get_dashboard())[:500])
-    return web_main(sqlite_path=t.sqlite_path, lmdb_path=t.lmdb_path)
-
 def gen_benchmark(**kw):
     """Generates a benchmark set"""
     return #FIXME remove when we want to generate a new set
@@ -868,5 +855,5 @@ def run_benchmark(name:str='like-benchmark-20260202-175744', **kw):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
-    funcs = [update_blogs, test_post, update_embeddings, web, gen_benchmark, run_benchmark]
+    funcs = [update_blogs, test_post, gen_benchmark, run_benchmark]
     cli_runner(funcs, config_path=dict(default=DEFAULT_CONFIG_PATH, help='Path to the tumblr config json file'))

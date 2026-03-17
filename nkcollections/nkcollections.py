@@ -86,15 +86,17 @@ from nkpylib.web_utils import BaseHandler, simple_react_tornado_server, make_req
 
 logger = logging.getLogger(__name__)
 
-def parse_config(config_path: str) -> NestedNamespace:
+def parse_config(config_path: str, input_args=None) -> NestedNamespace:
     """This parses config from `config_path` and returns it.
 
     It also sets the config as global CFG.
     """
     global CFG
-    with YamlConfigManager() as manager:
+    with YamlConfigManager(config_path) as config_manager:
         search = config_manager.add_parser('search', make_search_argparser())
-    CFG = manager.parse_all()
+        web = config_manager.add_parser('web', make_web_argparser())
+        db = config_manager.add_parser('db', make_db_argparser())
+    CFG = config_manager.parse_all(input_args)
     return CFG
 
 def make_web_argparser() -> ArgumentParser:
@@ -104,8 +106,23 @@ def make_web_argparser() -> ArgumentParser:
                         help='Port for the web server')
     parser.add_argument('--with_worker', action='store_true', default=False,
                         help='Whether to start the worker process')
-    parser.add_argument('--sqlite_path', type=str, required=True,
-                        help='Path to the SQLite database')
+    return parser
+
+def make_db_argparser() -> ArgumentParser:
+    parser = ArgumentParser(description="NK collections database")
+    parser.add_argument('--sqlite_path', type=str, help='Path to the SQLite database')
+    def parse_key_value(s):
+        """Tries to parse a key-value pair from a string of the form "key=value".
+
+        If the string is not in this format, sets key to None and value to `s`."""
+        if '=' in s:
+            key, value = s.split('=', 1)
+            return key.strip(), value.strip()
+        else:
+            return None, s.strip()
+
+    parser.add_argument('--lmdb_path', action='append', default=[], help='Path to an LMDB database (can specify multiple, each as just the path, or "{name}={path}")')
+    parser.add_argument('--classifiers_dir', type=str, help='Where classifiers are stored')
     return parser
 
 class CachedFileLoader(abc.ABC):
@@ -505,35 +522,20 @@ class ClusterHandler(MyBaseHandler):
         ret = dict(msg=f'method: {method}', clusters=clusters)
         self.write(ret)
 
-def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_path:str='', **kw):
-    # load the data file from first arg
-    parser = ArgumentParser(description="NK collections main")
-    if sqlite_path:
-        parser.add_argument('--sqlite_path', default=sqlite_path, help="The path to the sqlite database")
-    else:
-        parser.add_argument('sqlite_path', help="The path to the sqlite database")
-    if lmdb_path:
-        parser.add_argument('--lmdb_path', default=lmdb_path, help="The path to the lmdb database")
-    else:
-        parser.add_argument('lmdb_path', help="The path to the lmdb database")
-    parser.add_argument('-w', '--worker', default=CFG.web.with_worker, action='store_true', help="Whether to start the worker process")
-    parser.add_argument('ignore', nargs='*', help="Ignore extra args")
+def web_main(cfg_path: str, **kw):
+    CFG = parse_config(cfg_path, **kw)
     #FIXME add images dir and make it accessible via a static path
-    kw = {}
-    def post_parse_fn(args):
-        logger.info(f'Got args {args}')
 
     def on_start(app, args):
-        app.sql_db = init_sql_db(CFG.web.sqlite_path)
-        temp = NumpyLmdb.open(args.lmdb_path, flag='c')
+        app.sql_db = init_sql_db(CFG.db.sqlite_path)
+        assert len(CFG.db.lmdb_path) == 1
+        lmdb_path = CFG.db.lmdb_path[0][1]
+        temp = NumpyLmdb.open(lmdb_path, flag='c')
         del temp
-        app.embs = Embeddings([args.lmdb_path])
+        app.embs = Embeddings([lmdb_path])
         # Initialize scores file path for reading from worker process
         sources = list(Source._registry.values())
-        if sources:
-            app.classifiers_dir = sources[0].classifiers_dir
-        else:
-            assert False, "No sources registered, cannot determine classifiers_dir"
+        app.classifiers_dir = CFG.db.classifiers_dir
         if CFG.web.with_worker: # version with likes workers
             app.likes_worker = CollectionsWorker(embs=app.embs, classifiers_dir=app.classifiers_dir)
             app.likes_worker.start()
@@ -556,9 +558,7 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
                                 css_filename=f'collections.css',
                                 port=CFG.web.port,
                                 more_handlers=more_handlers,
-                                parser=parser,
-                                post_parse_fn=post_parse_fn,
-                                more_kw=kw,
+                                parse_args=False,
                                 on_start=on_start)
 
 def worker_main(sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_suffix: str='mn_image', **kw) -> None:
@@ -595,7 +595,6 @@ if __name__ == '__main__':
     parser.add_argument('--sqlite_path', required=True, help="Path to SQLite database")
     parser.add_argument('--lmdb_path', required=True, help="Path to LMDB database")
     parser.add_argument('--classifiers_dir', help="Directory for classifiers (worker mode only)")
-    parser.add_argument('--scores_path', help="Path for scores JSON file (worker mode only)")
     parser.add_argument('--port', type=int, default=12555, help="Server port (server mode only)")
     args = parser.parse_args()
     if args.mode == 'worker':
