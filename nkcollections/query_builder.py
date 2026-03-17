@@ -36,6 +36,16 @@ logger = logging.getLogger(__name__)
 def make_query_argparser():
     """Creates an argparser for query-related args"""
     parser = ArgumentParser(description="Query arguments")
+    parser.add_argument('--min_item_score', type=float, default=0.7,
+                        help='Minimum score threshold for item-based searches')
+    parser.add_argument('--min_user_score', type=float, default=150.0,
+                        help='Minimum score threshold for user-based searches')
+    parser.add_argument('--ss_limit', type=int, default=1000,
+                        help='Semantic search limit - maximum number of items to return')
+    parser.add_argument('--ss_min_score', type=float, default=0.8,
+                        help='Minimum score for semantic search filtering')
+    parser.add_argument('--llm_model', type=str, default='fast',
+                        help='LLM model to use for search query parsing')
     return parser
 
 @cache
@@ -216,7 +226,7 @@ Return a JSON list of tags from the following available tags that best match wha
 Available tags: {', '.join(all_tags)}
 
 Return only the JSON list, no other text."""
-        response = await call_llm.single_async(prompt, model='fast', use_cache=False)
+        response = await call_llm.single_async(prompt, model=CFG.search.llm_model, use_cache=False)
         try:
             parsed_tags = load_llm_json(response)
         except Exception as e:
@@ -227,8 +237,8 @@ Return only the JSON list, no other text."""
             return self
         logger.info(f'LLM parsed search into tags: {parsed_tags}')
         # Apply tag filters using SQL joins (OR logic - item must have ANY of the tags with score > min_score)
-        min_item_score = float(kw.get('min_item_score', 0.7))
-        min_user_score = float(kw.get('min_user_score', 150))
+        min_item_score = CFG.search.min_item_score
+        min_user_score = CFG.search.min_user_score
         min_score = min_user_score if kw.get('otype') == 'user' else min_item_score
         ttype = f'tag:{IMAGE_SUFFIX}'
         if not self.converted_to_list:
@@ -274,8 +284,8 @@ Return only the JSON list, no other text."""
             return self
         logger.info(f'Parsed into semantic groups: {semantic_groups}')
         # Get top-K scored items using complex scoring
-        search_limit = int(kw.get('search_limit', 1000))
-        min_score = float(kw.get('search_min_score', 0.8))
+        search_limit = CFG.search.ss_limit
+        min_score = CFG.search.ss_min_score
         if not self.converted_to_list:
             # Use subquery approach for efficiency
             scored_items = self._get_semantic_scored_items(semantic_groups, search_limit, min_score)
@@ -346,7 +356,7 @@ Available tags: {', '.join(all_tags)}
 
 Return only the JSON array, no other text."""
         try:
-            response = await call_llm.single_async(prompt, model='fast', use_cache=False)
+            response = await call_llm.single_async(prompt, model=CFG.search.llm_model, use_cache=False)
             semantic_groups = load_llm_json(response)
             # Validate structure
             if not isinstance(semantic_groups, list):
