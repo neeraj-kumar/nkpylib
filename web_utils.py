@@ -593,6 +593,7 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
                          default_port: int=8000,
                          post_parse_fn: Callable[[dict],None]|None=None,
                          on_start: Callable[[Application, argparse.Namespace],None]|None=None,
+                         parse_args: bool=True,
                          ) -> None:
     """Creates a web server and runs it.
 
@@ -611,15 +612,20 @@ def setup_and_run_server(parser: Optional[argparse.ArgumentParser]=None,
     """
     # include line number
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(funcName)s:%(lineno)d: %(message)s')
-    if parser is None:
-        parser = argparse.ArgumentParser(description='Web server')
-    parser.add_argument('-p', '--port', type=int, default=default_port, help='Port to listen on')
-    args = parser.parse_args()
-    if post_parse_fn:
-        post_parse_fn(vars(args))
-    logger.info(f'Starting server on port {args.port}')
+    if parse_args:
+        if parser is None:
+            parser = argparse.ArgumentParser(description='Web server')
+        parser.add_argument('-p', '--port', type=int, default=default_port, help='Port to listen on')
+        args = parser.parse_args()
+        if post_parse_fn:
+            post_parse_fn(vars(args))
+        port = args.port
+    else:
+        port = default_port
+        args = None
+    logger.info(f'Starting server on port {port}')
     app = make_app()
-    app.listen(args.port)
+    app.listen(port)
     if on_start:
         IOLoop.current().add_callback(lambda: on_start(app, args))
     IOLoop.current().start()
@@ -629,6 +635,7 @@ def simple_react_tornado_server(jsx_path: str,
                                 more_handlers: list|None=None,
                                 parser: argparse.ArgumentParser|None=None,
                                 post_parse_fn: Callable[[dict],None]|None=None,
+                                parse_args: bool=True,
                                 data_dir: str|None='.',
                                 static_path: str='/static',
                                 css_filename: str='app.css',
@@ -690,6 +697,7 @@ def simple_react_tornado_server(jsx_path: str,
                          make_app=DefaultApplication,
                          default_port=port,
                          post_parse_fn=post_parse_fn,
+                         parse_args=parse_args,
                          on_start=on_start)
 
 def bundle_js(js_path: str, css_path: str|None=None) -> str:

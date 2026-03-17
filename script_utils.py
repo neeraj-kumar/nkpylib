@@ -165,17 +165,25 @@ class YamlConfigManager:
         config = config_manager.parse_all()
         # now you can access config.main.arg1, config.sub.arg2, etc.
     """
-    def __init__(self):
+    def __init__(self, cfg_path: str=''):
         self.config_parent = ArgumentParser(add_help=False)
-        self.config_parent.add_argument('-c', '--configs', action='append', help='YAML config files')
+        default = []
+        if cfg_path:
+            default.append(cfg_path)
+        self.config_parent.add_argument('-c', '--configs', action='append', default=default, help='YAML config files')
         self.parsers: dict[str, ArgumentParser] = {}
 
-    def add_parser(self, name: str, **kwargs) -> ArgumentParser:
-        """Add a parser with given `name` and `kwargs` to our config parent."""
+    def add_parser(self, name: str, parser: ArgumentParser|None=None, **kwargs) -> ArgumentParser:
+        """Add a parser with given `name` and `kwargs` to our config parent.
+
+        If `parser` is given, we use that, else we create a new one with **kwargs
+
+        """
         if 'parents' not in kwargs:
             kwargs['parents'] = []
         kwargs['parents'].append(self.config_parent)
-        parser = ArgumentParser(**kwargs)
+        if parser is None:
+            parser = ArgumentParser(**kwargs)
         self.parsers[name] = parser
         return parser
 
@@ -194,11 +202,12 @@ class YamlConfigManager:
             section_config = full_config.get(section_name, {})
             parser.set_defaults(**section_config)
 
-    def parse_all(self) -> NestedNamespace:
+    def parse_all(self, input_args=None) -> NestedNamespace:
         """Parse all parsers and return a nested namespace."""
         config_dict = {}
         for section_name, parser in self.parsers.items():
-            args = parser.parse_args()
+            print(f'parsing {section_name} with parser {parser}')
+            args = parser.parse_args(args=input_args)
             # Remove shared arguments to avoid duplication
             section_dict = {k: v for k, v in vars(args).items() if k != 'configs'}
             config_dict[section_name] = section_dict
@@ -208,10 +217,7 @@ class YamlConfigManager:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Get config files from any parser
         if self.parsers:
-            first_parser = next(iter(self.parsers.values()))
-            temp_args, _ = first_parser.parse_known_args()
-            config_files = temp_args.configs
-            # Apply YAML defaults
-            self.apply_yaml_defaults(self.parsers, config_files)
+            temp_args, _ = self.config_parent.parse_known_args()
+            print(f'Got parsers: {self.parsers}')
+            self.apply_yaml_defaults(self.parsers, temp_args.configs)
