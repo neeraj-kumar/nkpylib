@@ -1,7 +1,9 @@
 import logging
 import time
 
-from functools import cache
+from collections import Counter, defaultdict
+from functools import cache, reduce
+from typing import Any
 
 from pony.orm.core import Query # type: ignore
 from pony.orm import (
@@ -12,7 +14,9 @@ from pony.orm import (
     set_sql_debug,
 ) # type: ignore
 
+from nkpylib.ml.client import call_llm
 from nkpylib.ml.embeddings import Embeddings
+from nkpylib.ml.llm_utils import load_llm_json
 from nkpylib.nkcollections.model import (
     Item,
     Rel,
@@ -20,6 +24,7 @@ from nkpylib.nkcollections.model import (
     LIKES_TTYPE,
     CFG,
 )
+from nkpylib.stringutils import parse_num_spec
 
 logger = logging.getLogger(__name__)
 
