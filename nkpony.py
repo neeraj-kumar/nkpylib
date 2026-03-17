@@ -25,6 +25,24 @@ class GetMixin():
         return ret
 
     @classmethod
+    def create_or_get(cls, get_kw: dict[str, Any], **create_kw) -> Entity:
+        """Creates a new object or gets existing.
+
+        If an object exists with the `get_kw` dictionary, returns it. Otherwise, creates a new
+        object with the `get_kw` and `create_kw` dictionaries and returns it.
+
+        Note that this is different from `get_or_create` in that it allows you to specify different
+        parameters for getting and creating. It is also different from `upsert` in that it does not
+        update existing objects, it only gets or creates.
+        """
+        assert isinstance(cls, EntityMeta), f"{cls} is not a database entity"
+        if cls.exists(**get_kw):
+            return cls.get(**get_kw)
+        else:
+            logger.debug(f'Creating new {cls.__name__} with {get_kw} {create_kw}')
+            return cls(**create_kw, **get_kw)
+
+    @classmethod
     def upsert(cls, get_kw: dict[str, Any], **set_kw: Any) -> Entity:
         """Upserts into the database.
 

@@ -239,7 +239,7 @@ class GATBase(torch.nn.Module):
         """Get the worker class for this model type."""
         from nkpylib.ml.graph_worker import WORKER_CLASSES
         return WORKER_CLASSES.get(cls.__name__)
-    
+
     @classmethod
     def worker_one_step(cls, batch_size: int) -> WorkItem:
         """Worker function to generate a single work item for training."""
