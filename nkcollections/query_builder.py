@@ -1,6 +1,7 @@
 import logging
 import time
 
+from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from functools import cache, reduce
 from typing import Any
@@ -31,6 +32,11 @@ from nkpylib.stringutils import parse_num_spec
 
 
 logger = logging.getLogger(__name__)
+
+def make_query_argparser():
+    """Creates an argparser for query-related args"""
+    parser = ArgumentParser(description="Query arguments")
+    return parser
 
 @cache
 def get_all_tags() -> list[str]:
