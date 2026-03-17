@@ -100,6 +100,12 @@ def parse_config(config_path: str) -> NestedNamespace:
 def make_web_argparser() -> ArgumentParser:
     """Makes the argparser for the web"""
     parser = ArgumentParser(description="NK collections web server")
+    parser.add_argument('--port', type=int, default=12555,
+                        help='Port for the web server')
+    parser.add_argument('--with_worker', action='store_true', default=False,
+                        help='Whether to start the worker process')
+    parser.add_argument('--sqlite_path', type=str, required=True,
+                        help='Path to the SQLite database')
     return parser
 
 class CachedFileLoader(abc.ABC):
@@ -510,7 +516,7 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
         parser.add_argument('--lmdb_path', default=lmdb_path, help="The path to the lmdb database")
     else:
         parser.add_argument('lmdb_path', help="The path to the lmdb database")
-    parser.add_argument('-w', '--worker', default=with_worker, action='store_true', help="Whether to start the worker process")
+    parser.add_argument('-w', '--worker', default=CFG.web.with_worker, action='store_true', help="Whether to start the worker process")
     parser.add_argument('ignore', nargs='*', help="Ignore extra args")
     #FIXME add images dir and make it accessible via a static path
     kw = {}
@@ -518,7 +524,7 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
         logger.info(f'Got args {args}')
 
     def on_start(app, args):
-        app.sql_db = init_sql_db(args.sqlite_path)
+        app.sql_db = init_sql_db(CFG.web.sqlite_path)
         temp = NumpyLmdb.open(args.lmdb_path, flag='c')
         del temp
         app.embs = Embeddings([args.lmdb_path])
@@ -528,7 +534,7 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
             app.classifiers_dir = sources[0].classifiers_dir
         else:
             assert False, "No sources registered, cannot determine classifiers_dir"
-        if args.worker: # version with likes workers
+        if CFG.web.with_worker: # version with likes workers
             app.likes_worker = CollectionsWorker(embs=app.embs, classifiers_dir=app.classifiers_dir)
             app.likes_worker.start()
             app.likes_worker.add_task('update')  # Start the main loop
@@ -548,7 +554,7 @@ def web_main(port: int=12555, with_worker: bool=False, sqlite_path:str='', lmdb_
 
     simple_react_tornado_server(jsx_path=f'{dirname(__file__)}/collections.jsx',
                                 css_filename=f'collections.css',
-                                port=port,
+                                port=CFG.web.port,
                                 more_handlers=more_handlers,
                                 parser=parser,
                                 post_parse_fn=post_parse_fn,
