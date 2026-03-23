@@ -93,10 +93,11 @@ def cli_runner(func_list: list[Callable[..., Any]], **kw) -> Any:
 
 class NestedNamespace:
     """A namespace that supports nested attribute access."""
-    def __init__(self, **kwargs):
+    def __init__(self, _convert_nested=True, **kwargs):
         for key, value in kwargs.items():
-            if isinstance(value, dict):
-                setattr(self, key, NestedNamespace(**value))
+            if isinstance(value, dict) and _convert_nested:
+                # Only convert dicts to NestedNamespace at the top level
+                setattr(self, key, NestedNamespace(_convert_nested=False, **value))
             else:
                 setattr(self, key, value)
 
