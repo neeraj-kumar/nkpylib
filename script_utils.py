@@ -116,6 +116,16 @@ class NestedNamespace:
                 result[full_key] = value
         return result
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert nested namespace to a regular dictionary, recursively converting NestedNamespace objects."""
+        result = {}
+        for key, value in self.__dict__.items():
+            if isinstance(value, NestedNamespace):
+                result[key] = value.to_dict()
+            else:
+                result[key] = value
+        return result
+
 
     def __repr__(self):
         items = []
