@@ -190,17 +190,35 @@ class YamlConfigManager:
     def apply_yaml_defaults(self,
                             parsers: dict[str, ArgumentParser],
                             config_files: list[str] | None) -> None:
-        """Apply YAML config defaults to multiple parsers.
+        """Apply YAML config defaults to multiple parsers and store extra fields.
 
         This sets the default values for those options from the yaml, meaning if you specify
         command line options for them, those will take precedence, but if you don't, the YAML values
         will be used. And if the yaml doesn't contain a value for an option, then the default
         specified in the argparser will be used.
+        
+        Extra fields in the YAML that aren't defined in the argparser are stored in self.extra_config
+        and will be merged into the final NestedNamespace.
         """
         full_config = load_yaml_configs(config_files)
+        self.extra_config = {}  # Store fields not in argparser
+        
         for section_name, parser in parsers.items():
             section_config = full_config.get(section_name, {})
-            parser.set_defaults(**section_config)
+            
+            # Get all argument names that the parser knows about
+            parser_args = set()
+            for action in parser._actions:
+                if action.dest != 'help':
+                    parser_args.add(action.dest)
+            
+            # Split config into parser args and extras
+            parser_config = {k: v for k, v in section_config.items() if k in parser_args}
+            extra_config = {k: v for k, v in section_config.items() if k not in parser_args}
+            
+            parser.set_defaults(**parser_config)
+            if extra_config:
+                self.extra_config[section_name] = extra_config
 
     def parse_all(self, input_args=None) -> NestedNamespace:
         """Parse all parsers and return a nested namespace."""
@@ -210,6 +228,11 @@ class YamlConfigManager:
             args = parser.parse_args(args=input_args)
             # Remove shared arguments to avoid duplication
             section_dict = {k: v for k, v in vars(args).items() if k != 'configs'}
+            
+            # Add any extra config fields from YAML
+            if hasattr(self, 'extra_config') and section_name in self.extra_config:
+                section_dict.update(self.extra_config[section_name])
+                
             config_dict[section_name] = section_dict
         return NestedNamespace(**config_dict)
 
