@@ -124,7 +124,7 @@ class NestedNamespace:
                 items.append(f'{key}=<NestedNamespace>')
             else:
                 items.append(f'{key}={value!r}')
-        return f"NestedNamespace({', '.join(items)})"
+        return f"<NN {', '.join(items)}>"
 
 
 def load_yaml_configs(config_files: list[str] | None) -> dict:
