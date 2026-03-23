@@ -139,7 +139,7 @@ def load_yaml_configs(config_files: list[str] | None) -> dict:
     full_config = {}
     if config_files:
         for config_file in config_files:
-            logger.debug(f'Reading config file: {config_file}')
+            #logger.debug(f'Reading config file: {config_file}')
             with open(config_file) as f:
                 file_config = yaml.safe_load(f)
                 # Deep merge configs
