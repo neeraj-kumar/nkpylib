@@ -3,9 +3,7 @@
 """
 #TODO rescore runs only on newer items?
 #TODO toggle different functions on/off interactively or via config file
-#TODO things like Worker should be initialized with **cfg.worker
 #TODO implement other classifiers/etc as subclasses of Worker
-#TODO cleanup Worker to remove extraneous stuff
 #TODO similar users
 #TODO   by similarity of their images/embeddings
 #TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
@@ -563,7 +561,11 @@ def web_main(cfg_path: str, **kw):
         sources = list(Source._registry.values())
         app.classifiers_dir = CFG.db.classifiers_dir
         if CFG.web.with_worker: # version with likes workers
-            app.likes_worker = CollectionsWorker(embs=app.embs, classifiers_dir=app.classifiers_dir)
+            app.likes_worker = CollectionsWorker(
+                embs=app.embs,
+                classifiers_dir=app.classifiers_dir,
+                **CFG.worker.to_dict(), # Pass worker-specific config parameters
+            )
             app.likes_worker.start() # start the main loop
             logger.info("CollectionsWorker started successfully")
         else: # without likes worker
@@ -608,7 +610,7 @@ def worker_main(cfg_path: str, **kw) -> None:
         likes_worker = CollectionsWorker(
             embs=embs,
             classifiers_dir=CFG.db.classifiers_dir,
-            image_suffix=CFG.worker.image_suffix,
+            **CFG.worker.to_dict(), # Pass worker-specific config parameters
         )
         likes_worker.run()
         logger.info("CollectionsWorker started successfully")
