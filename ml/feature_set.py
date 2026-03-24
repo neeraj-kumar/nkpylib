@@ -6,6 +6,8 @@ Feature Management:
 - Automatic key intersection across sources
 
 """
+#TODO mapping of input dbs
+#TODO toggling input dbs on/off
 
 from __future__ import annotations
 
@@ -208,6 +210,11 @@ class FeatureSet(Mapping, Generic[KeyT]):
         for key, value in self.items():
             self.n_dims = len(value)
             break
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Returns the shape of this feature set as (num_keys, num_dims)."""
+        return len(self), self.n_dims
 
     def __repr__(self) -> str:
         return f'FeatureSet<{len(self.inputs)} inputs, {len(self)} keys, {self.n_dims} dims>'

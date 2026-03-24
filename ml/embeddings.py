@@ -438,6 +438,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  pos: list[KeyT],
                                  neg: list[KeyT],
                                  to_cls: list[KeyT],
+                                 labels: list[KeyT]|None=None,
                                  neg_weight: float=1.0,
                                  method: str='rbf',
                                  C=1,
@@ -448,10 +449,17 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         The params `method`, `C`, and `kw` are fed into `train_classifier()`, which in turn uses them
         in `_create_classifier()`.
 
-        Returns `(classifier, scores_dict, other_stuff)`, where `scores_dict` is a dict of key to
-        score, and `other_stuff` includes:
+        By default this is binary classification. But if you pass in `labels`, then we treat this as
+        a multiclass classification problem, where the class of each key in `pos` is given by its
+        corresponding label in `labels`. In this case, `neg` should be empty.
+
+        Returns `(classifier, scores_dict, other_stuff)`, where `scores_dict` maps from key to:
+        - score (if binary)
+        - (predicted_label, score_for_predicted_label) if multiclass
+
+        And `other_stuff` includes:
         - times: dict with timing info for training and inference
-        - scaler: the scaler used (if any)
+        - pipeline: the pipeline used
         - cv: if `cv` > 0, the list of cross-validation scores for `cv` folds
         """
         other_stuff = {}
@@ -476,7 +484,12 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         for k, emb in zip(keys, embs):
             if k in pos_set or k in neg_set:
                 train_X.append(emb)
-                y.append(1 if k in pos_set else -1)
+                if labels is not None:
+                    idx = pos.index(k)
+                    label = labels[idx]
+                    y.append(label)
+                else:
+                    y.append(1 if k in pos_set else -1)
                 weights.append(1.0 if k in pos_set else neg_weight)
             if k in to_cls:
                 test_keys.append(k)
@@ -493,7 +506,16 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)
         times.append(time.time())
         test_X = np.vstack(test_X)
-        scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(test_X))}
+        if labels is None:
+            scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(test_X))}
+        else:
+            scores_array = cls.decision_function(test_X)
+            scores = {}
+            for i, key in enumerate(test_keys):
+                pred_label = cls.predict(test_X[i:i+1])[0]
+                pred_cls_idx = list(cls.classes_).index(pred_label)
+                score = scores_array[i][pred_cls_idx]
+                scores[key] = (pred_label, float(score))
         times.append(time.time())
         other_stuff['times'] = dict(
             training=times[3] - times[2],
