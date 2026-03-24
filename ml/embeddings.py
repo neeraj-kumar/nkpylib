@@ -583,12 +583,13 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             # IndexFlatIP(d) for cosine sim with normed vectors
             # IndexHNSWFlat(d, 32) for faster approximate search
             # IndexFlatL2(d) for l2 distance
+            #TODO note that faiss-cpu is not built with openmp support, so this is not parallelized
             index = faiss.IndexHNSWFlat(embs.shape[1], 32)
             index.add(embs)
             times.append(time.time())
             distances, indices = index.search(to_search, min(k, len(to_search)))
             times.append(time.time())
-            logger.debug(f'Faiss {index} times: {[(t1-t0) for t0, t1 in zip(times, times[1:])]}')
+            logger.info(f'Faiss {index} times: {[(t1-t0) for t0, t1 in zip(times, times[1:])]}')
         logging.debug(f'New dists: {distances}')
         distances = np.array([np.sum(row) for row in np.exp(-distances)]) / k
         logging.debug(f'Scaled dists: {distances}')

@@ -1,6 +1,10 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
+#TODO toggle different functions on/off interactively or via config file
+#TODO things like Worker should be initialized with **cfg.worker
+#TODO implement other classifiers/etc as subclasses of Worker
+#TODO cleanup Worker to remove extraneous stuff
 #TODO similar users
 #TODO   by similarity of their images/embeddings
 #TODO   or if we have same metadata/scores as items, then we can apply exactly the same machinery
@@ -97,8 +101,26 @@ def parse_config(config_path: str, input_args=None) -> NestedNamespace:
         web = config_manager.add_parser('web', make_web_argparser())
         db = config_manager.add_parser('db', make_db_argparser())
         worker = config_manager.add_parser('worker', make_worker_argparser())
+        frontend = config_manager.add_parser('frontend', make_frontend_argparser())
     CFG = config_manager.parse_all(input_args)
+    print(f'Got frontend cfg: {vars(CFG.frontend)}')
     return CFG
+
+def try_parse_key_value(s):
+    """Tries to parse a key-value pair from a string of the form "key=value".
+
+    If the string is not in this format, sets key to None and value to `s`."""
+    print(f'Trying to parse key-value from "{s}"')
+    if '=' in s:
+        key, value = s.split('=', 1)
+        return key.strip(), value.strip()
+    else:
+        return None, s.strip()
+
+def make_frontend_argparser() -> ArgumentParser:
+    """Makes a parser for the frontend"""
+    parser = ArgumentParser(description="NK collections frontend")
+    return parser
 
 def make_web_argparser() -> ArgumentParser:
     """Makes the argparser for the web"""
@@ -112,17 +134,8 @@ def make_web_argparser() -> ArgumentParser:
 def make_db_argparser() -> ArgumentParser:
     parser = ArgumentParser(description="NK collections database")
     parser.add_argument('--sqlite_path', type=str, help='Path to the SQLite database')
-    def parse_key_value(s):
-        """Tries to parse a key-value pair from a string of the form "key=value".
-
-        If the string is not in this format, sets key to None and value to `s`."""
-        if '=' in s:
-            key, value = s.split('=', 1)
-            return key.strip(), value.strip()
-        else:
-            return None, s.strip()
-
-    parser.add_argument('--lmdb_path', action='append', default=[], help='Path to an LMDB database (can specify multiple, each as just the path, or "{name}={path}")')
+    parser.add_argument('--lmdb_path', action='append', default=[], type=try_parse_key_value,
+                        help='Path to an LMDB database (can specify multiple, each as just the path, or "{name}={path}")')
     parser.add_argument('--classifiers_dir', type=str, help='Where classifiers are stored')
     return parser
 
@@ -396,6 +409,15 @@ class ActionHandler(MyBaseHandler):
                 updated_rows=updated_rows,
             ))
 
+class ConfigHandler(MyBaseHandler):
+    def get(self):
+        """Returns the config"""
+        global CFG
+        self.write(dict(config=CFG.to_dict()))
+
+    def post(self):
+        global CFG
+        self.write(dict(config=CFG.to_dict()))
 
 class FilterHandler(MyBaseHandler):
     async def post(self):
@@ -524,7 +546,9 @@ class ClusterHandler(MyBaseHandler):
         self.write(ret)
 
 def web_main(cfg_path: str, **kw):
+    global CFG
     CFG = parse_config(cfg_path, **kw)
+    print(f'Got cfg {CFG}')
     #FIXME add images dir and make it accessible via a static path
 
     def on_start(app, args):
@@ -552,6 +576,7 @@ def web_main(cfg_path: str, **kw):
         (r'/dwell', DwellHandler),
         (r'/classify', ClassifyHandler),
         (r'/filter', FilterHandler),
+        (r'/config', ConfigHandler),
         (r'/cluster', ClusterHandler),
     ]
 
@@ -576,7 +601,8 @@ def worker_main(cfg_path: str, **kw) -> None:
     try:
         # Initialize database and embeddings in this process
         sql_db = init_sql_db(CFG.db.sqlite_path)
-        lmdb_path = CFG.db.lmdb_path[0][1] # Assuming one LMDB path for worker
+        lmdb_path = CFG.db.lmdb_path[0] # Assuming one LMDB path for worker #FIXME
+        assert len(lmdb_path) > 5, f'LMDB path seems too short: {lmdb_path}'
         embs: Embeddings = Embeddings([lmdb_path])
         # Create and start worker
         likes_worker = CollectionsWorker(
@@ -594,17 +620,13 @@ def worker_main(cfg_path: str, **kw) -> None:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
     parser = ArgumentParser(description="NK collections")
     parser.add_argument('mode', choices=['worker', 'server'], help="Run mode: worker or server")
-    parser.add_argument('--sqlite_path', required=True, help="Path to SQLite database")
-    parser.add_argument('--lmdb_path', required=True, help="Path to LMDB database")
-    parser.add_argument('--classifiers_dir', help="Directory for classifiers (worker mode only)")
+    parser.add_argument('config_path', help="Config file path")
     parser.add_argument('--port', type=int, default=12555, help="Server port (server mode only)")
     args = parser.parse_args()
     if args.mode == 'worker':
-        if not args.classifiers_dir:
-            parser.error("--classifiers_dir is required for worker mode")
-        worker_main(**vars(args))
+        worker_main(args.config_path)
     elif args.mode == 'server':
-        web_main(port=args.port, sqlite_path=args.sqlite_path, lmdb_path=args.lmdb_path)
+        web_main(args.config_path, input_args=[])

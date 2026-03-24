@@ -14,31 +14,26 @@ const DEBOUNCE_MS = 2000;
 const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
+let FE = {quick_links: {}};
+let CFG = {frontend: FE};
+
+const loadConfigSync = () => {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', '/config', false); // false = synchronous
+  xhr.send();
+  if (xhr.status === 200) {
+    CFG = JSON.parse(xhr.responseText).config;
+    FE = CFG.frontend;
+    console.log('loaded config from server:', CFG);
+  }
+};
+loadConfigSync();
+
 const IOA_PARAMS = {
   root: null,
   rootMargin: "0px",
   threshold: 0.1,
 }
-
-const user_kw = {"otype": "user", "assemble_posts": false, "limit": 20};
-const QUICK_LINKS = {
-  // users sorted by goodness
-  Users: {...user_kw, "source": "tumblr", "order": "-lambda o: o.md['stats']['n_good']"},
-  // explored users
-  'Exp users': {...user_kw, "explored_ts": ">1", "source": "tumblr"},
-  // recent positive liked images
-  'Pos Images': {"otype":"image","limit":200,"min_like":0.1,"order": "-embed_ts"},
-  // unexplored but queued
-  'Q users': {...user_kw, "explored_ts": "<>", "order": "-lambda o: o.md['n_queued_reblogs']"},
-  // recent users sorted by timestamp
-  'Recent users': {...user_kw, "order": "-ts"},
-  // recent embedded images
-  Images: {"otype":["image", "video"],"limit":200,"embed_ts":">1","order": "-embed_ts"},
-  // queued posts
-  Queued: {"rels.queue":true},
-  // All posts
-  Posts: {"otype": ["post", "image", "video"], "limit": 500, "order": "-ts"},
-};
 
 // Detect if we're on a mobile device
 const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
@@ -150,6 +145,7 @@ const api = {
   cluster: (clusters, ids) => fetchEndpoint('/cluster', { clusters, ids }),
   filter: (q, cur_ids) => fetchEndpoint('/filter', { q, cur_ids }),
   dwell: (increments) => fetchEndpoint('/dwell', { increments }),
+  config: () => fetchEndpoint('/config', {}),
 };
 
 /* TwitterContentBlock - Renders individual content blocks within Twitter posts
@@ -1773,7 +1769,8 @@ const Controls = () => {
   const ctx = React.useContext(AppContext);
   // Local state for search string and source string
   const [searchStr, setSearchStr] = React.useState('');
-  const [sourceStr, setSourceStr] = React.useState(json_str(QUICK_LINKS['Pos Images']));
+  const default_source = FE.quick_links[FE.default_source] || ''
+  const [sourceStr, setSourceStr] = React.useState(default_source ? json_str(default_source) : '');
   //const [sourceStr, setSourceStr] = React.useState('{"source": "twitter", "limit": 500, "embed_ts":">1", "otype": "post"}');
   //const [sourceStr, setSourceStr] = React.useState(`{"added_ts": ">=${Math.floor(Date.now() / 1000) - (24*3600)}", "assemble_posts":true, "limit":500}`);
 
@@ -1813,7 +1810,7 @@ const Controls = () => {
   // Watch for source string changes and auto-run doSource when changing from object to URL
   React.useEffect(() => {
     if (!sourceStr) return;
-    
+
     const isUrl = sourceStr.startsWith('http');
     if (isUrl) {
       // If source string is now a URL, run doSource
@@ -1900,7 +1897,7 @@ const Controls = () => {
         >
           tumblr
         </a>
-        {Object.entries(QUICK_LINKS).map(([name, query]) => (
+        {Object.entries(FE.quick_links).map(([name, query]) => (
           <a
             key={name}
             href={`?source=${encodeURIComponent(json_str(query))}`}
@@ -2097,12 +2094,22 @@ const AppProvider = ({ children }) => {
     }
   }, [viewingTimes, viewingStartTimes, lastSyncTime]);
 
+  // Setup the config from the server
+  /*
+  React.useEffect(() => {
+    api.config().then((resp) => {
+      CFG = resp.config;
+      FE = CFG.frontend;
+      console.log('Config loaded:', CFG);
+    });
+  }, []);
+        */
+
   // Handle page visibility changes
   React.useEffect(() => {
     const handleVisibilityChange = () => {
       const now = Date.now();
       const newIsVisible = !document.hidden;
-      
       if (!newIsVisible && isPageVisible) {
         // Page became hidden - pause all active viewing sessions
         setViewingStartTimes(prev => {
@@ -2329,7 +2336,7 @@ const AppProvider = ({ children }) => {
       newRowById[id] = row;
     });
     updateRowById(newRowById);
-    
+
     // Capture initial status for hide seen filter
     if (resetData) {
       const initialStatus = {};
@@ -2346,7 +2353,7 @@ const AppProvider = ({ children }) => {
       });
       setInitialItemStatus(initialStatus);
     }
-    
+
     if (data.cur_ids){
       setCurIds(data.cur_ids);
     } else {
@@ -2671,16 +2678,16 @@ const AppProvider = ({ children }) => {
 
   // Done with all state and effects, now preparing for rendering
   let ids = curIds.filter(id => rowById[id] && curOtypes.includes(rowById[id].otype));
-  
+
   // Apply hide seen items filter using initial status
   if (hideSeenItems) {
     ids = ids.filter(id => {
       const initialStatus = initialItemStatus[id];
       if (!initialStatus) return true; // Show items without initial status
-      
+
       // Use initial status to determine if item should be hidden
       const { isLiked, isQueued, hasHighDwellTime } = initialStatus;
-      
+
       // Hide if any of these initial conditions were true
       return !(isLiked || isQueued || hasHighDwellTime);
     });

@@ -88,9 +88,9 @@ class CollectionsWorker:
                  classifiers_dir: str,
                  name: str = "CollectionsWorker",
                  method: str = 'sgd',
-                 max_pos: int = 20000,
+                 max_pos: int = 10000,
                  neg_factor: float = 10,
-                 min_new_liked: int = 50,
+                 min_new_liked: int = 250,
                  image_suffix: str = 'mn_image',
                  sleep_interval: float = 10.0,
                  valid_tags: list[str]|None = None,
@@ -355,7 +355,7 @@ class CollectionsWorker:
         current_pos_count = len(current_pos_ids)
         last_pos_count = self.last.get('pos_count', 0)
         new_likes_count = current_pos_count - last_pos_count
-        if new_likes_count <= self.min_new_liked:
+        if 1 or new_likes_count <= self.min_new_liked: #FIXME
             logger.info(f"Only {new_likes_count} new likes (need >{self.min_new_liked}), running inference only")
             return self.run_inference()
         logger.info(f"Found {new_likes_count} new likes, retraining classifier")
@@ -363,9 +363,10 @@ class CollectionsWorker:
             pos, neg = self._get_training_set(current_pos_ids=current_pos_ids)
             all_ids = self._get_all_image_ids()
             to_cls = [f'{id}:{self.image_suffix}' for id in all_ids]
-            logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls')
+            logger.info(f'Training likes: {len(pos)} pos, {len(neg)} neg, {len(to_cls)} to_cls: {to_cls[:5]}')
             # Reload keys before training
             self.embs.reload_keys()
+            logger.info(f'Embs has {len(self.embs)} keys after reload')
             # Train and run classifier
             t0 = time.time()
             if 1:
@@ -745,7 +746,7 @@ class CollectionsWorker:
                            all_ids: list[int]|None=None,
                            score_threshold: float=0.5,
                            min_to_cls: int=20,
-                           max_tags: int=100) -> None:
+                           max_tags: int=50) -> None:
         """Runs inference for the tags classifiers on items that don't have scores yet.
 
         If `self.valid_tags` is not `None`, we only do tags that are in that list.
