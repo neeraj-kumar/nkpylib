@@ -1876,27 +1876,6 @@ const Controls = () => {
         )}
       </div>
       <div className="control quick-links">
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            ctx.actions.toggleTumblrSource();
-          }}
-          title="Toggle tumblr source filter"
-          style={{
-            fontWeight: (() => {
-              try {
-                const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
-                const currentSourceObj = JSON.parse(sourceStr);
-                return currentSourceObj.source === 'tumblr' ? 'bold' : 'normal';
-              } catch (error) {
-                return 'normal';
-              }
-            })()
-          }}
-        >
-          tumblr
-        </a>
         {Object.entries(FE.quick_links).map(([name, query]) => (
           <a
             key={name}
@@ -1975,11 +1954,11 @@ const AppProvider = ({ children }) => {
   const [rowById, setRowById] = React.useState({});
   const [allOtypes, setAllOtypes] = React.useState([]);
   //const [curOtypes, setCurOtypes] = React.useState(['post', 'image', 'text', 'link']);
-  const [curOtypes, setCurOtypes] = React.useState(['image', 'video', 'user']);
+  const [curOtypes, setCurOtypes] = React.useState(FE.default_otypes || ['image', 'video', 'user']);
   const [curIds, setCurIds] = React.useState([]);
   const [scores, setScores] = React.useState({});
   const [pos, setPos] = React.useState([]);
-  const [nCols, setNCols] = React.useState(IS_MOBILE ? 2 : 7); //FIXME
+  const [nCols, setNCols] = React.useState(IS_MOBILE ? (FE.mobile_n_cols || 2) : (FE.desktop_n_cols || 7));
   const [simpleMode, setSimpleMode] = React.useState(false);
   const [mode, setMode] = React.useState(MODES[0]);
   const [clusters, setClusters] = React.useState({}); // {id: {num: 1, score: 0}}
@@ -2611,28 +2590,6 @@ const AppProvider = ({ children }) => {
     doClassifier('pos', {pos});
   }, [pos]);
 
-  // Toggle tumblr source filter
-  const toggleTumblrSource = React.useCallback(() => {
-    try {
-      const sourceStr = globalSetSourceStr ? document.querySelector('.src-input').value : '';
-      const currentSourceObj = JSON.parse(sourceStr);
-      let newSourceObj;
-      if (currentSourceObj.source === 'tumblr') {
-        // Remove tumblr source if it's already set
-        newSourceObj = { ...currentSourceObj };
-        delete newSourceObj.source;
-      } else {
-        // Add tumblr source
-        newSourceObj = { ...currentSourceObj, source: 'tumblr' };
-      }
-      const newSourceStr = JSON.stringify(newSourceObj);
-      globalSetSourceStr(newSourceStr);
-      doSource(newSourceStr);
-    } catch (error) {
-      console.error('Failed to toggle tumblr source:', error);
-    }
-  }, [doSource]);
-
   // the source string can be either a url or a JSON string of parameters
   const doSource = React.useCallback((inputStr, updateSourceStr = false) => {
     if (!inputStr) return;
@@ -2753,7 +2710,6 @@ const AppProvider = ({ children }) => {
       doFilter,
       doSearch,
       doAction,
-      toggleTumblrSource,
       searchSameUser,
     },
     history: {

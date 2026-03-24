@@ -1,6 +1,7 @@
 """An abstraction over collections to make it easy to filter/sort/etc.
 
 """
+#TODO rescore runs only on newer items?
 #TODO toggle different functions on/off interactively or via config file
 #TODO things like Worker should be initialized with **cfg.worker
 #TODO implement other classifiers/etc as subclasses of Worker
@@ -563,8 +564,7 @@ def web_main(cfg_path: str, **kw):
         app.classifiers_dir = CFG.db.classifiers_dir
         if CFG.web.with_worker: # version with likes workers
             app.likes_worker = CollectionsWorker(embs=app.embs, classifiers_dir=app.classifiers_dir)
-            app.likes_worker.start()
-            app.likes_worker.add_task('update')  # Start the main loop
+            app.likes_worker.start() # start the main loop
             logger.info("CollectionsWorker started successfully")
         else: # without likes worker
             app.likes_worker = None
@@ -610,7 +610,6 @@ def worker_main(cfg_path: str, **kw) -> None:
             classifiers_dir=CFG.db.classifiers_dir,
             image_suffix=CFG.worker.image_suffix,
         )
-        likes_worker.add_task('update')  # Start the main loop
         likes_worker.run()
         logger.info("CollectionsWorker started successfully")
     except Exception as e:

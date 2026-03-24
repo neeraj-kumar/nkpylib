@@ -24,7 +24,7 @@ from queue import Queue, Empty
 from threading import Thread
 from typing import Any, Callable
 
-import joblib
+import joblib # type: ignore
 import termcolor
 import tornado.web
 
@@ -66,7 +66,7 @@ def make_worker_argparser() -> ArgumentParser:
     parser.add_argument('--image-suffix', type=str, default='mn_image', help='Suffix to use for image keys in embeddings and scores')
     return parser
 
-class CollectionsWorker:
+class CollectionsWorker(Thread):
     """Worker for collections.
 
     This does a few different things in a loop:
@@ -86,7 +86,6 @@ class CollectionsWorker:
     def __init__(self,
                  embs: Embeddings,
                  classifiers_dir: str,
-                 name: str = "CollectionsWorker",
                  method: str = 'sgd',
                  max_pos: int = 10000,
                  neg_factor: float = 10,
@@ -95,12 +94,10 @@ class CollectionsWorker:
                  sleep_interval: float = 10.0,
                  valid_tags: list[str]|None = None,
                  exclude_top_n: int = 2000):
-        self.name = name
+        super().__init__(daemon=True, name=self.__class__.__name__)
         self.input_queue: Queue = Queue()
         self.output_queue: Queue = Queue()
         self.running = False
-        self.thread: Thread | None = None
-        self._lock = threading.Lock()
         self.embs = embs
         self.classifiers_dir = classifiers_dir
         self.method = method
@@ -127,129 +124,23 @@ class CollectionsWorker:
         }
         self._load_and_run_initial_inference()
 
-    def _handle_task_error(self, task: Any, error: Exception) -> Any:
-        """Handle errors that occur during task processing.
-
-        Override this method to customize error handling.
-
-        - task: The task that caused the error
-        - error: The exception that was raised
-        - Returns: Error result to put in output queue, or None to skip
-        """
-        return dict(error=str(error), task=task)
-
-    def add_task(self, task: Any) -> None:
-        """Add a task to the input queue for processing.
-
-        - task: Any data that will be passed to process_task()
-        """
-        self.input_queue.put(task)
-
-    def get_result(self) -> Any | None:
-        """Get one result from the output queue, or None if no results available."""
-        try:
-            return self.output_queue.get_nowait()
-        except Empty:
-            return None
-
-    def get_all_results(self) -> list[Any]:
-        """Get all available results from the output queue."""
-        results = []
-        while True:
-            result = self.get_result()
-            if result is None:
-                break
-            results.append(result)
-        return results
-
     def run(self) -> None:
         """Start the processing in the main thread (blocking)."""
-        with self._lock:
-            if self.running:
-                logger.warning(f"{self.name} is already running")
-                return
-            self.running = True
-            logger.info(f"Starting {self.name} in the main thread")
-            self._worker_loop()
-
-    def start(self) -> None:
-        """Start the processing in a background worker thread."""
-        with self._lock:
-            if self.running:
-                logger.warning(f"{self.name} is already running")
-                return
-            self.running = True
-            self.thread = Thread(target=self._worker_loop, daemon=True, name=self.name)
-            self.thread.start()
-            logger.info(f"Started {self.name} in the background")
-
-    def stop(self, timeout: float = 5.0) -> None:
-        """Stop the background worker thread.
-        - timeout: Maximum time to wait for the thread to finish
-        """
-        with self._lock:
-            if not self.running:
-                return
-            self.running = False
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=timeout)
-            if self.thread.is_alive():
-                logger.warning(f"{self.name} did not stop within {timeout}s")
-            else:
-                logger.info(f"Stopped {self.name}")
-
-    def _worker_loop(self) -> None:
-        """Main worker loop that processes tasks from the input queue."""
-        logger.debug(f"{self.name} worker loop started")
-        while self.running:
+        while 1:
+            t0 = time.time()
             try:
-                # Get task with timeout so we can check self.running periodically
-                task = self.input_queue.get(timeout=1.0)
-                try:
-                    result = self.process_task(task)
-                    if result is not None:
-                        self.output_queue.put(result)
-                except Exception as e:
-                    logger.error(f"{self.name} error processing task {task}: {e}")
-                    # Optionally put error result in output queue
-                    error_result = self._handle_task_error(task, e)
-                    if error_result is not None:
-                        self.output_queue.put(error_result)
-                finally:
-                    self.input_queue.task_done()
-            except Empty:
-                # Timeout - continue loop to check self.running
-                continue
+                run_async(self._explore_users())
+                run_async(self._handle_user_actions())
+                run_async(self._update_embeddings())
+                self._update_user_stats()
+                self._update_classifier()
             except Exception as e:
-                logger.error(f"{self.name} unexpected error in worker loop: {e}")
-        logger.debug(f"{self.name} worker loop finished")
-
-    def process_task(self, task: Any) -> Any:
-        """Process a likes classification task.
-
-        Task is a string and can be:
-        - 'update': Check for changes and update classifier if needed
-        - 'force': Force update classifier regardless of changes
-        """
-        if task == 'update':
-            while 1:
-                t0 = time.time()
-                try:
-                    run_async(self._explore_users())
-                    run_async(self._handle_user_actions())
-                    run_async(self._update_embeddings())
-                    self._update_user_stats()
-                    self._update_classifier()
-                except Exception as e:
-                    logger.error(f"Error in process_task: {e}")
-                    print(traceback.format_exc())
-                elapsed = time.time() - t0
-                diff = self.sleep_interval - elapsed
-                if diff > 0:
-                    time.sleep(diff)
-        else:
-            logger.warning(f"Unknown task type: {task}")
-            return None
+                logger.error(f"Error in process_task: {e}")
+                print(traceback.format_exc())
+            elapsed = time.time() - t0
+            diff = self.sleep_interval - elapsed
+            if diff > 0:
+                time.sleep(diff)
 
     def _get_current_pos_ids(self) -> frozenset[int]:
         """Get current set of liked image IDs."""
@@ -266,7 +157,7 @@ class CollectionsWorker:
         all_ids = select(c.id for c in Item
                          if c.otype in ('image', 'post')
                          and c.embed_ts and c.embed_ts > 0)[:]
-        return all_ids
+        return [int(id) for id in all_ids]
 
     def _get_negative_candidate_ids(self, pos_ids: frozenset[int]) -> list[int]:
         """Get image IDs suitable for negative sampling, excluding positives and most recent."""
@@ -412,7 +303,7 @@ class CollectionsWorker:
             logger.error(f"Error updating likes classifier: {e}")
             print(traceback.format_exc())
 
-    def rescore(self, scores: dict[str, float], pos: list[int]) -> dict[str, float]:
+    def rescore(self, scores: dict[str, float], pos: list[int]) -> dict[int, float]:
         """Rescores `scores` using nearest neighbors from positive IDs."""
         if not scores:
             return {}
@@ -514,7 +405,7 @@ class CollectionsWorker:
 
         Returns dict with user statistics including content counts, engagement, and scores.
         """
-        timing = Counter()
+        timing: Any = Counter()
         t0 = time.time()
         timing['db_session_start'] = time.time() - t0
         t1 = time.time()
@@ -524,7 +415,7 @@ class CollectionsWorker:
         t2 = time.time()
         t3 = time.time()
         # Initialize counters
-        counts = Counter()
+        counts: Any = Counter()
         timing['init_counters'] = time.time() - t3
         t4 = time.time()
         t5 = time.time()
@@ -668,7 +559,7 @@ class CollectionsWorker:
                     u.md['stats'] = {}
                 last_times.append(u.md['stats'].get('ts', 0))
             users = [u for _, u in sorted(zip(last_times, users), key=lambda x: x[0])][:max_users]
-            user_ids = {u.id for u in users}
+            user_ids: Any = {u.id for u in users}
         # first build a dict from user id to list of their item ids
         items_by_user = defaultdict(list)
         n_items = 0
@@ -722,11 +613,6 @@ class CollectionsWorker:
             output_queue_size=self.output_queue.qsize()
         )
 
-    def is_running(self) -> bool:
-        """Check if the worker thread is running."""
-        return self.running and self.thread is not None and self.thread.is_alive()
-
-
     def load_lmdb(self, flag='c', **kw) -> NumpyLmdb:
         """Loads the lmdb for our embeddings for direct manipulation.
 
@@ -743,7 +629,7 @@ class CollectionsWorker:
         self.run_tags_inference(all_ids=all_ids)
 
     def run_tags_inference(self,
-                           all_ids: list[int]|None=None,
+                           all_ids: list[int]|set[int]|None=None,
                            score_threshold: float=0.5,
                            min_to_cls: int=20,
                            max_tags: int=50) -> None:
