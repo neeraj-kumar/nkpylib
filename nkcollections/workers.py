@@ -632,7 +632,7 @@ class CollectionsWorker(Thread):
                            all_ids: list[int]|set[int]|None=None,
                            score_threshold: float=0.5,
                            min_to_cls: int=20,
-                           max_tags: int=50) -> None:
+                           max_tags: int=30) -> None:
         """Runs inference for the tags classifiers on items that don't have scores yet.
 
         If `self.valid_tags` is not `None`, we only do tags that are in that list.
