@@ -219,27 +219,69 @@ const VideoOverlay = ({videoUrl, onClick}) => {
   );
 };
 
-/* VideoWithZoom - Renders a video with poster image and zoom functionality
+/* MediaViewer - Unified component for displaying images and videos with zoom functionality
  *
  * Props:
- * - videoUrl: URL of the video file
- * - posterUrl: URL of the poster/thumbnail image
+ * - imageUrl: URL of the image to display
+ * - videoUrl: URL of associated video (optional)
  * - id: Item ID for like/dislike actions
  * - liked: Boolean indicating if item is liked
  * - setLiked: Function to update like status (id, newLikedState)
+ * - type: 'image', 'video', or 'auto' to determine initial display mode
+ * - onClick: Optional click handler for custom behavior (e.g., carousel navigation)
+ * - showControls: Boolean to show/hide zoom and toggle buttons (default: true)
  */
-const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
-  const [showVideo, setShowVideo] = React.useState(false);
+const MediaViewer = ({
+  imageUrl, 
+  videoUrl, 
+  id, 
+  liked, 
+  setLiked, 
+  type = 'auto',
+  onClick = null,
+  showControls = true
+}) => {
+  // Determine initial display mode
+  const getInitialShowVideo = () => {
+    if (type === 'video') return true;
+    if (type === 'image') return false;
+    // For 'auto', prefer video if it's the primary content (no imageUrl)
+    return !imageUrl && videoUrl;
+  };
+
+  const [showVideo, setShowVideo] = React.useState(getInitialShowVideo());
   const [zoomModal, setZoomModal] = React.useState(null);
+
+  const handleMediaClick = (e) => {
+    if (onClick) {
+      onClick(e);
+      return;
+    }
+    // Default behavior - no action for single media
+  };
+
+  const handleDoubleClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLiked(id, !liked);
+  };
+
   const handleZoomClick = (e) => {
     e.stopPropagation();
     setZoomModal({
-      imageUrl: upgradeImageUrl(posterUrl),
-      videoUrl: videoUrl,
+      imageUrl: upgradeImageUrl(imageUrl || (showVideo ? null : videoUrl)),
+      videoUrl,
       isVideo: showVideo
     });
   };
-  if (showVideo) {
+
+  const toggleVideoMode = (e) => {
+    e.stopPropagation();
+    setShowVideo(!showVideo);
+  };
+
+  // Render video mode
+  if (showVideo && videoUrl) {
     return (
       <div>
         <div className="video-container">
@@ -247,29 +289,30 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
             src={videoUrl}
             controls
             autoPlay
-            onDoubleClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setLiked(id, !liked);
-            }}
+            onClick={handleMediaClick}
+            onDoubleClick={handleDoubleClick}
+            style={{maxWidth: '100%', height: 'auto'}}
           />
-          <button
-            className="zoom-button"
-            onClick={handleZoomClick}
-            title="Zoom video"
-          >
-            🔍
-          </button>
-          <button
-            className="video-toggle-button show-image"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowVideo(false);
-            }}
-            title="Show poster"
-          >
-            🖼️
-          </button>
+          {showControls && (
+            <>
+              <button
+                className="zoom-button"
+                onClick={handleZoomClick}
+                title="Zoom video"
+              >
+                🔍
+              </button>
+              {imageUrl && (
+                <button
+                  className="video-toggle-button show-image"
+                  onClick={toggleVideoMode}
+                  title="Show image"
+                >
+                  🖼️
+                </button>
+              )}
+            </>
+          )}
         </div>
         {zoomModal && (
           <ImageZoomModal
@@ -280,35 +323,40 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
       </div>
     );
   }
+
+  // Render image mode
+  const displayImageUrl = imageUrl || (type === 'video' ? videoUrl : null);
+  if (!displayImageUrl) return null;
+
   return (
     <div>
-      <div className="video-link image-container">
+      <div className={`${type === 'video' ? 'video-link ' : ''}image-container`}>
         <img
-          src={posterUrl}
-          alt={`Video ${id} poster`}
-          onDoubleClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setLiked(id, !liked);
-          }}
+          src={displayImageUrl}
+          alt={`${type === 'video' ? 'Video' : 'Image'} ${id}${type === 'video' ? ' poster' : ''}`}
+          onClick={handleMediaClick}
+          onDoubleClick={handleDoubleClick}
         />
-        <button
-          className="zoom-button"
-          onClick={handleZoomClick}
-          title="Zoom video"
-        >
-          🔍
-        </button>
-        <button
-          className="video-toggle-button play-video"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowVideo(true);
-          }}
-          title="Play video"
-        >
-          ▶
-        </button>
+        {showControls && (
+          <>
+            <button
+              className="zoom-button"
+              onClick={handleZoomClick}
+              title={`Zoom ${type === 'video' ? 'video' : 'image'}`}
+            >
+              🔍
+            </button>
+            {videoUrl && (
+              <button
+                className="video-toggle-button play-video"
+                onClick={toggleVideoMode}
+                title="Play video"
+              >
+                ▶
+              </button>
+            )}
+          </>
+        )}
       </div>
       {zoomModal && (
         <ImageZoomModal
@@ -319,6 +367,26 @@ const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => {
     </div>
   );
 };
+
+/* VideoWithZoom - Renders a video with poster image and zoom functionality
+ *
+ * Props:
+ * - videoUrl: URL of the video file
+ * - posterUrl: URL of the poster/thumbnail image
+ * - id: Item ID for like/dislike actions
+ * - liked: Boolean indicating if item is liked
+ * - setLiked: Function to update like status (id, newLikedState)
+ */
+const VideoWithZoom = ({videoUrl, posterUrl, id, liked, setLiked}) => (
+  <MediaViewer
+    imageUrl={posterUrl}
+    videoUrl={videoUrl}
+    id={id}
+    liked={liked}
+    setLiked={setLiked}
+    type="video"
+  />
+);
 
 /* ImageZoomModal - Full-screen modal for zooming images and videos
  *
@@ -440,95 +508,16 @@ const ImageZoomModal = ({imageUrl, videoUrl, isVideo, onClose}) => {
  * - liked: Boolean indicating if item is liked
  * - setLiked: Function to update like status (id, newLikedState)
  */
-const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => {
-  const [showVideo, setShowVideo] = React.useState(false);
-  const [zoomModal, setZoomModal] = React.useState(null);
-
-  const handleZoomClick = (e) => {
-    e.stopPropagation();
-    setZoomModal({
-      imageUrl: upgradeImageUrl(imageUrl),
-      videoUrl,
-      isVideo: showVideo
-    });
-  };
-
-  if (showVideo && videoUrl) {
-    return (
-      <div>
-        <div className="video-container">
-          <video
-            src={videoUrl}
-            controls
-            autoPlay
-            onDoubleClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setLiked(id, !liked);
-            }}
-          />
-          <button
-            className="video-toggle-button show-image"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowVideo(false);
-            }}
-            title="Show image"
-          >
-            🖼️
-          </button>
-        </div>
-        {zoomModal && (
-          <ImageZoomModal
-            {...zoomModal}
-            onClose={() => setZoomModal(null)}
-          />
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="image-container">
-        <img
-          src={imageUrl}
-          alt={`Image ${id}`}
-          onDoubleClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setLiked(id, !liked);
-          }}
-        />
-        <button
-          className="zoom-button"
-          onClick={handleZoomClick}
-          title="Zoom image"
-        >
-          🔍
-        </button>
-        {videoUrl && (
-          <button
-            className="video-toggle-button play-video"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowVideo(true);
-            }}
-            title="Play video"
-          >
-            ▶
-          </button>
-        )}
-      </div>
-      {zoomModal && (
-        <ImageZoomModal
-          {...zoomModal}
-          onClose={() => setZoomModal(null)}
-        />
-      )}
-    </div>
-  );
-};
+const ImageWithVideo = ({imageUrl, videoUrl, id, liked, setLiked}) => (
+  <MediaViewer
+    imageUrl={imageUrl}
+    videoUrl={videoUrl}
+    id={id}
+    liked={liked}
+    setLiked={setLiked}
+    type="image"
+  />
+);
 
 /* MediaCarousel - Displays a carousel of media items (images/videos) with navigation
  * Props:
@@ -578,9 +567,8 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
 
   const renderMedia = (block) => {
     const {type, data} = block;
-    const isShowingVideo = showVideo[data.id];
 
-    const handleMediaClick = (e) => {
+    const handleCarouselClick = (e) => {
       // Check if this is a navigation click (on edges) for multiple media
       if (mediaBlocks.length > 1) {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -602,162 +590,37 @@ const MediaCarousel = ({mediaBlocks, currentIndex, setCurrentIndex, setLiked}) =
           return;
         }
       }
-
-      // No zoom functionality here - handled by zoom button overlay
     };
+
+    const liked = Boolean(data.rels.like);
 
     switch (type) {
       case 'image':
         const imageUrl = data.local_path || data.url;
         const videoUrl = data.md && data.md.video_url;
-        if (isShowingVideo && videoUrl) {
-          return (
-            <div style={{position: 'relative'}}>
-              <video
-                src={videoUrl}
-                controls
-                autoPlay
-                style={{maxWidth: '100%', height: 'auto'}}
-                onClick={handleMediaClick}
-                onDoubleClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const liked = Boolean(data.rels.like);
-                  setLiked(data.id, !liked);
-                }}
-              />
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '5px',
-                  left: '5px',
-                  background: 'rgba(0, 0, 0, 0.7)',
-                  color: 'white',
-                  fontSize: '12px',
-                  padding: '2px 4px',
-                  borderRadius: '3px',
-                  cursor: 'pointer'
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowVideo(prev => ({...prev, [data.id]: false}));
-                }}
-                title="Show image"
-              >
-                🖼️
-              </div>
-            </div>
-          );
-        }
         return (
-          <div className="image-container">
-            <img
-              src={imageUrl}
-              alt={`Image ${data.id}`}
-              onClick={handleMediaClick}
-              onDoubleClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const liked = Boolean(data.rels.like);
-                setLiked(data.id, !liked);
-              }}
-            />
-            <button
-              className="zoom-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setZoomModal({
-                  imageUrl: upgradeImageUrl(imageUrl),
-                  videoUrl: data.md && data.md.video_url,
-                  isVideo: isShowingVideo
-                });
-              }}
-              title="Zoom image"
-            >
-              🔍
-            </button>
-            {videoUrl && (
-              <button
-                className="video-toggle-button play-video"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowVideo(prev => ({...prev, [data.id]: true}));
-                }}
-                title="Play video"
-              >
-                ▶
-              </button>
-            )}
-          </div>
+          <MediaViewer
+            imageUrl={imageUrl}
+            videoUrl={videoUrl}
+            id={data.id}
+            liked={liked}
+            setLiked={setLiked}
+            type="image"
+            onClick={handleCarouselClick}
+          />
         );
       case 'video':
         const posterUrl = data.md.poster_url && data.local_path || data.md.poster_url;
-        if (isShowingVideo) {
-          return (
-            <div className="video-container">
-              <video
-                src={data.url}
-                controls
-                autoPlay
-                onClick={handleMediaClick}
-                onDoubleClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const liked = Boolean(data.rels.like);
-                  setLiked(data.id, !liked);
-                }}
-              />
-              <button
-                className="video-toggle-button show-image"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowVideo(prev => ({...prev, [data.id]: false}));
-                }}
-                title="Show poster"
-              >
-                🖼️
-              </button>
-            </div>
-          );
-        }
         return (
-          <div className="video-link image-container">
-            <img
-              src={posterUrl}
-              alt={`Video ${data.id} poster`}
-              onClick={handleMediaClick}
-              onDoubleClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const liked = Boolean(data.rels.like);
-                setLiked(data.id, !liked);
-              }}
-            />
-            <button
-              className="zoom-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setZoomModal({
-                  imageUrl: upgradeImageUrl(posterUrl),
-                  videoUrl: data.url,
-                  isVideo: isShowingVideo
-                });
-              }}
-              title="Zoom video"
-            >
-              🔍
-            </button>
-            <button
-              className="video-toggle-button play-video"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowVideo(prev => ({...prev, [data.id]: true}));
-              }}
-              title="Play video"
-            >
-              ▶
-            </button>
-          </div>
+          <MediaViewer
+            imageUrl={posterUrl}
+            videoUrl={data.url}
+            id={data.id}
+            liked={liked}
+            setLiked={setLiked}
+            type="video"
+            onClick={handleCarouselClick}
+          />
         );
       default:
         return null;
