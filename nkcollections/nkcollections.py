@@ -409,8 +409,8 @@ class ActionHandler(MyBaseHandler):
             ))
 
 class ConfigHandler(MyBaseHandler):
-    def get(self):
-        """Returns the config"""
+    def _get(self):
+        """Returns the config and dynamic code components"""
         global CFG
         comp_paths = CFG.frontend.component_paths or []
         components = ''
@@ -422,9 +422,11 @@ class ConfigHandler(MyBaseHandler):
                 logger.warning(f'Failed to load component from {path}: {e}')
         self.write(dict(config=CFG.to_dict(), components=components))
 
+    def get(self):
+        return self._get()
+
     def post(self):
-        global CFG
-        self.write(dict(config=CFG.to_dict()))
+        return self._get()
 
 class FilterHandler(MyBaseHandler):
     async def post(self):

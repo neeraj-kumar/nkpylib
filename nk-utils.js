@@ -228,15 +228,15 @@ const useQueryParams = (paramStateMap, onParamChange) => {
 
 // Add this function to load JS code dynamically and execute it.
 //
-// The `componentCode` should define the components and assign them to a dict `exports` to make them
+// The `code` should define the components and assign them to a dict `exports` to make them
 // available.
 //
-// Note that this probably will not work for JSX code; see `loadServerComponents` below for that.
-const loadRawServerComponents = (componentCode) => {
+// Note that this probably will not work for JSX code; see `loadJSXComponents` below for that.
+const loadJSComponents = (code) => {
   try {
     // Create a function that returns the component
     const componentFunction = new Function('React', `
-      ${componentCode}
+      ${code}
       return exports; // Return all components you want to expose
     `);
 
@@ -257,12 +257,12 @@ const loadRawServerComponents = (componentCode) => {
 //
 // This version transforms it to JavaScript using Babel before executing.
 //
-// The `componentCode` should define the components and assign them to a dict `exports` to make them
+// The `code` should define the components and assign them to a dict `exports` to make them
 // available.
-const loadServerComponents = (componentCode) => {
+const loadJSXComponents = (code) => {
   try {
     // Transform JSX to regular JavaScript using Babel
-    const transformedCode = Babel.transform(componentCode, {
+    const transformedCode = Babel.transform(code, {
       presets: ['react']
     }).code;
 

@@ -82,6 +82,7 @@ const ContentRenderers = [
 let FE = {quick_links: {}};
 let CFG = {frontend: FE};
 
+// Loads the global config and dynamic code components from the server
 const loadConfigSync = () => {
   const xhr = new XMLHttpRequest();
   xhr.open('GET', '/config', false); // false = synchronous
@@ -92,7 +93,7 @@ const loadConfigSync = () => {
     FE = CFG.frontend;
     console.log('loaded config from server:', CFG);
     if (resp.components) {
-      const comps = loadServerComponents(resp.components);
+      const comps = loadJSXComponents(resp.components);
       if (comps && comps.ContentRenderers) {
         // Prepend server-defined renderers to the list, so they take priority
         ContentRenderers.unshift(...comps.ContentRenderers);
