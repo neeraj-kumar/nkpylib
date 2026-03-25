@@ -225,3 +225,58 @@ const useQueryParams = (paramStateMap, onParamChange) => {
 
   return [state, updateState, submitStateToUrl];
 };
+
+// Add this function to load JS code dynamically and execute it.
+//
+// The `componentCode` should define the components and assign them to a dict `exports` to make them
+// available.
+//
+// Note that this probably will not work for JSX code; see `loadServerComponents` below for that.
+const loadRawServerComponents = (componentCode) => {
+  try {
+    // Create a function that returns the component
+    const componentFunction = new Function('React', `
+      ${componentCode}
+      return exports; // Return all components you want to expose
+    `);
+
+    // Execute and get the components
+    const components = componentFunction(React);
+
+    // Make them available globally or store them
+    Object.assign(window, components);
+
+    return components;
+  } catch (error) {
+    console.error('Failed to load server components:', error);
+    return {};
+  }
+};
+
+// Add this function to load JS/JSX code dynamically and execute it.
+//
+// This version transforms it to JavaScript using Babel before executing.
+//
+// The `componentCode` should define the components and assign them to a dict `exports` to make them
+// available.
+const loadServerComponents = (componentCode) => {
+  try {
+    // Transform JSX to regular JavaScript using Babel
+    const transformedCode = Babel.transform(componentCode, {
+      presets: ['react']
+    }).code;
+
+    const componentFunction = new Function('React', `
+      ${transformedCode}
+      console.log('Loaded server components:', exports)
+      return exports;
+    `);
+
+    const components = componentFunction(React);
+    Object.assign(window, components);
+    return components;
+  } catch (error) {
+    console.error('Failed to load server components:', error);
+    return {};
+  }
+};
