@@ -13,49 +13,71 @@ const DEBOUNCE_MS = 2000;
 const AUTO_LIKES_DELAY_MS = 15000;
 const MODES = ['multicol', 'cluster'];
 
-// Add this function to load components dynamically
-const loadRawServerComponents = (componentCode) => {
-  try {
-    // Create a function that returns the component
-    const componentFunction = new Function('React', `
-      ${componentCode}
-      return { MyComponent }; // Return all components you want to expose
-    `);
+const renderText = ({md}) => {
+  return <div className="content">{md.text}</div>;
+}
 
-    // Execute and get the components
-    const components = componentFunction(React);
+const renderLink = ({md, url}) => {
+  return (
+    <div className="content">
+      <a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a>
+    </div>
+  );
+}
 
-    // Make them available globally or store them
-    Object.assign(window, components);
+const renderImage = ({local_path, url, md, id, liked}) => {
+  const ctx = React.useContext(AppContext);
+  return (
+    <div className="content">
+      <ImageWithVideo
+        imageUrl={local_path || url}
+        videoUrl={md && md.video_url}
+        id={id}
+        liked={liked}
+        setLiked={ctx.actions.setLiked}
+      />
+    </div>
+  );
+}
 
-    return components;
-  } catch (error) {
-    console.error('Failed to load server components:', error);
-    return {};
-  }
-};
+const renderVideo = ({url, md, id, liked}) => {
+  const ctx = React.useContext(AppContext);
+  return (
+    <div className="content">
+      <VideoWithZoom
+        videoUrl={url}
+        posterUrl={md.poster_url}
+        id={id}
+        liked={liked}
+        setLiked={ctx.actions.setLiked}
+      />
+    </div>
+  );
+}
 
-// Loads JSX code and transforms it to JavaScript using Babel before executing
-const loadServerComponents = (componentCode) => {
-  try {
-    // Transform JSX to regular JavaScript using Babel
-    const transformedCode = Babel.transform(componentCode, {
-      presets: ['react']
-    }).code;
+const renderUser = ({compact}) => {
+  return (
+    <div className="content">
+      <div className="user-compact" dangerouslySetInnerHTML={{__html: compact}}></div>
+    </div>
+  );
+}
 
-    const componentFunction = new Function('React', `
-      ${transformedCode}
-      return { MyComponent };
-    `);
 
-    const components = componentFunction(React);
-    Object.assign(window, components);
-    return components;
-  } catch (error) {
-    console.error('Failed to load server components:', error);
-    return {};
-  }
-};
+/* Based on otype and source, renders the main content of an object
+ *
+ * This consists of a list of `[otype, source, renderer]` tuples that map to specific renderer
+ * components, where either otype or source might be null (as catch-alls).
+ *
+ * These are checked in order, so if you want a new one to match, add it at the beginning.
+ */
+const ContentRenderers = [
+  ['text', null, renderText],
+  ['link', null, renderLink],
+  ['image', null, renderImage],
+  ['video', null, renderVideo],
+  ['user', null, renderUser],
+];
 
 let FE = {quick_links: {}};
 let CFG = {frontend: FE};
@@ -70,7 +92,12 @@ const loadConfigSync = () => {
     FE = CFG.frontend;
     console.log('loaded config from server:', CFG);
     if (resp.components) {
-      loadServerComponents(resp.components); // Load any additional components sent by the server
+      const comps = loadServerComponents(resp.components);
+      if (comps && comps.ContentRenderers) {
+        // Prepend server-defined renderers to the list, so they take priority
+        ContentRenderers.unshift(...comps.ContentRenderers);
+        console.log('Loaded custom content renderers from server:', comps.ContentRenderers);
+      }
     }
   }
 };
@@ -294,7 +321,7 @@ const MediaViewer = ({
             style={{maxWidth: '100%', height: 'auto'}}
           />
           {showControls && (
-            <>
+            <div>
               <button
                 className="zoom-button"
                 onClick={handleZoomClick}
@@ -311,7 +338,7 @@ const MediaViewer = ({
                   🖼️
                 </button>
               )}
-            </>
+            </div>
           )}
         </div>
         {zoomModal && (
@@ -338,7 +365,7 @@ const MediaViewer = ({
           onDoubleClick={handleDoubleClick}
         />
         {showControls && (
-          <>
+          <div>
             <button
               className="zoom-button"
               onClick={handleZoomClick}
@@ -355,7 +382,7 @@ const MediaViewer = ({
                 ▶
               </button>
             )}
-          </>
+          </div>
         )}
       </div>
       {zoomModal && (
@@ -844,71 +871,6 @@ const ButtonBar = (props) => {
   );
 };
 
-/* ObjectContent - Renders the main content area of an object based on its type
- * Props:
- * - otype: Object type ('post', 'text', 'link', 'image', 'video', 'user')
- * - url: Original URL of the object
- * - md: Metadata object with type-specific data
- * - id: Object ID
- * - liked: Boolean indicating if object is liked
- * - local_path: Local file path for images/videos
- * - compact: Compact HTML representation (for users)
- * - score: Classification score
- * - simpleMode: Boolean to hide detailed info
- * - ...props: Additional props passed through to content renderers
- */
-const ObjectContent = ({otype, url, md, id, liked, local_path, compact, score, simpleMode, ...props}) => {
-  const ctx = React.useContext(AppContext);
-  const source = props.source;
-  const rendererName = `${source.charAt(0).toUpperCase() + source.slice(1)}PostContent`;
-  const PostContentRenderer = window[rendererName];
-
-  if (otype === 'post' && PostContentRenderer) {
-    return <PostContentRenderer {...props} />;
-  }
-
-  return (
-    <div>
-      {otype === 'text' && (
-        <div className="content">{md.text}</div>
-      )}
-      {otype === 'link' && (
-        <div className="content"><a href={url} target="_blank" rel="noreferrer">{md.title || md.display_url}</a></div>
-      )}
-      {otype === 'image' && (
-        <div className="content">
-          <ImageWithVideo
-            imageUrl={local_path || url}
-            videoUrl={md && md.video_url}
-            id={id}
-            liked={liked}
-            setLiked={ctx.actions.setLiked}
-          />
-        </div>
-      )}
-      {otype === 'video' && (
-        <div className="content">
-          <VideoWithZoom
-            videoUrl={url}
-            posterUrl={md.poster_url}
-            id={id}
-            liked={liked}
-            setLiked={ctx.actions.setLiked}
-          />
-        </div>
-      )}
-      {otype === 'user' && (
-        <div className="content">
-          <div className="user-compact" dangerouslySetInnerHTML={{__html: compact}}></div>
-        </div>
-      )}
-      {!simpleMode && <p className="score">ID: {id}</p>}
-      {!simpleMode && score !== undefined && (
-        <div className="score">Score: {score.toFixed(3)}</div>
-      )}
-    </div>
-  );
-};
 
 /* DetailsPanel - Expandable panel showing detailed object information
  * Props:
@@ -1036,6 +998,7 @@ const DetailsPanel = ({showDetails, detailed, rels, scores, ...props}) => {
  */
 const Obj = (props) => {
   const ctx = React.useContext(AppContext);
+  //console.log('rendering obj', props);
   let {id, otype, url, md, score, rels, scores, source, media_blocks, detailed} = props;
   media_blocks = media_blocks || [];
 
@@ -1125,6 +1088,18 @@ const Obj = (props) => {
     };
   }, [id, ctx.ui.ioa]);
 
+
+  // Setup main content renderer
+  let ContentRenderer = null;
+  ContentRenderers.some(([renderOtype, renderSource, renderer]) => {
+    if ((renderOtype === otype || renderOtype === null) &&
+        (renderSource === source || renderSource === null)) {
+      ContentRenderer = renderer;
+      return true;
+    }
+    return false;
+  });
+
   return (
     <div
       id={`id-${id}`}
@@ -1156,7 +1131,12 @@ const Obj = (props) => {
         isManualCluster={isManualCluster}
       />
 
-      <ObjectContent {...props} liked={liked} />
+      {ContentRenderer && <ContentRenderer {...props} liked={liked} />}
+
+      {!ctx.ui.simpleMode && <p className="score">ID: {id}</p>}
+      {!ctx.ui.simpleMode && score !== undefined && (
+        <div className="score">Score: {score.toFixed(3)}</div>
+      )}
 
       {/* Media carousel for posts with media */}
       {otype === 'post' && media_blocks && media_blocks.length > 0 && (

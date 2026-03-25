@@ -412,7 +412,15 @@ class ConfigHandler(MyBaseHandler):
     def get(self):
         """Returns the config"""
         global CFG
-        self.write(dict(config=CFG.to_dict()))
+        comp_paths = CFG.frontend.component_paths or []
+        components = ''
+        for path in comp_paths:
+            try:
+                with open(path, 'r') as f:
+                    components += f.read() + '\n'
+            except Exception as e:
+                logger.warning(f'Failed to load component from {path}: {e}')
+        self.write(dict(config=CFG.to_dict(), components=components))
 
     def post(self):
         global CFG
