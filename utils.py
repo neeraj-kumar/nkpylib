@@ -1036,7 +1036,7 @@ def arange(from_, to, step):
     """
     if step == 0: return [from_]
     nsteps = int((to-from_)/float(step)) + 1
-    ret = [from_ + i*step for i in xrange(nsteps)]
+    ret = [from_ + i*step for i in range(nsteps)]
     return ret
 
 def grange(from_, to, nsteps):
@@ -1178,7 +1178,7 @@ def genPowerSet(seq):
     """Returns the powerset of a sequence (i.e. all combinations)."""
     # by Tim Peters
     pairs = [(2**i, x) for i, x in enumerate(seq)]
-    for i in xrange(2**len(pairs)):
+    for i in range(2**len(pairs)):
         yield [x for (mask, x) in pairs if i & mask]
 
 def lazy(s):
@@ -2012,7 +2012,7 @@ def sampleWithReplacement(population, k):
     """Samples `k` elements, with replacement, from the `population`.
     Just calls :func:`random.choice` `k` times.
     """
-    return [choice(population) for i in xrange(k)]
+    return [choice(population) for i in range(k)]
 
 def estimateGaussian(data, unbiased=1):
     """Estimates a 1-d gaussian from `data` (a list of values) and returns ``(mean, variance)``."""
