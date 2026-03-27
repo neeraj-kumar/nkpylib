@@ -94,10 +94,17 @@ const loadConfigSync = () => {
     console.log('loaded config from server:', CFG);
     if (resp.components) {
       const comps = loadJSXComponents(resp.components);
+      // Prepend server-defined renderers to the list, so they take priority
       if (comps && comps.ContentRenderers) {
-        // Prepend server-defined renderers to the list, so they take priority
         ContentRenderers.unshift(...comps.ContentRenderers);
         console.log('Loaded custom content renderers from server:', comps.ContentRenderers);
+      }
+      // Add css styles from `Styles` key, if present
+      if (comps && comps.Styles) {
+        const styleTag = document.createElement('style');
+        styleTag.innerHTML = comps.Styles;
+        document.head.appendChild(styleTag);
+        console.log('Added custom styles from server');
       }
     }
   }
