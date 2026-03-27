@@ -469,6 +469,9 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         if method in ('linear', 'sgd') and self._fit_pipeline:
             self._last_pipeline = Pipeliner().scale().rbf_sample(n_components=4000, gamma='scale').build()
         # we get initial embeddings for all keys to normalize correctly.
+        for inp in self.inputs:
+            #print(f'Input {inp} has info {inp.env.readers()}') #FIXME
+            pass
         keys, embs = self.get_embs(keys=pos+neg+to_cls)
         times.append(time.time())
         other_stuff['pipeline'] = self._last_pipeline

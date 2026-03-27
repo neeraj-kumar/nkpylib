@@ -42,6 +42,13 @@ class PickleableLmdb(Lmdb):
     This just adds __getstate__ and __setstate__ methods that store the path and flag, and reopen
     the database on unpickling.
     """
+    def __del__(self) -> None:
+        """Make sure to call `close` on our env when we are deleted."""
+        try:
+            self.env.close()
+        except Exception:
+            pass
+
     def fixme__getstate__(self) -> dict[str, Any]:
         """Returns state of this suitable for pickling.
 
@@ -127,6 +134,7 @@ class MetadataLmdb(PickleableLmdb):
         Note that as the original code says, keeping autogrow=True (the default) means that there
         could be problems with multiple writers.
         """
+        #print(f'Opening MetadataLmdb at {file} with flag {flag} and kw {kw}')
         if 'map_size' not in kw:
             kw['map_size'] = 2 ** 30 # lmdbm only grows up to 12 factors, and defaults to 2e20
         # make dirs if needed

@@ -190,6 +190,12 @@ class FeatureSet(Mapping, Generic[KeyT]):
                        for inp in inputs]
         self.reload_keys(reload_lmdb=False)
 
+    def __del__(self) -> None:
+        """Closes any open lmdbs when this is deleted."""
+        for inp in self.inputs:
+            if isinstance(inp, NumpyLmdb):
+                inp.close()
+
     def reload_keys(self, reload_lmdb:bool=True) -> None:
         """Reloads our keys"""
         # first reload all our lmdbs
@@ -266,6 +272,14 @@ class FeatureSet(Mapping, Generic[KeyT]):
 
     def __getitem__(self, key: KeyT) -> np.ndarray:
         cur = np.hstack([inp[key] for inp in self.inputs])
+        return cur
+
+    def __newgetitem__(self, key: KeyT) -> np.ndarray:
+        results = []
+        for inp in self.inputs:
+            if isinstance(inp, NumpyLmdb):
+                with inp.begin() as txn:
+                    print(txn)
         return cur
 
     def fast_get_multi(self, keys: list[KeyT]) -> dict[KeyT, np.ndarray]:
