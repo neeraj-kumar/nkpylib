@@ -39,7 +39,7 @@ from sklearn.decomposition import TruncatedSVD # type: ignore
 from sklearn.kernel_approximation import RBFSampler
 from sklearn.linear_model import SGDClassifier # type: ignore
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_recall_fscore_support, roc_auc_score # type: ignore
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.pipeline import Pipeline # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
@@ -510,12 +510,21 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         times.append(time.time())
         test_X = np.vstack(test_X)
         if labels is None:
-            scores = {key: float(s) for key, s in zip(test_keys, cls.decision_function(test_X))}
+            if cv > 0:
+                raw_scores = cross_val_predict(cls, test_X, [1 if k in pos_set else -1 for k in test_keys], cv=cv, method='decision_function')
+            else:
+                raw_scores = cls.decision_function(test_X)
+            scores = {key: float(s) for key, s in zip(test_keys, raw_scores)}
         else:
-            scores_array = cls.decision_function(test_X)
+            if cv > 0:
+                scores_array = cross_val_predict(cls, test_X, [labels[pos.index(k)] for k in test_keys], cv=cv, method='decision_function')
+                preds = cross_val_predict(cls, test_X, [labels[pos.index(k)] for k in test_keys], cv=cv)
+            else:
+                scores_array = cls.decision_function(test_X)
+                preds = cls.predict(test_X)
             scores = {}
             for i, key in enumerate(test_keys):
-                pred_label = cls.predict(test_X[i:i+1])[0]
+                pred_label = preds[i]
                 pred_cls_idx = list(cls.classes_).index(pred_label)
                 score = scores_array[i][pred_cls_idx]
                 scores[key] = (pred_label, float(score))
