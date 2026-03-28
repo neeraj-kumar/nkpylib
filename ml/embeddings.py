@@ -517,8 +517,9 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             scores = {key: float(s) for key, s in zip(test_keys, raw_scores)}
         else:
             if cv > 0:
-                scores_array = cross_val_predict(cls, test_X, [labels[pos.index(k)] for k in test_keys], cv=cv, method='decision_function')
-                preds = cross_val_predict(cls, test_X, [labels[pos.index(k)] for k in test_keys], cv=cv)
+                cv_labels = [labels[pos.index(k) if k in pos else -1] for k in test_keys]
+                scores_array = cross_val_predict(cls, test_X, cv_labels, cv=cv, method='decision_function')
+                preds = cross_val_predict(cls, test_X, cv_labels, cv=cv)
             else:
                 scores_array = cls.decision_function(test_X)
                 preds = cls.predict(test_X)
