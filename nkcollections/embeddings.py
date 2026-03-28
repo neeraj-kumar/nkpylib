@@ -141,6 +141,8 @@ async def update_text_embeddings(q: Query, limit: int, lmdb_path: str, **kw) -> 
     This select 'text' and 'link' otypes and updates their embeddings.
     Returns a Counter with embedding statistics.
     """
+    if not CFG.db.allow_embedding_updates:
+        return Counter()
     return Counter() #FIXME
     with db_session:
         rows = q.filter(lambda c: c.otype in ('text', 'link') and not c.embed_ts).limit(limit)
@@ -211,6 +213,8 @@ async def update_image_embeddings(q: Query,
     This select 'image' rows, downloads them if needed, and updates their embeddings.
     Returns a Counter with embedding statistics.
     """
+    if not CFG.db.allow_embedding_updates:
+        return Counter()
     with db_session:
         rows = q.filter(lambda c: c.otype == 'image' and not c.embed_ts).limit(limit)
     if not rows:
@@ -279,6 +283,8 @@ async def update_image_descriptions(
 
     Returns a Counter with description statistics.
     """
+    if not CFG.db.allow_embedding_updates:
+        return Counter()
     #return Counter() #FIXME
     if not vlm_prompt or not vlm_model:
         return Counter()
@@ -392,6 +398,8 @@ async def update_embeddings_async(lmdb_path: str,
 
     We return a dict with the number of embeddings updated for each type
     """
+    if not CFG.db.allow_embedding_updates:
+        return Counter()
     if limit <= 0:
         limit = 10000000
     with db_session:
@@ -450,11 +458,13 @@ def update_embeddings(lmdb_path: str,
         print(f'Sync Done with update_embeddings, got {ret}')
     return ret
 
-def cleanup_embeddings(lmdb_path: str):
+def cleanup_embeddings(lmdb_path: str) -> None:
     """Cleans up discrepancies between our sqlite and lmdb.
 
     Note that this doesn't modify the lmdb at all, only the sqlite.
     """
+    if not CFG.db.allow_embedding_updates:
+        return
     db = NumpyLmdb.open(lmdb_path, flag='r')
     keys_in_db = set(db.keys())
     n_missing = 0
@@ -514,6 +524,10 @@ def find_similar(pos: list[str|int],
                  classifier_path: str|None = None) -> dict[str, Any]:
     """Searches for similarity to `pos` amongst `cur_ids` using `embs`"""
     # Load pipeline from the last saved likes classifier
+    #TODO write mapping from sqlite id to imdb_id
+    #TODO create cfg.db.embedding_id_map_path
+    #TODO in this function, remap sql ids to lmdb ids
+    print(f'in find similar with {CFG.db}')
     pipeline = None
     if 0 and classifier_path: #FIXME broken
         try:

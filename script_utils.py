@@ -91,6 +91,24 @@ def cli_runner(func_list: list[Callable[..., Any]], **kw) -> Any:
     parser.dispatch()
 
 
+class ConfigContainer:
+    def __init__(self):
+        self._cfg = None
+
+    def _update(self, new_config):
+        self._cfg = new_config
+
+    def __getattr__(self, name):
+        if self._cfg is None:
+            raise AttributeError(f"Config not loaded yet, cannot access '{name}'")
+        return getattr(self._cfg, name)
+
+    def __repr__(self):
+        if not self._cfg:
+            return '<ConfigContainer: not loaded>'
+        return f'<ConfigContainer: {repr(self._cfg)}>'
+
+
 class NestedNamespace:
     """A namespace that supports nested attribute access."""
     def __init__(self, _convert_nested=True, **kwargs):

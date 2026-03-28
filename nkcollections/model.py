@@ -27,7 +27,7 @@ from pony.orm import (
 from pony.orm.core import BindingError, Query, UnrepeatableReadError # type: ignore
 
 from nkpylib.nkpony import init_sqlite_db, GetMixin, recursive_to_dict
-from nkpylib.script_utils import NestedNamespace, YamlConfigManager
+from nkpylib.script_utils import ConfigContainer
 from nkpylib.thread_utils import (
     background_task,
     classify_func_output,
@@ -38,7 +38,7 @@ from nkpylib.time_utils import elapsed_str, timed
 
 logger = logging.getLogger(__name__)
 
-CFG: NestedNamespace|None = None
+CFG = ConfigContainer()
 
 IMAGE_SUFFIX = 'mn_image'
 
@@ -337,7 +337,6 @@ class Score(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     @classmethod
     def get_top_tags(cls, ids: list[str|int]):
         """Returns a counter of the top tags for the given list of `ids`"""
-        from .embeddings import IMAGE_SUFFIX
         ids = [int(id) for id in ids]
         counts = Counter()
         ttype = f'tag:{IMAGE_SUFFIX}'

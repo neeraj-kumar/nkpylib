@@ -94,16 +94,16 @@ def parse_config(config_path: str, input_args=None) -> NestedNamespace:
 
     It also sets the config as global CFG.
     """
-    global CFG
     with YamlConfigManager(config_path) as config_manager:
         search = config_manager.add_parser('search', make_search_argparser())
         web = config_manager.add_parser('web', make_web_argparser())
         db = config_manager.add_parser('db', make_db_argparser())
         worker = config_manager.add_parser('worker', make_worker_argparser())
         frontend = config_manager.add_parser('frontend', make_frontend_argparser())
-    CFG = config_manager.parse_all(input_args)
+    cfg = config_manager.parse_all(input_args)
+    CFG._update(cfg)
     print(f'Got frontend cfg: {vars(CFG.frontend)}')
-    return CFG
+    return cfg
 
 def try_parse_key_value(s):
     """Tries to parse a key-value pair from a string of the form "key=value".
@@ -411,7 +411,6 @@ class ActionHandler(MyBaseHandler):
 class ConfigHandler(MyBaseHandler):
     def _get(self):
         """Returns the config and dynamic code components"""
-        global CFG
         comp_paths = CFG.frontend.component_paths or []
         components = ''
         for path in comp_paths:
@@ -555,8 +554,7 @@ class ClusterHandler(MyBaseHandler):
         self.write(ret)
 
 def web_main(cfg_path: str, **kw):
-    global CFG
-    CFG = parse_config(cfg_path, **kw)
+    parse_config(cfg_path, **kw)
     print(f'Got cfg {CFG}')
     #FIXME add images dir and make it accessible via a static path
 
@@ -605,10 +603,8 @@ def worker_main(cfg_path: str, **kw) -> None:
     - sqlite_path: Path to the SQLite database
     - lmdb_path: Path to the LMDB embeddings database
     - classifiers_dir: Directory where classifiers are saved
-
-    sqlite_path: str, lmdb_path: str, classifiers_dir: str, image_suffix: str='mn_image', **kw)
     """
-    CFG = parse_config(cfg_path, **kw)
+    parse_config(cfg_path, **kw)
     logger.info(f"Starting worker process with sqlite={CFG.db.sqlite_path}, lmdb={CFG.db.lmdb_path}, image_suffix={CFG.worker.image_suffix}")
     try:
         # Initialize database and embeddings in this process

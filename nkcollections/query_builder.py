@@ -520,7 +520,7 @@ Return only the JSON array, no other text."""
                     user_scores = self._aggregate_user_scores(sim['scores'], kw)
                     self.query = sorted(self.query, key=lambda id: user_scores.get(id, -10000), reverse=True)
                     logger.info(f'  Found {len(user_scores)} users with similarity scores: {Counter(user_scores).most_common(5)}')
-
+                logger.info(f'done with pos filtering, {len(self.query)} items remain')
                 self.needs_ordering = False
                 self.filters_applied.append('pos')
 
