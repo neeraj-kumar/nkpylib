@@ -76,12 +76,11 @@ class SqlSearchImpl(SearchImpl):
         with db_session:
             # Reset parameter counter for each search
             self._param_counter = 0
-            
             where_clause, param_dict, joins = self._build_where_clause(cond)
             # Build complete SQL query
             join_clause = ' '.join(joins) if joins else ''
             sql = f"""
-            SELECT DISTINCT {self.table_name}.*
+            SELECT DISTINCT {self.table_name}.{self.id_field}
             FROM {self.table_name}
             {join_clause}
             {where_clause}
@@ -117,7 +116,6 @@ class SqlSearchImpl(SearchImpl):
         field = cond.field
         joins_needed = []
         param_counter = getattr(self, '_param_counter', 0)
-        
         def next_param_name():
             nonlocal param_counter
             param_counter += 1
