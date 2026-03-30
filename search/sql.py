@@ -187,56 +187,57 @@ class SqlSearchImpl(SearchImpl):
 
     def _build_operator_condition(self, where_clause: str, cond: OpCond) -> tuple[str, dict]:
         """Build the SQL condition and parameters for any operator"""
-        if cond.op == Op.EQ:
-            param = self._next_param_name()
-            return f"{where_clause} = ${param}", {param: cond.value}
-        elif cond.op == Op.NEQ:
-            param = self._next_param_name()
-            return f"{where_clause} != ${param}", {param: cond.value}
-        elif cond.op == Op.GT:
-            param = self._next_param_name()
-            return f"CAST({where_clause} AS REAL) > ${param}", {param: cond.value}
-        elif cond.op == Op.GTE:
-            param = self._next_param_name()
-            return f"CAST({where_clause} AS REAL) >= ${param}", {param: cond.value}
-        elif cond.op == Op.LT:
-            param = self._next_param_name()
-            return f"CAST({where_clause} AS REAL) < ${param}", {param: cond.value}
-        elif cond.op == Op.LTE:
-            param = self._next_param_name()
-            return f"CAST({where_clause} AS REAL) <= ${param}", {param: cond.value}
-        elif cond.op == Op.LIKE:
-            param = self._next_param_name()
-            return f"{where_clause} LIKE ${param}", {param: f"%{cond.value}%"}
-        elif cond.op == Op.NOT_LIKE:
-            param = self._next_param_name()
-            return f"{where_clause} NOT LIKE ${param}", {param: f"%{cond.value}%"}
-        elif cond.op == Op.IN:
-            params = {}
-            placeholders = []
-            for val in cond.value:
+        match cond.op:
+            case Op.EQ:
                 param = self._next_param_name()
-                params[param] = val
-                placeholders.append(f"${param}")
-            return f"{where_clause} IN ({','.join(placeholders)})", params
-        elif cond.op == Op.NOT_IN:
-            params = {}
-            placeholders = []
-            for val in cond.value:
+                return f"{where_clause} = ${param}", {param: cond.value}
+            case Op.NEQ:
                 param = self._next_param_name()
-                params[param] = val
-                placeholders.append(f"${param}")
-            return f"{where_clause} NOT IN ({','.join(placeholders)})", params
-        elif cond.op == Op.EXISTS:
-            return f"{where_clause} IS NOT NULL", {}
-        elif cond.op == Op.NOT_EXISTS:
-            return f"{where_clause} IS NULL", {}
-        elif cond.op == Op.IS_NULL:
-            return f"{where_clause} IS NULL", {}
-        elif cond.op == Op.IS_NOT_NULL:
-            return f"{where_clause} IS NOT NULL", {}
-        else:
-            raise NotImplementedError(f"Operator {cond.op} not implemented")
+                return f"{where_clause} != ${param}", {param: cond.value}
+            case Op.GT:
+                param = self._next_param_name()
+                return f"CAST({where_clause} AS REAL) > ${param}", {param: cond.value}
+            case Op.GTE:
+                param = self._next_param_name()
+                return f"CAST({where_clause} AS REAL) >= ${param}", {param: cond.value}
+            case Op.LT:
+                param = self._next_param_name()
+                return f"CAST({where_clause} AS REAL) < ${param}", {param: cond.value}
+            case Op.LTE:
+                param = self._next_param_name()
+                return f"CAST({where_clause} AS REAL) <= ${param}", {param: cond.value}
+            case Op.LIKE:
+                param = self._next_param_name()
+                return f"{where_clause} LIKE ${param}", {param: f"%{cond.value}%"}
+            case Op.NOT_LIKE:
+                param = self._next_param_name()
+                return f"{where_clause} NOT LIKE ${param}", {param: f"%{cond.value}%"}
+            case Op.IN:
+                params = {}
+                placeholders = []
+                for val in cond.value:
+                    param = self._next_param_name()
+                    params[param] = val
+                    placeholders.append(f"${param}")
+                return f"{where_clause} IN ({','.join(placeholders)})", params
+            case Op.NOT_IN:
+                params = {}
+                placeholders = []
+                for val in cond.value:
+                    param = self._next_param_name()
+                    params[param] = val
+                    placeholders.append(f"${param}")
+                return f"{where_clause} NOT IN ({','.join(placeholders)})", params
+            case Op.EXISTS:
+                return f"{where_clause} IS NOT NULL", {}
+            case Op.NOT_EXISTS:
+                return f"{where_clause} IS NULL", {}
+            case Op.IS_NULL:
+                return f"{where_clause} IS NULL", {}
+            case Op.IS_NOT_NULL:
+                return f"{where_clause} IS NOT NULL", {}
+            case _:
+                raise NotImplementedError(f"Operator {cond.op} not implemented")
 
     def _build_json_condition(self, table_alias: str, json_field: str, path_parts: list[str], cond: OpCond) -> tuple[str, dict]:
         """Build JSON field condition with proper parameterization"""
