@@ -66,15 +66,7 @@ class SqlSearchImpl(SearchImpl):
         with db_session:
             try:
                 result = self.db.execute(f"PRAGMA table_info({table})")
-                json_fields = set()
-                
-                for row in result:
-                    column_name, data_type = row[1], row[2]
-                    # Check for JSON type only
-                    if data_type.upper() == 'JSON':
-                        json_fields.add(column_name)
-                
-                return json_fields
+                return {row[1] for row in result if row[2].upper() == 'JSON'}
             except Exception as e:
                 logger.warning(f"Could not discover JSON fields in {table}: {e}")
                 return set()
@@ -162,11 +154,11 @@ class SqlSearchImpl(SearchImpl):
                         related_table = table_name
                         fk_field = foreign_key
                         break
-                
+
                 if related_table:
                     # Handle related table field access
                     joins_needed.append(f"JOIN {related_table} ON {related_table}.{fk_field} = {self.table_name}.{self.id_field}")
-                    
+
                     if len(path_parts) == 1:
                         # Simple field in related table
                         where_clause = f"{related_table}.{path_parts[0]}"
@@ -178,7 +170,7 @@ class SqlSearchImpl(SearchImpl):
                             json_path = '$.' + '.'.join(path_parts[1:])
                             where_clause = f"json_extract({related_table}.{json_field}, ?)"
                             params = [json_path]
-                            
+
                             # Build JSON condition based on operator
                             if cond.op == Op.EQ:
                                 return f"{where_clause} = ?", params + [cond.value], joins_needed
