@@ -178,8 +178,12 @@ class StateLogReader:
     def load(self):
         """Loads the log file"""
         with open(self.log_path) as f:
-            for line in f:
-                obj = json.loads(line)
+            for i, line in enumerate(f):
+                try:
+                    obj = json.loads(line)
+                except Exception as e:
+                    logger.error(f"Error parsing line {i}: {line}")
+                    raise
                 # do some filtering
                 # no event name
                 if '_name' not in obj:
