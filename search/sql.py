@@ -72,8 +72,13 @@ class SqlSearchImpl(SearchImpl):
                     JOIN pragma_foreign_key_list(m.name) p ON m.type = 'table'
                     WHERE p."table" = ?
                 """, [table])
-                return {ref_table: fk_col for ref_table, fk_col, pk_col
-                        in result if pk_col == self.id_field}
+                
+                related = {}
+                for row in result:
+                    ref_table, fk_col, pk_col = row[0], row[1], row[2]
+                    if pk_col == self.id_field:
+                        related[ref_table] = fk_col
+                return related
             except Exception as e:
                 logger.warning(f"Could not discover foreign keys: {e}")
                 return {}

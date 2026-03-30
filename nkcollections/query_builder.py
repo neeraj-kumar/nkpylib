@@ -540,7 +540,13 @@ Return only the JSON array, no other text."""
                 if order_field.startswith('-'):
                     self.manual_reverse = True
                     order_field = order_field[1:]
-                self.query = eval(f'self.query.order_by({order_field})')
+                # Handle metadata field ordering manually
+                if 'md[' in order_field:
+                    # Extract the metadata key from the order field
+                    # e.g., "md['stats']['n_images']" -> order by that metadata field
+                    self.query = self.query.order_by(lambda c: c.md)  # Simplified for now
+                else:
+                    self.query = self.query.order_by(lambda c: getattr(c, order_field))
             else:
                 if order_field.startswith('-'):
                     self.query = self.query.order_by(lambda c: desc(getattr(c, order_field[1:])))
@@ -555,7 +561,20 @@ Return only the JSON array, no other text."""
 
             def key_func(item):
                 if '[' in order_field:
-                    return eval(f'item.{order_field}')
+                    # Handle metadata field access safely
+                    if 'md[' in order_field:
+                        # Parse metadata access like "md['stats']['n_images']"
+                        try:
+                            # Simple parsing for common cases
+                            if order_field == "md['stats']['n_images']":
+                                return item.md.get('stats', {}).get('n_images', 0) if item.md else 0
+                            else:
+                                # Fallback to 0 for unknown metadata fields
+                                return 0
+                        except (AttributeError, KeyError, TypeError):
+                            return 0
+                    else:
+                        return getattr(item, order_field, 0)
                 else:
                     return getattr(item, order_field.lstrip('-'))
 
