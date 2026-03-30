@@ -282,12 +282,30 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
       - '&', ',', or 'and' (any case)
       - '|' or 'or' (any case)
       - '!' or 'not' (any case, only takes one condition)
+    - {field_op: value, ...} for dict format where field_op is "field" or "field+op"
+      - If no operator suffix, defaults to '='
+      - Example: {'name~': 'john', 'age>': 5, 'eyes:': ['blue', 'brown']}
 
     For example:
         ["&", ["title", "~", "machine learning"], ["year", ">=", 2020]]
         ["&", ["!", ["draft", "=", true]], ["published_at", "?+"]]
+        {"name~": "john", "age>": 25, "status": "active"}
     """
     logger.debug(f"Parsing JSON: {data}")
+    
+    # Handle dict format
+    if isinstance(data, dict):
+        conditions = []
+        for field_op, value in data.items():
+            # Parse field and operator from key
+            field, op = _parse_field_op(field_op)
+            conditions.append(OpCond(field, op, value))
+        
+        if len(conditions) == 1:
+            return conditions[0]
+        else:
+            return JoinCond(JoinType.AND, conditions)
+    
     ANDs = {'&', ',', 'and'}
     ORs = {'|', 'or'}
     NOTs = {'!', 'not'}
@@ -322,3 +340,31 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
     result = parse_item(data)
     logger.debug(f"JSON parse result: {result}")
     return result
+
+def _parse_field_op(field_op: str) -> tuple[str, Op]:
+    """Parse a field+operator string into separate field and operator.
+    
+    Examples:
+    - 'name' -> ('name', Op.EQ)
+    - 'name~' -> ('name', Op.LIKE)
+    - 'age>' -> ('age', Op.GT)
+    - 'eyes:' -> ('eyes', Op.IN)
+    """
+    # Check for multi-character operators first (order matters)
+    multi_char_ops = ['>=', '<=', '!=', '!~', '!:', '!@', '~=', '!?', '?+', '!?+']
+    for op_str in multi_char_ops:
+        if field_op.endswith(op_str):
+            field = field_op[:-len(op_str)]
+            if field and op_str in OP_MAP:
+                return field, OP_MAP[op_str]
+    
+    # Check for single-character operators
+    single_char_ops = ['=', '>', '<', '~', ':', '@', '?']
+    for op_str in single_char_ops:
+        if field_op.endswith(op_str):
+            field = field_op[:-1]
+            if field and op_str in OP_MAP:
+                return field, OP_MAP[op_str]
+    
+    # No operator found, default to equality
+    return field_op, Op.EQ
