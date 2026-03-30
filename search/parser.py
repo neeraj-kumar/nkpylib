@@ -343,7 +343,7 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
     return result
 
 def _parse_field_op(field_op: str) -> tuple[str, Op]:
-    """Parse a field+operator string into separate field and operator.
+    """Parse a field+operator string into separate `(field, operator)`.
 
     Examples:
     - 'name' -> ('name', Op.EQ)
@@ -352,9 +352,8 @@ def _parse_field_op(field_op: str) -> tuple[str, Op]:
     - 'eyes:' -> ('eyes', Op.IN)
     """
     # Check operators in order (multi-character first, then single-character)
-    all_ops = ['>=', '<=', '!=', '!~', '!:', '!@', '~=', '!?', '?+', '!?+', '=', '>', '<', '~', ':', '@', '?']
-    
-    for op_str in all_ops:
+    ops = ['>=', '<=', '!=', '!~', '!:', '!@', '~=', '!?', '?+', '!?+', '=', '>', '<', '~', ':', '@', '?']
+    for op_str in ops:
         if field_op.endswith(op_str):
             field = field_op[:-len(op_str)]
             if field and op_str in OP_MAP:
