@@ -215,6 +215,39 @@ class SqlSearchImpl(SearchImpl):
                         else:
                             # Simple field in target item
                             where_clause = f"{target_alias}.{target_field}"
+                        
+                        # Don't fall through to regular aliased table handling - return here
+                        # Build condition based on operator for the target field
+                        if cond.op == Op.EQ:
+                            value_param = next_param_name()
+                            return f"{where_clause} = ${value_param}", {value_param: cond.value}, joins_needed
+                        elif cond.op == Op.NEQ:
+                            value_param = next_param_name()
+                            return f"{where_clause} != ${value_param}", {value_param: cond.value}, joins_needed
+                        elif cond.op == Op.LIKE:
+                            value_param = next_param_name()
+                            return f"{where_clause} LIKE ${value_param}", {value_param: f"%{cond.value}%"}, joins_needed
+                        elif cond.op == Op.NOT_LIKE:
+                            value_param = next_param_name()
+                            return f"{where_clause} NOT LIKE ${value_param}", {value_param: f"%{cond.value}%"}, joins_needed
+                        elif cond.op == Op.IN:
+                            params = {}
+                            placeholders = []
+                            for i, val in enumerate(cond.value):
+                                param_name = next_param_name()
+                                params[param_name] = val
+                                placeholders.append(f"${param_name}")
+                            return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
+                        elif cond.op == Op.NOT_IN:
+                            params = {}
+                            placeholders = []
+                            for i, val in enumerate(cond.value):
+                                param_name = next_param_name()
+                                params[param_name] = val
+                                placeholders.append(f"${param_name}")
+                            return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
+                        else:
+                            raise NotImplementedError(f"Operator {cond.op} not implemented for nested field access")
                     else:
                         # Regular aliased table field access
                         joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
