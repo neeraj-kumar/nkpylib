@@ -490,7 +490,29 @@ class SqlSearchImpl(SearchImpl):
     def _resolve_complex_alias(self, alias_def: dict, cond: OpCond) -> list[OpCond]:
         """Resolve complex alias definitions.
 
-        Supports patterns like:
+        Supported alias types and their required fields:
+
+        1. 'score_condition': Single score table condition
+           Required fields:
+           - 'tag_field': The tag value to match (e.g., 'imdb_rating', 'budget')
+           Optional fields:
+           - 'score_field': Field name for the score value (default: 'score')
+           - 'table': Table name (default: 'score')
+
+        2. 'multi_score_condition': Multiple score table conditions (AND logic)
+           Required fields:
+           - 'conditions': List of condition dicts, each containing:
+             - 'tag_field': The tag value to match
+             - 'op': Operator to use (optional, uses query operator if not specified)
+             - 'value': Value to compare against (optional, uses query value if not specified)
+             - 'score_field': Field name for score value (optional, default: 'score')
+             - 'table': Table name (optional, default: 'score')
+
+        3. 'nested_relation': Nested relationship traversal
+           Required fields:
+           - 'path': Dot-separated path to traverse (e.g., 'rel_src.tgt.name')
+
+        Example usage:
         {
             'type': 'score_condition',
             'tag_field': 'imdb_rating',
