@@ -669,10 +669,10 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         (["embed_ts", "?+"], "Items with embeddings"),
 
         # Complex nested queries with multiple joins
-        (["&", 
-          ["otype", "=", "movie"], 
-          ["|", ["md.year", ">=", 2020], ["md.rating", ">=", 8.0]]
-         ], "Recent movies OR highly rated movies"),
+        (["&",
+          ["otype", "=", "movie"],
+          ["|", ["md.year", ">=", 2020], ["name", "~", 'long']]
+         ], "Recent movies OR movies with 'long' in their name"),
 
         (["&",
           ["source", "=", "imdb"],
@@ -756,7 +756,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
 
     print(f"\nTesting {len(queries)} queries:")
     for i, (query, description) in enumerate(queries):
-        if i < 15:
+        if i < 16:
             continue
         print(f"\n{i+1}. {description}: {query}")
         results = ssi.search(query, n_results=50000)
