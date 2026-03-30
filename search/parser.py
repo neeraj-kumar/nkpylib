@@ -351,18 +351,12 @@ def _parse_field_op(field_op: str) -> tuple[str, Op]:
     - 'age>' -> ('age', Op.GT)
     - 'eyes:' -> ('eyes', Op.IN)
     """
-    # Check for multi-character operators first (order matters)
-    multi_char_ops = ['>=', '<=', '!=', '!~', '!:', '!@', '~=', '!?', '?+', '!?+']
-    for op_str in multi_char_ops:
+    # Check operators in order (multi-character first, then single-character)
+    all_ops = ['>=', '<=', '!=', '!~', '!:', '!@', '~=', '!?', '?+', '!?+', '=', '>', '<', '~', ':', '@', '?']
+    
+    for op_str in all_ops:
         if field_op.endswith(op_str):
             field = field_op[:-len(op_str)]
-            if field and op_str in OP_MAP:
-                return field, OP_MAP[op_str]
-    # Check for single-character operators
-    single_char_ops = ['=', '>', '<', '~', ':', '@', '?']
-    for op_str in single_char_ops:
-        if field_op.endswith(op_str):
-            field = field_op[:-1]
             if field and op_str in OP_MAP:
                 return field, OP_MAP[op_str]
     # No operator found, default to equality
