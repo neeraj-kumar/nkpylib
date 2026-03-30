@@ -294,25 +294,26 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
         ["&", ["title", "~", "machine learning"], ["year", ">=", 2020]]
         ["&", ["!", ["draft", "=", true]], ["published_at", "?+"]]
         {"name~": "john", "age>": 25, "status": "active"}
+        ["|", {"name~": "john", "age>": 25}, ["status", "=", "active"]]
     """
     logger.debug(f"Parsing JSON: {data}")
-    # Handle dict format
-    if isinstance(data, dict):
-        conditions = []
-        for field_op, value in data.items():
-            # Parse field and operator from key
-            field, op = _parse_field_op(field_op)
-            conditions.append(OpCond(field, op, value))
-        if len(conditions) == 1:
-            return conditions[0]
-        else:
-            return JoinCond(JoinType.AND, conditions)
     ANDs = {'&', ',', 'and'}
     ORs = {'|', 'or'}
     NOTs = {'!', 'not'}
     def parse_item(item):
+        # Handle dict format in subqueries
+        if isinstance(item, dict):
+            conditions = []
+            for field_op, value in item.items():
+                # Parse field and operator from key
+                field, op = _parse_field_op(field_op)
+                conditions.append(OpCond(field, op, value))
+            if len(conditions) == 1:
+                return conditions[0]
+            else:
+                return JoinCond(JoinType.AND, conditions)
         if not isinstance(item, (list, tuple)) or len(item) == 0:
-            raise ValueError(f"Invalid format: must be a non-empty list or tuple, got {item} (type: {type(item)})")
+            raise ValueError(f"Invalid format: must be a dict or non-empty list or tuple, got {item} (type: {type(item)})")
         first = item[0]
         fl = first.lower().strip()
         if fl in ANDs | ORs | NOTs: # Join condition
