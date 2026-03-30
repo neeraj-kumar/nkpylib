@@ -197,6 +197,24 @@ class SqlSearchImpl(SearchImpl):
                                 value_param = next_param_name()
                                 params[value_param] = f"%{cond.value}%"
                                 return f"{where_clause} NOT LIKE ${value_param}", params, joins_needed
+                            elif cond.op == Op.IN:
+                                in_params = {}
+                                placeholders = []
+                                for i, val in enumerate(cond.value):
+                                    param_name = next_param_name()
+                                    in_params[param_name] = val
+                                    placeholders.append(f"${param_name}")
+                                params.update(in_params)
+                                return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
+                            elif cond.op == Op.NOT_IN:
+                                in_params = {}
+                                placeholders = []
+                                for i, val in enumerate(cond.value):
+                                    param_name = next_param_name()
+                                    in_params[param_name] = val
+                                    placeholders.append(f"${param_name}")
+                                params.update(in_params)
+                                return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
                         else:
                             # Regular field in related table
                             where_clause = f"{alias}.{json_field}"
@@ -249,6 +267,24 @@ class SqlSearchImpl(SearchImpl):
                     value_param = next_param_name()
                     params[value_param] = f"%{cond.value}%"
                     return f"{where_clause} NOT LIKE ${value_param}", params, joins_needed
+                elif cond.op == Op.IN:
+                    in_params = {}
+                    placeholders = []
+                    for i, val in enumerate(cond.value):
+                        param_name = next_param_name()
+                        in_params[param_name] = val
+                        placeholders.append(f"${param_name}")
+                    params.update(in_params)
+                    return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
+                elif cond.op == Op.NOT_IN:
+                    in_params = {}
+                    placeholders = []
+                    for i, val in enumerate(cond.value):
+                        param_name = next_param_name()
+                        in_params[param_name] = val
+                        placeholders.append(f"${param_name}")
+                    params.update(in_params)
+                    return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
 
             else:
                 # Check if this is a field in a related table
@@ -315,6 +351,24 @@ class SqlSearchImpl(SearchImpl):
                                 value_param = next_param_name()
                                 params[value_param] = f"%{cond.value}%"
                                 return f"{where_clause} NOT LIKE ${value_param}", params, joins_needed
+                            elif cond.op == Op.IN:
+                                in_params = {}
+                                placeholders = []
+                                for i, val in enumerate(cond.value):
+                                    param_name = next_param_name()
+                                    in_params[param_name] = val
+                                    placeholders.append(f"${param_name}")
+                                params.update(in_params)
+                                return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
+                            elif cond.op == Op.NOT_IN:
+                                in_params = {}
+                                placeholders = []
+                                for i, val in enumerate(cond.value):
+                                    param_name = next_param_name()
+                                    in_params[param_name] = val
+                                    placeholders.append(f"${param_name}")
+                                params.update(in_params)
+                                return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
                         else:
                             # Regular field in related table
                             where_clause = f"{related_table}.{json_field}"
