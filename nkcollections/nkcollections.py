@@ -699,7 +699,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
           ["score.1.tag", "=", "rating"],
           ["score.1.score", ">=", 7.0],
           ["score.2.tag", "=", "budget"],
-          ["score.2.score", "<", 1000000]
+          ["score.2.score", "<", 100000]
          ], "Good low-budget movies"),
 
         # Complex OR with nested AND conditions using actual schema
@@ -716,7 +716,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
 
         # Numeric comparisons with actual fields
         (["md.runtime", ":", [90, 120, 150]], "Movies with specific runtimes"),
-        (["md.runtime", ">=", 120], "Long movies"),
+        (["md.runtime", ">=", 220], "Long movies"),
 
         # Complex existence and null checks
         (["&",
@@ -725,11 +725,12 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
          ], "Items with IMDB ID but no embeddings"),
 
         # Multi-table joins with complex conditions using actual schema
+        #FIXME change this to specific actor
         (["&",
           ["otype", "=", "movie"],
-          ["rel.1.rtype", "=", "acted_in"],
-          ["score.1.tag", "=", "revenue"],
-          ["score.1.score", ">", 1000000000]
+          ["rel.rtype", "=", "actor"],
+          ["score.tag", "=", "revenue"],
+          ["score.score", ">", 1000000000]
          ], "Billion-dollar movies with known cast"),
 
         # Revenue vs budget analysis using numbered syntax
@@ -751,9 +752,9 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         # Complex string matching with actual fields
         (["&",
           ["name", "~", "The"],
-          ["!", ["name", "~", "The End"]],
+          ["!", ["name", "~", "and"]],
           ["otype", "=", "movie"]
-         ], "Movies starting with 'The' but not ending movies"),
+         ], "Movies with 'The' but not 'And'"),
 
         # Genre-specific queries using relationships
         (["&",
@@ -776,8 +777,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
 
     print(f"\nTesting {len(queries)} queries:")
     for i, (query, description) in enumerate(queries):
-        if i < 19:
-            continue
+        if i < 31: continue
         print(f"\n{i+1}. {description}: {query}")
         results = ssi.search(query, n_results=50000)
         print(f"{len(results)} Results found")
