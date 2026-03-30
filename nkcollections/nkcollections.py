@@ -630,56 +630,56 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
     from nkpylib.search.sql import SqlSearchImpl
     db = init_sql_db(db_path)
     print(f"Database: {db}")
-    
+
     ssi = SqlSearchImpl(db=db, table_name='item', other_tables=[
         ('rel', 'src'), ('rel', 'tgt'), ('score', 'id')])
     print(f"SqlSearchImpl: {ssi}")
-    
+
     # Test queries using compact JSON syntax, mimicking QueryBuilder functionality
     queries = [
         # Basic field filters (like QueryBuilder's source, otype filters)
-        (["source", "=", "reddit"], "Filter by source"),
-        (["otype", "=", "image"], "Filter by object type"),
-        (["name", "~", "cat"], "Search name containing 'cat'"),
-        
+        (["source", "=", "imdb"], "Filter by source"),
+        (["otype", "=", "movie"], "Filter by object type"),
+        (["name", "~", "long"], "Search name containing 'long'"),
+
         # Numeric filters (like QueryBuilder's ts, added_ts filters)
-        (["ts", ">", 1640995200], "Items after 2022-01-01"),
+        (["ts", "<", 1773729138], "Items before Tuesday, March 17, 2026"),
         (["id", ":", [1, 2, 3, 4, 5]], "Items with specific IDs"),
-        
+
         # JSON field access (like QueryBuilder's md field access)
-        (["md.ext", "=", "jpg"], "Images with jpg extension"),
-        (["md.stats.n_images", ">", 10], "Users with more than 10 images"),
-        
+        (["md.birth_year", ">=", 1999], "Items with birth year >= 1999"),
+        (["md.imdb_id", "=", 'tt1849718'], "Specific imdb id"),
+
         # Related table queries (like QueryBuilder's rel filters)
-        (["score.tag", "=", "like"], "Items with like scores"),
-        (["score.score", ">=", 0.8], "Items with high scores"),
-        (["rel.rtype", "=", "like"], "Items with like relationships"),
-        
+        (["score.tag", "=", "nkrating"], "Items with nkrating scores"),
+        (["score.score", "<", 0.2], "Items with low scores"),
+        (["rel.rtype", "=", "has_genre"], "Items that have a genre"),
+        #TODO we're currently returning rel.src for this query
+
         # Complex AND/OR queries (like QueryBuilder's complex filters)
-        (["&", ["otype", "=", "image"], ["source", "=", "reddit"]], "Reddit images"),
-        (["&", ["otype", "=", "user"], ["md.stats.n_images", ">", 5]], "Active users"),
-        (["|", ["source", "=", "reddit"], ["source", "=", "tumblr"]], "Reddit or Tumblr items"),
-        
+        (["&", ["otype", "=", "genre"], ["source", "=", "imdb"]], "Imdb genre"),
+        (["&", ["otype", "=", "person"], ["md.birth_year", ">", 1999]], "Young people"),
+        (["|", ["source", "=", "letterboxd"], ["source", "=", "movielens"]], "Letterboxd or movielens items"),
+
         # NOT queries
-        (["!", ["otype", "=", "user"]], "Non-user items"),
-        
+        (["!", ["otype", "=", "movie"]], "Non-movie items"),
+
         # Existence checks
-        (["md.stats", "?"], "Items with stats metadata"),
+        (["md.imdb_id", "?"], "Items with imdb_id metadata"),
         (["embed_ts", "?+"], "Items with embeddings"),
     ]
-    
+
     print(f"\nTesting {len(queries)} queries:")
     for i, (query, description) in enumerate(queries):
-        print(f"\n{i+1}. {description}")
-        print(f"   Query: {query}")
-        try:
-            results = ssi.search(query, n_results=5)
-            print(f"   Results: {len(results)} items found")
-            if results:
-                print(f"   First result: {results[0]}")
-        except Exception as e:
-            print(f"   Error: {e}")
-    
+        if i < 15:
+            continue
+        print(f"\n{i+1}. {description}: {query}")
+        results = ssi.search(query, n_results=50000)
+        print(f"{len(results)} Results found")
+        for j, r in enumerate(results[:5]):
+            with db_session:
+                item = json.dumps(Item[r.id].to_dict(), indent=2)
+            print(f"  {j+1}. {r}\n{item}")
     sys.exit()
 
 
