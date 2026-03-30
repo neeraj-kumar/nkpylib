@@ -687,23 +687,20 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
           ["rel.rtype", "=", "has_genre"]
          ], "Movies with genre relationships"),
 
+        #FIXME the following returns no results because the person is the tgt, not src
         (["&",
-          ["otype", "=", "movie"],
-          ["rel.rtype", "=", "directed_by"]
-         ], "Movies with known directors"),
-
-        (["&",
-          ["otype", "=", "movie"],
-          ["rel.rtype", "=", "acted_in"]
-         ], "Movies with known cast"),
+          ["otype", "=", "person"],
+          ["rel.rtype", "=", "director"]
+         ], "People with known directors"),
 
         # Multiple score conditions
+        #TODO doesn't work because there are separate score rows for budget vs rating
         (["&",
           ["otype", "=", "movie"],
-          ["score.tag", "=", "imdb_rating"],
+          ["score.tag", "=", "rating"],
           ["score.score", ">=", 7.0],
           ["score.tag", "=", "budget"],
-          ["score.score", "<", 10000000]
+          ["score.score", "<", 1000000]
          ], "Good low-budget movies"),
 
         # Complex OR with nested AND conditions using actual schema
@@ -780,7 +777,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
 
     print(f"\nTesting {len(queries)} queries:")
     for i, (query, description) in enumerate(queries):
-        if i < 16:
+        if i < 19:
             continue
         print(f"\n{i+1}. {description}: {query}")
         results = ssi.search(query, n_results=50000)
