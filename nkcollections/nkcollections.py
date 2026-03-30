@@ -653,8 +653,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         # Related table queries (like QueryBuilder's rel filters)
         (["score.tag", "=", "nkrating"], "Items with nkrating scores"),
         (["score.score", "<", 0.2], "Items with low scores"),
-        (["rel.rtype", "=", "has_genre"], "Items that have a genre"),
-        #TODO we're currently returning rel.src for this query
+        (["rel_src.rtype", "=", "has_genre"], "Items that have a genre"),
 
         # Complex AND/OR queries (like QueryBuilder's complex filters)
         (["&", ["otype", "=", "genre"], ["source", "=", "imdb"]], "Imdb genre"),
@@ -681,16 +680,9 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
           ["score.score", ">", 500000000]
          ], "High-grossing movies (>$500M)"),
 
-        # Relationship-based queries (genres, cast as separate items with rels)
-        (["&",
-          ["otype", "=", "movie"],
-          ["rel.rtype", "=", "has_genre"]
-         ], "Movies with genre relationships"),
-
-        #FIXME the following returns no results because the person is the tgt, not src
         (["&",
           ["otype", "=", "person"],
-          ["rel.rtype", "=", "director"]
+          ["rel_tgt.rtype", "=", "director"]
          ], "People with known directors"),
 
         # Multiple score conditions using numbered syntax
@@ -725,13 +717,13 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
          ], "Items with IMDB ID but no embeddings"),
 
         # Multi-table joins with complex conditions using actual schema
-        #FIXME change this to specific actor
         (["&",
           ["otype", "=", "movie"],
-          ["rel.rtype", "=", "actor"],
+          ["rel_src.rtype", "=", "actor"],
+          ["rel_src.tgt.name", "~", "leo"],
           ["score.tag", "=", "revenue"],
-          ["score.score", ">", 1000000000]
-         ], "Billion-dollar movies with known cast"),
+          ["score.score", ">", 100000000]
+         ], "$100M+ movies with actors named 'leo'"),
 
         # Revenue vs budget analysis using numbered syntax
         (["&",
@@ -813,7 +805,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
 
     print(f"\nTesting {len(queries)} queries:")
     for i, (query, description) in enumerate(queries):
-        if i < 39: continue
+        if i < 27: continue
         print(f"\n{i+1}. {description}: {query}")
         results = ssi.search(query, n_results=50000)
         print(f"{len(results)} Results found")
