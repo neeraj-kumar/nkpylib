@@ -180,16 +180,79 @@ class SqlSearchImpl(SearchImpl):
         else:
             return "", {}, []
 
+    def _next_param_name(self) -> str:
+        """Generate next parameter name and increment counter"""
+        self._param_counter += 1
+        return f"p{self._param_counter}"
+
+    def _build_operator_condition(self, where_clause: str, cond: OpCond) -> tuple[str, dict]:
+        """Build the SQL condition and parameters for any operator"""
+        if cond.op == Op.EQ:
+            param = self._next_param_name()
+            return f"{where_clause} = ${param}", {param: cond.value}
+        elif cond.op == Op.NEQ:
+            param = self._next_param_name()
+            return f"{where_clause} != ${param}", {param: cond.value}
+        elif cond.op == Op.GT:
+            param = self._next_param_name()
+            return f"CAST({where_clause} AS REAL) > ${param}", {param: cond.value}
+        elif cond.op == Op.GTE:
+            param = self._next_param_name()
+            return f"CAST({where_clause} AS REAL) >= ${param}", {param: cond.value}
+        elif cond.op == Op.LT:
+            param = self._next_param_name()
+            return f"CAST({where_clause} AS REAL) < ${param}", {param: cond.value}
+        elif cond.op == Op.LTE:
+            param = self._next_param_name()
+            return f"CAST({where_clause} AS REAL) <= ${param}", {param: cond.value}
+        elif cond.op == Op.LIKE:
+            param = self._next_param_name()
+            return f"{where_clause} LIKE ${param}", {param: f"%{cond.value}%"}
+        elif cond.op == Op.NOT_LIKE:
+            param = self._next_param_name()
+            return f"{where_clause} NOT LIKE ${param}", {param: f"%{cond.value}%"}
+        elif cond.op == Op.IN:
+            params = {}
+            placeholders = []
+            for val in cond.value:
+                param = self._next_param_name()
+                params[param] = val
+                placeholders.append(f"${param}")
+            return f"{where_clause} IN ({','.join(placeholders)})", params
+        elif cond.op == Op.NOT_IN:
+            params = {}
+            placeholders = []
+            for val in cond.value:
+                param = self._next_param_name()
+                params[param] = val
+                placeholders.append(f"${param}")
+            return f"{where_clause} NOT IN ({','.join(placeholders)})", params
+        elif cond.op == Op.EXISTS:
+            return f"{where_clause} IS NOT NULL", {}
+        elif cond.op == Op.NOT_EXISTS:
+            return f"{where_clause} IS NULL", {}
+        elif cond.op == Op.IS_NULL:
+            return f"{where_clause} IS NULL", {}
+        elif cond.op == Op.IS_NOT_NULL:
+            return f"{where_clause} IS NOT NULL", {}
+        else:
+            raise NotImplementedError(f"Operator {cond.op} not implemented")
+
+    def _build_json_condition(self, table_alias: str, json_field: str, path_parts: list[str], cond: OpCond) -> tuple[str, dict]:
+        """Build JSON field condition with proper parameterization"""
+        json_path = '$.' + '.'.join(path_parts)
+        path_param = self._next_param_name()
+        where_clause = f"json_extract({table_alias}.{json_field}, ${path_param})"
+        params = {path_param: json_path}
+        
+        condition_sql, condition_params = self._build_operator_condition(where_clause, cond)
+        params.update(condition_params)
+        return condition_sql, params
+
     def _build_op_clause(self, cond: OpCond) -> tuple[str, dict, list]:
         """Build SQL for a single operation condition"""
         field = cond.field
         joins_needed = []
-        param_counter = getattr(self, '_param_counter', 0)
-        def next_param_name():
-            nonlocal param_counter
-            param_counter += 1
-            self._param_counter = param_counter
-            return f"p{param_counter}"
 
         # Handle magic fields first
         if field.startswith('$'):
@@ -256,55 +319,17 @@ class SqlSearchImpl(SearchImpl):
                         if len(remaining_parts) > 2:
                             json_field = target_field
                             if json_field in self.table_json_fields.get(self.table_name, set()):
-                                json_path = '$.' + '.'.join(remaining_parts[2:])
-                                path_param = next_param_name()
-                                where_clause = f"json_extract({target_alias}.{json_field}, ${path_param})"
-                                params = {path_param: json_path}
-
-                                # Handle operators for JSON fields (same as before)
-                                if cond.op == Op.EQ:
-                                    value_param = next_param_name()
-                                    params[value_param] = cond.value
-                                    return f"{where_clause} = ${value_param}", params, joins_needed
-                                # ... (other operators same as existing JSON handling)
+                                condition_sql, params = self._build_json_condition(target_alias, json_field, remaining_parts[2:], cond)
+                                return condition_sql, params, joins_needed
                             else:
                                 where_clause = f"{target_alias}.{json_field}"
                         else:
                             # Simple field in target item
                             where_clause = f"{target_alias}.{target_field}"
                         
-                        # Don't fall through to regular aliased table handling - return here
                         # Build condition based on operator for the target field
-                        if cond.op == Op.EQ:
-                            value_param = next_param_name()
-                            return f"{where_clause} = ${value_param}", {value_param: cond.value}, joins_needed
-                        elif cond.op == Op.NEQ:
-                            value_param = next_param_name()
-                            return f"{where_clause} != ${value_param}", {value_param: cond.value}, joins_needed
-                        elif cond.op == Op.LIKE:
-                            value_param = next_param_name()
-                            return f"{where_clause} LIKE ${value_param}", {value_param: f"%{cond.value}%"}, joins_needed
-                        elif cond.op == Op.NOT_LIKE:
-                            value_param = next_param_name()
-                            return f"{where_clause} NOT LIKE ${value_param}", {value_param: f"%{cond.value}%"}, joins_needed
-                        elif cond.op == Op.IN:
-                            params = {}
-                            placeholders = []
-                            for i, val in enumerate(cond.value):
-                                param_name = next_param_name()
-                                params[param_name] = val
-                                placeholders.append(f"${param_name}")
-                            return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
-                        elif cond.op == Op.NOT_IN:
-                            params = {}
-                            placeholders = []
-                            for i, val in enumerate(cond.value):
-                                param_name = next_param_name()
-                                params[param_name] = val
-                                placeholders.append(f"${param_name}")
-                            return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
-                        else:
-                            raise NotImplementedError(f"Operator {cond.op} not implemented for nested field access")
+                        condition_sql, params = self._build_operator_condition(where_clause, cond)
+                        return condition_sql, params, joins_needed
                     else:
                         # Regular aliased table field access
                         joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
@@ -312,78 +337,20 @@ class SqlSearchImpl(SearchImpl):
                     if len(remaining_parts) == 1:
                         # Simple field in related table (e.g., score.1.tag)
                         where_clause = f"{alias}.{remaining_parts[0]}"
+                        condition_sql, params = self._build_operator_condition(where_clause, cond)
+                        return condition_sql, params, joins_needed
                     else:
                         # Check if this is JSON field access in related table
                         json_field = remaining_parts[0]
                         if json_field in self.table_json_fields.get(table, set()):
                             # JSON field in related table
-                            json_path = '$.' + '.'.join(remaining_parts[1:])
-                            path_param = next_param_name()
-                            where_clause = f"json_extract({alias}.{json_field}, ${path_param})"
-                            params = {path_param: json_path}
-
-                            # Build JSON condition based on operator
-                            if cond.op == Op.EQ:
-                                value_param = next_param_name()
-                                params[value_param] = cond.value
-                                return f"{where_clause} = ${value_param}", params, joins_needed
-                            elif cond.op == Op.NEQ:
-                                value_param = next_param_name()
-                                params[value_param] = cond.value
-                                return f"{where_clause} != ${value_param}", params, joins_needed
-                            elif cond.op == Op.GT:
-                                value_param = next_param_name()
-                                params[value_param] = cond.value
-                                return f"CAST({where_clause} AS REAL) > ${value_param}", params, joins_needed
-                            elif cond.op == Op.GTE:
-                                value_param = next_param_name()
-                                params[value_param] = cond.value
-                                return f"CAST({where_clause} AS REAL) >= ${value_param}", params, joins_needed
-                            elif cond.op == Op.LT:
-                                value_param = next_param_name()
-                                params[value_param] = cond.value
-                                return f"CAST({where_clause} AS REAL) < ${value_param}", params, joins_needed
-                            elif cond.op == Op.LTE:
-                                value_param = next_param_name()
-                                params[value_param] = cond.value
-                                return f"CAST({where_clause} AS REAL) <= ${value_param}", params, joins_needed
-                            elif cond.op == Op.EXISTS:
-                                return f"{where_clause} IS NOT NULL", params, joins_needed
-                            elif cond.op == Op.NOT_EXISTS:
-                                return f"{where_clause} IS NULL", params, joins_needed
-                            elif cond.op == Op.LIKE:
-                                value_param = next_param_name()
-                                params[value_param] = f"%{cond.value}%"
-                                return f"{where_clause} LIKE ${value_param}", params, joins_needed
-                            elif cond.op == Op.NOT_LIKE:
-                                value_param = next_param_name()
-                                params[value_param] = f"%{cond.value}%"
-                                return f"{where_clause} NOT LIKE ${value_param}", params, joins_needed
-                            elif cond.op == Op.IN:
-                                in_params = {}
-                                placeholders = []
-                                for i, val in enumerate(cond.value):
-                                    param_name = next_param_name()
-                                    in_params[param_name] = val
-                                    placeholders.append(f"${param_name}")
-                                params.update(in_params)
-                                return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
-                            elif cond.op == Op.NOT_IN:
-                                in_params = {}
-                                placeholders = []
-                                for i, val in enumerate(cond.value):
-                                    param_name = next_param_name()
-                                    in_params[param_name] = val
-                                    placeholders.append(f"${param_name}")
-                                params.update(in_params)
-                                return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
-                            elif cond.op == Op.IS_NULL:
-                                return f"{where_clause} IS NULL", params, joins_needed
-                            elif cond.op == Op.IS_NOT_NULL:
-                                return f"{where_clause} IS NOT NULL", params, joins_needed
+                            condition_sql, params = self._build_json_condition(alias, json_field, remaining_parts[1:], cond)
+                            return condition_sql, params, joins_needed
                         else:
                             # Regular field in related table
                             where_clause = f"{alias}.{json_field}"
+                            condition_sql, params = self._build_operator_condition(where_clause, cond)
+                            return condition_sql, params, joins_needed
                 else:
                     raise ValueError(f"Unknown numbered table reference: {table_name}")
 
@@ -391,72 +358,8 @@ class SqlSearchImpl(SearchImpl):
             elif base_field in self.table_json_fields.get(self.table_name, set()):
                 # Handle JSON field access
                 path_parts = parts[1:]
-                json_path = '$.' + '.'.join(path_parts)
-                path_param = next_param_name()
-                where_clause = f"json_extract({self.table_name}.{base_field}, ${path_param})"
-                params = {path_param: json_path}
-
-                # Build condition based on operator
-                if cond.op == Op.EQ:
-                    value_param = next_param_name()
-                    params[value_param] = cond.value
-                    return f"{where_clause} = ${value_param}", params, joins_needed
-                elif cond.op == Op.NEQ:
-                    value_param = next_param_name()
-                    params[value_param] = cond.value
-                    return f"{where_clause} != ${value_param}", params, joins_needed
-                elif cond.op == Op.GT:
-                    value_param = next_param_name()
-                    params[value_param] = cond.value
-                    return f"CAST({where_clause} AS REAL) > ${value_param}", params, joins_needed
-                elif cond.op == Op.GTE:
-                    value_param = next_param_name()
-                    params[value_param] = cond.value
-                    return f"CAST({where_clause} AS REAL) >= ${value_param}", params, joins_needed
-                elif cond.op == Op.LT:
-                    value_param = next_param_name()
-                    params[value_param] = cond.value
-                    return f"CAST({where_clause} AS REAL) < ${value_param}", params, joins_needed
-                elif cond.op == Op.LTE:
-                    value_param = next_param_name()
-                    params[value_param] = cond.value
-                    return f"CAST({where_clause} AS REAL) <= ${value_param}", params, joins_needed
-                elif cond.op == Op.EXISTS:
-                    return f"{where_clause} IS NOT NULL", params, joins_needed
-                elif cond.op == Op.NOT_EXISTS:
-                    return f"{where_clause} IS NULL", params, joins_needed
-                elif cond.op == Op.LIKE:
-                    value_param = next_param_name()
-                    params[value_param] = f"%{cond.value}%"
-                    return f"{where_clause} LIKE ${value_param}", params, joins_needed
-                elif cond.op == Op.NOT_LIKE:
-                    value_param = next_param_name()
-                    params[value_param] = f"%{cond.value}%"
-                    return f"{where_clause} NOT LIKE ${value_param}", params, joins_needed
-                elif cond.op == Op.IN:
-                    in_params = {}
-                    placeholders = []
-                    for i, val in enumerate(cond.value):
-                        param_name = next_param_name()
-                        in_params[param_name] = val
-                        placeholders.append(f"${param_name}")
-                    params.update(in_params)
-                    return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
-                elif cond.op == Op.NOT_IN:
-                    in_params = {}
-                    placeholders = []
-                    for i, val in enumerate(cond.value):
-                        param_name = next_param_name()
-                        in_params[param_name] = val
-                        placeholders.append(f"${param_name}")
-                    params.update(in_params)
-                    return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
-                elif cond.op == Op.IS_NULL:
-                    return f"{where_clause} IS NULL", params, joins_needed
-                elif cond.op == Op.IS_NOT_NULL:
-                    return f"{where_clause} IS NOT NULL", params, joins_needed
-                else:
-                    raise NotImplementedError(f"Operator {cond.op} not implemented for JSON field access")
+                condition_sql, params = self._build_json_condition(self.table_name, base_field, path_parts, cond)
+                return condition_sql, params, joins_needed
 
             else:
                 # Check if this is a field in a related table (legacy support)
@@ -502,56 +405,8 @@ class SqlSearchImpl(SearchImpl):
             where_clause = f"{self.table_name}.{field}"
 
         # Build condition based on operator
-        if cond.op == Op.EQ:
-            value_param = next_param_name()
-            return f"{where_clause} = ${value_param}", {value_param: cond.value}, joins_needed
-        elif cond.op == Op.NEQ:
-            value_param = next_param_name()
-            return f"{where_clause} != ${value_param}", {value_param: cond.value}, joins_needed
-        elif cond.op == Op.GT:
-            value_param = next_param_name()
-            return f"{where_clause} > ${value_param}", {value_param: cond.value}, joins_needed
-        elif cond.op == Op.GTE:
-            value_param = next_param_name()
-            return f"{where_clause} >= ${value_param}", {value_param: cond.value}, joins_needed
-        elif cond.op == Op.LT:
-            value_param = next_param_name()
-            return f"{where_clause} < ${value_param}", {value_param: cond.value}, joins_needed
-        elif cond.op == Op.LTE:
-            value_param = next_param_name()
-            return f"{where_clause} <= ${value_param}", {value_param: cond.value}, joins_needed
-        elif cond.op == Op.LIKE:
-            value_param = next_param_name()
-            return f"{where_clause} LIKE ${value_param}", {value_param: f"%{cond.value}%"}, joins_needed
-        elif cond.op == Op.NOT_LIKE:
-            value_param = next_param_name()
-            return f"{where_clause} NOT LIKE ${value_param}", {value_param: f"%{cond.value}%"}, joins_needed
-        elif cond.op == Op.IN:
-            params = {}
-            placeholders = []
-            for i, val in enumerate(cond.value):
-                param_name = next_param_name()
-                params[param_name] = val
-                placeholders.append(f"${param_name}")
-            return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
-        elif cond.op == Op.NOT_IN:
-            params = {}
-            placeholders = []
-            for i, val in enumerate(cond.value):
-                param_name = next_param_name()
-                params[param_name] = val
-                placeholders.append(f"${param_name}")
-            return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
-        elif cond.op == Op.EXISTS:
-            return f"{where_clause} IS NOT NULL", {}, joins_needed
-        elif cond.op == Op.NOT_EXISTS:
-            return f"{where_clause} IS NULL", {}, joins_needed
-        elif cond.op == Op.IS_NULL:
-            return f"{where_clause} IS NULL", {}, joins_needed
-        elif cond.op == Op.IS_NOT_NULL:
-            return f"{where_clause} IS NOT NULL", {}, joins_needed
-        else:
-            raise NotImplementedError(f"Operator {cond.op} not implemented")
+        condition_sql, params = self._build_operator_condition(where_clause, cond)
+        return condition_sql, params, joins_needed
 
     def _build_join_clause(self, cond: JoinCond) -> tuple[str, dict, list]:
         """Build SQL for joined conditions (AND/OR/NOT)"""
