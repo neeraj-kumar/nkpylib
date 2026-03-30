@@ -114,16 +114,14 @@ class SqlSearchImpl(SearchImpl):
             self._reset_magic_fields()
             self._param_counter = 0
             where_clause, param_dict, joins = self._build_where_clause(cond)
-            
+
             # Use magic field values or defaults
             limit = self._query_limit if self._query_limit is not None else n_results
             offset = self._query_offset if self._query_offset is not None else 0
             order = self._query_order
-            
             # Build complete SQL query
             join_clause = ' '.join(joins) if joins else ''
             where_part = f"WHERE {where_clause}" if where_clause else ""
-            
             # Build ORDER BY clause
             order_clause = ""
             if order:
@@ -133,7 +131,6 @@ class SqlSearchImpl(SearchImpl):
                 else:
                     direction = "ASC"
                     field = order
-                
                 # Handle JSON field ordering
                 if '.' in field:
                     base_field, *path_parts = field.split('.')
@@ -147,7 +144,6 @@ class SqlSearchImpl(SearchImpl):
                         order_clause = f"ORDER BY {self.table_name}.{field} {direction}"
                 else:
                     order_clause = f"ORDER BY {self.table_name}.{field} {direction}"
-            
             sql = f"""
             SELECT DISTINCT {self.table_name}.{self.id_field}
             FROM {self.table_name}
@@ -156,17 +152,12 @@ class SqlSearchImpl(SearchImpl):
             {order_clause}
             LIMIT $limit OFFSET $offset
             """
-            
             param_dict['limit'] = limit
             param_dict['offset'] = offset
-
             logger.info(f"Executing SQL: {sql}")
             logger.info(f"With params: {param_dict}")
-
             cursor = self.db.execute(sql, {}, param_dict)
             rows = list(cursor)
-
-            # Convert rows to SearchResult objects
             results = [self._row_to_result(row) for row in rows]
             return results
 
@@ -245,7 +236,7 @@ class SqlSearchImpl(SearchImpl):
         path_param = self._next_param_name()
         where_clause = f"json_extract({table_alias}.{json_field}, ${path_param})"
         params = {path_param: json_path}
-        
+
         condition_sql, condition_params = self._build_operator_condition(where_clause, cond)
         params.update(condition_params)
         return condition_sql, params
@@ -327,7 +318,7 @@ class SqlSearchImpl(SearchImpl):
                         else:
                             # Simple field in target item
                             where_clause = f"{target_alias}.{target_field}"
-                        
+
                         # Build condition based on operator for the target field
                         condition_sql, params = self._build_operator_condition(where_clause, cond)
                         return condition_sql, params, joins_needed
