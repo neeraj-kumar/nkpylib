@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+
+from collections import Counter
 from enum import Enum
 from multiprocessing import get_context
 from typing import Any, Sequence
@@ -131,7 +133,6 @@ class SqlSearchImpl(SearchImpl):
 
     def _generate_aliases(self, other_tables: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
         """Generate aliases automatically based on table and fk_field"""
-        from collections import Counter
 
         # Count how many times each table appears
         table_counts = Counter(table for table, fk_field in other_tables)
@@ -176,26 +177,26 @@ class SqlSearchImpl(SearchImpl):
         else:
             return FieldType.SIMPLE
 
+    @db_session
     def _discover_json_fields(self, table: str) -> set[str]:
         """Find columns in `table` that contain JSON data.
 
         This is only tested on sqlite for now.
         """
-        with db_session:
-            try:
-                result = self.db.execute(f"PRAGMA table_info({table})")
-                return {row[1] for row in result if row[2].upper() == 'JSON'}
-            except Exception as e:
-                logger.warning(f"Could not discover JSON fields in {table}: {e}")
-                return set()
+        try:
+            result = self.db.execute(f"PRAGMA table_info({table})")
+            return {row[1] for row in result if row[2].upper() == 'JSON'}
+        except Exception as e:
+            logger.warning(f"Could not discover JSON fields in {table}: {e}")
+            return set()
 
     async def _async_search(self, cond: SearchCond, n_results: int = 15, **kw) -> list[SearchResult]:
-        """Execute search using SQL queries"""
+        """Execute search using SQL queries. This is the main entry point."""
         with db_session:
             # Reset magic fields and parameter manager for each search
             self._reset_magic_fields()
             self.param_manager.reset()
-            where_clause, param_dict, joins = self._build_where_clause(cond)
+            where_clause, params, joins = self._build_where_clause(cond)
 
             # Use magic field values or defaults
             limit = self._query_limit if self._query_limit is not None else n_results
@@ -203,18 +204,16 @@ class SqlSearchImpl(SearchImpl):
             order = self._query_order
 
             # Build ORDER BY clause
-            order_clause = self._build_order_clause(order, param_dict)
+            order_clause = self._build_order_clause(order, params)
 
             # Build final SQL
             sql = self._build_final_sql(joins, where_clause, order_clause, limit, offset)
 
-            param_dict['limit'] = limit
-            param_dict['offset'] = offset
+            params.update(limit=limit, offset=offset)
             logger.info(f"Executing SQL: {sql}")
-            logger.info(f"With params: {param_dict}")
-            cursor = self.db.execute(sql, {}, param_dict)
-            rows = list(cursor)
-            results = [self._row_to_result(row) for row in rows]
+            logger.info(f"With params: {params}")
+            cursor = self.db.execute(sql, {}, params)
+            results = [self._row_to_result(row) for row in cursor]
             return results
 
     def _build_where_clause(self, cond: SearchCond) -> tuple[str, dict, list]:
