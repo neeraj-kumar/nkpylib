@@ -447,6 +447,8 @@ class SqlSearchImpl(SearchImpl):
                         placeholders.append(f"${param_name}")
                     params.update(in_params)
                     return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
+                else:
+                    raise NotImplementedError(f"Operator {cond.op} not implemented for JSON field access")
 
             else:
                 # Check if this is a field in a related table (legacy support)
