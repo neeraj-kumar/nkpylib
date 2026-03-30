@@ -771,7 +771,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         # Cross-entity relationship queries using aliases
         (["&",
           ["rel_src.rtype", "=", "has_genre"],
-          ["rel_src.tgt", "=", 42]  # Movies with genre ID 42
+          ["rel_src.tgt", "=", 3]  # Movies with genre ID 3 (movielens Drama)
          ], "Movies with specific genre (using alias)"),
 
         # Movies with specific genre by name (nested query)
@@ -784,14 +784,15 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         # Genres used by specific movies
         (["&",
           ["otype", "=", "genre"],
+          ["source", "=", 'tmdb'],
           ["rel_tgt.rtype", "=", "has_genre"],
-          ["rel_tgt.src", ":", [100, 200, 300]]  # Specific movie IDs
-         ], "Genres used by specific movies"),
+          ["rel_tgt.src", ":", [2, 46, 223]]  # Agneepath, Bullet train, Tropic thunder
+         ], "TMDB Genres used by specific movies"),
     ]
 
     print(f"\nTesting {len(queries)} queries:")
     for i, (query, description) in enumerate(queries):
-        if i < 31: continue
+        if i < 35: continue
         print(f"\n{i+1}. {description}: {query}")
         results = ssi.search(query, n_results=50000)
         print(f"{len(results)} Results found")
