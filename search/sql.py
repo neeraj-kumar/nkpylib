@@ -5,6 +5,9 @@ make it more tractable and fit more easily in the general searcher framework.
 
 The key limitation is that we only return results from a single table. The queries can include other
 tables, but they must all reference this primary table.
+
+The result of a search is always the primary key of the main table, and an optional score (which is
+always 1.0 for now).
 """
 
 from __future__ import annotations
@@ -84,22 +87,19 @@ class SqlSearchImpl(SearchImpl):
             FROM {self.table_name}
             {join_clause}
             {where_clause}
-            ORDER BY {self.table_name}.{self.id_field} DESC
             LIMIT $limit
             """
+            #FIXME do ordering better: ORDER BY {self.table_name}.{self.id_field} DESC
             param_dict['limit'] = n_results
 
-            logger.debug(f"Executing SQL: {sql}")
-            logger.debug(f"With params: {param_dict}")
+            logger.info(f"Executing SQL: {sql}")
+            logger.info(f"With params: {param_dict}")
 
             cursor = self.db.execute(sql, {}, param_dict)
             rows = list(cursor)
 
             # Convert rows to SearchResult objects
-            results = []
-            for row in rows:
-                results.append(self._row_to_result(row))
-
+            results = [self._row_to_result(row) for row in rows]
             return results
 
     def _build_where_clause(self, cond: SearchCond) -> tuple[str, dict, list]:
@@ -128,7 +128,6 @@ class SqlSearchImpl(SearchImpl):
         # Handle JSON field access (e.g., md.stats.n_images)
         if '.' in field:
             base_field, *path_parts = field.split('.')
-
             if base_field in self.table_json_fields.get(self.table_name, set()):
                 # Handle JSON field access
                 json_path = '$.' + '.'.join(path_parts)
@@ -344,12 +343,8 @@ class SqlSearchImpl(SearchImpl):
 
     def _row_to_result(self, row) -> SearchResult:
         """Convert database row to SearchResult"""
-        row_dict = dict(row)
-        item_id = row_dict.pop(self.id_field)
-
         return SearchResult(
-            id=item_id,
+            id=row[0],
             score=1.0,
-            metadata=row_dict
+            #metadata=row_dict
         )
-
