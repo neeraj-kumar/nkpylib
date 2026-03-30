@@ -273,7 +273,7 @@ def parse_grammar_str_into_cond(query: str) -> SearchCond:
             raise e
 
 def parse_json_into_cond(data: list | dict) -> SearchCond:
-    """Parse a JSON array/dict into a `SearchCond` using compact array format.
+    """Parse a JSON array/dict into a `SearchCond` using compact array/dict formats.
 
     Supports formats:
     - [field, op, value] for operations
@@ -283,8 +283,12 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
       - '|' or 'or' (any case)
       - '!' or 'not' (any case, only takes one condition)
     - {field_op: value, ...} for dict format where field_op is "field" or "field+op"
+      - Each field is treated as a separate condition, and all conditions are ANDed together
       - If no operator suffix, defaults to '='
       - Example: {'name~': 'john', 'age>': 5, 'eyes:': ['blue', 'brown']}
+        - "name~": "john" -> name LIKE "john"
+        - "age>": 5 -> age > 5
+        - "eyes:": ["blue", "brown"] -> eyes IN ["blue", "brown"]
 
     For example:
         ["&", ["title", "~", "machine learning"], ["year", ">=", 2020]]
@@ -292,7 +296,6 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
         {"name~": "john", "age>": 25, "status": "active"}
     """
     logger.debug(f"Parsing JSON: {data}")
-    
     # Handle dict format
     if isinstance(data, dict):
         conditions = []
@@ -300,12 +303,10 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
             # Parse field and operator from key
             field, op = _parse_field_op(field_op)
             conditions.append(OpCond(field, op, value))
-        
         if len(conditions) == 1:
             return conditions[0]
         else:
             return JoinCond(JoinType.AND, conditions)
-    
     ANDs = {'&', ',', 'and'}
     ORs = {'|', 'or'}
     NOTs = {'!', 'not'}
@@ -343,7 +344,7 @@ def parse_json_into_cond(data: list | dict) -> SearchCond:
 
 def _parse_field_op(field_op: str) -> tuple[str, Op]:
     """Parse a field+operator string into separate field and operator.
-    
+
     Examples:
     - 'name' -> ('name', Op.EQ)
     - 'name~' -> ('name', Op.LIKE)
@@ -357,7 +358,6 @@ def _parse_field_op(field_op: str) -> tuple[str, Op]:
             field = field_op[:-len(op_str)]
             if field and op_str in OP_MAP:
                 return field, OP_MAP[op_str]
-    
     # Check for single-character operators
     single_char_ops = ['=', '>', '<', '~', ':', '@', '?']
     for op_str in single_char_ops:
@@ -365,6 +365,5 @@ def _parse_field_op(field_op: str) -> tuple[str, Op]:
             field = field_op[:-1]
             if field and op_str in OP_MAP:
                 return field, OP_MAP[op_str]
-    
     # No operator found, default to equality
     return field_op, Op.EQ
