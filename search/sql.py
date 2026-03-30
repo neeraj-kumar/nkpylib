@@ -90,7 +90,8 @@ class SqlSearchImpl(SearchImpl):
             logger.debug(f"Executing SQL: {sql}")
             logger.debug(f"With params: {params}")
 
-            rows = self.db.execute(sql, params).fetchall()
+            cursor = self.db.execute(sql, params)
+            rows = list(cursor)
 
             # Convert rows to SearchResult objects
             results = []
