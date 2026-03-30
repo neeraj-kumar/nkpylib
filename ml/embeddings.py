@@ -37,13 +37,13 @@ from sklearn.base import clone, BaseEstimator, ClassifierMixin, ClusterMixin # t
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import TruncatedSVD # type: ignore
 from sklearn.kernel_approximation import RBFSampler
-from sklearn.linear_model import SGDClassifier # type: ignore
+from sklearn.linear_model import SGDClassifier, SGDRegressor # type: ignore
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_recall_fscore_support, roc_auc_score # type: ignore
 from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.neighbors import NearestNeighbors # type: ignore
 from sklearn.pipeline import Pipeline # type: ignore
 from sklearn.preprocessing import StandardScaler # type: ignore
-from sklearn.svm import LinearSVC, SVC # type: ignore
+from sklearn.svm import LinearSVC, SVC, SVR  # type: ignore
 from tqdm import tqdm
 
 from nkpylib.utils import specialize
@@ -193,6 +193,19 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 return MixtureOfLinear(classifier=SGDClassifier(**clf_kw), **kw)
             case _:
                 raise NotImplementedError(f'Classifier method {method!r} not implemented.')
+
+    def _create_regressor(self, method: str='rbf', C=1, **kw) -> Any:
+        """Creates a regressor instance without training it."""
+        reg_kw = dict(**kw)
+        match method:
+            case 'rbf':
+                return SVR(kernel='rbf', C=C, **reg_kw)
+            case 'linear':
+                return SVR(kernel='linear', C=C, **reg_kw)
+            case 'sgd':
+                return SGDRegressor(**reg_kw)
+            case _:
+                raise NotImplementedError(f'Regressor method {method!r} not implemented.')
 
     def count_clustering_conflicts(self, labels: dict[KeyT, int], predictions: dict[KeyT, int]) -> dict[str, int]:
         """Count conflicts between labeled and predicted cluster assignments.
@@ -447,7 +460,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         """High-level function to train a classifier with given `pos` and `neg` and run on `to_cls`.
 
         The params `method`, `C`, and `kw` are fed into `train_classifier()`, which in turn uses them
-        in `_create_classifier()`.
+        in `_create_classifier()` or `_create_regressor()`
 
         By default this is binary classification. But if you pass in `labels`, then we treat this as
         a multiclass classification problem, where the class of each key in `pos` is given by its
@@ -484,6 +497,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         test_keys = []
         test_X = []
         logger.info(f'Got {len(keys)} keys, {len(set(keys))} unique keys')
+        float_labels = False
         for k, emb in zip(keys, embs):
             if k in pos_set or k in neg_set:
                 train_X.append(emb)
@@ -491,6 +505,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                     idx = pos.index(k)
                     label = labels[idx]
                     y.append(label)
+                    if isinstance(label, float):
+                        float_labels = True
                 else:
                     y.append(1 if k in pos_set else -1)
                 weights.append(1.0 if k in pos_set else neg_weight)
@@ -502,8 +518,12 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         logger.info(f'In training, trainX: {train_X.shape}, y: {Counter(y).most_common()}')
         # Perform cross-validation if requested
         if cv > 0:
-            cv_classifier = self._create_classifier(method=method, C=C, **kw)
-            cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights))
+            if float_labels:
+                cv_classifier = self._create_regressor(method=method, C=C, **kw)
+                cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights), scoring='r2')
+            else:
+                cv_classifier = self._create_classifier(method=method, C=C, **kw)
+                cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights))
             other_stuff['cv'] = [float(s) for s in cv_scores]
             logger.info(f'Cross-validation scores: {cv_scores}, mean: {cv_scores.mean():.3f}')
         cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)
@@ -518,10 +538,12 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         else:
             if cv > 0:
                 cv_labels = [labels[pos.index(k) if k in pos else -1] for k in test_keys]
-                scores_array = cross_val_predict(cls, test_X, cv_labels, cv=cv, method='decision_function')
+                if not float_labels:
+                    scores_array = cross_val_predict(cls, test_X, cv_labels, cv=cv, method='decision_function')
                 preds = cross_val_predict(cls, test_X, cv_labels, cv=cv)
             else:
-                scores_array = cls.decision_function(test_X)
+                if not float_labels:
+                    scores_array = cls.decision_function(test_X)
                 preds = cls.predict(test_X)
             scores = {}
             for i, key in enumerate(test_keys):
@@ -575,7 +597,11 @@ class Embeddings(FeatureSet, Generic[KeyT]):
             assert len(X) == len(weights), f'Length of weights {len(weights)} must match X {len(X)}'
         X = np.asarray(X)
         logger.debug(f'training labels {Counter(y).most_common()}, X: {X.shape}, {X}')
-        clf = self._create_classifier(method=method, C=C, class_weight=class_weight, **kw)
+        float_labels = any(isinstance(label, float) for label in y)
+        if float_labels:
+            clf = self._create_regressor(method=method, C=C, **kw)
+        else:
+            clf = self._create_classifier(method=method, C=C, class_weight=class_weight, **kw)
         clf.fit(X, y, sample_weight=weights)
         return clf
 
