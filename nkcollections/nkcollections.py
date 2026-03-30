@@ -768,11 +768,25 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
           ["name", "~", "Tom"]
          ], "People named Tom"),
 
-        # Cross-entity relationship queries
+        # Cross-entity relationship queries using aliases
         (["&",
-          ["rel.rtype", "=", "has_genre"],
-          ["rel.tgt", "=", 42]  # Assuming genre ID 42 is Horror
-         ], "Items with Horror genre relationship"),
+          ["rel_src.rtype", "=", "has_genre"],
+          ["rel_src.tgt", "=", 42]  # Movies with genre ID 42
+         ], "Movies with specific genre (using alias)"),
+
+        # Movies with specific genre by name (nested query)
+        (["&",
+          ["otype", "=", "movie"],
+          ["rel_src.rtype", "=", "has_genre"],
+          ["rel_src.tgt.name", "=", "Action"]  # Join through to genre name
+         ], "Movies with Action genre (by name)"),
+
+        # Genres used by specific movies
+        (["&",
+          ["otype", "=", "genre"],
+          ["rel_tgt.rtype", "=", "has_genre"],
+          ["rel_tgt.src", ":", [100, 200, 300]]  # Specific movie IDs
+         ], "Genres used by specific movies"),
     ]
 
     print(f"\nTesting {len(queries)} queries:")
