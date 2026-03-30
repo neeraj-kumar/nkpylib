@@ -377,11 +377,15 @@ class SqlSearchImpl(SearchImpl):
                 # Check if this is a field in a related table (legacy support)
                 related_table = None
                 fk_field = None
-                for table_name, foreign_key in self.other_tables:
-                    if base_field == table_name:
-                        related_table = table_name
-                        fk_field = foreign_key
-                        break
+                matching_entries = [(t, fk) for t, fk in self.other_tables if t == base_field]
+                
+                if len(matching_entries) > 1:
+                    # Multiple FKs to same table - require explicit alias
+                    available_aliases = [alias for (table, fk), alias in self.table_aliases.items() if table == base_field]
+                    raise ValueError(f"Ambiguous table reference '{base_field}'. "
+                                   f"Use explicit alias: {', '.join(available_aliases)}")
+                elif len(matching_entries) == 1:
+                    related_table, fk_field = matching_entries[0]
 
                 if related_table:
                     # Handle related table field access (legacy)
