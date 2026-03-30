@@ -205,8 +205,6 @@ class SqlSearchImpl(SearchImpl):
                             where_clause = f"{related_table}.{json_field}"
                 else:
                     raise ValueError(f"Unknown field or table: {base_field}")
-            else:
-                raise ValueError(f"Unknown field or table: {base_field}")
         else:
             # Simple field on main table
             where_clause = f"{self.table_name}.{field}"
