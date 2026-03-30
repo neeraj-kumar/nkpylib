@@ -139,7 +139,10 @@ class SqlSearchImpl(SearchImpl):
                     base_field, *path_parts = field.split('.')
                     if base_field in self.table_json_fields.get(self.table_name, set()):
                         json_path = '$.' + '.'.join(path_parts)
-                        order_clause = f"ORDER BY json_extract({self.table_name}.{base_field}, '{json_path}') {direction}"
+                        path_param = f"order_path_{self._param_counter}"
+                        self._param_counter += 1
+                        param_dict[path_param] = json_path
+                        order_clause = f"ORDER BY json_extract({self.table_name}.{base_field}, ${path_param}) {direction}"
                     else:
                         order_clause = f"ORDER BY {self.table_name}.{field} {direction}"
                 else:
