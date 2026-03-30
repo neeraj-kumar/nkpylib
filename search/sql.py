@@ -124,10 +124,87 @@ class SqlSearchImpl(SearchImpl):
             self._param_counter = param_counter
             return f"p{param_counter}"
 
-        # Handle JSON field access (e.g., md.stats.n_images)
+        # Handle numbered table references (e.g., score.1.tag, score.2.score)
         if '.' in field:
-            base_field, *path_parts = field.split('.')
-            if base_field in self.table_json_fields.get(self.table_name, set()):
+            parts = field.split('.')
+            base_field = parts[0]
+            
+            # Check for numbered table reference pattern: table.number.field
+            if len(parts) >= 3 and parts[1].isdigit():
+                table_name = base_field
+                table_number = parts[1]
+                remaining_parts = parts[2:]
+                
+                # Check if this is a known related table
+                related_table_info = None
+                for table, fk_field in self.other_tables:
+                    if table == table_name:
+                        related_table_info = (table, fk_field)
+                        break
+                
+                if related_table_info:
+                    table, fk_field = related_table_info
+                    alias = f"{table}_{table_number}"
+                    joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
+                    
+                    if len(remaining_parts) == 1:
+                        # Simple field in related table (e.g., score.1.tag)
+                        where_clause = f"{alias}.{remaining_parts[0]}"
+                    else:
+                        # Check if this is JSON field access in related table
+                        json_field = remaining_parts[0]
+                        if json_field in self.table_json_fields.get(table, set()):
+                            # JSON field in related table
+                            json_path = '$.' + '.'.join(remaining_parts[1:])
+                            path_param = next_param_name()
+                            where_clause = f"json_extract({alias}.{json_field}, ${path_param})"
+                            params = {path_param: json_path}
+                            
+                            # Build JSON condition based on operator
+                            if cond.op == Op.EQ:
+                                value_param = next_param_name()
+                                params[value_param] = cond.value
+                                return f"{where_clause} = ${value_param}", params, joins_needed
+                            elif cond.op == Op.NEQ:
+                                value_param = next_param_name()
+                                params[value_param] = cond.value
+                                return f"{where_clause} != ${value_param}", params, joins_needed
+                            elif cond.op == Op.GT:
+                                value_param = next_param_name()
+                                params[value_param] = cond.value
+                                return f"CAST({where_clause} AS REAL) > ${value_param}", params, joins_needed
+                            elif cond.op == Op.GTE:
+                                value_param = next_param_name()
+                                params[value_param] = cond.value
+                                return f"CAST({where_clause} AS REAL) >= ${value_param}", params, joins_needed
+                            elif cond.op == Op.LT:
+                                value_param = next_param_name()
+                                params[value_param] = cond.value
+                                return f"CAST({where_clause} AS REAL) < ${value_param}", params, joins_needed
+                            elif cond.op == Op.LTE:
+                                value_param = next_param_name()
+                                params[value_param] = cond.value
+                                return f"CAST({where_clause} AS REAL) <= ${value_param}", params, joins_needed
+                            elif cond.op == Op.EXISTS:
+                                return f"{where_clause} IS NOT NULL", params, joins_needed
+                            elif cond.op == Op.NOT_EXISTS:
+                                return f"{where_clause} IS NULL", params, joins_needed
+                            elif cond.op == Op.LIKE:
+                                value_param = next_param_name()
+                                params[value_param] = f"%{cond.value}%"
+                                return f"{where_clause} LIKE ${value_param}", params, joins_needed
+                            elif cond.op == Op.NOT_LIKE:
+                                value_param = next_param_name()
+                                params[value_param] = f"%{cond.value}%"
+                                return f"{where_clause} NOT LIKE ${value_param}", params, joins_needed
+                        else:
+                            # Regular field in related table
+                            where_clause = f"{alias}.{json_field}"
+                else:
+                    raise ValueError(f"Unknown numbered table reference: {table_name}")
+            
+            # Handle regular JSON field access (e.g., md.stats.n_images)
+            elif base_field in self.table_json_fields.get(self.table_name, set()):
                 # Handle JSON field access
                 json_path = '$.' + '.'.join(path_parts)
                 path_param = next_param_name()

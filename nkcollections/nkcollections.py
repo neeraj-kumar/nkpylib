@@ -693,14 +693,13 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
           ["rel.rtype", "=", "director"]
          ], "People with known directors"),
 
-        # Multiple score conditions
-        #TODO doesn't work because there are separate score rows for budget vs rating
+        # Multiple score conditions using numbered syntax
         (["&",
           ["otype", "=", "movie"],
-          ["score.tag", "=", "rating"],
-          ["score.score", ">=", 7.0],
-          ["score.tag", "=", "budget"],
-          ["score.score", "<", 1000000]
+          ["score.1.tag", "=", "rating"],
+          ["score.1.score", ">=", 7.0],
+          ["score.2.tag", "=", "budget"],
+          ["score.2.score", "<", 1000000]
          ], "Good low-budget movies"),
 
         # Complex OR with nested AND conditions using actual schema
@@ -728,18 +727,18 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         # Multi-table joins with complex conditions using actual schema
         (["&",
           ["otype", "=", "movie"],
-          ["rel.rtype", "=", "acted_in"],
-          ["score.tag", "=", "revenue"],
-          ["score.score", ">", 1000000000]
+          ["rel.1.rtype", "=", "acted_in"],
+          ["score.1.tag", "=", "revenue"],
+          ["score.1.score", ">", 1000000000]
          ], "Billion-dollar movies with known cast"),
 
-        # Revenue vs budget analysis
+        # Revenue vs budget analysis using numbered syntax
         (["&",
           ["otype", "=", "movie"],
-          ["score.tag", "=", "revenue"],
-          ["score.score", ">", 100000000],
-          ["score.tag", "=", "budget"],
-          ["score.score", "<", 50000000]
+          ["score.1.tag", "=", "revenue"],
+          ["score.1.score", ">", 100000000],
+          ["score.2.tag", "=", "budget"],
+          ["score.2.score", "<", 50000000]
          ], "Profitable movies (high revenue, low budget)"),
 
         # Time-based queries
