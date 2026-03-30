@@ -383,17 +383,9 @@ class SqlSearchImpl(SearchImpl):
                         # Check if this is JSON field access in related table
                         json_field = path_parts[0]
                         if json_field in self.table_json_fields.get(related_table, set()):
-                            # JSON field in related table (same handling as before)
-                            json_path = '$.' + '.'.join(path_parts[1:])
-                            path_param = next_param_name()
-                            where_clause = f"json_extract({related_table}.{json_field}, ${path_param})"
-                            params = {path_param: json_path}
-
-                            # Build JSON condition based on operator (same as existing code)
-                            if cond.op == Op.EQ:
-                                value_param = next_param_name()
-                                params[value_param] = cond.value
-                                return f"{where_clause} = ${value_param}", params, joins_needed
+                            # JSON field in related table - use refactored method
+                            condition_sql, params = self._build_json_condition(related_table, json_field, path_parts[1:], cond)
+                            return condition_sql, params, joins_needed
                             # ... (keep all existing operator handling)
                         else:
                             # Regular field in related table
