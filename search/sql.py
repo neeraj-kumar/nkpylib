@@ -70,11 +70,9 @@ class SqlSearchImpl(SearchImpl):
                 
                 for row in result:
                     column_name, data_type = row[1], row[2]
-                    # In SQLite, JSON is often stored as TEXT or JSON type
-                    if data_type.upper() in ('JSON', 'TEXT'):
-                        # Additional heuristic: check if column name suggests JSON
-                        if column_name in ('md', 'metadata', 'data', 'json'):
-                            json_fields.add(column_name)
+                    # Check for JSON type only
+                    if data_type.upper() == 'JSON':
+                        json_fields.add(column_name)
                 
                 return json_fields
             except Exception as e:
