@@ -813,7 +813,7 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
 
     print(f"\nTesting {len(queries)} queries:")
     for i, (query, description) in enumerate(queries):
-        if i < 35: continue
+        if i < 39: continue
         print(f"\n{i+1}. {description}: {query}")
         results = ssi.search(query, n_results=50000)
         print(f"{len(results)} Results found")
