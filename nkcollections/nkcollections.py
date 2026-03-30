@@ -625,9 +625,22 @@ def worker_main(cfg_path: str, **kw) -> None:
         traceback.print_exc()
         raise
 
+def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
+    """Tests out the sql searcher"""
+    from nkpylib.search.sql import SqlSearchImpl
+    db = init_sql_db(db_path)
+    print(db)
+    ssi = SqlSearchImpl(db=db, table_name='item', other_tables=[
+        ('rel', 'src'), ('rel', 'tgt'), ('score', 'id')])
+    print(ssi)
+    queries = [
+    ]
+    sys.exit()
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(funcName)s:%(lineno)d - %(levelname)s - %(message)s")
+    test_sql_search()
     parser = ArgumentParser(description="NK collections")
     parser.add_argument('mode', choices=['worker', 'server'], help="Run mode: worker or server")
     parser.add_argument('config_path', help="Config file path")
