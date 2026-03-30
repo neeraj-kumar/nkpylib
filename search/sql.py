@@ -82,11 +82,12 @@ class SqlSearchImpl(SearchImpl):
             where_clause, param_dict, joins = self._build_where_clause(cond)
             # Build complete SQL query
             join_clause = ' '.join(joins) if joins else ''
+            where_part = f"WHERE {where_clause}" if where_clause else ""
             sql = f"""
             SELECT DISTINCT {self.table_name}.{self.id_field}
             FROM {self.table_name}
             {join_clause}
-            {where_clause}
+            {where_part}
             LIMIT $limit
             """
             #FIXME do ordering better: ORDER BY {self.table_name}.{self.id_field} DESC
@@ -106,9 +107,7 @@ class SqlSearchImpl(SearchImpl):
         """Build WHERE clause, parameters dict, and JOINs from SearchCond"""
         if isinstance(cond, OpCond):
             where_part, params, joins = self._build_op_clause(cond)
-            if where_part:
-                return f"WHERE {where_part}", params, joins
-            return "", params, joins
+            return where_part, params, joins
         elif isinstance(cond, JoinCond):
             return self._build_join_clause(cond)
         else:
@@ -336,10 +335,7 @@ class SqlSearchImpl(SearchImpl):
         # Remove duplicate joins
         unique_joins = list(dict.fromkeys(all_joins))
 
-        if combined_where:
-            return f"WHERE {combined_where}", all_params, unique_joins
-        else:
-            return "", all_params, unique_joins
+        return combined_where, all_params, unique_joins
 
     def _row_to_result(self, row) -> SearchResult:
         """Convert database row to SearchResult"""
