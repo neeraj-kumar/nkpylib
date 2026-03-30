@@ -66,6 +66,9 @@ class SqlSearchImpl(SearchImpl):
         logger.info(f"Discovered JSON fields: {self.table_json_fields}")
         logger.info(f"Generated table aliases: {self.table_aliases}")
 
+        # Initialize magic field storage
+        self._reset_magic_fields()
+
     def _generate_aliases(self, other_tables: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
         """Generate aliases automatically based on table and fk_field"""
         from collections import Counter
@@ -85,6 +88,12 @@ class SqlSearchImpl(SearchImpl):
 
         return aliases
 
+    def _reset_magic_fields(self):
+        """Reset magic field values for a new query"""
+        self._query_limit = None
+        self._query_offset = None
+        self._query_order = None
+
     def _discover_json_fields(self, table: str) -> set[str]:
         """Find columns in `table` that contain JSON data.
 
@@ -101,21 +110,52 @@ class SqlSearchImpl(SearchImpl):
     async def _async_search(self, cond: SearchCond, n_results: int = 15, **kw) -> list[SearchResult]:
         """Execute search using SQL queries"""
         with db_session:
-            # Reset parameter counter for each search
+            # Reset magic fields and parameter counter for each search
+            self._reset_magic_fields()
             self._param_counter = 0
             where_clause, param_dict, joins = self._build_where_clause(cond)
+            
+            # Use magic field values or defaults
+            limit = self._query_limit if self._query_limit is not None else n_results
+            offset = self._query_offset if self._query_offset is not None else 0
+            order = self._query_order
+            
             # Build complete SQL query
             join_clause = ' '.join(joins) if joins else ''
             where_part = f"WHERE {where_clause}" if where_clause else ""
+            
+            # Build ORDER BY clause
+            order_clause = ""
+            if order:
+                if order.startswith('-'):
+                    direction = "DESC"
+                    field = order[1:]
+                else:
+                    direction = "ASC"
+                    field = order
+                
+                # Handle JSON field ordering
+                if '.' in field:
+                    base_field, *path_parts = field.split('.')
+                    if base_field in self.table_json_fields.get(self.table_name, set()):
+                        json_path = '$.' + '.'.join(path_parts)
+                        order_clause = f"ORDER BY json_extract({self.table_name}.{base_field}, '{json_path}') {direction}"
+                    else:
+                        order_clause = f"ORDER BY {self.table_name}.{field} {direction}"
+                else:
+                    order_clause = f"ORDER BY {self.table_name}.{field} {direction}"
+            
             sql = f"""
             SELECT DISTINCT {self.table_name}.{self.id_field}
             FROM {self.table_name}
             {join_clause}
             {where_part}
-            LIMIT $limit
+            {order_clause}
+            LIMIT $limit OFFSET $offset
             """
-            #FIXME do ordering better: ORDER BY {self.table_name}.{self.id_field} DESC
-            param_dict['limit'] = n_results
+            
+            param_dict['limit'] = limit
+            param_dict['offset'] = offset
 
             logger.info(f"Executing SQL: {sql}")
             logger.info(f"With params: {param_dict}")
@@ -147,6 +187,20 @@ class SqlSearchImpl(SearchImpl):
             param_counter += 1
             self._param_counter = param_counter
             return f"p{param_counter}"
+
+        # Handle magic fields first
+        if field.startswith('$'):
+            if field == '$limit':
+                self._query_limit = int(cond.value)
+                return "", {}, []  # Don't add to WHERE clause
+            elif field == '$offset':
+                self._query_offset = int(cond.value)
+                return "", {}, []
+            elif field == '$order':
+                self._query_order = str(cond.value)
+                return "", {}, []
+            else:
+                raise ValueError(f"Unknown magic field: {field}")
 
         # Handle table references (numbered, aliased, or nested)
         if '.' in field:

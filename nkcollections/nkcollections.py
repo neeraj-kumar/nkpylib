@@ -788,6 +788,27 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
           ["rel_tgt.rtype", "=", "has_genre"],
           ["rel_tgt.src", ":", [2, 46, 223]]  # Agneepath, Bullet train, Tropic thunder
          ], "TMDB Genres used by specific movies"),
+
+        # Magic field examples
+        (["&",
+          ["otype", "=", "movie"],
+          ["$limit", "=", 5],
+          ["$order", "=", "-ts"]
+         ], "5 most recent movies"),
+
+        (["&",
+          ["otype", "=", "person"],
+          ["$limit", "=", 10],
+          ["$offset", "=", 20],
+          ["$order", "=", "name"]
+         ], "People 21-30 ordered by name"),
+
+        (["&",
+          ["otype", "=", "movie"],
+          ["md.runtime", "?+"],
+          ["$order", "=", "-md.runtime"],
+          ["$limit", "=", 3]
+         ], "3 longest movies by runtime"),
     ]
 
     print(f"\nTesting {len(queries)} queries:")
