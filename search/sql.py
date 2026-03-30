@@ -283,6 +283,25 @@ class SqlSearchImpl(SearchImpl):
                     alias = f"{table}_{table_number}"
                     joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
                     
+                    if len(remaining_parts) == 1:
+                        # Simple field in related table (e.g., score.1.tag)
+                        where_clause = f"{alias}.{remaining_parts[0]}"
+                        condition_sql, params = self._build_operator_condition(where_clause, cond)
+                        return condition_sql, params, joins_needed
+                    else:
+                        # Check if this is JSON field access in related table
+                        json_field = remaining_parts[0]
+                        if json_field in self.table_json_fields.get(table, set()):
+                            # JSON field in related table
+                            condition_sql, params = self._build_json_condition(alias, json_field, remaining_parts[1:], cond)
+                            return condition_sql, params, joins_needed
+                        else:
+                            # Regular field in related table
+                            where_clause = f"{alias}.{json_field}"
+                            condition_sql, params = self._build_operator_condition(where_clause, cond)
+                            return condition_sql, params, joins_needed
+                else:
+                    raise ValueError(f"Unknown numbered table reference: {table_name}")
 
             # Check for aliased table reference pattern: alias.field or alias.nested.field
             elif base_field in self.table_aliases.values():
