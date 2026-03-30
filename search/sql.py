@@ -282,6 +282,7 @@ class SqlSearchImpl(SearchImpl):
                     table, fk_field = related_table_info
                     alias = f"{table}_{table_number}"
                     joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
+                    
 
             # Check for aliased table reference pattern: alias.field or alias.nested.field
             elif base_field in self.table_aliases.values():
@@ -378,7 +379,6 @@ class SqlSearchImpl(SearchImpl):
                             # JSON field in related table - use refactored method
                             condition_sql, params = self._build_json_condition(related_table, json_field, path_parts[1:], cond)
                             return condition_sql, params, joins_needed
-                            # ... (keep all existing operator handling)
                         else:
                             # Regular field in related table
                             where_clause = f"{related_table}.{json_field}"
