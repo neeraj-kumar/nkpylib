@@ -52,7 +52,7 @@ class SqlSearchImpl(SearchImpl):
         self.table_name = table_name
         self.id_field = id_field
         self.other_tables = other_tables or []
-        tables = list({table_name} | {t[0] for t in self.other_tables]})
+        tables = list({table_name} | {t[0] for t in self.other_tables})
 
         # Auto-discover schema
         self.table_json_fields = {table: self._discover_json_fields(table) for table in tables}
