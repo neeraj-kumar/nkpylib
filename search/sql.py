@@ -464,7 +464,7 @@ class SqlSearchImpl(SearchImpl):
         """Build SQL for a single operation condition"""
         field_type = self._classify_field(cond.field)
         handler = self._field_handlers[field_type]
-        return handler(field, cond)
+        return handler(cond.field, cond)
 
     def _build_join_clause(self, cond: JoinCond) -> tuple[str, dict, list]:
         """Build SQL for joined conditions (AND/OR/NOT)"""
