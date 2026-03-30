@@ -142,7 +142,7 @@ class SqlSearchImpl(SearchImpl):
 
         # Initialize parameter manager
         self.param_manager = ParameterManager()
-        
+
         # Initialize field handler mapping
         self._field_handlers = {
             FieldType.MAGIC: self._handle_magic_field,
@@ -181,14 +181,14 @@ class SqlSearchImpl(SearchImpl):
         """Validate field reference for common issues"""
         if not field or not field.strip():
             raise ValidationError("Empty field name")
-        
+
         if len(field) > 200:
             raise ValidationError(f"Field name too long: {field[:50]}...")
-        
+
         parts = field.split('.')
         if len(parts) > 10:
             raise ValidationError(f"Field reference too deep (max 10 levels): {field}")
-        
+
         # Check for invalid characters in field names
         for part in parts:
             if not part or not part.strip():
@@ -197,7 +197,7 @@ class SqlSearchImpl(SearchImpl):
     def _classify_field(self, field: str) -> FieldType:
         """Classify the type of field reference"""
         self._validate_field_reference(field)
-        
+
         if field.startswith('$'):
             return FieldType.MAGIC
         elif '.' in field:
@@ -222,10 +222,10 @@ class SqlSearchImpl(SearchImpl):
         """Validate table name for SQL injection and basic format"""
         if not table or not table.strip():
             raise ValidationError("Empty table name")
-        
+
         if len(table) > 64:
             raise ValidationError(f"Table name too long: {table}")
-        
+
         # Basic SQL identifier validation
         if not table.replace('_', '').replace('-', '').isalnum():
             raise ValidationError(f"Invalid table name format: {table}")
@@ -237,7 +237,7 @@ class SqlSearchImpl(SearchImpl):
         This is only tested on sqlite for now.
         """
         self._validate_table_name(table)
-        
+
         try:
             # Use parameterized query to prevent SQL injection
             result = self.db.execute(f"PRAGMA table_info({table})")
@@ -250,7 +250,7 @@ class SqlSearchImpl(SearchImpl):
         """Validate search parameters"""
         if not isinstance(n_results, int) or n_results <= 0:
             raise ValidationError(f"n_results must be a positive integer, got: {n_results}")
-        
+
         if n_results > 50000:
             raise ValidationError(f"n_results too large (max 50000), got: {n_results}")
 
@@ -269,7 +269,7 @@ class SqlSearchImpl(SearchImpl):
     async def _async_search(self, cond: SearchCond, n_results: int = 15, **kw) -> list[SearchResult]:
         """Execute search using SQL queries. This is the main entry point."""
         self._validate_search_params(n_results, **kw)
-        
+
         try:
             with db_session:
                 # Reset magic fields and parameter manager for each search
@@ -340,13 +340,13 @@ class SqlSearchImpl(SearchImpl):
         """Validate final query parameters"""
         if not isinstance(limit, int) or limit <= 0:
             raise ValidationError(f"Invalid limit: {limit}")
-        
+
         if limit > 50000:
             raise ValidationError(f"Limit too large (max 50000): {limit}")
-        
+
         if not isinstance(offset, int) or offset < 0:
             raise ValidationError(f"Invalid offset: {offset}")
-        
+
         if offset > 1000000:
             raise ValidationError(f"Offset too large (max 1000000): {offset}")
 
@@ -356,10 +356,10 @@ class SqlSearchImpl(SearchImpl):
         # Validate inputs
         if joins and not all(isinstance(j, str) and j.strip() for j in joins):
             raise ValidationError("Invalid JOIN clauses")
-        
+
         if where_clause and not isinstance(where_clause, str):
             raise ValidationError("Invalid WHERE clause")
-        
+
         join_clause = ' '.join(joins) if joins else ''
         where_part = f"WHERE {where_clause}" if where_clause else ""
 
@@ -376,17 +376,17 @@ class SqlSearchImpl(SearchImpl):
         """Validate operator condition inputs"""
         if not where_clause or not where_clause.strip():
             raise ValidationError("Empty WHERE clause")
-        
+
         if not isinstance(cond.op, Op):
             raise ValidationError(f"Invalid operator: {cond.op}")
-        
+
         # Validate value based on operator
         if cond.op in {Op.IN, Op.NOT_IN}:
             if not isinstance(cond.value, (list, tuple)):
                 raise ValidationError(f"Operator {cond.op} requires list/tuple value, got: {type(cond.value)}")
             if len(cond.value) > 1000:
                 raise ValidationError(f"Too many values in IN clause (max 1000): {len(cond.value)}")
-        
+
         if cond.op in {Op.EXISTS, Op.NOT_EXISTS, Op.IS_NULL, Op.IS_NOT_NULL}:
             # These operators don't use the value
             pass
@@ -396,7 +396,7 @@ class SqlSearchImpl(SearchImpl):
     def _build_operator_condition(self, where_clause: str, cond: OpCond) -> tuple[str, dict]:
         """Build the SQL condition and parameters for any operator"""
         self._validate_operator_condition(where_clause, cond)
-        
+
         match cond.op:
             case Op.EQ:
                 param = self.param_manager.add_param(cond.value)
@@ -528,7 +528,7 @@ class SqlSearchImpl(SearchImpl):
     def _handle_magic_field(self, field: str, cond: OpCond) -> tuple[str, dict, list]:
         """Handle magic fields like $limit, $offset, $order"""
         self._validate_magic_field(field, cond)
-        
+
         match field:
             case '$limit':
                 self._query_limit = int(cond.value)
@@ -544,35 +544,35 @@ class SqlSearchImpl(SearchImpl):
         """Validate numbered table reference format"""
         if len(parts) < 3:
             raise ValidationError(f"Invalid numbered reference format: {field}")
-        
+
         table_name = parts[0]
         table_number = parts[1]
-        
+
         if not table_number.isdigit():
             raise ValidationError(f"Table number must be numeric: {table_number}")
-        
+
         num = int(table_number)
         if num < 1 or num > 99:
             raise ValidationError(f"Table number out of range (1-99): {num}")
-        
+
         self._validate_table_name(table_name)
 
     def _handle_numbered_reference(self, field: str, cond: OpCond) -> tuple[str, dict, list]:
         """Handle numbered table references like score.1.tag"""
         parts = field.split('.')
         self._validate_numbered_reference(field, parts)
-        
+
         table_name = parts[0]
         table_number = parts[1]
         remaining_parts = parts[2:]
-        
+
         # Find the table info
         related_table_info = None
         for table, fk_field in self.other_tables:
             if table == table_name:
                 related_table_info = (table, fk_field)
                 break
-        
+
         if not related_table_info:
             raise ValidationError(f"Unknown numbered table reference: {table_name}")
         table, fk_field = related_table_info
@@ -600,17 +600,17 @@ class SqlSearchImpl(SearchImpl):
         parts = field.split('.')
         base_field = parts[0]
         remaining_parts = parts[1:]
-        
+
         if not remaining_parts:
             raise ValidationError(f"Aliased reference missing field: {field}")
-        
+
         # Find the table info for this alias
         related_table_info = None
         for (table, fk_field), alias in self.table_aliases.items():
             if alias == base_field:
                 related_table_info = (table, fk_field, alias)
                 break
-        
+
         if not related_table_info:
             raise ValidationError(f"Unknown alias reference: {base_field}")
         table, fk_field, alias = related_table_info
@@ -636,7 +636,7 @@ class SqlSearchImpl(SearchImpl):
         """Validate nested reference format"""
         if len(remaining_parts) < 2:
             raise ValidationError(f"Nested reference needs at least 2 parts: {field}")
-        
+
         rel_field = remaining_parts[0]
         if rel_field not in {'src', 'tgt'}:
             raise ValidationError(f"Invalid relationship field (must be 'src' or 'tgt'): {rel_field}")
@@ -646,19 +646,19 @@ class SqlSearchImpl(SearchImpl):
         parts = field.split('.')
         base_field = parts[0]
         remaining_parts = parts[1:]
-        
+
         self._validate_nested_reference(field, remaining_parts)
-        
+
         # Find the table info for this alias
         related_table_info = None
         for (table, fk_field), alias in self.table_aliases.items():
             if alias == base_field:
                 related_table_info = (table, fk_field, alias)
                 break
-        
+
         if not related_table_info:
             raise ValidationError(f"Unknown alias reference: {base_field}")
-        
+
         table, fk_field, alias = related_table_info
         rel_field = remaining_parts[0]  # 'src' or 'tgt'
         target_field = remaining_parts[1]  # 'name', 'otype', etc.
@@ -694,10 +694,10 @@ class SqlSearchImpl(SearchImpl):
         if '.' in field: # Legacy table reference
             parts = field.split('.')
             base_field = parts[0]
-            
+
             if not parts[1:]:
                 raise ValidationError(f"Legacy table reference missing field: {field}")
-            
+
             matching_entries = [(t, fk) for t, fk in self.other_tables if t == base_field]
             if len(matching_entries) > 1:
                 # Multiple FKs to same table - require explicit alias
@@ -727,7 +727,7 @@ class SqlSearchImpl(SearchImpl):
             # Simple field on main table
             if not field.replace('_', '').replace('-', '').isalnum():
                 raise ValidationError(f"Invalid field name format: {field}")
-            
+
             where_clause = f"{self.table_name}.{field}"
             condition_sql, params = self._build_operator_condition(where_clause, cond)
             return condition_sql, params, []
