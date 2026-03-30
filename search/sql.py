@@ -376,7 +376,11 @@ class SqlSearchImpl(SearchImpl):
                                     in_params[param_name] = val
                                     placeholders.append(f"${param_name}")
                                 params.update(in_params)
-                                return f"{where_clause} IN ({','.join(placeholders)})", params, joins_needed
+                                return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
+                            elif cond.op == Op.IS_NULL:
+                                return f"{where_clause} IS NULL", params, joins_needed
+                            elif cond.op == Op.IS_NOT_NULL:
+                                return f"{where_clause} IS NOT NULL", params, joins_needed
                         else:
                             # Regular field in related table
                             where_clause = f"{alias}.{json_field}"
@@ -447,6 +451,10 @@ class SqlSearchImpl(SearchImpl):
                         placeholders.append(f"${param_name}")
                     params.update(in_params)
                     return f"{where_clause} NOT IN ({','.join(placeholders)})", params, joins_needed
+                elif cond.op == Op.IS_NULL:
+                    return f"{where_clause} IS NULL", params, joins_needed
+                elif cond.op == Op.IS_NOT_NULL:
+                    return f"{where_clause} IS NOT NULL", params, joins_needed
                 else:
                     raise NotImplementedError(f"Operator {cond.op} not implemented for JSON field access")
 
