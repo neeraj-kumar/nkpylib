@@ -32,21 +32,31 @@ logger = logging.getLogger(__name__)
 
 class SqlSearchImpl(SearchImpl):
     """Search implementation that uses SQL queries with automatic schema discovery"""
-    def __init__(self, db: Database, table_name: str, id_field: str = 'id'):
+    def __init__(self,
+                 *,
+                 db: Database,
+                 table_name: str,
+                 id_field: str = 'id',
+                 other_tables: list[tuple[str, str]] | None = None):
         """Init with a Pony ORM `Database` instance and the `table_name` to return results from.
 
         The `id_field` is the primary key field in the main table (default 'id').
+
+        You can also pass in other tables that reference the primary table. Pass these as a list of
+        tuples that contain the table name and the foreign key field that references the primary
+        table. You can pass in the same table multiple times if it contains multiple foreign keys to
+        the primary table.
         """
         super().__init__()
         self.db = db
         self.table_name = table_name
         self.id_field = id_field
+        self.other_tables = other_tables or []
+        tables = list({table_name} | {t[0] for t in self.other_tables]})
 
         # Auto-discover schema
-        self.json_fields = self._discover_json_fields(self.table_name)
-        self.related_tables = self._discover_foreign_keys(self.table_name)
-        logger.info(f"Discovered JSON fields: {self.json_fields}")
-        logger.info(f"Discovered related tables: {self.related_tables}")
+        self.table_json_fields = {table: self._discover_json_fields(table) for table in tables}
+        logger.info(f"Discovered JSON fields: {self.table_json_fields}")
 
     def _discover_json_fields(self, table: str) -> set[str]:
         """Find columns in `table` that contain JSON data.
@@ -61,33 +71,10 @@ class SqlSearchImpl(SearchImpl):
                 logger.warning(f"Could not discover JSON fields: {e}")
                 return set()
 
-    def _discover_foreign_keys(self, table: str) -> dict[str, str]:
-        """Find tables that reference `table` via foreign keys"""
-        with db_session:
-            try:
-                # Find tables that have foreign keys pointing to our table
-                result = self.db.execute("""
-                    SELECT m.name as table_name, p."from" as fk_column, p."to" as pk_column
-                    FROM sqlite_master m
-                    JOIN pragma_foreign_key_list(m.name) p ON m.type = 'table'
-                    WHERE p."table" = ?
-                """, [table])
-                
-                related = {}
-                for row in result:
-                    ref_table, fk_col, pk_col = row[0], row[1], row[2]
-                    if pk_col == self.id_field:
-                        related[ref_table] = fk_col
-                return related
-            except Exception as e:
-                logger.warning(f"Could not discover foreign keys: {e}")
-                return {}
-
     async def _async_search(self, cond: SearchCond, n_results: int = 15, **kw) -> list[SearchResult]:
         """Execute search using SQL queries"""
         with db_session:
             where_clause, params, joins = self._build_where_clause(cond)
-
             # Build complete SQL query
             join_clause = ' '.join(joins) if joins else ''
             sql = f"""
