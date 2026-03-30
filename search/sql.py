@@ -55,10 +55,10 @@ class SqlSearchImpl(SearchImpl):
         self.table_name = table_name
         self.id_field = id_field
         self.other_tables = other_tables or []
-        
+
         # Generate aliases for other tables
         self.table_aliases = self._generate_aliases(self.other_tables)
-        
+
         tables = list({table_name} | {t[0] for t in self.other_tables})
 
         # Auto-discover schema
@@ -69,10 +69,10 @@ class SqlSearchImpl(SearchImpl):
     def _generate_aliases(self, other_tables: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
         """Generate aliases automatically based on table and fk_field"""
         from collections import Counter
-        
+
         # Count how many times each table appears
         table_counts = Counter(table for table, fk_field in other_tables)
-        
+
         aliases = {}
         for table, fk_field in other_tables:
             if table_counts[table] > 1:
@@ -82,7 +82,7 @@ class SqlSearchImpl(SearchImpl):
                 # Single entry - just use table name
                 alias = table
             aliases[(table, fk_field)] = alias
-        
+
         return aliases
 
     def _discover_json_fields(self, table: str) -> set[str]:
@@ -152,25 +152,25 @@ class SqlSearchImpl(SearchImpl):
         if '.' in field:
             parts = field.split('.')
             base_field = parts[0]
-            
+
             # Check for numbered table reference pattern: table.number.field
             if len(parts) >= 3 and parts[1].isdigit():
                 table_name = base_field
                 table_number = parts[1]
                 remaining_parts = parts[2:]
-                
+
                 # Check if this is a known related table
                 related_table_info = None
                 for table, fk_field in self.other_tables:
                     if table == table_name:
                         related_table_info = (table, fk_field)
                         break
-                
+
                 if related_table_info:
                     table, fk_field = related_table_info
                     alias = f"{table}_{table_number}"
                     joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
-            
+
             # Check for aliased table reference pattern: alias.field or alias.nested.field
             elif base_field in self.table_aliases.values():
                 # Find the table info for this alias
@@ -179,22 +179,22 @@ class SqlSearchImpl(SearchImpl):
                     if alias == base_field:
                         related_table_info = (table, fk_field, alias)
                         break
-                
+
                 if related_table_info:
                     table, fk_field, alias = related_table_info
                     remaining_parts = parts[1:]
-                    
+
                     # Check for nested field access like rel_src.tgt.name
                     if len(remaining_parts) >= 2 and remaining_parts[0] in ['src', 'tgt']:
                         # This is a nested reference to another item through a relationship
                         rel_field = remaining_parts[0]  # 'src' or 'tgt'
                         target_field = remaining_parts[1]  # 'name', 'otype', etc.
-                        
+
                         # Create joins: main_table -> rel_table -> target_item
                         target_alias = f"{alias}_target"
                         joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
                         joins_needed.append(f"JOIN {self.table_name} AS {target_alias} ON {target_alias}.{self.id_field} = {alias}.{rel_field}")
-                        
+
                         # Handle JSON field access in target item
                         if len(remaining_parts) > 2:
                             json_field = target_field
@@ -203,7 +203,7 @@ class SqlSearchImpl(SearchImpl):
                                 path_param = next_param_name()
                                 where_clause = f"json_extract({target_alias}.{json_field}, ${path_param})"
                                 params = {path_param: json_path}
-                                
+
                                 # Handle operators for JSON fields (same as before)
                                 if cond.op == Op.EQ:
                                     value_param = next_param_name()
@@ -218,7 +218,7 @@ class SqlSearchImpl(SearchImpl):
                     else:
                         # Regular aliased table field access
                         joins_needed.append(f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.table_name}.{self.id_field}")
-                    
+
                     if len(remaining_parts) == 1:
                         # Simple field in related table (e.g., score.1.tag)
                         where_clause = f"{alias}.{remaining_parts[0]}"
@@ -231,7 +231,7 @@ class SqlSearchImpl(SearchImpl):
                             path_param = next_param_name()
                             where_clause = f"json_extract({alias}.{json_field}, ${path_param})"
                             params = {path_param: json_path}
-                            
+
                             # Build JSON condition based on operator
                             if cond.op == Op.EQ:
                                 value_param = next_param_name()
@@ -292,7 +292,7 @@ class SqlSearchImpl(SearchImpl):
                             where_clause = f"{alias}.{json_field}"
                 else:
                     raise ValueError(f"Unknown numbered table reference: {table_name}")
-            
+
             # Handle regular JSON field access (e.g., md.stats.n_images)
             elif base_field in self.table_json_fields.get(self.table_name, set()):
                 # Handle JSON field access
