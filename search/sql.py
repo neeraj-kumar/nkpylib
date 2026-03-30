@@ -15,8 +15,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from enum import Enum
 from multiprocessing import get_context
-from typing import Sequence
+from typing import Any, Sequence
 
 from pony.orm import Database, db_session
 
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 class FieldType(Enum):
     """Types of field references in search queries"""
     MAGIC = "magic"
-    NUMBERED = "numbered" 
+    NUMBERED = "numbered"
     ALIASED = "aliased"
     NESTED = "nested"
     JSON = "json"
@@ -47,18 +48,18 @@ class ParameterManager:
     def __init__(self):
         self.counter = 0
         self.params: dict[str, Any] = {}
-    
+
     def add_param(self, value: Any, prefix: str = "p") -> str:
         """Add a parameter and return its placeholder name"""
         self.counter += 1
         param_name = f"{prefix}{self.counter}"
         self.params[param_name] = value
         return param_name
-    
+
     def add_json_path(self, path: str) -> str:
         """Add a JSON path parameter"""
         return self.add_param(path, "path")
-    
+
     def reset(self):
         """Reset counter and clear parameters"""
         self.counter = 0
@@ -70,21 +71,21 @@ class JoinBuilder:
         self.main_table = main_table
         self.id_field = id_field
         self.joins: list[str] = []
-    
+
     def add_table_join(self, table: str, alias: str, fk_field: str) -> str:
         """Add a table join and return the alias"""
         join = f"JOIN {table} AS {alias} ON {alias}.{fk_field} = {self.main_table}.{self.id_field}"
         if join not in self.joins:
             self.joins.append(join)
         return alias
-    
+
     def add_nested_join(self, rel_alias: str, target_alias: str, rel_field: str) -> str:
         """Add a nested join through a relationship and return the target alias"""
         join = f"JOIN {self.main_table} AS {target_alias} ON {target_alias}.{self.id_field} = {rel_alias}.{rel_field}"
         if join not in self.joins:
             self.joins.append(join)
         return target_alias
-    
+
     def get_joins(self) -> list[str]:
         """Get all unique joins"""
         return list(dict.fromkeys(self.joins))
@@ -124,7 +125,7 @@ class SqlSearchImpl(SearchImpl):
 
         # Initialize magic field storage
         self._reset_magic_fields()
-        
+
         # Initialize parameter manager
         self.param_manager = ParameterManager()
 
@@ -152,7 +153,7 @@ class SqlSearchImpl(SearchImpl):
         self._query_limit = None
         self._query_offset = None
         self._query_order = None
-        
+
     def _classify_field(self, field: str) -> FieldType:
         """Classify the type of field reference"""
         if field.startswith('$'):
@@ -200,13 +201,13 @@ class SqlSearchImpl(SearchImpl):
             limit = self._query_limit if self._query_limit is not None else n_results
             offset = self._query_offset if self._query_offset is not None else 0
             order = self._query_order
-            
+
             # Build ORDER BY clause
             order_clause = self._build_order_clause(order, param_dict)
-            
+
             # Build final SQL
             sql = self._build_final_sql(joins, where_clause, order_clause, limit, offset)
-            
+
             param_dict['limit'] = limit
             param_dict['offset'] = offset
             logger.info(f"Executing SQL: {sql}")
@@ -230,15 +231,15 @@ class SqlSearchImpl(SearchImpl):
         """Build ORDER BY clause with JSON field support"""
         if not order:
             return ""
-        
+
         direction = "DESC" if order.startswith('-') else "ASC"
         field = order.lstrip('-')
-        
+
         if '.' in field:
             return self._build_json_order_clause(field, direction, param_dict)
         else:
             return f"ORDER BY {self.table_name}.{field} {direction}"
-    
+
     def _build_json_order_clause(self, field: str, direction: str, param_dict: dict) -> str:
         """Build ORDER BY clause for JSON fields"""
         base_field, *path_parts = field.split('.')
@@ -249,13 +250,13 @@ class SqlSearchImpl(SearchImpl):
             return f"ORDER BY json_extract({self.table_name}.{base_field}, ${path_param}) {direction}"
         else:
             return f"ORDER BY {self.table_name}.{field} {direction}"
-    
-    def _build_final_sql(self, joins: list[str], where_clause: str, 
+
+    def _build_final_sql(self, joins: list[str], where_clause: str,
                         order_clause: str, limit: int, offset: int) -> str:
         """Assemble the final SQL query"""
         join_clause = ' '.join(joins) if joins else ''
         where_part = f"WHERE {where_clause}" if where_clause else ""
-        
+
         return f"""
         SELECT DISTINCT {self.table_name}.{self.id_field}
         FROM {self.table_name}
@@ -334,7 +335,7 @@ class SqlSearchImpl(SearchImpl):
         """Build SQL for a single operation condition"""
         field = cond.field
         field_type = self._classify_field(field)
-        
+
         match field_type:
             case FieldType.MAGIC:
                 return self._handle_magic_field(field, cond)
@@ -411,22 +412,22 @@ class SqlSearchImpl(SearchImpl):
         table_name = parts[0]
         table_number = parts[1]
         remaining_parts = parts[2:]
-        
+
         # Find the table info
         related_table_info = None
         for table, fk_field in self.other_tables:
             if table == table_name:
                 related_table_info = (table, fk_field)
                 break
-        
+
         if not related_table_info:
             raise ValueError(f"Unknown numbered table reference: {table_name}")
-        
+
         table, fk_field = related_table_info
         alias = f"{table}_{table_number}"
         join_builder = JoinBuilder(self.table_name, self.id_field)
         join_builder.add_table_join(table, alias, fk_field)
-        
+
         if len(remaining_parts) == 1:
             # Simple field in related table
             where_clause = f"{alias}.{remaining_parts[0]}"
@@ -448,21 +449,21 @@ class SqlSearchImpl(SearchImpl):
         parts = field.split('.')
         base_field = parts[0]
         remaining_parts = parts[1:]
-        
+
         # Find the table info for this alias
         related_table_info = None
         for (table, fk_field), alias in self.table_aliases.items():
             if alias == base_field:
                 related_table_info = (table, fk_field, alias)
                 break
-        
+
         if not related_table_info:
             raise ValueError(f"Unknown alias reference: {base_field}")
-        
+
         table, fk_field, alias = related_table_info
         join_builder = JoinBuilder(self.table_name, self.id_field)
         join_builder.add_table_join(table, alias, fk_field)
-        
+
         if len(remaining_parts) == 1:
             # Simple field in related table
             where_clause = f"{alias}.{remaining_parts[0]}"
@@ -484,27 +485,27 @@ class SqlSearchImpl(SearchImpl):
         parts = field.split('.')
         base_field = parts[0]
         remaining_parts = parts[1:]
-        
+
         # Find the table info for this alias
         related_table_info = None
         for (table, fk_field), alias in self.table_aliases.items():
             if alias == base_field:
                 related_table_info = (table, fk_field, alias)
                 break
-        
+
         if not related_table_info:
             raise ValueError(f"Unknown alias reference: {base_field}")
-        
+
         table, fk_field, alias = related_table_info
         rel_field = remaining_parts[0]  # 'src' or 'tgt'
         target_field = remaining_parts[1]  # 'name', 'otype', etc.
-        
+
         # Create joins: main_table -> rel_table -> target_item
         target_alias = f"{alias}_target"
         join_builder = JoinBuilder(self.table_name, self.id_field)
         join_builder.add_table_join(table, alias, fk_field)
         join_builder.add_nested_join(alias, target_alias, rel_field)
-        
+
         # Handle JSON field access in target item
         if len(remaining_parts) > 2:
             json_field = target_field
@@ -516,7 +517,7 @@ class SqlSearchImpl(SearchImpl):
         else:
             # Simple field in target item
             where_clause = f"{target_alias}.{target_field}"
-        
+
         condition_sql, params = self._build_operator_condition(where_clause, cond)
         return condition_sql, params, join_builder.get_joins()
 
@@ -535,7 +536,7 @@ class SqlSearchImpl(SearchImpl):
             parts = field.split('.')
             base_field = parts[0]
             matching_entries = [(t, fk) for t, fk in self.other_tables if t == base_field]
-            
+
             if len(matching_entries) > 1:
                 # Multiple FKs to same table - require explicit alias
                 available_aliases = [alias for (table, fk), alias in self.table_aliases.items() if table == base_field]
@@ -544,9 +545,9 @@ class SqlSearchImpl(SearchImpl):
             elif len(matching_entries) == 1:
                 related_table, fk_field = matching_entries[0]
                 path_parts = parts[1:]
-                
+
                 joins_needed = [f"JOIN {related_table} ON {related_table}.{fk_field} = {self.table_name}.{self.id_field}"]
-                
+
                 if len(path_parts) == 1:
                     where_clause = f"{related_table}.{path_parts[0]}"
                 else:
@@ -556,7 +557,7 @@ class SqlSearchImpl(SearchImpl):
                         return condition_sql, params, joins_needed
                     else:
                         where_clause = f"{related_table}.{json_field}"
-                
+
                 condition_sql, params = self._build_operator_condition(where_clause, cond)
                 return condition_sql, params, joins_needed
             else:
