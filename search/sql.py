@@ -105,7 +105,10 @@ class SqlSearchImpl(SearchImpl):
     def _build_where_clause(self, cond: SearchCond) -> tuple[str, dict, list]:
         """Build WHERE clause, parameters dict, and JOINs from SearchCond"""
         if isinstance(cond, OpCond):
-            return self._build_op_clause(cond)
+            where_part, params, joins = self._build_op_clause(cond)
+            if where_part:
+                return f"WHERE {where_part}", params, joins
+            return "", params, joins
         elif isinstance(cond, JoinCond):
             return self._build_join_clause(cond)
         else:
@@ -334,7 +337,10 @@ class SqlSearchImpl(SearchImpl):
         # Remove duplicate joins
         unique_joins = list(dict.fromkeys(all_joins))
 
-        return f"WHERE {combined_where}", all_params, unique_joins
+        if combined_where:
+            return f"WHERE {combined_where}", all_params, unique_joins
+        else:
+            return "", all_params, unique_joins
 
     def _row_to_result(self, row) -> SearchResult:
         """Convert database row to SearchResult"""
