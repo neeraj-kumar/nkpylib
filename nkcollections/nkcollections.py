@@ -668,76 +668,82 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         (["md.imdb_id", "?"], "Items with imdb_id metadata"),
         (["embed_ts", "?+"], "Items with embeddings"),
 
-        # Complex nested queries with multiple joins
+        # Score-based queries (budget, revenue, ratings stored in Score table)
         (["&",
           ["otype", "=", "movie"],
-          ["|", ["md.year", ">=", 2020], ["name", "~", 'long']]
-         ], "Recent movies OR movies with 'long' in their name"),
+          ["score.tag", "=", "budget"],
+          ["score.score", ">", 100000000]
+         ], "Big budget movies (>$100M)"),
 
         (["&",
-          ["source", "=", "imdb"],
-          ["!", ["md.genres", "@", "Horror"]],
-          ["md.runtime", ">=", 120]
-         ], "Long non-horror IMDB movies"),
+          ["otype", "=", "movie"],
+          ["score.tag", "=", "revenue"],
+          ["score.score", ">", 500000000]
+         ], "High-grossing movies (>$500M)"),
 
-        # Multi-level JSON access
-        (["md.cast.0.name", "~", "Tom"], "Movies with Tom in first cast position"),
-        (["md.production.budget", ">", 100000000], "Big budget movies (>$100M)"),
-        (["md.awards.oscar_wins", ">", 0], "Oscar winning movies"),
-
-        # Complex relationship queries across multiple tables
+        # Relationship-based queries (genres, cast as separate items with rels)
         (["&",
-          ["score.tag", "=", "popularity"],
-          ["score.score", ">", 0.8],
+          ["otype", "=", "movie"],
+          ["rel.rtype", "=", "has_genre"]
+         ], "Movies with genre relationships"),
+
+        (["&",
+          ["otype", "=", "movie"],
           ["rel.rtype", "=", "directed_by"]
-         ], "Popular movies with known directors"),
+         ], "Movies with known directors"),
 
-        # Date range queries
         (["&",
-          ["md.release_date", ">=", "2020-01-01"],
-          ["md.release_date", "<=", "2023-12-31"]
-         ], "Movies released 2020-2023"),
+          ["otype", "=", "movie"],
+          ["rel.rtype", "=", "acted_in"]
+         ], "Movies with known cast"),
 
-        # Multiple NOT conditions
+        # Multiple score conditions
         (["&",
-          ["!", ["md.genres", "@", "Documentary"]],
-          ["!", ["md.genres", "@", "Animation"]],
-          ["md.rating", ">=", 7.0]
-         ], "Good non-documentary, non-animated movies"),
+          ["otype", "=", "movie"],
+          ["score.tag", "=", "imdb_rating"],
+          ["score.score", ">=", 7.0],
+          ["score.tag", "=", "budget"],
+          ["score.score", "<", 10000000]
+         ], "Good low-budget movies"),
 
-        # Complex OR with nested AND conditions
+        # Complex OR with nested AND conditions using actual schema
         (["|",
-          ["&", ["md.director", "~", "Nolan"], ["md.year", ">=", 2010]],
-          ["&", ["md.director", "~", "Tarantino"], ["md.rating", ">=", 8.0]],
-          ["&", ["md.genres", "@", "Sci-Fi"], ["md.budget", ">", 50000000]]
-         ], "Recent Nolan OR great Tarantino OR big-budget sci-fi"),
+          ["&", ["otype", "=", "person"], ["name", "~", "Nolan"]],
+          ["&", ["otype", "=", "person"], ["name", "~", "Tarantino"]],
+          ["&", ["otype", "=", "genre"], ["name", "=", "Sci-Fi"]]
+         ], "Nolan OR Tarantino OR Sci-Fi genre"),
 
         # List operations with multiple values
-        (["md.genres", ":", ["Action", "Thriller", "Crime"]], "Action, thriller, or crime movies"),
-        (["md.languages", "@", "English"], "Movies available in English"),
-        (["id", "!:", [1, 2, 3, 100, 200]], "Exclude specific movie IDs"),
+        (["otype", ":", ["movie", "person", "genre"]], "Movies, people, or genres"),
+        (["source", ":", ["imdb", "letterboxd", "movielens"]], "Items from specific sources"),
+        (["id", "!:", [1, 2, 3, 100, 200]], "Exclude specific IDs"),
 
-        # Numeric comparisons with edge cases
-        (["md.rating", "~=", 7.5], "Movies with rating close to 7.5"),
+        # Numeric comparisons with actual fields
         (["md.runtime", ":", [90, 120, 150]], "Movies with specific runtimes"),
+        (["md.runtime", ">=", 120], "Long movies"),
 
         # Complex existence and null checks
         (["&",
-          ["md.sequel_to", "?"],
-          ["!", ["md.prequel_to", "?"]]
-         ], "Movies that are sequels but not prequels"),
+          ["md.imdb_id", "?"],
+          ["!", ["embed_ts", "?"]]
+         ], "Items with IMDB ID but no embeddings"),
 
-        # Multi-table joins with complex conditions
+        # Multi-table joins with complex conditions using actual schema
         (["&",
+          ["otype", "=", "movie"],
           ["rel.rtype", "=", "acted_in"],
-          ["rel.md.character_name", "~", "John"],
-          ["score.tag", "=", "box_office"],
-          ["score.score", ">", 1000000]
-         ], "High-grossing movies with character named John"),
+          ["score.tag", "=", "revenue"],
+          ["score.score", ">", 1000000000]
+         ], "Billion-dollar movies with known cast"),
 
-        # Deeply nested JSON with arrays
-        (["md.reviews.critics.average", ">", 8.0], "Movies with high critic scores"),
-        (["md.cast.*.awards", "@", "Oscar"], "Movies with Oscar-winning cast members"),
+        # Revenue vs budget analysis
+        (["&",
+          ["otype", "=", "movie"],
+          ["score.tag", "=", "revenue"],
+          ["score.score", ">", 100000000],
+          ["score.tag", "=", "budget"],
+          ["score.score", "<", 50000000]
+         ], "Profitable movies (high revenue, low budget)"),
 
         # Time-based queries
         (["&",
@@ -746,12 +752,30 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
           ["seen_ts", "!?"]
          ], "Recent items with embeddings but never seen"),
 
-        # Complex string matching
+        # Complex string matching with actual fields
         (["&",
           ["name", "~", "The"],
           ["!", ["name", "~", "The End"]],
-          ["md.title", "!~", "Part"]
-         ], "Movies starting with 'The' but not ending movies or parts"),
+          ["otype", "=", "movie"]
+         ], "Movies starting with 'The' but not ending movies"),
+
+        # Genre-specific queries using relationships
+        (["&",
+          ["otype", "=", "genre"],
+          ["name", ":", ["Action", "Thriller", "Crime"]]
+         ], "Action, thriller, or crime genres"),
+
+        # Person-specific queries
+        (["&",
+          ["otype", "=", "person"],
+          ["name", "~", "Tom"]
+         ], "People named Tom"),
+
+        # Cross-entity relationship queries
+        (["&",
+          ["rel.rtype", "=", "has_genre"],
+          ["rel.tgt", "=", 42]  # Assuming genre ID 42 is Horror
+         ], "Items with Horror genre relationship"),
     ]
 
     print(f"\nTesting {len(queries)} queries:")
