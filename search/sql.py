@@ -66,9 +66,19 @@ class SqlSearchImpl(SearchImpl):
         with db_session:
             try:
                 result = self.db.execute(f"PRAGMA table_info({table})")
-                return {row[1] for row in result if row[2].lower() == 'json'}
+                json_fields = set()
+                
+                for row in result:
+                    column_name, data_type = row[1], row[2]
+                    # In SQLite, JSON is often stored as TEXT or JSON type
+                    if data_type.upper() in ('JSON', 'TEXT'):
+                        # Additional heuristic: check if column name suggests JSON
+                        if column_name in ('md', 'metadata', 'data', 'json'):
+                            json_fields.add(column_name)
+                
+                return json_fields
             except Exception as e:
-                logger.warning(f"Could not discover JSON fields: {e}")
+                logger.warning(f"Could not discover JSON fields in {table}: {e}")
                 return set()
 
     async def _async_search(self, cond: SearchCond, n_results: int = 15, **kw) -> list[SearchResult]:
@@ -117,7 +127,7 @@ class SqlSearchImpl(SearchImpl):
         if '.' in field:
             base_field, *path_parts = field.split('.')
 
-            if base_field in self.json_fields:
+            if base_field in self.table_json_fields.get(self.table_name, set()):
                 # Handle JSON field access
                 json_path = '$.' + '.'.join(path_parts)
                 where_clause = f"json_extract({self.table_name}.{base_field}, ?)"
@@ -145,17 +155,58 @@ class SqlSearchImpl(SearchImpl):
                 elif cond.op == Op.NOT_LIKE:
                     return f"{where_clause} NOT LIKE ?", params + [f"%{cond.value}%"], joins_needed
 
-            elif base_field in self.related_tables:
-                # Handle related table field access
-                fk_field = self.related_tables[base_field]
-                joins_needed.append(f"JOIN {base_field} ON {base_field}.{fk_field} = {self.table_name}.{self.id_field}")
-
-                if len(path_parts) == 1:
-                    where_clause = f"{base_field}.{path_parts[0]}"
+            else:
+                # Check if this is a field in a related table
+                related_table = None
+                fk_field = None
+                for table_name, foreign_key in self.other_tables:
+                    if base_field == table_name:
+                        related_table = table_name
+                        fk_field = foreign_key
+                        break
+                
+                if related_table:
+                    # Handle related table field access
+                    joins_needed.append(f"JOIN {related_table} ON {related_table}.{fk_field} = {self.table_name}.{self.id_field}")
+                    
+                    if len(path_parts) == 1:
+                        # Simple field in related table
+                        where_clause = f"{related_table}.{path_parts[0]}"
+                    else:
+                        # Check if this is JSON field access in related table
+                        json_field = path_parts[0]
+                        if json_field in self.table_json_fields.get(related_table, set()):
+                            # JSON field in related table
+                            json_path = '$.' + '.'.join(path_parts[1:])
+                            where_clause = f"json_extract({related_table}.{json_field}, ?)"
+                            params = [json_path]
+                            
+                            # Build JSON condition based on operator
+                            if cond.op == Op.EQ:
+                                return f"{where_clause} = ?", params + [cond.value], joins_needed
+                            elif cond.op == Op.NEQ:
+                                return f"{where_clause} != ?", params + [cond.value], joins_needed
+                            elif cond.op == Op.GT:
+                                return f"CAST({where_clause} AS REAL) > ?", params + [cond.value], joins_needed
+                            elif cond.op == Op.GTE:
+                                return f"CAST({where_clause} AS REAL) >= ?", params + [cond.value], joins_needed
+                            elif cond.op == Op.LT:
+                                return f"CAST({where_clause} AS REAL) < ?", params + [cond.value], joins_needed
+                            elif cond.op == Op.LTE:
+                                return f"CAST({where_clause} AS REAL) <= ?", params + [cond.value], joins_needed
+                            elif cond.op == Op.EXISTS:
+                                return f"{where_clause} IS NOT NULL", params, joins_needed
+                            elif cond.op == Op.NOT_EXISTS:
+                                return f"{where_clause} IS NULL", params, joins_needed
+                            elif cond.op == Op.LIKE:
+                                return f"{where_clause} LIKE ?", params + [f"%{cond.value}%"], joins_needed
+                            elif cond.op == Op.NOT_LIKE:
+                                return f"{where_clause} NOT LIKE ?", params + [f"%{cond.value}%"], joins_needed
+                        else:
+                            # Regular field in related table
+                            where_clause = f"{related_table}.{json_field}"
                 else:
-                    # Nested field in related table (might be JSON)
-                    where_clause = f"{base_field}.{path_parts[0]}"
-                    # Could extend this for JSON in related tables
+                    raise ValueError(f"Unknown field or table: {base_field}")
             else:
                 raise ValueError(f"Unknown field or table: {base_field}")
         else:
