@@ -206,6 +206,7 @@ class SqlSearchImpl(SearchImpl):
             # Handle regular JSON field access (e.g., md.stats.n_images)
             elif base_field in self.table_json_fields.get(self.table_name, set()):
                 # Handle JSON field access
+                path_parts = parts[1:]
                 json_path = '$.' + '.'.join(path_parts)
                 path_param = next_param_name()
                 where_clause = f"json_extract({self.table_name}.{base_field}, ${path_param})"
@@ -262,6 +263,7 @@ class SqlSearchImpl(SearchImpl):
                 if related_table:
                     # Handle related table field access
                     joins_needed.append(f"JOIN {related_table} ON {related_table}.{fk_field} = {self.table_name}.{self.id_field}")
+                    path_parts = parts[1:]
 
                     if len(path_parts) == 1:
                         # Simple field in related table
