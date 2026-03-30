@@ -111,7 +111,8 @@ class SqlSearchImpl(SearchImpl):
                  db: Database,
                  table_name: str,
                  id_field: str = 'id',
-                 other_tables: list[tuple[str, str]] | None = None):
+                 other_tables: list[tuple[str, str]] | None = None,
+                 aliases: dict[str, str | dict] | None = None):
         """Init with a Pony ORM `Database` instance and the `table_name` to return results from.
 
         The `id_field` is the primary key field in the main table (default 'id').
@@ -152,6 +153,10 @@ class SqlSearchImpl(SearchImpl):
             FieldType.JSON: self._handle_json_reference,
             FieldType.SIMPLE: self._handle_simple_field,
         }
+        
+        # Initialize aliases
+        self.aliases = aliases or {}
+        self._alias_counter = 0
 
     def _generate_aliases(self, other_tables: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
         """Generate aliases automatically based on table and fk_field"""
@@ -460,11 +465,98 @@ class SqlSearchImpl(SearchImpl):
         params.update(condition_params)
         return condition_sql, params
 
+    def _resolve_field_alias(self, field: str, cond: OpCond) -> list[OpCond]:
+        """Resolve field alias to actual field conditions.
+        
+        Returns a list of OpCond objects that represent the resolved alias.
+        For simple aliases, returns a single OpCond with the resolved field.
+        For complex aliases, returns multiple OpCond objects.
+        """
+        if field not in self.aliases:
+            return [cond]
+        
+        alias_def = self.aliases[field]
+        
+        # Simple string alias: 'imdb_id': 'md.imdb_id'
+        if isinstance(alias_def, str):
+            return [OpCond(field=alias_def, op=cond.op, value=cond.value)]
+        
+        # Complex alias: structured definition
+        if isinstance(alias_def, dict):
+            return self._resolve_complex_alias(alias_def, cond)
+        
+        raise ValidationError(f"Invalid alias definition for '{field}': {alias_def}")
+    
+    def _resolve_complex_alias(self, alias_def: dict, cond: OpCond) -> list[OpCond]:
+        """Resolve complex alias definitions.
+        
+        Supports patterns like:
+        {
+            'type': 'score_condition',
+            'tag_field': 'imdb_rating', 
+            'score_field': 'score',
+            'table': 'score'
+        }
+        """
+        alias_type = alias_def.get('type')
+        
+        if alias_type == 'score_condition':
+            # Generate unique table number to avoid conflicts
+            self._alias_counter += 1
+            table_num = self._alias_counter
+            
+            tag_field = alias_def['tag_field']
+            score_field = alias_def.get('score_field', 'score')
+            table = alias_def.get('table', 'score')
+            
+            return [
+                OpCond(field=f"{table}.{table_num}.tag", op=Op.EQ, value=tag_field),
+                OpCond(field=f"{table}.{table_num}.{score_field}", op=cond.op, value=cond.value)
+            ]
+        
+        elif alias_type == 'multi_score_condition':
+            # For conditions involving multiple score tables
+            conditions = []
+            for i, score_def in enumerate(alias_def['conditions'], 1):
+                self._alias_counter += 1
+                table_num = self._alias_counter
+                
+                tag_field = score_def['tag_field']
+                score_field = score_def.get('score_field', 'score')
+                table = score_def.get('table', 'score')
+                op = Op(score_def.get('op', cond.op.value))
+                value = score_def.get('value', cond.value)
+                
+                conditions.extend([
+                    OpCond(field=f"{table}.{table_num}.tag", op=Op.EQ, value=tag_field),
+                    OpCond(field=f"{table}.{table_num}.{score_field}", op=op, value=value)
+                ])
+            
+            return conditions
+        
+        elif alias_type == 'nested_relation':
+            # For nested relationship queries like genre_name
+            path = alias_def['path']  # e.g., 'rel_src.tgt.name'
+            return [OpCond(field=path, op=cond.op, value=cond.value)]
+        
+        else:
+            raise ValidationError(f"Unknown alias type: {alias_type}")
+
     def _build_op_clause(self, cond: OpCond) -> tuple[str, dict, list]:
         """Build SQL for a single operation condition"""
-        field_type = self._classify_field(cond.field)
+        # Resolve aliases first
+        resolved_conds = self._resolve_field_alias(cond.field, cond)
+        
+        # If alias resolved to multiple conditions, combine with AND
+        if len(resolved_conds) > 1:
+            join_cond = JoinCond(join=JoinType.AND, conds=resolved_conds)
+            return self._build_join_clause(join_cond)
+        
+        # Single condition - process normally
+        resolved_cond = resolved_conds[0]
+        field_type = self._classify_field(resolved_cond.field)
         handler = self._field_handlers[field_type]
-        return handler(cond.field, cond)
+        return handler(resolved_cond.field, resolved_cond)
 
     def _build_join_clause(self, cond: JoinCond) -> tuple[str, dict, list]:
         """Build SQL for joined conditions (AND/OR/NOT)"""
