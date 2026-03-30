@@ -667,6 +667,91 @@ def test_sql_search(db_path='db/nkmovies/embeddings/movie-collection.sqlite'):
         # Existence checks
         (["md.imdb_id", "?"], "Items with imdb_id metadata"),
         (["embed_ts", "?+"], "Items with embeddings"),
+
+        # Complex nested queries with multiple joins
+        (["&", 
+          ["otype", "=", "movie"], 
+          ["|", ["md.year", ">=", 2020], ["md.rating", ">=", 8.0]]
+         ], "Recent movies OR highly rated movies"),
+
+        (["&",
+          ["source", "=", "imdb"],
+          ["!", ["md.genres", "@", "Horror"]],
+          ["md.runtime", ">=", 120]
+         ], "Long non-horror IMDB movies"),
+
+        # Multi-level JSON access
+        (["md.cast.0.name", "~", "Tom"], "Movies with Tom in first cast position"),
+        (["md.production.budget", ">", 100000000], "Big budget movies (>$100M)"),
+        (["md.awards.oscar_wins", ">", 0], "Oscar winning movies"),
+
+        # Complex relationship queries across multiple tables
+        (["&",
+          ["score.tag", "=", "popularity"],
+          ["score.score", ">", 0.8],
+          ["rel.rtype", "=", "directed_by"]
+         ], "Popular movies with known directors"),
+
+        # Date range queries
+        (["&",
+          ["md.release_date", ">=", "2020-01-01"],
+          ["md.release_date", "<=", "2023-12-31"]
+         ], "Movies released 2020-2023"),
+
+        # Multiple NOT conditions
+        (["&",
+          ["!", ["md.genres", "@", "Documentary"]],
+          ["!", ["md.genres", "@", "Animation"]],
+          ["md.rating", ">=", 7.0]
+         ], "Good non-documentary, non-animated movies"),
+
+        # Complex OR with nested AND conditions
+        (["|",
+          ["&", ["md.director", "~", "Nolan"], ["md.year", ">=", 2010]],
+          ["&", ["md.director", "~", "Tarantino"], ["md.rating", ">=", 8.0]],
+          ["&", ["md.genres", "@", "Sci-Fi"], ["md.budget", ">", 50000000]]
+         ], "Recent Nolan OR great Tarantino OR big-budget sci-fi"),
+
+        # List operations with multiple values
+        (["md.genres", ":", ["Action", "Thriller", "Crime"]], "Action, thriller, or crime movies"),
+        (["md.languages", "@", "English"], "Movies available in English"),
+        (["id", "!:", [1, 2, 3, 100, 200]], "Exclude specific movie IDs"),
+
+        # Numeric comparisons with edge cases
+        (["md.rating", "~=", 7.5], "Movies with rating close to 7.5"),
+        (["md.runtime", ":", [90, 120, 150]], "Movies with specific runtimes"),
+
+        # Complex existence and null checks
+        (["&",
+          ["md.sequel_to", "?"],
+          ["!", ["md.prequel_to", "?"]]
+         ], "Movies that are sequels but not prequels"),
+
+        # Multi-table joins with complex conditions
+        (["&",
+          ["rel.rtype", "=", "acted_in"],
+          ["rel.md.character_name", "~", "John"],
+          ["score.tag", "=", "box_office"],
+          ["score.score", ">", 1000000]
+         ], "High-grossing movies with character named John"),
+
+        # Deeply nested JSON with arrays
+        (["md.reviews.critics.average", ">", 8.0], "Movies with high critic scores"),
+        (["md.cast.*.awards", "@", "Oscar"], "Movies with Oscar-winning cast members"),
+
+        # Time-based queries
+        (["&",
+          ["ts", ">", 1640995200], # Jan 1, 2022
+          ["embed_ts", "?+"],
+          ["seen_ts", "!?"]
+         ], "Recent items with embeddings but never seen"),
+
+        # Complex string matching
+        (["&",
+          ["name", "~", "The"],
+          ["!", ["name", "~", "The End"]],
+          ["md.title", "!~", "Part"]
+         ], "Movies starting with 'The' but not ending movies or parts"),
     ]
 
     print(f"\nTesting {len(queries)} queries:")
