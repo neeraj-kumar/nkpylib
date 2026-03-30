@@ -130,6 +130,16 @@ class SqlSearchImpl(SearchImpl):
 
         # Initialize parameter manager
         self.param_manager = ParameterManager()
+        
+        # Initialize field handler mapping
+        self._field_handlers = {
+            FieldType.MAGIC: self._handle_magic_field,
+            FieldType.NUMBERED: self._handle_numbered_reference,
+            FieldType.ALIASED: self._handle_aliased_reference,
+            FieldType.NESTED: self._handle_nested_reference,
+            FieldType.JSON: self._handle_json_reference,
+            FieldType.SIMPLE: self._handle_simple_field,
+        }
 
     def _generate_aliases(self, other_tables: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
         """Generate aliases automatically based on table and fk_field"""
@@ -332,34 +342,17 @@ class SqlSearchImpl(SearchImpl):
 
     def _build_op_clause(self, cond: OpCond) -> tuple[str, dict, list]:
         """Build SQL for a single operation condition"""
-        field = cond.field
-        field_type = self._classify_field(field)
-
-        match field_type:
-            case FieldType.MAGIC:
-                return self._handle_magic_field(field, cond)
-            case FieldType.NUMBERED:
-                return self._handle_numbered_reference(field, cond)
-            case FieldType.ALIASED:
-                return self._handle_aliased_reference(field, cond)
-            case FieldType.NESTED:
-                return self._handle_nested_reference(field, cond)
-            case FieldType.JSON:
-                return self._handle_json_reference(field, cond)
-            case FieldType.SIMPLE:
-                return self._handle_simple_field(field, cond)
-            case _:
-                raise ValueError(f"Unknown field type for: {field}")
+        field_type = self._classify_field(cond.field)
+        handler = self._field_handlers[field_type]
+        return handler(field, cond)
 
     def _build_join_clause(self, cond: JoinCond) -> tuple[str, dict, list]:
         """Build SQL for joined conditions (AND/OR/NOT)"""
         if not cond.conds:
             return "", {}, []
-
         all_where_parts = []
         all_params = {}
         all_joins = []
-
         for subcond in cond.conds:
             if subcond is not None:
                 where_part, params, joins = self._build_where_clause(subcond)
@@ -367,10 +360,8 @@ class SqlSearchImpl(SearchImpl):
                     all_where_parts.append(where_part)
                     all_params.update(params)
                     all_joins.extend(joins)
-
         if not all_where_parts:
             return "", {}, []
-
         # Combine conditions based on join type
         if cond.join == JoinType.AND:
             combined_where = ' AND '.join(f"({part})" for part in all_where_parts)
@@ -385,25 +376,22 @@ class SqlSearchImpl(SearchImpl):
                 combined_where = f"NOT ({and_clause})"
         else:
             raise NotImplementedError(f"Join type {cond.join} not implemented")
-
         # Remove duplicate joins
         unique_joins = list(dict.fromkeys(all_joins))
-
         return combined_where, all_params, unique_joins
 
     def _handle_magic_field(self, field: str, cond: OpCond) -> tuple[str, dict, list]:
         """Handle magic fields like $limit, $offset, $order"""
-        if field == '$limit':
-            self._query_limit = int(cond.value)
-            return "", {}, []
-        elif field == '$offset':
-            self._query_offset = int(cond.value)
-            return "", {}, []
-        elif field == '$order':
-            self._query_order = str(cond.value)
-            return "", {}, []
-        else:
-            raise ValueError(f"Unknown magic field: {field}")
+        match field:
+            case '$limit':
+                self._query_limit = int(cond.value)
+            case '$offset':
+                self._query_offset = int(cond.value)
+            case '$order':
+                self._query_order = str(cond.value)
+            case _:
+                raise ValueError(f"Unknown magic field: {field}")
+        return "", {}, []
 
     def _handle_numbered_reference(self, field: str, cond: OpCond) -> tuple[str, dict, list]:
         """Handle numbered table references like score.1.tag"""
@@ -411,22 +399,18 @@ class SqlSearchImpl(SearchImpl):
         table_name = parts[0]
         table_number = parts[1]
         remaining_parts = parts[2:]
-
         # Find the table info
         related_table_info = None
         for table, fk_field in self.other_tables:
             if table == table_name:
                 related_table_info = (table, fk_field)
                 break
-
         if not related_table_info:
             raise ValueError(f"Unknown numbered table reference: {table_name}")
-
         table, fk_field = related_table_info
         alias = f"{table}_{table_number}"
         join_builder = JoinBuilder(self.table_name, self.id_field)
         join_builder.add_table_join(table, alias, fk_field)
-
         if len(remaining_parts) == 1:
             # Simple field in related table
             where_clause = f"{alias}.{remaining_parts[0]}"
@@ -448,21 +432,17 @@ class SqlSearchImpl(SearchImpl):
         parts = field.split('.')
         base_field = parts[0]
         remaining_parts = parts[1:]
-
         # Find the table info for this alias
         related_table_info = None
         for (table, fk_field), alias in self.table_aliases.items():
             if alias == base_field:
                 related_table_info = (table, fk_field, alias)
                 break
-
         if not related_table_info:
             raise ValueError(f"Unknown alias reference: {base_field}")
-
         table, fk_field, alias = related_table_info
         join_builder = JoinBuilder(self.table_name, self.id_field)
         join_builder.add_table_join(table, alias, fk_field)
-
         if len(remaining_parts) == 1:
             # Simple field in related table
             where_clause = f"{alias}.{remaining_parts[0]}"
@@ -484,27 +464,22 @@ class SqlSearchImpl(SearchImpl):
         parts = field.split('.')
         base_field = parts[0]
         remaining_parts = parts[1:]
-
         # Find the table info for this alias
         related_table_info = None
         for (table, fk_field), alias in self.table_aliases.items():
             if alias == base_field:
                 related_table_info = (table, fk_field, alias)
                 break
-
         if not related_table_info:
             raise ValueError(f"Unknown alias reference: {base_field}")
-
         table, fk_field, alias = related_table_info
         rel_field = remaining_parts[0]  # 'src' or 'tgt'
         target_field = remaining_parts[1]  # 'name', 'otype', etc.
-
         # Create joins: main_table -> rel_table -> target_item
         target_alias = f"{alias}_target"
         join_builder = JoinBuilder(self.table_name, self.id_field)
         join_builder.add_table_join(table, alias, fk_field)
         join_builder.add_nested_join(alias, target_alias, rel_field)
-
         # Handle JSON field access in target item
         if len(remaining_parts) > 2:
             json_field = target_field
@@ -516,7 +491,6 @@ class SqlSearchImpl(SearchImpl):
         else:
             # Simple field in target item
             where_clause = f"{target_alias}.{target_field}"
-
         condition_sql, params = self._build_operator_condition(where_clause, cond)
         return condition_sql, params, join_builder.get_joins()
 
@@ -530,12 +504,10 @@ class SqlSearchImpl(SearchImpl):
 
     def _handle_simple_field(self, field: str, cond: OpCond) -> tuple[str, dict, list]:
         """Handle simple field references or legacy table references"""
-        if '.' in field:
-            # Legacy table reference
+        if '.' in field: # Legacy table reference
             parts = field.split('.')
             base_field = parts[0]
             matching_entries = [(t, fk) for t, fk in self.other_tables if t == base_field]
-
             if len(matching_entries) > 1:
                 # Multiple FKs to same table - require explicit alias
                 available_aliases = [alias for (table, fk), alias in self.table_aliases.items() if table == base_field]
@@ -556,7 +528,6 @@ class SqlSearchImpl(SearchImpl):
                         return condition_sql, params, joins_needed
                     else:
                         where_clause = f"{related_table}.{json_field}"
-
                 condition_sql, params = self._build_operator_condition(where_clause, cond)
                 return condition_sql, params, joins_needed
             else:
