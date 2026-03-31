@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import time
 
+from os.path import dirname, join
 from typing import Any
 
 import pytest
@@ -19,6 +22,9 @@ from nkpylib.search.searcher import (
     SearchResult,
 )
 from nkpylib.search.obj import ObjSearch
+from nkpylib.search.sql import SqlSearchImpl
+
+logger = logging.getLogger(__name__)
 
 TEST_UNICODE = False
 
@@ -330,3 +336,201 @@ def test_op_combinations(field: str, op_str: str, op_enum: Op, val_str: str, val
     expected = OpCond(field, op_enum, val_expected)
     result = parse_query_into_cond(query)
     assert result == expected, f"Failed parsing '{query}'"
+
+
+
+def test_sql_searcher(db_path=join(dirname(__file__), 'movie-collection.sqlite')):
+    from nkpylib.nkcollections.nkcollections import init_sql_db, db_session, Item
+    db = init_sql_db(db_path)
+    print(f"Database: {db}")
+
+    ssi = SqlSearchImpl(db=db, table_name='item', other_tables=[
+        ('rel', 'src'), ('rel', 'tgt'), ('score', 'id')],
+    )
+    print(f"SqlSearchImpl: {ssi}")
+
+    # Test queries using compact JSON syntax
+    queries = [
+        # Basic field filters (like QueryBuilder's source, otype filters)
+        dict(q=["source", "=", "imdb"], name="Filter by source", num=1236),
+        dict(q=["otype", "=", "content_rating"], name="Filter by object type", ids=[83,115,130,148,425]),
+        dict(q=["name", "~", "long"], name="Search name containing 'long'", ids=[543, 1681, 702, 1941]),
+
+        # Numeric filters (like QueryBuilder's ts, added_ts filters)
+        dict(q=["ts", "<", 1773727880.02], name="Items before Tuesday, March 17, 2026", ids=[1,2,3,4,5,6,7]),
+        dict(q=["id", ":", [2, 3, 4, 9]], name="Items with specific IDs", ids=[2,3,4,9]),
+
+        # JSON field access (like QueryBuilder's md field access)
+        dict(q=["md.birth_year", ">=", 1999], name="Items with birth year >= 1999", ids=[48, 1073, 1587, 1690, 1972]),
+        dict(q=["md.imdb_id", "=", 'tt1849718'], name="Specific imdb id", ids=[2]),
+
+        # Related table queries (like QueryBuilder's rel filters)
+        dict(q=["score.tag", "=", "nkrating"], name="Items with nkrating scores", num=247),
+        dict(q=["score.score", "=", 1], name="Items with score=1", ids=[247, 915, 924, 1004, 1217, 1417, 1478, 1776]),
+        dict(q=["rel_src.rtype", "=", "has_genre"], name="Items that have a genre", num=250),
+
+        # Complex AND/OR queries (like QueryBuilder's complex filters)
+        dict(q=["&", ["otype", "=", "genre"], ["source", "=", "imdb"]], name="Imdb genre", ids=[12, 17, 19, 54, 58, 84, 105, 119, 154, 157, 188, 227, 243, 283, 303, 415, 530, 587, 750, 952, 1014, 1206]),
+        dict(q=["&", ["otype", "=", "person"], ["md.birth_year", ">", 1999]], name="Young people", ids=[1073,1690,1972]),
+        dict(q=["|", ["source", "=", "letterboxd"], ["source", "=", "movielens"]], name="Letterboxd or movielens items", num=126),
+
+        # NOT queries
+        dict(q=["!", ["otype", "=", "movie"]], name="Non-movie items", num=1746),
+
+        # Existence checks
+        dict(q=["md.imdb_id", "?"], name="Items with imdb_id metadata", num=250),
+        dict(q=["embed_ts", "?+"], name="Items with embeddings", ids=[]),
+
+        # Score-based queries (budget, revenue, ratings stored in Score table)
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["score.tag", "=", "budget"],
+          ["score.score", ">", 100000000]
+         ], name="Big budget movies (>$100M)", ids=[559, 892, 1737, 1860]),
+
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["score.tag", "=", "revenue"],
+          ["score.score", ">", 500000000]
+         ], name="High-grossing movies (>$500M)", ids=[1737, 1860]),
+
+        dict(q=["&",
+          ["otype", "=", "person"],
+          ["rel_tgt.rtype", "=", "director"]
+         ], name="People that are directors", num=213),
+
+        # Multiple score conditions using numbered syntax
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["score.1.tag", "=", "rating"],
+          ["score.1.score", ">=", 7.0],
+          ["score.2.tag", "=", "budget"],
+          ["score.2.score", "<", 100000]
+         ], name="Good low-budget movies", ids=[813, 1152, 1328, 1719, 1953]),
+
+        # Complex OR with nested AND conditions using actual schema
+        dict(q=["|",
+          ["&", ["otype", "=", "person"], ["name", "~", "Nolan"]],
+          ["&", ["otype", "=", "person"], ["name", "~", "Tarantino"]],
+          ["&", ["otype", "=", "genre"], ["name", "=", "Sci-Fi"]]
+         ], name="Nolan OR Tarantino OR Sci-Fi genre", ids=[1741, 169, 105, 196]),
+
+        # List operations with multiple values
+        dict(q=["otype", ":", ["movie", "person", "genre"]], name="Movies, people, or genres", num=1292),
+        dict(q=["source", ":", ["letterboxd", "movielens"]], name="Items from specific sources", num=126),
+        dict(q=["id", "!:", [1, 2, 3, 100, 200]], name="Exclude specific IDs", num=1991),
+
+        # Numeric comparisons with actual fields
+        dict(q=["md.runtime", ":", [120, 150]], name="Movies with specific runtimes", ids=[659, 1305, 1774, 1847]),
+        dict(q=["md.runtime", ">=", 220], name="Long movies", ids=[168]),
+
+        # Complex existence and null checks
+        dict(q=["&",
+          ["md.imdb_id", "?"],
+          ["!", ["embed_ts", "?"]]
+         ], name="Items with IMDB ID but no embeddings", num=250),
+
+        # Multi-table joins with complex conditions using actual schema
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["rel_src.rtype", "=", "actor"],
+          ["rel_src.tgt.name", "~", "tom"],
+          ["score.tag", "=", "revenue"],
+          ["score.score", ">", 10000]
+         ], name="$10k+ movies with actors named 'tom'", ids=[1408, 1704]),
+
+        # Revenue vs budget analysis using numbered syntax
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["score.1.tag", "=", "revenue"],
+          ["score.1.score", ">", 100000000],
+          ["score.2.tag", "=", "budget"],
+          ["score.2.score", "<", 30000000]
+         ], name="Profitable movies (high revenue, low budget)", ids=[997, 1646, 1671, 1697]),
+
+        # Time-based queries
+        dict(q=["&",
+          ["ts", ">", 1640995200], # Jan 1, 2022
+          ["embed_ts", "?+"],
+          ["seen_ts", "!?"]
+         ], name="Recent items with embeddings but never seen", ids=[]),
+
+        # Complex string matching with actual fields
+        dict(q=["&",
+          ["name", "~", "and"],
+          ["!", ["name", "~", "the"]],
+          ["otype", "=", "movie"]
+         ], name="Movies with 'and' but not 'the'", ids=[247, 310, 629, 908, 1035, 1188, 1254, 1384, 1426]),
+
+        # Genre-specific queries using relationships
+        dict(q=["&",
+          ["otype", "=", "genre"],
+          ["name", ":", ["Action", "Thriller", "Crime"]]
+         ], name="Action, thriller, or crime genres", ids=[5, 7, 13, 17, 19, 22, 54, 57, 69]),
+
+        # Person-specific queries
+        dict(q=["&",
+          ["otype", "=", "person"],
+          ["name", "~", "Tom"]
+         ], name="People named Tom", ids=[347, 661, 1147, 1162, 1413, 1435, 1706]),
+
+        # Cross-entity relationship queries using aliases
+        dict(q=["&",
+          ["rel_src.rtype", "=", "has_genre"],
+          ["rel_src.tgt", "=", 52]  # movielens Mystery
+         ], name="Movies with specific genre (using alias)", ids=[46, 138, 512, 852, 860, 964, 1074, 1296, 1462, 1470, 1609, 1884]),
+
+        # Movies with specific genre by name (nested query)
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["rel_src.rtype", "=", "has_genre"],
+          ["rel_src.tgt.name", "=", "War"]
+         ], name="Movies with specific genre (by name)", ids=[223, 345, 394, 555, 622, 723, 766, 964, 986, 1481, 1841]),
+
+        # Genres used by specific movies
+        dict(q=["&",
+          ["otype", "=", "genre"],
+          ["source", "=", 'tmdb'],
+          ["rel_tgt.rtype", "=", "has_genre"],
+          ["rel_tgt.src", ":", [2, 46, 223]]  # Agneepath, Bullet train, Tropic thunder
+         ], name="TMDB Genres used by specific movies", ids=[5, 7, 14, 63, 69, 81, 231]),
+
+        # Magic field examples
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["$limit", "=", 5],
+          ["$order", "=", "-ts"]
+         ], name="5 most recent movies", ids=[1994, 1988, 1984, 1975, 1969]),
+
+        dict(q=["&",
+          ["otype", "=", "person"],
+          ["$limit", "=", 5],
+          ["$offset", "=", 20],
+          ["$order", "=", "name"]
+         ], name="People 21-26 ordered by name", ids=[1178, 1531, 42, 396, 535]),
+
+        dict(q=["&",
+          ["otype", "=", "movie"],
+          ["md.runtime", "?+"],
+          ["$order", "=", "-md.runtime"],
+          ["$limit", "=", 3]
+         ], name="3 longest movies by runtime", ids=[168, 1685, 1105]),
+    ]
+    print(f"\nTesting {len(queries)} queries:")
+    for i, row in enumerate(queries):
+        query, name = row['q'], row['name']
+        print(f"\n{i+1}. {name}: {query}")
+        results = ssi.search(query, n_results=50000)
+        print(f"{len(results)} Results found")
+        try:
+            if 'num' in row:
+                assert len(results) == row['num'], f"Expected {row['num']} results, got {len(results)}"
+            elif 'ids' in row:
+                ids = row['ids']
+                assert set(r.id for r in results) == set(ids), f"For '{name}' expected IDs {ids}, got {len(results)}: {[r.id for r in results]}"
+        except Exception:
+            for j, r in enumerate(results[:5]):
+                with db_session:
+                    item = json.dumps(Item[r.id].to_dict(), indent=2)
+                logger.info(f"  {j+1}. {r}\n{item}")
+            raise
