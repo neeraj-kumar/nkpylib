@@ -534,3 +534,154 @@ def test_sql_searcher(db_path=join(dirname(__file__), 'movie-collection.sqlite')
                     item = json.dumps(Item[r.id].to_dict(), indent=2)
                 logger.info(f"  {j+1}. {r}\n{item}")
             raise
+
+
+def test_sql_searcher_with_aliases(db_path=join(dirname(__file__), 'movie-collection.sqlite')):
+    """Test SqlSearchImpl with different alias configurations"""
+    from nkpylib.nkcollections.nkcollections import init_sql_db, db_session, Item
+    db = init_sql_db(db_path)
+    
+    # Test different alias configurations
+    alias_test_cases = [
+        {
+            'name': 'Simple field aliases',
+            'aliases': {
+                'imdb_id': 'md.imdb_id',
+                'runtime': 'md.runtime',
+                'birth_year': 'md.birth_year',
+            },
+            'queries': [
+                (["imdb_id", "=", "tt1849718"], "Query by IMDB ID alias", [2]),
+                (["runtime", ">=", 220], "Long movies via runtime alias", [168]),
+                (["birth_year", ">=", 1999], "Young people via birth_year alias", [48, 1073, 1587, 1690, 1972]),
+            ]
+        },
+        {
+            'name': 'Score condition aliases',
+            'aliases': {
+                'rating': {
+                    'type': 'score_condition',
+                    'tag_field': 'rating',
+                    'score_field': 'score',
+                    'table': 'score'
+                },
+                'budget': {
+                    'type': 'score_condition', 
+                    'tag_field': 'budget',
+                    'score_field': 'score',
+                    'table': 'score'
+                },
+                'revenue': {
+                    'type': 'score_condition',
+                    'tag_field': 'revenue', 
+                    'score_field': 'score',
+                    'table': 'score'
+                }
+            },
+            'queries': [
+                (["&", ["otype", "=", "movie"], ["rating", ">=", 7.0]], "High rated movies", [813, 1152, 1328, 1719, 1953]),
+                (["&", ["otype", "=", "movie"], ["budget", ">", 100000000]], "Big budget movies", [559, 892, 1737, 1860]),
+                (["&", ["otype", "=", "movie"], ["revenue", ">", 500000000]], "High grossing movies", [1737, 1860]),
+            ]
+        },
+        {
+            'name': 'Multi-score condition aliases',
+            'aliases': {
+                'profitable': {
+                    'type': 'multi_score_condition',
+                    'conditions': [
+                        {'tag_field': 'revenue', 'op': '>', 'value': 100000000},
+                        {'tag_field': 'budget', 'op': '<', 'value': 30000000}
+                    ]
+                },
+                'blockbuster': {
+                    'type': 'multi_score_condition', 
+                    'conditions': [
+                        {'tag_field': 'budget', 'op': '>', 'value': 100000000},
+                        {'tag_field': 'revenue', 'op': '>', 'value': 500000000}
+                    ]
+                }
+            },
+            'queries': [
+                (["&", ["otype", "=", "movie"], ["profitable", "=", True]], "Profitable movies", [997, 1646, 1671, 1697]),
+                (["&", ["otype", "=", "movie"], ["blockbuster", "=", True]], "Blockbuster movies", [1737, 1860]),
+            ]
+        },
+        {
+            'name': 'Nested relation aliases',
+            'aliases': {
+                'genre_name': {
+                    'type': 'nested_relation',
+                    'path': 'rel_src.tgt.name'
+                },
+                'director_name': {
+                    'type': 'nested_relation',
+                    'path': 'rel_src.tgt.name'  # Would need different logic for director vs genre
+                }
+            },
+            'queries': [
+                (["&", ["otype", "=", "movie"], ["genre_name", "=", "War"]], "War movies via alias", [223, 345, 394, 555, 622, 723, 766, 964, 986, 1481, 1841]),
+            ]
+        },
+        {
+            'name': 'Mixed aliases',
+            'aliases': {
+                # Simple aliases
+                'imdb_id': 'md.imdb_id',
+                'runtime': 'md.runtime',
+                # Score condition alias
+                'rating': {
+                    'type': 'score_condition',
+                    'tag_field': 'rating',
+                    'score_field': 'score', 
+                    'table': 'score'
+                },
+                # Multi-condition alias
+                'good_and_cheap': {
+                    'type': 'multi_score_condition',
+                    'conditions': [
+                        {'tag_field': 'rating', 'op': '>=', 'value': 7.0},
+                        {'tag_field': 'budget', 'op': '<', 'value': 100000}
+                    ]
+                }
+            },
+            'queries': [
+                (["&", ["otype", "=", "movie"], ["imdb_id", "?"], ["rating", ">=", 8.0]], "High rated movies with IMDB ID", []),
+                (["&", ["otype", "=", "movie"], ["runtime", ">=", 120], ["good_and_cheap", "=", True]], "Long, good, cheap movies", [813, 1152, 1328, 1719, 1953]),
+            ]
+        }
+    ]
+    
+    for test_case in alias_test_cases:
+        print(f"\n=== Testing {test_case['name']} ===")
+        
+        # Create SqlSearchImpl with specific aliases
+        ssi = SqlSearchImpl(
+            db=db, 
+            table_name='item', 
+            other_tables=[('rel', 'src'), ('rel', 'tgt'), ('score', 'id')],
+            aliases=test_case['aliases']
+        )
+        
+        # Test each query in this alias configuration
+        for query, description, expected_ids in test_case['queries']:
+            print(f"\n  {description}: {query}")
+            results = ssi.search(query, n_results=50000)
+            result_ids = [r.id for r in results]
+            print(f"  Found {len(results)} results: {result_ids[:10]}{'...' if len(result_ids) > 10 else ''}")
+            
+            try:
+                if expected_ids:
+                    assert set(result_ids) == set(expected_ids), \
+                        f"Expected IDs {expected_ids}, got {result_ids}"
+                    print(f"  ✓ Matched expected {len(expected_ids)} results")
+                else:
+                    print(f"  ✓ Query executed successfully")
+            except Exception as e:
+                print(f"  ✗ Test failed: {e}")
+                # Show some sample results for debugging
+                for j, r in enumerate(results[:3]):
+                    with db_session:
+                        item = Item[r.id].to_dict()
+                        print(f"    Sample {j+1}: {item}")
+                raise
