@@ -335,12 +335,12 @@ class Score(sql_db.Entity, GetMixin): # type: ignore[name-defined]
     #composite_index(id, ttype, tag, score) # can't do this in pony, but sqlite does it
 
     @classmethod
-    def get_top_tags(cls, ids: list[str|int]):
+    def get_top_tags(cls, ids: list[str|int], min_score: float=0.5):
         """Returns a counter of the top tags for the given list of `ids`"""
         ids = [int(id) for id in ids]
         counts = Counter()
         ttype = f'tag:{IMAGE_SUFFIX}'
-        cluster_scores = Score.select(lambda s: s.id.id in ids and s.ttype == ttype)
+        cluster_scores = Score.select(lambda s: s.id.id in ids and s.ttype == ttype and s.score > min_score)
         for score in cluster_scores:
             counts[score.tag] += 1
         return counts

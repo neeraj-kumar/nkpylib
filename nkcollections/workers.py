@@ -509,7 +509,7 @@ class CollectionsWorker(Thread):
         logger.debug(f"User {user_id} stats timing (top 5): {formatted_timings}")
         return dict(counts)
 
-    async def _handle_user_actions(self, max_items:int= 10) -> None:
+    async def _handle_user_actions(self, max_items:int=10) -> None:
         """Handles user actions that are in the table but have not been done."""
         with db_session:
             actions = Rel.select(lambda r: r.rtype in ACTIONS and r.md['processed_ts'] is None)[:max_items]
@@ -523,7 +523,7 @@ class CollectionsWorker(Thread):
                     logger.error(f'Error handling action {a}: {e}')
                     a.md['processed_ts'] = -1
 
-    async def _explore_users(self, min_count=60) -> None:
+    async def _explore_users(self, min_count=70, max_users:int=5) -> None:
         """Explores users who have more than `min_count` reblogs queued."""
         with db_session:
             users = Item.select(lambda u: u.otype == 'user' and u.explored_ts is None and u.md['n_queued_reblogs'] is not None)
@@ -535,7 +535,7 @@ class CollectionsWorker(Thread):
         if not to_explore:
             return
         logger.info(f'Exploring {len(to_explore)} users with at least {min_count} queued reblogs')
-        await Rel.handle_me_action(to_explore, 'explore')
+        await Rel.handle_me_action(to_explore[:max_users], 'explore')
         logger.info(f'Done exploring users')
 
     async def _update_embeddings(self, limit=1000) -> None:

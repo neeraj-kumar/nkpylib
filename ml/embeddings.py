@@ -322,7 +322,8 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 clusters[key] = dict(num=int(pred_labels[i])+1, score=float(score))
         return clusters
 
-    @with_pipeline(Pipeliner.just_scaling())
+    #@with_pipeline(Pipeliner.just_scaling())
+    @with_pipeline(Pipeliner().quantile().rbf_sample().build())
     def cluster(self, n_clusters=-1, method='kmeans', all_keys=None, **kwargs) -> list[list[KeyT]]:
         """Clusters our embeddings.
 

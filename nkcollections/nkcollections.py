@@ -494,7 +494,7 @@ class ClassifyHandler(MyBaseHandler):
                 ids = [int(key.split(':')[0]) for key in lst]
                 # Get top 5 most common tags for cluster name
                 tag_counts = Score.get_top_tags(ids=ids)
-                logger.debug(f'Cluster {i} has tag counts: {tag_counts.most_common(5)}')
+                logger.info(f'Cluster {i} has tag counts: {tag_counts.most_common(5)}')
                 top_tags = [tag for tag, count in tag_counts.most_common(5)]
                 name = f'Cluster {i}'
                 if top_tags:
@@ -561,7 +561,8 @@ def web_main(cfg_path: str, **kw):
     def on_start(app, args):
         app.sql_db = init_sql_db(CFG.db.sqlite_path)
         assert len(CFG.db.lmdb_path) == 1
-        lmdb_path = CFG.db.lmdb_path[0][1]
+        lmdb_path = CFG.db.lmdb_path[0]
+        print(f'Starting with lmdb: {lmdb_path}')
         temp = NumpyLmdb.open(lmdb_path, flag='c')
         del temp
         app.embs = Embeddings([lmdb_path])
