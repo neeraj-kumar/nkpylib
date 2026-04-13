@@ -44,7 +44,7 @@ DEFAULT_MODELS = dict(
     llama4=ModelConfig('meta-llama/Llama-4-Scout-17B-16E-Instruct', max_tokens=131072),
     # qwen, latest baidu model
     qwen=ModelConfig('Qwen/Qwen3-30B-A3B', max_tokens=32768),
-    qwen_large=ModelConfig('Qwen/Qwen3-235B-A22B', max_tokens=32768),
+    qwen_large=ModelConfig('Qwen/Qwen3-235B-A22B-Instruct-2507', max_tokens=32768),
     # llama3 for default good perf on various text tasks
     llama3=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     text=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
