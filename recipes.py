@@ -47,6 +47,7 @@ import os
 import re
 import time
 
+from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -62,7 +63,7 @@ from pyquery import PyQuery as pq # type: ignore
 
 from nkpylib.constants import SIMPLE_URL_REGEXP
 from nkpylib.ml.client import call_llm, get_text
-from nkpylib.ml.llm_utils import llm_transform_list, batched_llm_call
+from nkpylib.ml.llm_utils import llm_transform_list, batched_llm_call, load_llm_json
 from nkpylib.stringutils import GeneralJSONEncoder
 from nkpylib.web_search import DefaultWebSearch
 from nkpylib.web_utils import make_request
@@ -399,3 +400,78 @@ Input Steps follow after this.
                 step['ingredients'] = [ingr_id_by_idx[i] for i in step['ingredients'] if i in ingr_id_by_idx]
         #print(json.dumps(recipe, indent=2, cls=GeneralJSONEncoder))
         return recipe
+
+def gen_recipe_json(s: str) -> dict[str, Any]:
+    """Generates a standard recipe json from a raw recipe text string, using an llm."""
+    sys_prompt = '''You are an accurate recipe JSON generator. You convert text recipes (whether
+    originally as text, or auto-extracted from a pdf, or read from an OCR scan) into a structured
+    JSON recipe object (as seen on the web as ld+json objects). You will extract as many of the
+    following fields as you can confidently find from the input text:
+
+  "@id": [original url if found, else title]
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingCount": "[number of ratings]",
+    "ratingValue": "[average rating]"
+  },
+  "author": {
+    "@type": "Person",
+    "name": "[name of author or website]"
+  },
+  "cookTime": "[cooking time in PT20M format]",
+  "datePublished": "[datetime of publication in fmt: 2014-09-27T05:00:25+00:00]",
+  "description": "[Few sentence description of recipe]",
+  "keywords": "[comma-separated list of keywords]",
+  "name": "[title of recipe]",
+  "prepTime": "[preparation time, not including actual cooking, in PT10M format]",
+  "recipeCategory": [list of categories, e.g. Breakfast, Dinner, etc.],
+  "recipeCuisine": [list of cuisine types, such as Gluten-Free, Vegan, etc],
+  "recipeIngredient": [list of ingredients as strings, exactly as they appear in the recipe, without any parsing],
+  "recipeInstructions": [
+    {
+      "@type": "HowToStep",
+      "name": "[full text of 1st step, exactly as it appears in the recipe, without any parsing]",
+      "text": "[full text of 1st step, exactly as it appears in the recipe, without any parsing]",
+    },
+    {
+      "@type": "HowToStep",
+      "name": "[full text of 2nd step, exactly as it appears in the recipe, without any parsing]",
+      "text": "[full text of 2nd step, exactly as it appears in the recipe, without any parsing]",
+    },
+    ...all subsequent steps in the same format...
+  ],
+  "recipeYield": [
+    "[number of servings yielded by the recipe, as just the number]"
+  ],
+}'''
+
+    prompt = f'''Here is a recipe, as a raw text string. It may have been extracted from a pdf or OCR
+    scan, so it may have various formatting issues, extra spaces, line breaks, etc. Your task is to
+    read this text and extract the structured recipe information into a JSON object with the format
+    described above. Extract as many of the fields as you can confidently find in the text. If a
+    field is not present or you're not sure about it, omit it from the output.
+
+    Here is the raw recipe text:
+    {s}
+    '''
+    ret = load_llm_json(call_llm.single(prompt, sys_prompt=sys_prompt, model='qwen_large'))
+    ret.update({
+      "@type": "Recipe",
+    })
+    return ret
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser(description='Parse a recipe.')
+    parser.add_argument('input_path', help='Path to the input recipe. If json, then we improve it. Else we create recipe json')
+    parser.add_argument('output_path', help='Path to the output json recipe (possibly improved)')
+    args = parser.parse_args()
+    if args.input_path.lower().endswith('.json'):
+        with open(args.input_path) as f:
+            recipe = json.load(f)
+        output = NKRecipe(recipe).improve()
+    else: # not a json, so try to parse it as text and generate recipe json
+        s = get_text.single(abspath(args.input_path))
+        output = gen_recipe_json(s)
+    with open(args.output_path, 'w') as f:
+        json.dump(output, f, indent=2)
