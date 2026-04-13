@@ -323,19 +323,22 @@ def call_llm_impl(messages: str|list[Msg]|list[dict[str,str]],
                   model:Optional[str] =None,
                   session_id:str ='',
                   session_cache={},
+                  sys_prompt: str='',
                   **kw) -> ResponseT:
     """Implementation for llm and vlm chat completions.
 
     Returns the raw json response (as a dict).
     """
+    if isinstance(messages, str):
+        messages = [('user', messages)]
+    if sys_prompt:
+        messages = [('system', sys_prompt)] + messages
     if session_id:
         # we need to append the input prompt(s) to the cached history for this session
         if session_id in session_cache:
             lst = session_cache[session_id][:]
         else:
             lst = []
-        if isinstance(messages, str):
-            messages = [('user', messages)]
         lst += messages
         messages = lst
         logger.debug(f'for session {session_id}, using messages {messages}')
@@ -366,6 +369,7 @@ def call_llm(prompts: str|list[Msg],
              q_timeout: float=-1,
              proc_timeout: float=-1,
              session_cache={},
+             sys_prompt: str='',
              **kw) -> ResponseT:
     """Calls our local llm server for a chat completion.
 
@@ -389,6 +393,7 @@ def call_llm(prompts: str|list[Msg],
                          q_timeout=q_timeout,
                          proc_timeout=proc_timeout,
                          session_cache=session_cache,
+                         sys_prompt=sys_prompt,
                          **kw)
 
 
@@ -401,6 +406,7 @@ def call_vlm(inputs: tuple[str, str|list[Msg]],
              q_timeout: float=-1,
              proc_timeout: float=-1,
              session_cache={},
+             sys_prompt: str='',
              **kw) -> ResponseT:
     """Calls our local vlm server for a VLM chat completion.
 
@@ -425,6 +431,7 @@ def call_vlm(inputs: tuple[str, str|list[Msg]],
                          q_timeout=q_timeout,
                          proc_timeout=proc_timeout,
                          session_cache=session_cache,
+                         sys_prompt=sys_prompt,
                          **kw)
 
 def embed_final_func(x):
