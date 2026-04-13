@@ -20,8 +20,12 @@ can access these via simple dict-style access, i.e., `self['field']` is equivale
 
 For tasks, you can define the following class variables:
 - `RUN_STYLE`: whether this should run in the main thread (default) or in a separate process.
-- `INPUTS`: a dictionary of input names to tuples of `(task class, muxing type)`.
-  These inputs will be passed to the task's constructor as keyword arguments.
+- `INPUT`: a tuple of `(task class, muxing type)`. The output from the given task class will be
+  passed as input to this task, with the mapping determined by the muxing type (see below).
+- `OUTPUT_TYPE`: how this task's outputs should be used by children:
+  - 'auto' (default): If the output is a dict, then we assume it's a "composite" type, else simple
+  - 'composite': this task's output is a dict, where the child instantiated as child(**output)
+  - 'simple': this task's output is a single value, where the child instantiated as child(output)
 - `DEPENDENCIES`: a list of task classes that this task depends on.
 - `LOG_LEVEL`: the logging level to use for this task.
 
@@ -40,6 +44,7 @@ Once you've defined all your tasks, you can run them using a `TaskRunner`. This 
 instance as the initial task to run. You can optionally specify the number of tasks to run in
 parallel (in separate processes). Then you simply call `run()` on the `TaskRunner` instance to kick
 it off.
+
 
 
 Licensed under the 3-clause BSD License:
@@ -167,11 +172,11 @@ class Status(Enum):
 
 class Task:
     """Generic task definition"""
-
     RUNNER: Optional['TaskRunner'] = None
     RUN_STYLE = RunStyle.MAIN
     ENABLED = True
-    INPUTS = {}  # type: Dict[str, Tuple[Type[Task], Muxing]]
+    INPUT = None  # type: None|Tuple[Type[Task], Muxing]
+    OUTPUT_TYPE = 'auto'  # or 'composite' or 'simple'
     DEPENDENCIES = []  # type: List[Type[Task]]
     LOG_LEVEL = logging.INFO
 
@@ -186,7 +191,6 @@ class Task:
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.key}: {self.status.name})"
-        # return f"{self.__class__.__name__}({self.key}: {self.status.name}: {self.kwargs})"
 
     def __getitem__(self, field):
         """Returns the kwarg for the given `field`"""
@@ -306,7 +310,7 @@ class TaskRunner:
         """Returns the task hierarchy as a graph and children_by_task dict.
 
         The graph is a dictionary of task classes to their dependencies. The children_by_task is a
-        dictionary of task classes to a list of tuples of (child task class, muxing, key field).
+        dictionary of task classes to a list of tuples of (child task class, muxing).
 
         If `enable_tasks` is not `None`, then only tasks in this list will be enabled.
         If `disable_tasks` is not `None`, then all tasks will be enabled except those in this list.
@@ -325,10 +329,10 @@ class TaskRunner:
                     continue
             # build graph
             graph[task_cls] = set(task_cls.DEPENDENCIES)
-            if task_cls.INPUTS:
-                for key, (input_cls, muxing) in task_cls.INPUTS.items():
-                    graph[task_cls].add(input_cls)
-                    children_by_task[input_cls].append((task_cls, muxing, key))
+            if task_cls.INPUT:
+                input_cls, muxing = task_cls.INPUT
+                graph[task_cls].add(input_cls)
+                children_by_task[input_cls].append((task_cls, muxing))
         # self.task_order = TopologicalSorter(self.graph).static_order()
         # assert self.task_order[0] == starting_task
         return graph, children_by_task
@@ -378,29 +382,28 @@ class TaskRunner:
         if task.status != Status.DONE:
             return
         logging.log(task.LOG_LEVEL, "Finished task %s, with output of type %s", task, type(output))
-        for child_task_cls, muxing, child_key_field in self.children_by_task[task.__class__]:
-            if muxing == Muxing.N_TO_ONE:
-                # the output is a sequence, so generate tasks for each item in the seq
-                for child_key in output:  # TODO limit outputs here
-                    ct = self.get_task_by_key(child_key, child_task_cls)
-                    if not ct:
-                        kwargs = {child_key_field: child_key}
-                        ct = child_task_cls(**kwargs)
-                        self.tasks_by_key[child_key][child_task_cls] = ct
-                    # check if the child task is ready to run
-                    for dep_cls in ct.DEPENDENCIES:
-                        dep_task = self.get_task_by_key(child_key, dep_cls)
-                        if dep_task and dep_task.status != Status.DONE:
-                            ct.status = Status.BLOCKED
-                    else:
-                        ct.status = Status.READY
-            elif muxing == Muxing.ONE_TO_ONE:
-                # the output directly maps to the next input
-                child_key = output
+        output_type = task.OUTPUT_TYPE
+        for child_task_cls, muxing in self.children_by_task[task.__class__]:
+            def make_child(inp):
+                """Creates a child task with given `inp`, which gets interpreted using `output_type`"""
+                kw = {}
+                match output_type:
+                    case 'auto':
+                        if isinstance(inp, dict):
+                            child_key = inp.pop('key')
+                            kw = inp
+                        else:
+                            child_key = inp
+                    case 'composite':
+                        child_key = inp.pop('key')
+                        kw = inp
+                    case 'simple':
+                        child_key = inp
+                    case _:
+                        raise NotImplementedError("Don't know how to handle output type %s" % (output_type))
                 ct = self.get_task_by_key(child_key, child_task_cls)
                 if not ct:
-                    kwargs = {child_key_field: child_key}
-                    ct = child_task_cls(**kwargs)
+                    ct = child_task_cls(child_key, **kw)
                     self.tasks_by_key[child_key][child_task_cls] = ct
                 # check if the child task is ready to run
                 for dep_cls in ct.DEPENDENCIES:
@@ -409,6 +412,13 @@ class TaskRunner:
                         ct.status = Status.BLOCKED
                 else:
                     ct.status = Status.READY
+                return ct
+
+            if muxing == Muxing.N_TO_ONE: # the output is a sequence, gen tasks for each item
+                for out in output:
+                    ct = make_child(out)
+            elif muxing == Muxing.ONE_TO_ONE: # the output directly maps to the next input
+                ct = make_child(output)
             else:
                 raise NotImplementedError("Don't know how to handle muxing %s" % (muxing))
 
