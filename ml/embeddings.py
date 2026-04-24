@@ -578,12 +578,25 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                        to_cls: list[KeyT],
                        classifier: BaseEstimator,
                        **kw) -> dict[KeyT, Any]:
-        """Runs binary `classifier` on `to_cls`, returning dict of key to score."""
+        """Runs `classifier` on `to_cls`, returning dict of key to score/prediction.
+        
+        For classifiers, returns scores from decision_function().
+        For regressors, returns predicted values from predict().
+        """
         logger.debug(f'running inference on {len(to_cls)}: {to_cls[:5]}...')
         keys, embs = self.get_embs(to_cls)
         if not keys:
             return {}
-        scores_array = classifier.decision_function(embs)
+        
+        # Check if this is a regressor by looking for predict method but no decision_function
+        is_regressor = (hasattr(classifier, 'predict') and 
+                       not hasattr(classifier, 'decision_function'))
+        
+        if is_regressor:
+            scores_array = classifier.predict(embs)
+        else:
+            scores_array = classifier.decision_function(embs)
+        
         return {key: float(score) for key, score in zip(keys, scores_array)}
 
     def train_classifier(self,
