@@ -458,17 +458,30 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  C=1,
                                  cv: int=0,
                                  **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
-        """High-level function to train a classifier with given `pos` and `neg` and run on `to_cls`.
+        """High-level function to train a classifier and run on `to_cls`.
 
         The params `method`, `C`, and `kw` are fed into `train_classifier()`, which in turn uses them
         in `_create_classifier()` or `_create_regressor()`
 
-        By default this is binary classification. But if you pass in `labels`, then we treat this as
-        a multiclass classification problem, where the class of each key in `pos` is given by its
-        corresponding label in `labels`. In this case, `neg` should be empty.
+        You can do different kinds of supervised learning:
+        - By default this is binary classification, where we use `pos` as the positives and `neg`
+          as the negatives. The classifiers all typically set `class_weight` to 'balanced', which
+          weights by the total number of pos and neg. You can optionally pass in `neg_weight`, in
+          which case we set all positives to have weight 1 and negatives to have this weight. Note
+          that this multiplied with the 'balanced' class weight, so it's easier to reason about the
+          effects -- it's already accounting for the class imbalance (if any). So e.g. setting this
+          0.5 means that each negative example is worth half as much as a positive example, after
+          accounting for class imbalance.
+        - If you pass in `labels` and they are floats, then we treat this as a regression
+          problem, where the value of each key in `pos` is given by its corresponding label in
+          `labels`. In this case, `neg` should be empty.
+        - If you pass in `labels` and they are NOT floats, then we treat this as a multiclass
+          classification problem, where the class of each key in `pos` is given by its corresponding
+          label in `labels`. In this case, `neg` should be empty.
 
         Returns `(classifier, scores_dict, other_stuff)`, where `scores_dict` maps from key to:
         - score (if binary)
+        - predicted output value (if regression)
         - (predicted_label, score_for_predicted_label) if multiclass
 
         And `other_stuff` includes:
