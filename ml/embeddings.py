@@ -36,7 +36,8 @@ from scipy.spatial.distance import cdist
 from sklearn.base import clone, BaseEstimator, ClassifierMixin, ClusterMixin # type: ignore
 from sklearn.cluster import AffinityPropagation, KMeans, AgglomerativeClustering, MiniBatchKMeans # type: ignore
 from sklearn.decomposition import TruncatedSVD # type: ignore
-from sklearn.kernel_approximation import RBFSampler
+from sklearn.ensemble import GradientBoostingRegressor, HistGradientBoostingRegressor # type: ignore
+from sklearn.kernel_approximation import RBFSampler # type: ignore
 from sklearn.linear_model import SGDClassifier, SGDRegressor # type: ignore
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_recall_fscore_support, roc_auc_score # type: ignore
 from sklearn.model_selection import cross_val_score, cross_val_predict
@@ -204,6 +205,10 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                 return SVR(kernel='linear', C=C, **reg_kw)
             case 'sgd':
                 return SGDRegressor(**reg_kw)
+            case 'gradboost':
+                # absolute error is preserves tails a bit better than default
+                return HistGradientBoostingRegressor(loss='absolute_error', max_iter=300, learning_rate=0.05, **reg_kw)
+                #return GradientBoostingRegressor(n_estimators=400, learning_rate=0.07, **reg_kw)
             case _:
                 raise NotImplementedError(f'Regressor method {method!r} not implemented.')
 
