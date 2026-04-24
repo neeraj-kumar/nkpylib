@@ -552,19 +552,24 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         else:
             if cv > 0:
                 cv_labels = [labels[pos.index(k) if k in pos else -1] for k in test_keys]
+                preds = cross_val_predict(cls, test_X, cv_labels, cv=cv)
                 if not float_labels:
                     scores_array = cross_val_predict(cls, test_X, cv_labels, cv=cv, method='decision_function')
-                preds = cross_val_predict(cls, test_X, cv_labels, cv=cv)
             else:
+                preds = cls.predict(test_X)
                 if not float_labels:
                     scores_array = cls.decision_function(test_X)
-                preds = cls.predict(test_X)
             scores = {}
             for i, key in enumerate(test_keys):
-                pred_label = preds[i]
-                pred_cls_idx = list(cls.classes_).index(pred_label)
-                score = scores_array[i][pred_cls_idx]
-                scores[key] = (pred_label, float(score))
+                pred_value = preds[i]
+                if float_labels:
+                    # Regression: just return the predicted value
+                    scores[key] = float(pred_value)
+                else:
+                    # Multiclass: return (predicted_label, score_for_predicted_label)
+                    pred_cls_idx = list(cls.classes_).index(pred_value)
+                    score = scores_array[i][pred_cls_idx]
+                    scores[key] = (pred_value, float(score))
         times.append(time.time())
         other_stuff['times'] = dict(
             training=times[3] - times[2],
