@@ -112,12 +112,9 @@ sqlite_pragmas = [
 
 @db_session
 def recursive_to_dict(obj, _has_iterated=False, **kwargs):
-    """Recursively convert a PonyORM Entity to a dictionary.
-    """
+    """Recursively convert a PonyORM Entity to a dictionary."""
     if isinstance(obj, Entity):
         obj = obj.to_dict(**kwargs)
-
-
     #print(f'obj: {obj}, {type(obj)} {obj.__class__.__bases__}')
     if isinstance(obj, SetInstance):
         obj = [recursive_to_dict(o, True, **kwargs) for o in obj]

@@ -494,6 +494,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         - pipeline: the pipeline used
         - cv: if `cv` > 0, the list of cross-validation scores for `cv` folds
         """
+        #TODO parallelize classification?
         other_stuff = {}
         times = [time.time()]
         assert len(to_cls) > 0
