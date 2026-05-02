@@ -54,7 +54,8 @@ DEFAULT_MODELS = dict(
     # faster llama3 for chat
     chat=ModelConfig('meta-llama/Llama-3.3-70B-Instruct-Turbo', max_tokens=131072),
     # generic vlm model for vision+language tasks
-    vlm=ModelConfig('zai-org/GLM-4.6V', max_tokens=131072),
+    #FIXME the vlm model is no longer available, need to find a replacement
+    #vlm=ModelConfig('zai-org/GLM-4.6V', max_tokens=131072),
     # faster/cheaper vlm
     fastvlm=ModelConfig('google/gemma-3-4b-it', max_tokens=131072),
     oldvlm=ModelConfig('meta-llama/Llama-3.2-90B-Vision-Instruct', max_tokens=131072),
@@ -63,8 +64,8 @@ DEFAULT_MODELS = dict(
     # a fast model for text tasks
     fast=ModelConfig('mistralai/Mistral-Small-24B-Instruct-2501', max_tokens=32768),
     # a good model for manipulating json
-    json=ModelConfig('Qwen/Qwen2.5-72B-Instruct', max_tokens=32768),
-    # a good model for manipulating html (llama3)
+    json=ModelConfig('Qwen3-235B-A22B-Instruct-2507', max_tokens=262144),
+    # a good model for manipulating html
     html=ModelConfig('moonshotai/Kimi-K2-Instruct-0905', max_tokens=262144),
     oldhtml=ModelConfig('meta-llama/Llama-3.3-70B-Instruct', max_tokens=131072),
     # nomic is a good model for text embeddings
@@ -78,8 +79,8 @@ DEFAULT_MODELS = dict(
     # e5 embeddings with 1024 output dims
     e5=ModelConfig('intfloat/e5-large-v2', max_dims=1024, max_tokens=514),
     # qwen3 embeddings (large and small)
-    qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B', max_dims=4096, max_tokens=32768),
-    qwen_emb_small=ModelConfig('Qwen/Qwen3-Embedding-0.6B', max_dims=1024, max_tokens=32768),
+    qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B-batch', max_dims=4096, max_tokens=32768),
+    qwen_emb_small=ModelConfig('Qwen/Qwen3-Embedding-0.6B-batch', max_dims=1024, max_tokens=32768),
     # groq fastest
     groq=ModelConfig('openai/gpt-oss-20b', max_tokens=8192),
 )
