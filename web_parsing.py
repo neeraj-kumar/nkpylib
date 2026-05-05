@@ -141,6 +141,32 @@ class Rule:
         self.transforms.append(func)
         return self
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize rule to dictionary"""
+        return dict(
+            name=self.name,
+            selector=self.selector,
+            attr=self._attr,
+            method=self.method,
+            as_list=self.as_list,
+            sub_rules=[rule.to_dict() for rule in self.sub_rules],
+            kw=self.kw
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Rule:
+        """Deserialize rule from dictionary"""
+        rule = cls(
+            name=data['name'],
+            selector=data['selector'],
+            attr=data.get('attr', ''),
+            sub_rules=[cls.from_dict(sub) for sub in data.get('sub_rules', [])],
+            **data.get('kw', {})
+        )
+        rule.method = data.get('method', 'text')
+        rule.as_list = data.get('as_list', False)
+        return rule
+
     def sub(self, *sub_rules):
         """Add sub-rules that process this rule's output"""
         self.sub_rules = list(sub_rules)
@@ -332,20 +358,38 @@ rules = [
         code = response[code_start:code_end].strip()
     else:
         code = response.strip()
+    
+    # Try to execute the code to get actual Rule objects
+    try:
+        local_vars = dict(Rule=Rule)
+        exec(code, {}, local_vars)
+        rules = local_vars.get('rules', [])
+        if rules:
+            # Serialize rules to dict format
+            rules_dict = [rule.to_dict() for rule in rules]
+            return dict(rules=rules_dict, code=code, full_response=response)
+    except Exception as e:
+        logger.warning(f"Could not execute generated code: {e}")
+    
     return dict(code=code, full_response=response)
 
 def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
     """Test existing rules on an HTML file"""
     html_content = Path(html_file).read_text()
-    rules_content = Path(rules_file).read_text()
+    rules_data = json.loads(Path(rules_file).read_text())
     doc = pyquery.PyQuery(html_content)
-    # Execute the rules code to get the rules list
-    local_vars = dict(Rule=Rule)
-    exec(rules_content, {}, local_vars)
-    rules = local_vars.get('rules', [])
-    if not rules:
-        return dict(error="No 'rules' variable found in rules file")
+    
     try:
+        # Handle both old format (with 'rules' key) and new format (list of rules)
+        if isinstance(rules_data, dict) and 'rules' in rules_data:
+            rules_list = rules_data['rules']
+        elif isinstance(rules_data, list):
+            rules_list = rules_data
+        else:
+            return dict(error="Invalid rules file format")
+        
+        # Deserialize rules from dict format
+        rules = [Rule.from_dict(rule_dict) for rule_dict in rules_list]
         results = Rule.parse_all(doc, rules)
         return dict(success=True, results=results)
     except Exception as e:
@@ -363,7 +407,7 @@ def main():
     # Test rules command
     test_parser = subparsers.add_parser('test', help='Test existing rules on HTML file')
     test_parser.add_argument('html_file', help='HTML file to parse')
-    test_parser.add_argument('rules_file', help='JSON file containing parsing rules')
+    test_parser.add_argument('rules_file', help='JSON file containing serialized parsing rules')
     # parse args and run
     args = parser.parse_args()
     if not args.command:
@@ -373,11 +417,19 @@ def main():
         case 'generate':
             result = generate_rules(args.html_file, args.prompt, args.model)
             if args.output:
-                Path(args.output).write_text(json.dumps(result, indent=2))
+                # Save only the rules if available, otherwise save the full result
+                output_data = result.get('rules', result)
+                Path(args.output).write_text(json.dumps(output_data, indent=2))
                 print(f"Rules saved to {args.output}")
             else:
-                print("Generated rules:")
-                print(result['code'])
+                if 'rules' in result:
+                    print("Generated rules (serialized):")
+                    print(json.dumps(result['rules'], indent=2))
+                    print("\nGenerated code:")
+                    print(result['code'])
+                else:
+                    print("Generated rules:")
+                    print(result['code'])
         case 'test':
             result = test_rules(args.html_file, args.rules_file)
             if result.get('success'):
