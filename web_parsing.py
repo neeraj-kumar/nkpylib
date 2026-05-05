@@ -7,8 +7,11 @@ import logging
 
 from argparse import ArgumentParser
 from dataclasses import dataclass
+from pathlib import Path
 from pprint import pprint
 from typing import Any
+
+import pyquery
 
 from nkpylib.ml.client import call_llm
 from nkbase.parser import extract_many, unify_objects
@@ -252,6 +255,109 @@ class AutomaticParser:
         #unified = unify_objects(substr, output_prefix='unified')
         pprint(unified)
 
+def generate_rules(html_file: str, prompt: str, model: str = 'code') -> dict[str, Any]:
+    """Generate parsing rules using LLM"""
+    html_content = Path(html_file).read_text()
+    
+    # Create a simplified version of HTML for the LLM
+    doc = pyquery.PyQuery(html_content)
+    # Remove script and style tags
+    doc.remove('script, style')
+    simplified_html = doc.html()
+    
+    full_prompt = f"""
+Given this HTML content, generate Python code using the Rule class to extract data fields.
+
+HTML:
+{simplified_html[:5000]}...
+
+User request: {prompt}
+
+Please generate a list of Rule objects that can extract the requested data. Use the Rule class methods like .text(), .attr(), .lst(), etc. Return only the Python code that creates the rules list.
+
+Example format:
+```python
+rules = [
+    Rule('title', 'h1').text().strip(),
+    Rule('price', '.price').text().replace('$', '').make_int(),
+    Rule('tags', '.tag').lst().text()
+]
+```
+"""
+    
+    response = call_llm(full_prompt, model=model)
+    
+    # Extract the Python code from the response
+    if '```python' in response:
+        code_start = response.find('```python') + 9
+        code_end = response.find('```', code_start)
+        code = response[code_start:code_end].strip()
+    else:
+        code = response.strip()
+    
+    return dict(code=code, full_response=response)
+
+def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
+    """Test existing rules on an HTML file"""
+    html_content = Path(html_file).read_text()
+    rules_content = Path(rules_file).read_text()
+    
+    doc = pyquery.PyQuery(html_content)
+    
+    # Execute the rules code to get the rules list
+    local_vars = dict(Rule=Rule)
+    exec(rules_content, {}, local_vars)
+    rules = local_vars.get('rules', [])
+    
+    if not rules:
+        return dict(error="No 'rules' variable found in rules file")
+    
+    try:
+        results = Rule.parse_all(doc, rules)
+        return dict(success=True, results=results)
+    except Exception as e:
+        return dict(error=f"Error running rules: {e}")
+
+def main():
+    parser = ArgumentParser(description="Web Page Parser - Generate or test parsing rules")
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Generate rules command
+    gen_parser = subparsers.add_parser('generate', help='Generate parsing rules using LLM')
+    gen_parser.add_argument('html_file', help='HTML file to analyze')
+    gen_parser.add_argument('prompt', help='Description of what data to extract')
+    gen_parser.add_argument('--model', default='code', help='LLM model to use')
+    gen_parser.add_argument('--output', '-o', help='Output JSON file for rules')
+    
+    # Test rules command  
+    test_parser = subparsers.add_parser('test', help='Test existing rules on HTML file')
+    test_parser.add_argument('html_file', help='HTML file to parse')
+    test_parser.add_argument('rules_file', help='JSON file containing parsing rules')
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return
+    
+    match args.command:
+        case 'generate':
+            result = generate_rules(args.html_file, args.prompt, args.model)
+            if args.output:
+                Path(args.output).write_text(json.dumps(result, indent=2))
+                print(f"Rules saved to {args.output}")
+            else:
+                print("Generated rules:")
+                print(result['code'])
+                
+        case 'test':
+            result = test_rules(args.html_file, args.rules_file)
+            if result.get('success'):
+                print("Parsing results:")
+                pprint(result['results'])
+            else:
+                print(f"Error: {result['error']}")
+
 def old_auto_main():
     parser = ArgumentParser(description="Automatic Web Page Parser")
     parser.add_argument('substr', type=str, help="Substring to match files")
@@ -261,3 +367,4 @@ def old_auto_main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
+    main()
