@@ -252,11 +252,12 @@ class AutomaticParser:
         #unified = unify_objects(substr, output_prefix='unified')
         pprint(unified)
 
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
+def old_auto_main():
     parser = ArgumentParser(description="Automatic Web Page Parser")
     parser.add_argument('substr', type=str, help="Substring to match files")
     args = parser.parse_args()
     ap = AutomaticParser()
     ap.run(args.substr)
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s - %(message)s')
