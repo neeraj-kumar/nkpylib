@@ -69,9 +69,18 @@ class Rule:
         self._attr = attr
         self.method = 'text'  # default extraction method
         self.transforms = []  # list of transform functions
+        self.transform_metadata = []  # serializable transform metadata
         self.sub_rules = sub_rules or []
         self.kw = kw
         self.as_list = False
+
+    def _track_transform(self, method_name: str, *args, **kwargs):
+        """Track transform metadata for serialization"""
+        self.transform_metadata.append(dict(
+            method=method_name,
+            args=args,
+            kwargs=kwargs
+        ))
 
     def lst(self):
         """Process each matching element separately"""
@@ -104,21 +113,25 @@ class Rule:
     def replace(self, old: str, new: str = ''):
         """Replace text in the extracted value"""
         self.transforms.append(lambda x: x.replace(old, new) if x else x)
+        self._track_transform('replace', old, new)
         return self
 
     def split(self, sep: str = ' '):
         """Split the extracted value"""
         self.transforms.append(lambda x: x.split(sep) if x else [])
+        self._track_transform('split', sep)
         return self
 
     def strip(self):
         """Strip whitespace"""
         self.transforms.append(lambda x: x.strip() if x else x)
+        self._track_transform('strip')
         return self
 
     def lower(self):
         """Convert to lowercase"""
         self.transforms.append(lambda x: x.lower() if x else x)
+        self._track_transform('lower')
         return self
 
     def make_int(self):
@@ -134,21 +147,29 @@ class Rule:
             else:
                 return int(s)
         self.transforms.append(convert)
+        self._track_transform('make_int')
         return self
 
     def transform(self, func: callable):
         """Apply custom transform function"""
         self.transforms.append(func)
+        self._track_transform('custom')
         return self
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize rule to dictionary"""
+        # Check for custom transforms
+        for transform_meta in self.transform_metadata:
+            if transform_meta.get('method') == 'custom':
+                raise ValueError(f"Cannot serialize rule '{self.name}' with custom transforms")
+        
         return dict(
             name=self.name,
             selector=self.selector,
             attr=self._attr,
             method=self.method,
             as_list=self.as_list,
+            transform_metadata=self.transform_metadata,
             sub_rules=[rule.to_dict() for rule in self.sub_rules],
             kw=self.kw
         )
@@ -165,7 +186,46 @@ class Rule:
         )
         rule.method = data.get('method', 'text')
         rule.as_list = data.get('as_list', False)
+        
+        # Restore transforms from metadata
+        rule.transform_metadata = data.get('transform_metadata', [])
+        rule._rebuild_transforms()
+        
         return rule
+    
+    def _rebuild_transforms(self):
+        """Rebuild transform functions from metadata"""
+        self.transforms = []
+        for meta in self.transform_metadata:
+            method = meta['method']
+            args = meta.get('args', ())
+            kwargs = meta.get('kwargs', {})
+            
+            match method:
+                case 'replace':
+                    old, new = args[0], args[1] if len(args) > 1 else ''
+                    self.transforms.append(lambda x, old=old, new=new: x.replace(old, new) if x else x)
+                case 'split':
+                    sep = args[0] if args else ' '
+                    self.transforms.append(lambda x, sep=sep: x.split(sep) if x else [])
+                case 'strip':
+                    self.transforms.append(lambda x: x.strip() if x else x)
+                case 'lower':
+                    self.transforms.append(lambda x: x.lower() if x else x)
+                case 'make_int':
+                    def convert(s):
+                        if not s:
+                            return 0
+                        s = str(s).replace(',', '')
+                        if s.endswith('K'):
+                            return int(float(s[:-1]) * 1000)
+                        elif s.endswith('M'):
+                            return int(float(s[:-1]) * 1000000)
+                        else:
+                            return int(s)
+                    self.transforms.append(convert)
+                case 'custom':
+                    raise ValueError(f"Cannot deserialize custom transform in rule '{self.name}'")
 
     def sub(self, *sub_rules):
         """Add sub-rules that process this rule's output"""
