@@ -74,13 +74,19 @@ class Rule:
         self.kw = kw
         self.as_list = False
 
-    def _track_transform(self, method_name: str, *args, **kwargs):
-        """Track transform metadata for serialization"""
-        self.transform_metadata.append(dict(
-            method=method_name,
-            args=args,
-            kwargs=kwargs
-        ))
+    def track(self, func):
+        """Decorator to track transform metadata for serialization"""
+        def wrapper(*args, **kwargs):
+            # Call the original method
+            result = func(self, *args, **kwargs)
+            # Track the transform metadata
+            self.transform_metadata.append(dict(
+                method=func.__name__,
+                args=args,
+                kwargs=kwargs
+            ))
+            return result
+        return wrapper
 
     def lst(self):
         """Process each matching element separately"""
@@ -110,30 +116,31 @@ class Rule:
         return self
 
     # Transform methods
+    @track
     def replace(self, old: str, new: str = ''):
         """Replace text in the extracted value"""
         self.transforms.append(lambda x: x.replace(old, new) if x else x)
-        self._track_transform('replace', old, new)
         return self
 
+    @track
     def split(self, sep: str = ' '):
         """Split the extracted value"""
         self.transforms.append(lambda x: x.split(sep) if x else [])
-        self._track_transform('split', sep)
         return self
 
+    @track
     def strip(self):
         """Strip whitespace"""
         self.transforms.append(lambda x: x.strip() if x else x)
-        self._track_transform('strip')
         return self
 
+    @track
     def lower(self):
         """Convert to lowercase"""
         self.transforms.append(lambda x: x.lower() if x else x)
-        self._track_transform('lower')
         return self
 
+    @track
     def make_int(self):
         """Convert to int, handling K/M suffixes"""
         def convert(s):
@@ -147,13 +154,16 @@ class Rule:
             else:
                 return int(s)
         self.transforms.append(convert)
-        self._track_transform('make_int')
         return self
 
     def transform(self, func: callable):
         """Apply custom transform function"""
         self.transforms.append(func)
-        self._track_transform('custom')
+        self.transform_metadata.append(dict(
+            method='custom',
+            args=(),
+            kwargs={}
+        ))
         return self
 
     def to_dict(self) -> dict[str, Any]:
