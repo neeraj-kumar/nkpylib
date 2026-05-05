@@ -14,6 +14,7 @@ from typing import Any
 import pyquery
 
 from nkpylib.ml.client import call_llm
+from nkpylib.ml.llm_utils import load_llm_json
 from nkbase.parser import extract_many, unify_objects
 
 logger = logging.getLogger(__name__)
@@ -253,18 +254,17 @@ class AutomaticParser:
     def run(self, substr: str):
         paths = extract_many(substr=substr, output_prefix='manual')
         #unified = unify_objects(substr, output_prefix='unified')
-        pprint(unified)
+        #pprint(unified)
 
-def generate_rules(html_file: str, prompt: str, model: str = 'code') -> dict[str, Any]:
+
+def generate_rules(html_file: str, prompt: str, model: str = 'html') -> dict[str, Any]:
     """Generate parsing rules using LLM"""
     html_content = Path(html_file).read_text()
-    
     # Create a simplified version of HTML for the LLM
     doc = pyquery.PyQuery(html_content)
     # Remove script and style tags
     doc.remove('script, style')
     simplified_html = doc.html()
-    
     full_prompt = f"""
 Given this HTML content, generate Python code using the Rule class to extract data fields.
 
@@ -284,9 +284,7 @@ rules = [
 ]
 ```
 """
-    
-    response = call_llm(full_prompt, model=model)
-    
+    response = call_llm.single(full_prompt, model=model)
     # Extract the Python code from the response
     if '```python' in response:
         code_start = response.find('```python') + 9
@@ -294,24 +292,19 @@ rules = [
         code = response[code_start:code_end].strip()
     else:
         code = response.strip()
-    
     return dict(code=code, full_response=response)
 
 def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
     """Test existing rules on an HTML file"""
     html_content = Path(html_file).read_text()
     rules_content = Path(rules_file).read_text()
-    
     doc = pyquery.PyQuery(html_content)
-    
     # Execute the rules code to get the rules list
     local_vars = dict(Rule=Rule)
     exec(rules_content, {}, local_vars)
     rules = local_vars.get('rules', [])
-    
     if not rules:
         return dict(error="No 'rules' variable found in rules file")
-    
     try:
         results = Rule.parse_all(doc, rules)
         return dict(success=True, results=results)
@@ -321,25 +314,21 @@ def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
 def main():
     parser = ArgumentParser(description="Web Page Parser - Generate or test parsing rules")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
-    
     # Generate rules command
     gen_parser = subparsers.add_parser('generate', help='Generate parsing rules using LLM')
     gen_parser.add_argument('html_file', help='HTML file to analyze')
     gen_parser.add_argument('prompt', help='Description of what data to extract')
-    gen_parser.add_argument('--model', default='code', help='LLM model to use')
+    gen_parser.add_argument('--model', default='html', help='LLM model to use')
     gen_parser.add_argument('--output', '-o', help='Output JSON file for rules')
-    
-    # Test rules command  
+    # Test rules command
     test_parser = subparsers.add_parser('test', help='Test existing rules on HTML file')
     test_parser.add_argument('html_file', help='HTML file to parse')
     test_parser.add_argument('rules_file', help='JSON file containing parsing rules')
-    
+    # parse args and run
     args = parser.parse_args()
-    
     if not args.command:
         parser.print_help()
         return
-    
     match args.command:
         case 'generate':
             result = generate_rules(args.html_file, args.prompt, args.model)
@@ -349,7 +338,6 @@ def main():
             else:
                 print("Generated rules:")
                 print(result['code'])
-                
         case 'test':
             result = test_rules(args.html_file, args.rules_file)
             if result.get('success'):
