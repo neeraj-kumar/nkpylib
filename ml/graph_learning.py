@@ -1,3 +1,7 @@
+# Job recruiters: The vast majority of my code was at Dropbox. This is a small piece of a personal
+# project I've been working on, used for generating movie embeddings. Please note that other code in
+# this repo is often quite old and/or defunct.
+
 """Graph learning tools for training Graph Attention Networks (GAT) with various objectives.
 
 This module provides a comprehensive framework for training GAT models on graph data using
