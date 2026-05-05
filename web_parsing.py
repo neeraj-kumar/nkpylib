@@ -20,8 +20,32 @@ from nkbase.parser import extract_many, unify_objects
 logger = logging.getLogger(__name__)
 
 class Rule:
-    """A way to define and rules for parsing pages.
+    """A way to define rules for parsing web pages using CSS selectors and transformations.
 
+    This class provides a fluent interface for building web scraping rules. Each rule specifies:
+    - A field name to extract
+    - A CSS selector to find elements
+    - An extraction method (text, attribute, etc.)
+    - Optional transformations to apply to the extracted data
+    - Optional sub-rules for further processing
+
+    Basic usage:
+        Rule('title', 'h1').text().strip()
+        Rule('price', '.price').text().replace('$', '').make_int()
+        Rule('links', 'a').lst().attr('href')
+
+    The rule can be configured with method chaining:
+    - Extraction methods: `.text()`, `.attr(name)`, `.val()`, `.html()`
+    - List processing: `.lst()` to process each matching element separately
+    - Transformations: `.strip()`, `.replace()`, `.split()`, `.lower()`, `.make_int()`
+    - Custom transforms: `.transform(func)`
+    - Sub-rules: `.sub(rule1, rule2, ...)` for nested processing
+
+    Args:
+    - name: Field name for the extracted data
+    - selector: CSS selector to find elements
+    - attr: Attribute name (used with `.attr()` method)
+    - sub_rules: List of `Rule` objects for nested processing
     """
     def __init__(self, name: str, selector: str, attr: str|None='', sub_rules: list[Rule]|None=None, **kw):
         self.name = name
