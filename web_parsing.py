@@ -37,12 +37,25 @@ class Rule:
         Rule('price', '.price').text().replace('$', '').make_int()
         Rule('links', 'a').lst().attr('href')
 
-    The rule can be configured with method chaining:
-    - Extraction methods: `.text()`, `.attr(name)`, `.val()`, `.html()`
-    - List processing: `.lst()` to process each matching element separately
-    - Transformations: `.strip()`, `.replace()`, `.split()`, `.lower()`, `.make_int()`
-    - Custom transforms: `.transform(func)`
-    - Sub-rules: `.sub(rule1, rule2, ...)` for nested processing
+    Extraction methods:
+    - `.text()` - Extract text content from elements
+    - `.attr(name)` - Extract attribute value from elements
+    - `.val()` - Extract value from form elements
+    - `.html()` - Extract HTML content from elements
+
+    List processing:
+    - `.lst()` - Process each matching element separately, returning a list
+
+    Transformations:
+    - `.strip()` - Remove leading/trailing whitespace
+    - `.replace(old, new)` - Replace text in extracted values
+    - `.split(sep)` - Split text into list using separator
+    - `.lower()` - Convert text to lowercase
+    - `.make_int()` - Convert to integer, handling K/M suffixes
+    - `.transform(func)` - Apply custom transformation function
+
+    Advanced features:
+    - `.sub(rule1, rule2, ...)` - Add sub-rules for nested processing
 
     Args:
     - name: Field name for the extracted data
