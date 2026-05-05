@@ -1,4 +1,7 @@
-"""Web parsing utilities."""
+"""Web parsing utilities.
+
+The main building block is the `Rule` class. See its docstring to understand how it works.
+"""
 
 from __future__ import annotations
 
