@@ -74,9 +74,10 @@ class Rule:
         self.kw = kw
         self.as_list = False
 
-    def track(self, func):
+    @staticmethod
+    def track(func):
         """Decorator to track transform metadata for serialization"""
-        def wrapper(*args, **kwargs):
+        def wrapper(self, *args, **kwargs):
             # Call the original method
             result = func(self, *args, **kwargs)
             # Track the transform metadata
