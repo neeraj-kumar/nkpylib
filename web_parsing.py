@@ -468,7 +468,7 @@ def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
     except Exception as e:
         return dict(error=f"Error running rules: {e}")
 
-def select_elements(html_file: str, selector: str) -> dict[str, Any]:
+def select_elements(html_file: str, selector: str, display: str = 'text()') -> dict[str, Any]:
     """Run CSS selector on HTML file and return results"""
     doc = pq(filename=html_file, parser='html')
     try:
@@ -477,12 +477,30 @@ def select_elements(html_file: str, selector: str) -> dict[str, Any]:
         for i, elem in enumerate(elements):
             print(f'{i}: <{elem.tag} {elem.attrib}>')
             elem_doc = pq(elem)
+            
+            # Execute the display command on the element
+            try:
+                if display.startswith('attr(') and display.endswith(')'):
+                    # Extract attribute name from attr('name') format
+                    attr_name = display[5:-1].strip('\'"')
+                    display_value = elem_doc.attr(attr_name)
+                elif display == 'text()':
+                    display_value = elem_doc.text()
+                elif display == 'html()':
+                    display_value = elem_doc.html()
+                else:
+                    # Try to evaluate as a method call on elem_doc
+                    display_value = eval(f'elem_doc.{display}')
+            except Exception as e:
+                display_value = f"Error: {e}"
+            
             results.append(dict(
                 index=i,
                 text=elem_doc.text(),
                 html=elem_doc.html(),
                 tag=elem.tag,
-                attrs=dict(elem.attrib)
+                attrs=dict(elem.attrib),
+                display_value=display_value
             ))
         return dict(success=True, count=len(results), results=results)
     except Exception as e:
@@ -506,6 +524,7 @@ def main():
     select_parser = subparsers.add_parser('select', help='Run CSS selector on HTML file')
     select_parser.add_argument('html_file', help='HTML file to query')
     select_parser.add_argument('selector', help='CSS selector to run')
+    select_parser.add_argument('display', nargs='?', default='text()', help='What to display from elements (default: text()). Examples: text(), html(), attr(\'href\')')
     # parse args and run
     args = parser.parse_args()
     if not args.command:
@@ -537,13 +556,13 @@ def main():
                 print(f"Error: {result['error']}")
                 
         case 'select':
-            result = select_elements(args.html_file, args.selector)
+            result = select_elements(args.html_file, args.selector, args.display)
             if result.get('success'):
                 print(f"Found {result['count']} elements:")
                 for elem in result['results']:
                     print(f"[{elem['index']}] <{elem['tag']}> {elem['attrs']}")
+                    print(f"  Display ({args.display}): {elem['display_value']}")
                     print(f"  Text: {elem['text'][:100]}...")
-                    print(f"  HTML: {elem['html'][:100]}...")
                     print()
             else:
                 print(f"Error: {result['error']}")
