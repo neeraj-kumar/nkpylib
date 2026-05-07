@@ -466,6 +466,27 @@ def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
     except Exception as e:
         return dict(error=f"Error running rules: {e}")
 
+def select_elements(html_file: str, selector: str) -> dict[str, Any]:
+    """Run CSS selector on HTML file and return results"""
+    html_content = Path(html_file).read_text()
+    doc = pyquery.PyQuery(html_content)
+    
+    try:
+        elements = doc(selector)
+        results = []
+        for i, elem in enumerate(elements):
+            elem_doc = pyquery.PyQuery(elem)
+            results.append(dict(
+                index=i,
+                text=elem_doc.text(),
+                html=elem_doc.html(),
+                tag=elem.tag,
+                attrs=dict(elem.attrib)
+            ))
+        return dict(success=True, count=len(results), results=results)
+    except Exception as e:
+        return dict(error=f"Error running selector: {e}")
+
 def main():
     parser = ArgumentParser(description="Web Page Parser - Generate or test parsing rules")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -479,6 +500,11 @@ def main():
     test_parser = subparsers.add_parser('test', help='Test existing rules on HTML file')
     test_parser.add_argument('html_file', help='HTML file to parse')
     test_parser.add_argument('rules_file', help='JSON file containing serialized parsing rules')
+    
+    # Select elements command
+    select_parser = subparsers.add_parser('select', help='Run CSS selector on HTML file')
+    select_parser.add_argument('html_file', help='HTML file to query')
+    select_parser.add_argument('selector', help='CSS selector to run')
     # parse args and run
     args = parser.parse_args()
     if not args.command:
@@ -506,6 +532,18 @@ def main():
             if result.get('success'):
                 print("Parsing results:")
                 pprint(result['results'])
+            else:
+                print(f"Error: {result['error']}")
+                
+        case 'select':
+            result = select_elements(args.html_file, args.selector)
+            if result.get('success'):
+                print(f"Found {result['count']} elements:")
+                for elem in result['results']:
+                    print(f"[{elem['index']}] <{elem['tag']}> {elem['attrs']}")
+                    print(f"  Text: {elem['text'][:100]}...")
+                    print(f"  HTML: {elem['html'][:100]}...")
+                    print()
             else:
                 print(f"Error: {result['error']}")
 
