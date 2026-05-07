@@ -16,6 +16,8 @@ from typing import Any
 
 import pyquery
 
+from pyquery import PyQuery as pq
+
 from nkpylib.ml.client import call_llm
 from nkpylib.ml.llm_utils import load_llm_json
 from nkbase.parser import extract_many, unify_objects
@@ -398,7 +400,7 @@ def generate_rules(html_file: str, prompt: str, model: str = 'html') -> dict[str
     """Generate parsing rules using LLM"""
     html_content = Path(html_file).read_text()
     # Create a simplified version of HTML for the LLM
-    doc = pyquery.PyQuery(html_content)
+    doc = pq(html_content)
     # Remove script and style tags
     doc.remove('script, style')
     simplified_html = doc.html()
@@ -448,7 +450,7 @@ def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
     """Test existing rules on an HTML file"""
     html_content = Path(html_file).read_text()
     rules_data = json.loads(Path(rules_file).read_text())
-    doc = pyquery.PyQuery(html_content)
+    doc = pq(html_content)
     
     try:
         # Handle both old format (with 'rules' key) and new format (list of rules)
@@ -468,14 +470,13 @@ def test_rules(html_file: str, rules_file: str) -> dict[str, Any]:
 
 def select_elements(html_file: str, selector: str) -> dict[str, Any]:
     """Run CSS selector on HTML file and return results"""
-    html_content = Path(html_file).read_text()
-    doc = pyquery.PyQuery(html_content)
-    
+    doc = pq(filename=html_file, parser='html')
     try:
         elements = doc(selector)
         results = []
         for i, elem in enumerate(elements):
-            elem_doc = pyquery.PyQuery(elem)
+            print(f'{i}: <{elem.tag} {elem.attrib}>')
+            elem_doc = pq(elem)
             results.append(dict(
                 index=i,
                 text=elem_doc.text(),
