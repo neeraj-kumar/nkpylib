@@ -125,6 +125,34 @@ def make_request(url: str,
     resp = requests.request(method, url, headers=_headers, files=files, **kwargs)
     return resp
 
+def call_api(url: str, api_key_env_var: str, headers=None, **kw) -> requests.Response:
+    """Generic method to call many APIs (sync version).
+
+    It assumes that there's an API key stored in the environment variable `api_key_env_var`, and it adds
+    that as an Authorization: Bearer to the headers.
+
+    The other kw are as in make_request() and make_request_async().
+    """
+    api_key = os.environ.get(api_key_env_var)
+    headers = headers or {}
+    headers['Authorization'] = f'Bearer {api_key}'
+    r = make_request(url, headers=headers, **kw)
+    return r
+
+async def call_api_async(url: str, api_key_env_var: str, headers=None, **kw) -> requests.Response:
+    """Generic method to call many APIs (async version).
+
+    It assumes that there's an API key stored in the environment variable `api_key_env_var`, and it adds
+    that as an Authorization: Bearer to the headers.
+
+    The other kw are as in make_request() and make_request_async().
+    """
+    api_key = os.environ.get(api_key_env_var)
+    headers = headers or {}
+    headers['Authorization'] = f'Bearer {api_key}'
+    r = await make_request_async(url, headers=headers, **kw)
+    return r
+
 def resolve_url(url: str, method='head', **kwargs) -> str:
     """Follows the url through all redirects and returns the ultimate url"""
     r = make_request(url, method, **kwargs)
