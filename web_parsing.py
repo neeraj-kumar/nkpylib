@@ -475,9 +475,8 @@ def select_elements(html_file: str, selector: str, display: str = 'text()') -> d
         elements = doc(selector)
         results = []
         for i, elem in enumerate(elements):
-            print(f'{i}: <{elem.tag} {elem.attrib}>')
+            #print(f'{i}: <{elem.tag} {elem.attrib}>')
             elem_doc = pq(elem)
-            
             # Execute the display command on the element
             try:
                 if display.startswith('attr(') and display.endswith(')'):
@@ -493,7 +492,6 @@ def select_elements(html_file: str, selector: str, display: str = 'text()') -> d
                     display_value = eval(f'elem_doc.{display}')
             except Exception as e:
                 display_value = f"Error: {e}"
-            
             results.append(dict(
                 index=i,
                 text=elem_doc.text(),
@@ -519,7 +517,6 @@ def main():
     test_parser = subparsers.add_parser('test', help='Test existing rules on HTML file')
     test_parser.add_argument('html_file', help='HTML file to parse')
     test_parser.add_argument('rules_file', help='JSON file containing serialized parsing rules')
-    
     # Select elements command
     select_parser = subparsers.add_parser('select', help='Run CSS selector on HTML file')
     select_parser.add_argument('html_file', help='HTML file to query')
@@ -554,16 +551,16 @@ def main():
                 pprint(result['results'])
             else:
                 print(f"Error: {result['error']}")
-                
         case 'select':
             result = select_elements(args.html_file, args.selector, args.display)
             if result.get('success'):
-                print(f"Found {result['count']} elements:")
+                logger.info(f"Found {result['count']} elements:")
                 for elem in result['results']:
-                    print(f"[{elem['index']}] <{elem['tag']}> {elem['attrs']}")
-                    print(f"  Display ({args.display}): {elem['display_value']}")
-                    print(f"  Text: {elem['text'][:100]}...")
-                    print()
+                    #print(f"[{elem['index']}] <{elem['tag']}> {elem['attrs']}")
+                    #print(f"  Display ({args.display}): {elem['display_value']}")
+                    #print(f"  Text: {elem['text'][:100]}...")
+                    #print()
+                    print(elem['display_value'])
             else:
                 print(f"Error: {result['error']}")
 
