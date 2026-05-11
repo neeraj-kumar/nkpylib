@@ -462,6 +462,7 @@ class Embeddings(FeatureSet, Generic[KeyT]):
                                  method: str='rbf',
                                  C=1,
                                  cv: int=0,
+                                 cv_scoring=None,
                                  **kw) -> tuple[BaseEstimator, dict[KeyT, float], dict[str, Any]]:
         """High-level function to train a classifier and run on `to_cls`.
 
@@ -540,10 +541,10 @@ class Embeddings(FeatureSet, Generic[KeyT]):
         if cv > 0:
             if float_labels:
                 cv_classifier = self._create_regressor(method=method, C=C, **kw)
-                cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights), scoring='r2')
+                cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights), scoring=cv_scoring or 'r2')
             else:
                 cv_classifier = self._create_classifier(method=method, C=C, **kw)
-                cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights))
+                cv_scores = cross_val_score(cv_classifier, train_X, y, cv=cv, params=dict(sample_weight=weights), scoring=cv_scoring)
             other_stuff['cv'] = [float(s) for s in cv_scores]
             logger.info(f'Cross-validation scores: {cv_scores}, mean: {cv_scores.mean():.3f}')
         cls = self.train_classifier(train_X, y, weights=weights, method=method, C=C, **kw)
