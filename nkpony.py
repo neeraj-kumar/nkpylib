@@ -168,3 +168,15 @@ def init_sqlite_db(path: str, db: Database|None=None, debug:bool=False) -> Datab
     except BindingError:
         pass
     return db
+
+def batch_query(query, batch_size=1000):
+    """Fetches results from a PonyORM query in batches, as a generator."""
+    page = 1
+    while True:
+        batch = query.page(page, batch_size)
+        if not batch:
+            break
+        yield batch
+        page += 1
+        # Clear Pony's cache to prevent memory buildup
+        #local_cache.clear()
