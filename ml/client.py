@@ -527,7 +527,14 @@ def transcribe_speech(audio: str|bytes,
                       model:Optional[str]=None,
                       use_cache=True,
                       **kw) -> ResponseT:
-    """Runs speech transcription with given `audio` (local path, url, or bytes)."""
+    """Runs speech transcription with given `audio` (local path, url, or bytes).
+
+    For `kw`:
+    - language ['en']: language of the input audio, for better accuracy. Output is always english.
+    - chunk_level ['segment']: Options are segment or word.
+    - task ['transcribe']: You can instead set this to 'translate' to directly translate from the
+      input language to english
+    """
     if isinstance(audio, bytes):
         # convert bytes to base64
         audio = base64.b64encode(audio).decode()
