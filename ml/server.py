@@ -1005,7 +1005,11 @@ class ExternalEmbeddingModel(EmbeddingModel):
         super().__init__(enable_auto_batching=False, **kw)
 
     async def _run(self, input: Any, **kw) -> dict:
-        ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=self.model_name, input=input)
+        model = self.model_name
+        if model.startswith('jina-ai/'): # some special handling for jina
+            model = model.split('/', 1)[-1]
+            kw.update(provider='jina', truncate=True)
+        ret = await call_external(endpoint='/embeddings', provider_name=kw.get('provider', ''), model=model, input=input)
         ret['input'] = input
         return ret
 

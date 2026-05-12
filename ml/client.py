@@ -641,16 +641,17 @@ def quick_test():
             model = 'clip'
             model = 'st'
             model = 'mobilenet'
+            model = 'jina'
             if 0:
                 ret = embed_image.single(url, model=model, use_cache=False)
                 print(f'{model} Embedding for {url} with {len(ret)} dims: {ret[:10]}')
             else:
-                num = 10
+                num = 1
                 t0 = time.time()
                 if 1: # image
                     futures = embed_image.batch_futures([url]*num, model=model, use_cache=False)
                 else: # text
-                    futures = embed_text.batch_futures([url]*num, model=model, use_cache=False)
+                    futures = embed_text.batch_futures(['this is a test text']*num, model=model, use_cache=False)
                 results = [f.result() for f in futures]
                 t1 = time.time()
                 ret = results[-1]
