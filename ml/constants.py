@@ -36,10 +36,7 @@ DEFAULT_MODELS = dict(
     # fast image model is mobilenet
     mobilenet=ModelConfig('mobilenet_v3', max_dims=576),
     fast_image=ModelConfig('mobilenet_v3', max_dims=576),
-    # jina-clip-v2 for better image <-> text embeddings in the same space
-    # - Based on the research paper, going from the max dims of 1024 to 768 doesn't hurt performance
-    #   at all (and might even slightly improve it for some tasks).
-    jina=ModelConfig("jinaai/jina-clip-v2", max_dims=1024, default_dims=768),
+    jina=ModelConfig("jina-ai/jina-embeddings-v5-omni-small", max_dims=1024, default_dims=1024),
     # llama4 (scout) for top-line perf on text tasks
     llama4=ModelConfig('meta-llama/Llama-4-Scout-17B-16E-Instruct', max_tokens=131072),
     # qwen, latest baidu model

@@ -1375,6 +1375,8 @@ async def image_embeddings(req: ImageEmbeddingRequest):
         Cls = ClipImageEmbeddingModel
     elif req.model == _default('mobilenet'):
         Cls = MobileNetEmbeddingModel
+    elif req.model == _default('jina'):
+        Cls = ExternalEmbeddingModel
     else:
         raise NotImplementedError(f"Model {req.model} not supported for image embeddings")
     model = Cls(model_name=req.model, use_cache=req.use_cache)
