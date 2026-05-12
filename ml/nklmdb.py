@@ -349,6 +349,14 @@ class LmdbUpdater(CollectionUpdater):
         else:
             return self.key_in_db(key)
 
+    def __len__(self) -> int:
+        """Returns the length of the database, not counting any pending updates"""
+        return self.db_len()
+
+    @staticmethod
+    def db_len() -> int:
+        return len(db)
+
     @staticmethod
     def key_in_db(key: str) -> bool:
         return key in db
@@ -403,6 +411,8 @@ class LmdbUpdater(CollectionUpdater):
             for f in self.futures:
                 f.result()
             self.futures = []
+        else:
+            self.db_sync()
 
 
 class LmdbTree(Tree):
