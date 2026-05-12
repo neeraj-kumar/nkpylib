@@ -1,4 +1,10 @@
 {
+  "jina": {
+    "api_key_var": "JINA_API_KEY",
+    "base_url": "https://api.jina.ai/v1",
+    "models": {
+    }
+  },
   "groq": {
     "api_key_var": "GROQ_API_KEY",
     "base_url": "https://api.groq.com/openai/v1",
