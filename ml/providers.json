@@ -2,6 +2,7 @@
   "jina": {
     "api_key_var": "JINA_API_KEY",
     "base_url": "https://api.jina.ai/v1",
+    "min_delay": 0.8,
     "models": {
       "jina-ai/jina-vlm": {
         "id": "jina-ai/jina-vlm",

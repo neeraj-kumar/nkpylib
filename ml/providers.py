@@ -50,7 +50,7 @@ async def call_provider(provider_name, endpoint, headers_kw=None, files=None, **
     if headers_kw:
         headers.update(headers_kw)
     headers = {k: v for k, v in headers.items() if v}
-    req_kw = dict(url=url, headers=headers, min_delay=0)
+    req_kw = dict(url=url, headers=headers, min_delay=provider.get('min_delay', 0))
     if data:
         if files:
             ret = await make_request_async(method='post', files=files, **req_kw)
