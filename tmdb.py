@@ -209,7 +209,7 @@ class TMDBFetcher(IMDBFetcher):
             m['imdb_id'] = imdb_id
         return json.dumps(m, indent=2)
 
-    @file_cached(lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=4000)
+    @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=4000)
     async def fetch(self, imdb_id: str) -> str:
         """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
         return await self._fetch(imdb_id)
