@@ -76,7 +76,7 @@ DEFAULT_MODELS = dict(
     # e5 embeddings with 1024 output dims
     e5=ModelConfig('intfloat/e5-large-v2', max_dims=1024, max_tokens=514),
     # qwen3 embeddings (large and small)
-    qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B-batch', max_dims=4096, max_tokens=32768),
+    qwen_emb=ModelConfig('Qwen/Qwen3-Embedding-8B', max_dims=4096, max_tokens=32768),
     qwen_emb_small=ModelConfig('Qwen/Qwen3-Embedding-0.6B-batch', max_dims=1024, max_tokens=32768),
     # groq fastest
     groq=ModelConfig('openai/gpt-oss-20b', max_tokens=8192),
