@@ -52,18 +52,16 @@ class IMDBFetcher:
             return ''
 
     @staticmethod
-    def file_cached(func_name: str, cache_name_func: callable, expire_days: int = -1, min_size: int=100):
+    def file_cached(cache_name_func: callable, expire_days: int = -1, min_size: int=100):
         """A decorator that wraps an async func that caches to disk.
 
         This needs to be called with:
-        - `func_name`: instance method name that we will call if not found
         - `cache_name_func`: a function that takes the same arguments as the decorated function, and
           returns a cache filename
         - `expire_days`: number of days before cache expires (default -1 = never expire)
         - `min_size`: minimum size in bytes for a cache file to be considered valid (default 100)
 
         This assume the instance has:
-        - `func_name`: an async instance method
         - `cache_dir`: attribute for where to store cache files
         """
         def decorator(func):
@@ -88,8 +86,7 @@ class IMDBFetcher:
                 # If no valid cache, fetch new content
                 if not cache_valid:
                     try:
-                        fetch_method = getattr(self, func_name)
-                        content = await fetch_method(*args, **kwargs)
+                        content = await func(self, *args, **kwargs)
                         if content:
                             with open(cache_path, 'w') as f:
                                 f.write(content)
@@ -106,7 +103,7 @@ class IMDBFetcher:
         return decorator
 
 
-    @file_cached('_fetch', lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=14)
+    @file_cached(lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=14)
     async def fetch(self, imdb_id: str) -> str:
         """Fetches the IMDB page for the given imdb_id, returning the content as a string.
 
@@ -114,7 +111,7 @@ class IMDBFetcher:
         It's an async function so that we can wait for the fetch to complete, and also so we can
         wait between fetches if needed.
         """
-        pass  # Implementation is handled by the decorator
+        return await self._fetch(imdb_id)
 
     async def get_movie_info(self, imdb_id: str) -> dict|None:
         """Gets movie info for the given `imdb_id`, using the cache if possible."""
@@ -212,7 +209,12 @@ class TMDBFetcher(IMDBFetcher):
             m['imdb_id'] = imdb_id
         return json.dumps(m, indent=2)
 
-    async def fetch(self, imdb_id: str) -> dict[str, Any]:
+    @file_cached(lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=4000)
+    async def fetch(self, imdb_id: str) -> str:
+        """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
+        return await self._fetch(imdb_id)
+
+    async def get_data(self, imdb_id: str) -> dict[str, Any]:
         """Fetches info from TMDB for the given imdb_id, returning the content as an object.
 
         The object will be like:
@@ -237,13 +239,13 @@ class TMDBFetcher(IMDBFetcher):
               "vote_count": 1
             }
         """
-        content = await super().fetch(imdb_id)
+        content = await self.fetch(imdb_id)
         return json.loads(content) if content else {}
 
     async def get_movie_info(self, imdb_id: str) -> dict|None:
         """Gets movie info for the given `imdb_id`, using the cache if possible."""
         try:
-            m = await self.fetch(imdb_id)
+            m = await self.get_data(imdb_id)
             if not m:
                 return None
             cur = {}
@@ -257,7 +259,7 @@ class TMDBFetcher(IMDBFetcher):
 
     async def _get_poster_url(self, imdb_id: str, size: str = 'w300') -> str|None:
         """Gets the poster URL for the given imdb_id. Returns None if not found."""
-        m = await self.fetch(imdb_id)
+        m = await self.get_data(imdb_id)
         poster_url_path = m.get('poster_path')
         if poster_url_path:
             return f'https://image.tmdb.org/t/p/{size}{poster_url_path}'
