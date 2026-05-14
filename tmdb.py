@@ -49,6 +49,19 @@ class IMDBFetcher:
         else:
             return ''
 
+    @static
+    def file_cached(func_name: str, cache_name_func: callable, expire_days:int=-1):
+        """A decorator that wraps an async func that caches to disk.
+
+        This needs to be called with:
+        - `func_name`: instance method name that we will call if not found
+        - `cache_name_func`: a function that takes the same arguments as the decorated function, and
+          returns a cache filename
+        - `expire_days`: number of days before cache expires (default -1 = never expire)
+        """
+
+
+    @IMDBFetcher.file_cached('_fetch', lambda self, imdb_id: f'{imdb_id}.html')
     async def fetch(self, imdb_id: str) -> str:
         """Fetches the IMDB page for the given imdb_id, returning the content as a string.
 
