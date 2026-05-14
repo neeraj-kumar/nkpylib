@@ -49,8 +49,8 @@ class IMDBFetcher:
         else:
             return ''
 
-    @static
-    def file_cached(func_name: str, cache_name_func: callable, expire_days:int=-1):
+    @staticmethod
+    def file_cached(func_name: str, cache_name_func: callable, expire_days: int = -1):
         """A decorator that wraps an async func that caches to disk.
 
         This needs to be called with:
@@ -59,9 +59,60 @@ class IMDBFetcher:
           returns a cache filename
         - `expire_days`: number of days before cache expires (default -1 = never expire)
         """
+        def decorator(func):
+            async def wrapper(self, *args, **kwargs):
+                cache_filename = cache_name_func(self, *args, **kwargs)
+                cache_path = f'{self.cache_dir}/{cache_filename}'
+                
+                # Check if cache exists and is valid
+                cache_valid = False
+                if os.path.exists(cache_path):
+                    if expire_days == -1:
+                        cache_valid = True
+                    else:
+                        file_age = time.time() - os.path.getmtime(cache_path)
+                        cache_valid = file_age < (expire_days * 24 * 3600)
+                
+                # If cache is invalid or file is too small, remove it
+                if os.path.exists(cache_path) and (not cache_valid or os.path.getsize(cache_path) < 100):
+                    try:
+                        os.remove(cache_path)
+                    except Exception:
+                        pass
+                    cache_valid = False
+                
+                # If no valid cache, fetch new content
+                if not cache_valid:
+                    # Wait if we need to (async)
+                    if time.time() - self.last_fetch < self.min_delay:
+                        await tornado.gen.sleep(self.min_delay - (time.time() - self.last_fetch))
+                    
+                    logger.info(f'Fetching {args[0] if args else "content"}')
+                    try:
+                        fetch_method = getattr(self, func_name)
+                        content = await fetch_method(*args, **kwargs)
+                        if content:
+                            with open(cache_path, 'w') as f:
+                                f.write(content)
+                        else:
+                            return ''
+                    except Exception as e:
+                        logger.warning(f'Error fetching {args[0] if args else "content"}: {e}')
+                        return ''
+                    self.last_fetch = time.time()
+                
+                # Read and return cached content
+                try:
+                    with open(cache_path) as f:
+                        return f.read()
+                except Exception:
+                    return ''
+            
+            return wrapper
+        return decorator
 
 
-    @IMDBFetcher.file_cached('_fetch', lambda self, imdb_id: f'{imdb_id}.html')
+    @file_cached('_fetch', lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=14)
     async def fetch(self, imdb_id: str) -> str:
         """Fetches the IMDB page for the given imdb_id, returning the content as a string.
 
@@ -69,31 +120,7 @@ class IMDBFetcher:
         It's an async function so that we can wait for the fetch to complete, and also so we can
         wait between fetches if needed.
         """
-        path = f'{self.cache_dir}/{imdb_id}{self._get_cache_file_extension()}'
-        if os.path.exists(path) and (time.time() - os.path.getmtime(path)) > (self.expire_days * 24 * 3600):
-            # delete it
-            try:
-                os.remove(path)
-            except Exception as e:
-                pass
-        if not os.path.exists(path) or os.path.getsize(path) < 100:
-            # wait if we need to (async)
-            if time.time() - self.last_fetch < self.min_delay:
-                await tornado.gen.sleep(self.min_delay - (time.time() - self.last_fetch))
-            logger.info(f'Fetching {imdb_id}')
-            try:
-                content = await self._fetch(imdb_id)
-                if content:
-                    with open(path, 'w') as f:
-                        f.write(content)
-                else:
-                    return ''
-            except Exception as e:
-                logger.warning(f'Error fetching {imdb_id}: {e}')
-                return ''
-            self.last_fetch = time.time()
-        with open(path) as f:
-            return f.read()
+        pass  # Implementation is handled by the decorator
 
     async def get_movie_info(self, imdb_id: str) -> dict|None:
         """Gets movie info for the given `imdb_id`, using the cache if possible."""
