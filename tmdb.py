@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -98,7 +99,7 @@ class IMDBFetcher:
             return wrapper
         return decorator
 
-    @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}.html')
+    @file_cached(lambda self, imdb_id: f'{imdb_id}.html')
     async def fetch(self, imdb_id: str) -> str:
         """Fetches the IMDB page for the given imdb_id, returning the content as a string.
 
@@ -179,7 +180,7 @@ class TMDBFetcher(IMDBFetcher):
                         **kw)
 
     async def _api_async(self, endpoint, headers=None, **kw):
-        return call_api_async(f'https://api.themoviedb.org/3/{endpoint}',
+        return await call_api_async(f'https://api.themoviedb.org/3/{endpoint}',
                               api_key_env_var=self.api_key_env_var,
                               headers=headers,
                               min_delay=self.min_delay,
@@ -198,30 +199,27 @@ class TMDBFetcher(IMDBFetcher):
         results = r.json()
         movie_result = results['movie_results'][0]
         tmdb_id = movie_result['id']
-        
         # Fetch the full movie data by tmdb_id
         content = await self._fetch_by_tmdb_id(tmdb_id)
         m = json.loads(content)
         if 'imdb_id' not in m:
             m['imdb_id'] = imdb_id
-        
         # Create hardlink between imdb_id and tmdb_id cache files
         imdb_cache_path = f'{self.cache_dir}/{imdb_id}.json'
         tmdb_cache_path = f'{self.cache_dir}/{tmdb_id}.json'
-        
         try:
             if os.path.exists(tmdb_cache_path) and not os.path.exists(imdb_cache_path):
                 os.link(tmdb_cache_path, imdb_cache_path)
+            elif os.path.exists(imdb_cache_path) and not os.path.exists(imdb_cache_path):
+                os.link(imdb_cache_path, tmdb_cache_path)
         except Exception:
             pass
-        
         return json.dumps(m, indent=2)
 
     @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}.json')
     async def fetch(self, imdb_id: str) -> str:
         """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
         content = await self._fetch(imdb_id)
-        
         # After fetching, try to create hardlink from tmdb_id to imdb_id if it doesn't exist
         try:
             m = json.loads(content)
@@ -229,12 +227,12 @@ class TMDBFetcher(IMDBFetcher):
             if tmdb_id:
                 imdb_cache_path = f'{self.cache_dir}/{imdb_id}.json'
                 tmdb_cache_path = f'{self.cache_dir}/{tmdb_id}.json'
-                
                 if os.path.exists(imdb_cache_path) and not os.path.exists(tmdb_cache_path):
                     os.link(imdb_cache_path, tmdb_cache_path)
+                elif os.path.exists(tmdb_cache_path) and not os.path.exists(imdb_cache_path):
+                    os.link(tmdb_cache_path, imdb_cache_path)
         except Exception:
             pass
-        
         return content
 
     async def get_data(self, imdb_id: str) -> dict[str, Any]:
@@ -289,12 +287,17 @@ class TMDBFetcher(IMDBFetcher):
         return None
 
 
-
 if __name__ == '__main__':
     tmdb = TMDBFetcher()
     arg_parser = ArgumentParser(description='Test TMDB API')
     arg_parser.add_argument('endpoint', type=str, help='API endpoint to call (e.g., "movie/550")')
     arg_parser.add_argument('args', nargs='*', help='Additional arguments for the API call (e.g., "language=en-US")')
+    arg_parser.add_argument('-i', '--imdb-id', type=str, help='IMDB ID to fetch info for')
     args = arg_parser.parse_args()
-    resp = tmdb._api(args.endpoint, *args.args)
-    print(json.dumps(resp.json(), indent=2))
+    if args.imdb_id:
+        loop = asyncio.get_event_loop()
+        content = loop.run_until_complete(tmdb.fetch(args.imdb_id))
+        print(content)
+    else:
+        resp = tmdb._api(args.endpoint, *args.args)
+        print(json.dumps(resp.json(), indent=2))
