@@ -38,10 +38,6 @@ class IMDBFetcher:
         self.min_delay = min_delay
         self.expire_days = expire_days
 
-    def _get_cache_file_extension(self) -> str:
-        """Returns the file extension to use for cached files."""
-        return '.html'
-
     async def _fetch(self, imdb_id: str) -> str:
         """Fetches the IMDB page for the given imdb_id, returning the content as a string."""
         r = await make_request_async(f'https://www.imdb.com/title/{imdb_id}/')
@@ -52,17 +48,17 @@ class IMDBFetcher:
             return ''
 
     @staticmethod
-    def file_cached(cache_name_func: callable, expire_days: int = -1, min_size: int=100):
+    def file_cached(cache_name_func: callable, min_size: int=100):
         """A decorator that wraps an async func that caches to disk.
 
         This needs to be called with:
         - `cache_name_func`: a function that takes the same arguments as the decorated function, and
           returns a cache filename
-        - `expire_days`: number of days before cache expires (default -1 = never expire)
         - `min_size`: minimum size in bytes for a cache file to be considered valid (default 100)
 
         This assume the instance has:
         - `cache_dir`: attribute for where to store cache files
+        - `expire_days`: attribute for how long before cache expires (in days)
         """
         def decorator(func):
             @wraps(func)
@@ -71,11 +67,11 @@ class IMDBFetcher:
                 cache_path = f'{self.cache_dir}/{cache_filename}'
                 cache_valid = False
                 if os.path.exists(cache_path) and os.path.getsize(cache_path) >= min_size:
-                    if expire_days == -1:
+                    if self.expire_days == -1:
                         cache_valid = True
                     else:
                         file_age = time.time() - os.path.getmtime(cache_path)
-                        cache_valid = file_age < (expire_days * 24 * 3600)
+                        cache_valid = file_age < (self.expire_days * 24 * 3600)
                 # If cache is invalid, remove it
                 if not cache_valid and os.path.exists(cache_path):
                     try:
@@ -102,8 +98,7 @@ class IMDBFetcher:
             return wrapper
         return decorator
 
-
-    @file_cached(lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=14)
+    @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}.html')
     async def fetch(self, imdb_id: str) -> str:
         """Fetches the IMDB page for the given imdb_id, returning the content as a string.
 
@@ -176,10 +171,6 @@ class TMDBFetcher(IMDBFetcher):
         self.api_key_env_var = api_key_env_var
         super().__init__(cache_dir=cache_dir, min_delay=min_delay, expire_days=expire_days)
 
-    def _get_cache_file_extension(self) -> str:
-        """Returns the file extension to use for cached files."""
-        return '.json'
-
     def _api(self, endpoint, headers=None, **kw):
         return call_api(f'https://api.themoviedb.org/3/{endpoint}',
                         api_key_env_var=self.api_key_env_var,
@@ -209,7 +200,7 @@ class TMDBFetcher(IMDBFetcher):
             m['imdb_id'] = imdb_id
         return json.dumps(m, indent=2)
 
-    @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}{self._get_cache_file_extension()}', expire_days=4000)
+    @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}.json')
     async def fetch(self, imdb_id: str) -> str:
         """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
         return await self._fetch(imdb_id)
