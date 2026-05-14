@@ -1,5 +1,7 @@
 """Module for dealing with tmdb data"""
 
+#TODO see if we can do a conditional expiry, where we only expire new movies, not old ones
+
 from __future__ import annotations
 
 import asyncio
@@ -207,6 +209,7 @@ class TMDBFetcher(IMDBFetcher):
 
     async def _fetch(self, imdb_id: str) -> str:
         """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
+        # first lookup the tmdb_id by imdb_id
         r = await self._api_async(f'find/{imdb_id}?external_source=imdb_id')
         results = r.json()
         movie_result = results['movie_results'][0]
@@ -216,7 +219,6 @@ class TMDBFetcher(IMDBFetcher):
         m = json.loads(content)
         if 'imdb_id' not in m:
             m['imdb_id'] = imdb_id
-        # Create hardlink between imdb_id and tmdb_id cache files
         self._create_hardlinks(imdb_id, tmdb_id)
         return json.dumps(m, indent=2)
 
@@ -224,12 +226,9 @@ class TMDBFetcher(IMDBFetcher):
     async def fetch(self, imdb_id: str) -> str:
         """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
         content = await self._fetch(imdb_id)
-        # After fetching, try to create hardlink from tmdb_id to imdb_id if it doesn't exist
         try:
             m = json.loads(content)
-            tmdb_id = m.get('id')
-            if tmdb_id:
-                self._create_hardlinks(imdb_id, tmdb_id)
+            self._create_hardlinks(imdb_id, m['id'])
         except Exception:
             pass
         return content
