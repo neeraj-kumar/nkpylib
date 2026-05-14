@@ -8,6 +8,7 @@ import os
 import time
 
 from argparse import ArgumentParser
+from functools import wraps
 from typing import Any
 
 import tornado.gen
@@ -62,6 +63,7 @@ class IMDBFetcher:
         - `expire_days`: number of days before cache expires (default -1 = never expire)
         """
         def decorator(func):
+            @wraps(func)
             async def wrapper(self, *args, **kwargs):
                 cache_filename = cache_name_func(self, *args, **kwargs)
                 cache_path = f'{self.cache_dir}/{cache_filename}'
