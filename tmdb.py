@@ -12,6 +12,8 @@ from typing import Any
 
 import tornado.gen
 
+from pyquery import PyQuery as pq
+
 from nkpylib.web_utils import call_api, call_api_async, make_request_async
 
 logger = logging.getLogger(__name__)
