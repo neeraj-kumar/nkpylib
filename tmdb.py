@@ -185,25 +185,57 @@ class TMDBFetcher(IMDBFetcher):
                               min_delay=self.min_delay,
                               **kw)
 
-    async def _fetch_by_tmdb_id(self, tmdb_id: int) -> dict[str, Any]:
-        """Fetches info from TMDB for the given tmdb_id, returning the content as a dict."""
+    @IMDBFetcher.file_cached(lambda self, tmdb_id: f'{tmdb_id}.json')
+    async def _fetch_by_tmdb_id(self, tmdb_id: int) -> str:
+        """Fetches info from TMDB for the given tmdb_id, returning the content as JSON string."""
         r = await self._api_async(f'movie/{tmdb_id}?append_to_response=keywords,lists')
-        return r.json()
+        m = r.json()
+        return json.dumps(m, indent=2)
 
     async def _fetch(self, imdb_id: str) -> str:
         """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
         r = await self._api_async(f'find/{imdb_id}?external_source=imdb_id')
         results = r.json()
-        m = results['movie_results'][0]
-        m = await self._fetch_by_tmdb_id(m['id'])
+        movie_result = results['movie_results'][0]
+        tmdb_id = movie_result['id']
+        
+        # Fetch the full movie data by tmdb_id
+        content = await self._fetch_by_tmdb_id(tmdb_id)
+        m = json.loads(content)
         if 'imdb_id' not in m:
             m['imdb_id'] = imdb_id
+        
+        # Create hardlink between imdb_id and tmdb_id cache files
+        imdb_cache_path = f'{self.cache_dir}/{imdb_id}.json'
+        tmdb_cache_path = f'{self.cache_dir}/{tmdb_id}.json'
+        
+        try:
+            if os.path.exists(tmdb_cache_path) and not os.path.exists(imdb_cache_path):
+                os.link(tmdb_cache_path, imdb_cache_path)
+        except Exception:
+            pass
+        
         return json.dumps(m, indent=2)
 
     @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}.json')
     async def fetch(self, imdb_id: str) -> str:
         """Fetches info from TMDB for the given imdb_id, returning the content as JSON string."""
-        return await self._fetch(imdb_id)
+        content = await self._fetch(imdb_id)
+        
+        # After fetching, try to create hardlink from tmdb_id to imdb_id if it doesn't exist
+        try:
+            m = json.loads(content)
+            tmdb_id = m.get('id')
+            if tmdb_id:
+                imdb_cache_path = f'{self.cache_dir}/{imdb_id}.json'
+                tmdb_cache_path = f'{self.cache_dir}/{tmdb_id}.json'
+                
+                if os.path.exists(imdb_cache_path) and not os.path.exists(tmdb_cache_path):
+                    os.link(imdb_cache_path, tmdb_cache_path)
+        except Exception:
+            pass
+        
+        return content
 
     async def get_data(self, imdb_id: str) -> dict[str, Any]:
         """Fetches info from TMDB for the given imdb_id, returning the content as an object.
