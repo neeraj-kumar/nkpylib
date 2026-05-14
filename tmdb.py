@@ -37,7 +37,6 @@ class IMDBFetcher:
             pass
         self.min_delay = min_delay
         self.expire_days = expire_days
-        self.last_fetch = 0
 
     def _get_cache_file_extension(self) -> str:
         """Returns the file extension to use for cached files."""
@@ -53,7 +52,7 @@ class IMDBFetcher:
             return ''
 
     @staticmethod
-    def file_cached(func_name: str, cache_name_func: callable, expire_days: int = -1):
+    def file_cached(func_name: str, cache_name_func: callable, expire_days: int = -1, min_size: int=100):
         """A decorator that wraps an async func that caches to disk.
 
         This needs to be called with:
@@ -61,37 +60,33 @@ class IMDBFetcher:
         - `cache_name_func`: a function that takes the same arguments as the decorated function, and
           returns a cache filename
         - `expire_days`: number of days before cache expires (default -1 = never expire)
+        - `min_size`: minimum size in bytes for a cache file to be considered valid (default 100)
+
+        This assume the instance has:
+        - `func_name`: an async instance method
+        - `cache_dir`: attribute for where to store cache files
         """
         def decorator(func):
             @wraps(func)
             async def wrapper(self, *args, **kwargs):
                 cache_filename = cache_name_func(self, *args, **kwargs)
                 cache_path = f'{self.cache_dir}/{cache_filename}'
-                
-                # Check if cache exists and is valid
                 cache_valid = False
-                if os.path.exists(cache_path):
+                if os.path.exists(cache_path) and os.path.getsize(cache_path) >= min_size:
                     if expire_days == -1:
                         cache_valid = True
                     else:
                         file_age = time.time() - os.path.getmtime(cache_path)
                         cache_valid = file_age < (expire_days * 24 * 3600)
-                
-                # If cache is invalid or file is too small, remove it
-                if os.path.exists(cache_path) and (not cache_valid or os.path.getsize(cache_path) < 100):
+                # If cache is invalid, remove it
+                if not cache_valid and os.path.exists(cache_path):
                     try:
                         os.remove(cache_path)
                     except Exception:
                         pass
                     cache_valid = False
-                
                 # If no valid cache, fetch new content
                 if not cache_valid:
-                    # Wait if we need to (async)
-                    if time.time() - self.last_fetch < self.min_delay:
-                        await tornado.gen.sleep(self.min_delay - (time.time() - self.last_fetch))
-                    
-                    logger.info(f'Fetching {args[0] if args else "content"}')
                     try:
                         fetch_method = getattr(self, func_name)
                         content = await fetch_method(*args, **kwargs)
@@ -99,19 +94,14 @@ class IMDBFetcher:
                             with open(cache_path, 'w') as f:
                                 f.write(content)
                         else:
-                            return ''
+                            return content
                     except Exception as e:
                         logger.warning(f'Error fetching {args[0] if args else "content"}: {e}')
                         return ''
-                    self.last_fetch = time.time()
-                
                 # Read and return cached content
-                try:
-                    with open(cache_path) as f:
-                        return f.read()
-                except Exception:
-                    return ''
-            
+                with open(cache_path) as f:
+                    return f.read()
+
             return wrapper
         return decorator
 
