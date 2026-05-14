@@ -206,7 +206,7 @@ def sql_batch_generator(db, sql, params=None, batch_size=10000, desc="Loading da
     offset = 0
     params = params or {}
     n = 0
-    with tqdm(desc=f"{desc} in batches of {batch_size}") as pbar:
+    with tqdm(desc=f"{desc} in batches of {batch_size}", total=max_num) as pbar:
         while True:
             batch_sql = f"{sql} LIMIT {batch_size} OFFSET {offset}"
             with db_session:
