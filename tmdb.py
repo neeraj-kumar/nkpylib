@@ -186,6 +186,18 @@ class TMDBFetcher(IMDBFetcher):
                               min_delay=self.min_delay,
                               **kw)
 
+    def _create_hardlinks(self, imdb_id: str, tmdb_id: int) -> None:
+        """Create hardlinks between imdb_id and tmdb_id cache files if they don't exist."""
+        imdb_cache_path = f'{self.cache_dir}/{imdb_id}.json'
+        tmdb_cache_path = f'{self.cache_dir}/{tmdb_id}.json'
+        try:
+            if os.path.exists(tmdb_cache_path) and not os.path.exists(imdb_cache_path):
+                os.link(tmdb_cache_path, imdb_cache_path)
+            elif os.path.exists(imdb_cache_path) and not os.path.exists(tmdb_cache_path):
+                os.link(imdb_cache_path, tmdb_cache_path)
+        except Exception:
+            pass
+
     @IMDBFetcher.file_cached(lambda self, tmdb_id: f'{tmdb_id}.json')
     async def _fetch_by_tmdb_id(self, tmdb_id: int) -> str:
         """Fetches info from TMDB for the given tmdb_id, returning the content as JSON string."""
@@ -205,15 +217,7 @@ class TMDBFetcher(IMDBFetcher):
         if 'imdb_id' not in m:
             m['imdb_id'] = imdb_id
         # Create hardlink between imdb_id and tmdb_id cache files
-        imdb_cache_path = f'{self.cache_dir}/{imdb_id}.json'
-        tmdb_cache_path = f'{self.cache_dir}/{tmdb_id}.json'
-        try:
-            if os.path.exists(tmdb_cache_path) and not os.path.exists(imdb_cache_path):
-                os.link(tmdb_cache_path, imdb_cache_path)
-            elif os.path.exists(imdb_cache_path) and not os.path.exists(imdb_cache_path):
-                os.link(imdb_cache_path, tmdb_cache_path)
-        except Exception:
-            pass
+        self._create_hardlinks(imdb_id, tmdb_id)
         return json.dumps(m, indent=2)
 
     @IMDBFetcher.file_cached(lambda self, imdb_id: f'{imdb_id}.json')
@@ -225,12 +229,7 @@ class TMDBFetcher(IMDBFetcher):
             m = json.loads(content)
             tmdb_id = m.get('id')
             if tmdb_id:
-                imdb_cache_path = f'{self.cache_dir}/{imdb_id}.json'
-                tmdb_cache_path = f'{self.cache_dir}/{tmdb_id}.json'
-                if os.path.exists(imdb_cache_path) and not os.path.exists(tmdb_cache_path):
-                    os.link(imdb_cache_path, tmdb_cache_path)
-                elif os.path.exists(tmdb_cache_path) and not os.path.exists(imdb_cache_path):
-                    os.link(tmdb_cache_path, imdb_cache_path)
+                self._create_hardlinks(imdb_id, tmdb_id)
         except Exception:
             pass
         return content
