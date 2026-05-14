@@ -9,6 +9,7 @@ from os.path import abspath, dirname
 
 from pony.orm import * # type: ignore
 from pony.orm.core import Entity, EntityMeta, SetInstance # type: ignore
+from tqdm import tqdm # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,10 @@ def init_sqlite_db(path: str, db: Database|None=None, debug:bool=False) -> Datab
     return db
 
 def batch_query(query, batch_size=1000):
-    """Fetches results from a PonyORM query in batches, as a generator."""
+    """Fetches results from a PonyORM `query` in batches, as a generator.
+
+    Note that this yields entire batches. If you want individual rows, use `batch_query_iter`.
+    """
     page = 1
     while True:
         batch = query.page(page, batch_size)
@@ -180,3 +184,41 @@ def batch_query(query, batch_size=1000):
         page += 1
         # Clear Pony's cache to prevent memory buildup
         #local_cache.clear()
+
+def batch_query_iter(query, batch_size=1000):
+    """Fetches individual rows from a PonyORM `query` (run in batches), as an iterator."""
+    for batch in batch_query(query, batch_size):
+        for item in batch:
+            yield item
+
+def sql_batch_generator(db, sql, params=None, batch_size=10000, desc="Loading data", max_num=0):
+    """Generic raw SQL batch data generator.
+
+    - db: database connection
+    - sql: SQL query string
+    - params: optional query parameters
+    - batch_size: number of rows per batch
+    - desc: description for progress bar
+    - max_num: maximum number of rows to fetch (if > 0)
+
+    Yields rows from the query in batches.
+    """
+    offset = 0
+    params = params or {}
+    n = 0
+    with tqdm(desc=f"{desc} in batches of {batch_size}") as pbar:
+        while True:
+            batch_sql = f"{sql} LIMIT {batch_size} OFFSET {offset}"
+            with db_session:
+                batch_results = db.select(batch_sql, params)
+            if not batch_results:
+                break
+            for row in batch_results:
+                n += 1
+                yield row
+            if max_num > 0 and n >= max_num:
+                break
+            offset += batch_size
+            pbar.update(len(batch_results))
+            if len(batch_results) < batch_size:
+                break
